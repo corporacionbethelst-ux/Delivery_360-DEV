@@ -1,0 +1,8 @@
+[project]
+name = "delivery360-backend"
+version = "0.1.0"
+description = "Delivery 360 backend scaffold"
+requires-python = ">=3.11"
+
+[tool.black]
+line-length = 88

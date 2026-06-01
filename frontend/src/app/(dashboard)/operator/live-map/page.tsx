@@ -1,0 +1,171 @@
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+import { deliveryService, Delivery } from '@/services/delivery.service';
+import { Navigation, Loader2, AlertCircle, MapPin } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+
+// Fix para iconos de Leaflet en Next.js
+const riderIcon = new L.Icon({
+  iconUrl: 'https://cdn-icons-png.flaticon.com/512/716/716360.png', // Icono de moto genérico
+  iconSize: [38, 38],
+  iconAnchor: [19, 38],
+  popupAnchor: [0, -30]
+});
+
+// Componente para actualizar el centro del mapa dinámicamente
+function MapUpdater({ centers }: { centers: [number, number][] }) {
+  const map = useMap();
+  useEffect(() => {
+    if (centers.length > 0 && map) {
+      // Calcula el centro promedio de todos los markers
+      const avgLat = centers.reduce((sum, c) => sum + c[0], 0) / centers.length;
+      const avgLng = centers.reduce((sum, c) => sum + c[1], 0) / centers.length;
+      map.flyTo([avgLat, avgLng], map.getZoom() < 13 ? 13 : map.getZoom(), { duration: 1.5 });
+    }
+  }, [centers, map]);
+  return null;
+}
+
+export default function OperatorLiveMapPage() {
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  const loadLiveData = async () => {
+    try {
+      const data = await deliveryService.getLiveTracking();
+      setDeliveries(data);
+      setLastUpdate(new Date());
+    } catch (error) {
+      console.error('Error cargando mapa en vivo:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isMounted) return;
+    
+    loadLiveData();
+    
+    // Polling cada 10 segundos
+    const interval = setInterval(loadLiveData, 10000);
+    return () => clearInterval(interval);
+  }, [isMounted]);
+
+  if (!isMounted || isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-slate-50">
+        <div className="text-center">
+          <Loader2 className="animate-spin h-12 w-12 text-blue-600 mx-auto mb-4" />
+          <p className="text-slate-600 font-medium">Cargando satélites y GPS...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const centers = deliveries.map(d => [d.current_latitude!, d.current_longitude!] as [number, number]);
+
+  return (
+    <div className="flex flex-col h-screen bg-slate-50">
+      {/* Header Flotante */}
+      <div className="absolute top-4 left-4 right-4 z-[1000] flex justify-between items-start pointer-events-none">
+        <Card className="bg-white/95 backdrop-blur shadow-lg border-blue-100 pointer-events-auto max-w-md">
+          <div className="p-4">
+            <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+              <Navigation className="w-5 h-5 text-blue-600" />
+              Mapa en Vivo
+            </h1>
+            <div className="mt-2 flex items-center justify-between text-sm">
+              <span className="text-slate-500">
+                {deliveries.length} repartidores activos
+              </span>
+              <Badge variant={isLoading ? "secondary" : "outline"} className="text-xs">
+                {isLoading ? 'Actualizando...' : `Act. hace ${lastUpdate.toLocaleTimeString()}`}
+              </Badge>
+            </div>
+          </div>
+        </Card>
+
+        <Button 
+          onClick={loadLiveData} 
+          disabled={isLoading}
+          className="pointer-events-auto bg-white hover:bg-slate-50 text-slate-700 shadow-md border border-slate-200"
+          size="sm"
+        >
+          <Loader2 className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
+      </div>
+
+      {/* Contenedor del Mapa */}
+      <div className="flex-1 w-full h-full relative z-0">
+        {deliveries.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full bg-slate-100 text-slate-400">
+            <MapPin className="w-16 h-16 mb-4 opacity-20" />
+            <p className="text-lg font-medium">No hay repartidores en movimiento</p>
+            <p className="text-sm">Los marcadores aparecerán aquí cuando inicien una entrega.</p>
+          </div>
+        ) : (
+          <MapContainer 
+            center={centers[0] || [-34.6037, -58.3816]} // Default BA si falla
+            zoom={13} 
+            scrollWheelZoom={true}
+            className="h-full w-full outline-none"
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            
+            <MapUpdater centers={centers} />
+
+            {deliveries.map((delivery) => (
+              <Marker 
+                key={delivery.id} 
+                position={[delivery.current_latitude!, delivery.current_longitude!]}
+                icon={riderIcon}
+              >
+                <Popup className="custom-popup">
+                  <div className="min-w-[200px]">
+                    <h3 className="font-bold text-blue-900 border-b pb-2 mb-2">
+                      {delivery.rider?.first_name} {delivery.rider?.last_name}
+                    </h3>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Estado:</span>
+                        <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">{delivery.status}</Badge>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Orden:</span>
+                        <span className="font-mono font-medium">#{delivery.external_id?.replace('ORD-', '')}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Cliente:</span>
+                        <span className="truncate max-w-[120px]">{delivery.customer_name}</span>
+                      </div>
+                      <div className="pt-2 mt-2 border-t text-xs text-slate-400 text-center">
+                        Vehículo: {delivery.rider?.vehicle_type || 'N/A'}
+                      </div>
+                    </div>
+                  </div>
+                </Popup>
+              </Marker>
+            ))}
+          </MapContainer>
+        )}
+      </div>
+    </div>
+  );
+}
