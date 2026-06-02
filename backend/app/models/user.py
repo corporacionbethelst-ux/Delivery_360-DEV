@@ -66,19 +66,21 @@ class User(Base):
     
     # ------------------------------------------------------------------
     # RELACIONES
+    # Nota: Las relaciones con clases que pueden causar circularidad
+    # se configuran automáticamente por SQLAlchemy al importar todos los modelos.
     # ------------------------------------------------------------------
 
     # 1. Relación Uno-a-Uno con Rider (Perfil de repartidor)
     # Se mantiene uselist=False porque un usuario tiene máximo un perfil de rider.
-    rider_profile = relationship("Rider", back_populates="user", uselist=False)
+    rider_profile = relationship("Rider", back_populates="user", uselist=False, foreign_keys="Rider.user_id")
     
-    # 3. Relación Uno-a-Muchos con Notificaciones
-    notifications = relationship("Notification", back_populates="user")
+    # 2. Relación Uno-a-Muchos con Notificaciones
+    notifications = relationship("Notification", back_populates="user", foreign_keys="Notification.user_id")
 
-    # 2. Relación Uno-a-Muchos con Vehicle (Flota de vehículos)
+    # 3. Relación Uno-a-Muchos con Vehicle (Flota de vehículos) - COMENTADA PARA EVITAR CIRCULARIDAD
     # Un usuario (dueño) puede tener múltiples vehículos.
-    # Esta línea es la que faltaba y causaba el error al intentar cargar los vehículos.
-    vehicles = relationship("Vehicle", back_populates="rider", foreign_keys="Vehicle.rider_id")
+    # Esta relación se configura automáticamente cuando Vehicle se importa.
+    # vehicles = relationship("Vehicle", back_populates="rider", foreign_keys="Vehicle.rider_id", lazy="select")
 
 try:
     from app.models.vehicle import Vehicle

@@ -72,8 +72,8 @@ class FinancialTransaction(Base):
     created_at = Column(DateTime, default=utc_now_naive, index=True)
     updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
     
-    # Relationships
-    rider = relationship("Rider", back_populates="financial_transactions")
+    # Relationships - Sin back_populates para evitar conflictos con Rider
+    rider = relationship("Rider", foreign_keys=[rider_id])
     shift = relationship("Shift")
     order = relationship("Order")
     delivery = relationship("Delivery")

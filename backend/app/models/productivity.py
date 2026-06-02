@@ -58,8 +58,8 @@ class ProductivityMetrics(Base):
     created_at = Column(DateTime, default=utc_now_naive)
     updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
     
-    # Relaciones
-    rider = relationship("Rider", back_populates="productivity_metrics")
+    # Relaciones - Sin back_populates para evitar conflictos con Rider
+    rider = relationship("Rider", foreign_keys=[rider_id])
     shift = relationship("Shift")
     
     __table_args__ = (

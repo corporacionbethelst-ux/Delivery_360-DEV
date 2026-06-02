@@ -85,7 +85,7 @@ class Rider(Base):
     user = relationship("User", back_populates="rider_profile")
     deliveries = relationship("Delivery", back_populates="rider", foreign_keys="Delivery.rider_id")
     documents = relationship("RiderDocument", back_populates="rider", cascade="all, delete-orphan")
-    transactions = relationship("Financial", back_populates="rider", cascade="all, delete-orphan")
+    transactions = relationship("Financial", back_populates="rider", cascade="all, delete-orphan", foreign_keys="Financial.rider_id")
     payouts = relationship("Payout", back_populates="rider", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="rider")
     
@@ -98,6 +98,12 @@ class Rider(Base):
         uselist=False,
         viewonly=True
     )
+    
+    # Relación inversa para financial_transactions (sin back_populates para evitar conflicto, overlaps para silenciar warning)
+    financial_transactions = relationship("FinancialTransaction", foreign_keys="FinancialTransaction.rider_id", overlaps="rider")
+    
+    # Relación inversa para productivity_metrics (sin back_populates para evitar conflicto, overlaps para silenciar warning)
+    productivity_metrics = relationship("ProductivityRecord", foreign_keys="ProductivityRecord.rider_id", overlaps="rider")
 
     def __repr__(self):
         return f"<Rider(id={self.id}, status={self.status})>"
