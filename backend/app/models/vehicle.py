@@ -39,7 +39,7 @@ class Vehicle(Base):
     
     # Relación: Un vehículo pertenece a un Usuario (que puede ser repartidor)
     # back_populates debe coincidir con lo que definamos en User
-    #rider = relationship("User", back_populates="vehicles") 
+    rider = relationship("User", back_populates="vehicles", foreign_keys=[rider_id])
 
     created_at = Column(DateTime(timezone=False), default=utc_now_naive, nullable=False)
     updated_at = Column(DateTime(timezone=False), default=utc_now_naive, onupdate=utc_now_naive, nullable=True)
