@@ -1,3 +1,45 @@
-Nothing should be ignored in this case. The changes consist only of Python source files (.py) which are legitimate code files that should be tracked by version control. No build artifacts, dependencies, or temporary files are present in the change list.
+```
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-Output: (empty)
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+coverage/
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+```
