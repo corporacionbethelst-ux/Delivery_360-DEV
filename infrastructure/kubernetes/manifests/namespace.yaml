@@ -1,0 +1,8 @@
+# Delivery360 - Kubernetes Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: delivery360
+  labels:
+    name: delivery360
+    environment: production
