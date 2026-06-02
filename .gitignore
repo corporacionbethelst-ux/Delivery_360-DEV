@@ -1,48 +1,41 @@
 ```
 # Dependencies
-node_modules/
-
-# Logs and temp files
-*.log
-*.tmp
-
-# Environment
-.env
-.env.local
-*.env.*
-
-# Editors
-.vscode/
-.idea/
-
-# Kubernetes
-.kubeconfig
-
-# Terraform
-.terraform/
-*.tfstate
-*.tfvars
-*.tfplan
-
-# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.Python
-env/
-venv/
 .venv/
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
+venv/
+.env
+.env.local
+*.env.*
+
+# Cache
+.cache/
+
+# Logs
 *.log
-.git/modules/
+
+# Coverage
+.coverage
+coverage/
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Build
+build/
+dist/
+target/
+.mypy_cache/
+.pytest_cache/
 ```
