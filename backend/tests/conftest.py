@@ -5,15 +5,16 @@ Provides fixtures and configuration for all tests.
 import pytest
 import asyncio
 from typing import AsyncGenerator, Generator
-from httpx import AsyncClient
+from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.pool import StaticPool
 
 from app.main import app
 from app.core.database import get_db, Base
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.rider import Rider
 from app.models.order import Order
+from app.core.security import get_password_hash
 
 # Test database configuration - using SQLite for simplicity in unit tests
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -29,20 +30,23 @@ def event_loop() -> Generator:
 
 @pytest.fixture(scope="function")
 async def test_engine():
-    """Create test database engine"""
+    """Create test database engine - using SQLite for simplicity"""
+    # Use SQLite for unit tests to avoid PostgreSQL dependency
     engine = create_async_engine(
-        TEST_DATABASE_URL,
+        "sqlite+aiosqlite:///:memory:",
         echo=False,
         poolclass=StaticPool,
     )
     
+    # Create only the tables needed for tests (excluding PostGIS-dependent ones)
+    from sqlalchemy import MetaData
+    from app.models.user import User
+    
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        # Create user table manually
+        await conn.run_sync(User.__table__.create)
     
     yield engine
-    
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
     
     await engine.dispose()
 
@@ -62,7 +66,7 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest.fixture(scope="function")
-async def client(db_session) -> AsyncGenerator[AsyncClient, None]:
+def client(db_session) -> Generator[TestClient, None, None]:
     """Create test client for FastAPI"""
     
     async def override_get_db():
@@ -70,7 +74,26 @@ async def client(db_session) -> AsyncGenerator[AsyncClient, None]:
     
     app.dependency_overrides[get_db] = override_get_db
     
-    async with AsyncClient(app=app, base_url="http://test") as ac:
-        yield ac
+    test_client = TestClient(app)
+    
+    yield test_client
     
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(scope="function")
+async def test_user(db_session: AsyncSession) -> User:
+    """Create a test user for authentication tests."""
+    from app.core.security import get_password_hash as hash_pwd
+    
+    user = User(
+        email="testuser@example.com",
+        hashed_password=hash_pwd("testpassword123"),
+        full_name="Test User",
+        role=UserRole.OPERADOR,
+        is_active=True
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
