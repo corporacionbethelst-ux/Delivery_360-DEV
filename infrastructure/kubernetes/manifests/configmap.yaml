@@ -1,0 +1,50 @@
+# Delivery360 - PostgreSQL ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: delivery360
+data:
+  POSTGRES_DB: "delivery360_prod"
+  POSTGRES_USER: "delivery360_user"
+  PGDATA: "/var/lib/postgresql/data/pgdata"
+  POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+---
+# Redis ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: delivery360
+data:
+  redis.conf: |
+    maxmemory 256mb
+    maxmemory-policy allkeys-lru
+    appendonly yes
+    appendfsync everysec
+---
+# Backend ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: delivery360
+data:
+  DATABASE_URL: "postgresql://delivery360_user@postgres:5432/delivery360_prod"
+  REDIS_URL: "redis://redis:6379/0"
+  CELERY_BROKER_URL: "redis://redis:6379/1"
+  CELERY_RESULT_BACKEND: "redis://redis:6379/2"
+  LOG_LEVEL: "INFO"
+  ENVIRONMENT: "production"
+---
+# Frontend ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: delivery360
+data:
+  NEXT_PUBLIC_API_URL: "https://api.delivery360.com"
+  NEXT_PUBLIC_MAPBOX_TOKEN: "${MAPBOX_TOKEN}"
+  NEXT_PUBLIC_SENTRY_DSN: "${SENTRY_DSN}"
+  NODE_ENV: "production"
