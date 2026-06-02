@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_HOST: str = "localhost"
     REDIS_PORT: str = "6379"
+    
+    # --- CONFIGURACIÓN DE CACHÉ ---
+    CACHE_ENABLED: bool = True
+    CACHE_DEFAULT_TTL_SECONDS: int = 300  # 5 minutos
+    CACHE_ORDER_TTL_SECONDS: int = 120    # 2 minutos para órdenes
+    CACHE_RIDER_TTL_SECONDS: int = 60     # 1 minuto para repartidores
+    CACHE_DASHBOARD_TTL_SECONDS: int = 180 # 3 minutos para dashboard
 
     # --- CONFIGURACIÓN DE AUTENTICACIÓN JWT ---
     ALGORITHM: str = "HS256"

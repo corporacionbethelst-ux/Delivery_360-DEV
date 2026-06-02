@@ -87,6 +87,11 @@ def create_app() -> FastAPI:
 
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(AuditLogMiddleware)
+    
+    # Configurar middleware de caché para optimización
+    from app.middleware.cache_middleware import setup_cache_middleware
+    setup_cache_middleware(app)
+    
     register_exception_handlers(app)
 
     # --- REGISTRO DE ROUTERS ---
