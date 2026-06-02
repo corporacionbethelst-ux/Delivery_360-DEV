@@ -14,11 +14,12 @@ import sys
 sys.path.insert(0, '/workspace/backend')
 
 from app.main import app
-from app.database import get_db, Base
+from app.core.database import get_db, Base
 from app.models.user import User
 from app.models.rider import Rider
 from app.models.order import Order
-from app.schemas.user import UserCreate, UserLogin
+from app.schemas.user import UserCreate, UserResponse
+from app.schemas.auth import LoginRequest, Token
 
 # Configuración de test
 TEST_DATABASE_URL = "postgresql+asyncpg://test_user:test_password@localhost:5432/test_db"

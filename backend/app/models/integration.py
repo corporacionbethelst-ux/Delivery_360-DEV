@@ -3,10 +3,11 @@
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
-from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum, Integer, Text, text, ForeignKey
+from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum, Integer, Text, text, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
+import sqlalchemy as sa
 
 from app.core.database import Base
 
@@ -27,6 +28,15 @@ class IntegrationStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
     ERROR = "ERROR"
+
+
+class WebhookEventType(str, enum.Enum):
+    ORDER_CREATED = "ORDER_CREATED"
+    ORDER_UPDATED = "ORDER_UPDATED"
+    DELIVERY_COMPLETED = "DELIVERY_COMPLETED"
+    RIDER_ASSIGNED = "RIDER_ASSIGNED"
+    PAYMENT_RECEIVED = "PAYMENT_RECEIVED"
+    ALERT_TRIGGERED = "ALERT_TRIGGERED"
 
 
 class Integration(Base):
@@ -80,6 +90,49 @@ class Integration(Base):
     
     # Relationships
     creator = relationship("User")
+    webhook_events = relationship("WebhookEvent", back_populates="integration", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Integration(id={self.id}, name={self.name}, type={self.integration_type})>"
+
+
+class WebhookEvent(Base):
+    """Registro de eventos de webhook enviados a integraciones externas."""
+    
+    __tablename__ = "webhook_events"
+    
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        index=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()")
+    )
+    
+    integration_id = Column(UUID(as_uuid=True), ForeignKey("integrations.id"), nullable=False, index=True)
+    event_type: Any = Column(SQLEnum(WebhookEventType), nullable=False)
+    
+    payload = Column(sa.JSON)
+    headers = Column(sa.JSON)
+    
+    success = Column(Boolean, default=False)
+    response_code = Column(Integer)
+    response_body = Column(Text)
+    error_message = Column(Text)
+    
+    triggered_at = Column(DateTime, default=utc_now_naive)
+    retry_count = Column(Integer, default=0)
+    next_retry_at = Column(DateTime)
+    
+    created_at = Column(DateTime, default=utc_now_naive)
+    
+    # Relationships
+    integration = relationship("Integration", back_populates="webhook_events")
+    
+    __table_args__ = (
+        Index('idx_webhook_events_integration_date', 'integration_id', 'triggered_at'),
+        Index('idx_webhook_events_type', 'event_type'),
+    )
+    
+    def __repr__(self):
+        return f"<WebhookEvent(id={self.id}, type={self.event_type}, success={self.success})>"

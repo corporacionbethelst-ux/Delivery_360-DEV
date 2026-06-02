@@ -30,6 +30,12 @@ class NotificationPriority(str, enum.Enum):
     ALTA = "ALTA"
     CRITICA = "CRITICA"
 
+class NotificationStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    SENT = "SENT"
+    FAILED = "FAILED"
+    READ = "READ"
+
 class Notification(Base):
     """Tabla de notificaciones para usuarios y riders."""
     
