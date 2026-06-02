@@ -72,12 +72,13 @@ class User(Base):
     # Se mantiene uselist=False porque un usuario tiene máximo un perfil de rider.
     rider_profile = relationship("Rider", back_populates="user", uselist=False)
     
+    # 3. Relación Uno-a-Muchos con Notificaciones
+    notifications = relationship("Notification", back_populates="user")
+
     # 2. Relación Uno-a-Muchos con Vehicle (Flota de vehículos)
     # Un usuario (dueño) puede tener múltiples vehículos.
     # Esta línea es la que faltaba y causaba el error al intentar cargar los vehículos.
-
-    # 3. Relación Uno-a-Muchos con Notificaciones
-    notifications = relationship("Notification", back_populates="user")
+    vehicles = relationship("Vehicle", back_populates="rider", foreign_keys="Vehicle.rider_id")
 
 try:
     from app.models.vehicle import Vehicle
