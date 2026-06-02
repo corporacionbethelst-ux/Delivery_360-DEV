@@ -74,3 +74,9 @@ class RiderResponse(RiderBase):
 class RiderStatusUpdate(BaseModel):
     status: RiderStatusEnum
     reason: Optional[str] = None
+
+class RiderApprovalRequest(BaseModel):
+    """Schema para aprobación/rechazo de repartidores."""
+    approved: bool = True
+    notes: Optional[str] = None
+    rejection_reason: Optional[str] = None
