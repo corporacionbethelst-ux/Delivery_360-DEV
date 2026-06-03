@@ -158,7 +158,10 @@ async def list_vehicles(
     Lista vehículos con filtros opcionales.
     Accesible para: SUPERADMIN, GERENTE, OPERADOR.
     """
-    stmt = select(Vehicle)
+    from sqlalchemy.orm import selectinload
+    
+    # Usar selectinload para cargar eager la relación rider (User)
+    stmt = select(Vehicle).options(selectinload(Vehicle.rider))
     
     # Convertir strings a Enums de forma segura MANUALMENTE
     # Esto evita que FastAPI intente validar automáticamente y falle con 422
@@ -195,16 +198,16 @@ async def list_vehicles(
     stmt = stmt.offset(offset).limit(limit).order_by(Vehicle.created_at.desc())
 
     result = await db.execute(stmt)
-    vehicles = result.scalars().all()
+    vehicles = result.scalars().unique().all()
 
     # Construcción manual de la respuesta
     response_list = []
     for v in vehicles:
         rider_name = None
-        if hasattr(v, 'rider') and v.rider:
-             rider_name = f"{v.rider.first_name} {v.rider.last_name}"
-        elif hasattr(v, 'rider_name') and v.rider_name:
-             rider_name = v.rider_name
+        if v.rider:
+             rider_name = f"{v.rider.first_name or ''} {v.rider.last_name or ''}".strip()
+             if not rider_name and v.rider.email:
+                 rider_name = v.rider.email
 
         response_list.append({
             "id": str(v.id),
@@ -232,9 +235,11 @@ async def get_vehicle(
     current_user: User = Depends(get_current_user)
 ):
     """Obtiene detalles de un vehículo específico por ID."""
+    from sqlalchemy.orm import selectinload
+    
     vid = _parse_uuid(vehicle_id)
     
-    stmt = select(Vehicle).where(Vehicle.id == vid)
+    stmt = select(Vehicle).options(selectinload(Vehicle.rider)).where(Vehicle.id == vid)
     result = await db.execute(stmt)
     vehicle = result.scalar_one_or_none()
 
@@ -242,8 +247,10 @@ async def get_vehicle(
         raise HTTPException(status_code=404, detail="Vehículo no encontrado")
 
     rider_name = None
-    if hasattr(vehicle, 'rider') and vehicle.rider:
-        rider_name = f"{vehicle.rider.first_name} {vehicle.rider.last_name}"
+    if vehicle.rider:
+        rider_name = f"{vehicle.rider.first_name or ''} {vehicle.rider.last_name or ''}".strip()
+        if not rider_name and vehicle.rider.email:
+            rider_name = vehicle.rider.email
 
     return {
         "id": str(vehicle.id),
@@ -354,8 +361,10 @@ async def update_vehicle(
     await db.refresh(vehicle)
 
     rider_name = None
-    if hasattr(vehicle, 'rider') and vehicle.rider:
-        rider_name = f"{vehicle.rider.first_name} {vehicle.rider.last_name}"
+    if vehicle.rider:
+        rider_name = f"{vehicle.rider.first_name or ''} {vehicle.rider.last_name or ''}".strip()
+        if not rider_name and vehicle.rider.email:
+            rider_name = vehicle.rider.email
 
     return {
         "id": str(vehicle.id),
