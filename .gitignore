@@ -1,4 +1,4 @@
-```gitignore
+```
 # Python
 __pycache__/
 *.py[cod]
@@ -24,10 +24,19 @@ wheels/
 # Environment
 .env
 .env.local
-.env.*
-.venv/
-venv/
-ENV/
+*.env.*
+
+# Logs
+*.log
+
+# Testing
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
 
 # IDE
 .vscode/
@@ -35,18 +44,6 @@ ENV/
 *.swp
 *.swo
 *.tmp
-
-# Logs
-*.log
-
-# Coverage
-.coverage
-coverage/
-htmlcov/
-
-# Database
-*.sqlite3
-*.db
 
 # OS
 .DS_Store
