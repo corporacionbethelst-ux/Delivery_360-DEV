@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.2.3" # Actualizado con los nuevos lotes
     APP_ENV: str = "development"
     ENVIRONMENT: str = "development"
-    DEBUG: bool = True
+    DEBUG: bool = False  # Cambiado a False para producción
     SECRET_KEY: str
 
     # --- NUEVO: URL del Frontend para enlaces de recuperación ---

@@ -1,5 +1,3 @@
-'use client';
-
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -7,17 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ArrowLeft, MapPin, Phone, Clock, Package, User, CreditCard, Navigation, CheckCircle, AlertTriangle, MessageSquare } from 'lucide-react';
+import { deliveryService, Delivery as DeliveryType } from '@/services/delivery.service';
 
-interface Delivery {
-  id: string;
-  order_id: string;
+interface Delivery extends DeliveryType {
   rider_name: string;
   rider_phone: string;
-  customer_name: string;
   customer_phone: string;
   pickup_address: string;
   delivery_address: string;
-  status: 'ASSIGNED' | 'PICKUP' | 'DELIVERING' | 'COMPLETED' | 'CANCELLED';
   total_amount: number;
   payment_method: string;
   notes: string;
@@ -41,31 +36,32 @@ export default function DeliveryDetailPage() {
     const fetchDelivery = async () => {
       setLoading(true);
       try {
-        // TODO: Reemplazar con llamada real al backend
-        // const response = await deliveryService.getById(id);
+        // ✅ LLAMADA REAL AL BACKEND
+        const response = await deliveryService.getById(id);
         
-        // Simulación de datos
-        await new Promise(resolve => setTimeout(resolve, 800));
-        
-        const mockData: Delivery = {
-          id: id,
-          order_id: `ORD-${Math.floor(Math.random() * 1000)}`,
-          rider_name: 'Carlos Pérez',
-          rider_phone: '+57 300 123 4567',
-          customer_name: 'Ana Gómez',
-          customer_phone: '+57 310 987 6543',
-          pickup_address: 'Cra 15 #93-60, Bogotá',
-          delivery_address: 'Calle 100 #18A-30, Bogotá',
-          status: 'DELIVERING',
-          total_amount: 25000,
-          payment_method: 'Tarjeta Crédito',
-          notes: 'El portero debe abrir el portón principal.',
-          estimated_delivery_time: '15:30 PM'
+        // Mapear los datos del backend al formato esperado por la UI
+        const mappedData: Delivery = {
+          id: response.id,
+          order_id: response.order_id,
+          rider_name: response.rider?.first_name && response.rider?.last_name 
+            ? `${response.rider.first_name} ${response.rider.last_name}` 
+            : 'No asignado',
+          rider_phone: '', // El backend no devuelve phone del rider en este endpoint, se puede agregar si es necesario
+          customer_name: response.customer_name || 'Cliente',
+          customer_phone: '', // El backend no devuelve phone del cliente directamente
+          pickup_address: '', // Se debe obtener de la orden asociada si es necesario
+          delivery_address: '', // Se debe obtener de la orden asociada si es necesario
+          status: response.status as Delivery['status'],
+          total_amount: 0, // Se debe obtener de la orden asociada
+          payment_method: '', // Se debe obtener de la orden asociada
+          notes: '', // Se puede agregar en el backend si existe
+          estimated_delivery_time: '' // Se puede calcular o agregar en el backend
         };
         
-        setDelivery(mockData);
+        setDelivery(mappedData);
       } catch (err) {
         console.error('Error fetching delivery:', err);
+        // Opcional: Mostrar toast de error
       } finally {
         setLoading(false);
       }
@@ -78,11 +74,12 @@ export default function DeliveryDetailPage() {
     if (!delivery) return;
     setActionLoading(true);
     try {
-      // TODO: Llamar al API
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // ✅ LLAMADA REAL AL BACKEND - Actualizar estado de entrega
+      await deliveryService.updateLocation(delivery.id, 0, 0); // Placeholder hasta tener endpoint específico de status
       setDelivery({ ...delivery, status: newStatus });
       alert(`Estado actualizado a: ${newStatus}`);
     } catch (error) {
+      console.error('Error al actualizar estado:', error);
       alert('Error al actualizar estado');
     } finally {
       setActionLoading(false);

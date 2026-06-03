@@ -348,16 +348,13 @@ async def forgot_password(
     frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
     reset_link = f"{frontend_url}/reset-password?token={reset_token}"
     
-    # 7. Enviar correo (Simulado por ahora)
-    logger.info(f"📧 [EMAIL SIMULADO] Enlace de recuperación para {user.email}: {reset_link}")
-    print(f"📧 [EMAIL SIMULADO] Enlace de recuperación para {user.email}: {reset_link}")
-    
-    # TODO: Implementar envío real descomentando esto cuando configures email_service.py
-    # try:
-    #     await email_service.send_reset_email(user.email, reset_link)
-    # except Exception as e:
-    #     logger.error(f"Error enviando email de recuperación: {e}")
-    #     # No fallamos la petición por un error de email, pero lo logueamos
+    # 7. Enviar correo usando email_service.py
+    try:
+        from app.core.email_service import send_reset_email
+        await send_reset_email(user.email, reset_link)
+    except Exception as e:
+        logger.error(f"Error enviando email de recuperación: {e}")
+        # No fallamos la petición por un error de email, pero lo logueamos
 
     return {"message": "Si el correo está registrado y activo, recibirás un enlace de recuperación."}
 

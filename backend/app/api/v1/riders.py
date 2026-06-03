@@ -705,15 +705,28 @@ async def get_rider(
     """
     Obtiene el detalle de un repartidor específico por su ID.
     Valida permisos: el repartidor solo puede verse a sí mismo.
+    ADMIN/GERENTE pueden ver todos los repartidores.
     """
-    stmt = select(Rider).options(joinedload(Rider.user)).where(Rider.id == _parse_uuid(rider_id, "rider_id"))
+    # Validar UUID
+    rid = _parse_uuid(rider_id, "rider_id")
+    
+    # Cargar rider con relación user
+    stmt = select(Rider).options(joinedload(Rider.user)).where(Rider.id == rid)
     result = await db.execute(stmt)
     rider = result.scalar_one_or_none()
     
     if not rider:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
     
-    await _ensure_rider_self_scope(db, current_user, rider)
+    # Validar permisos: REPARTIDOR solo puede verse a sí mismo
+    # ADMIN/GERENTE/SUPERADMIN pueden ver cualquier rider
+    if current_user.role == UserRole.REPARTIDOR:
+        if rider.user_id != current_user.id:
+            raise HTTPException(
+                status_code=403, 
+                detail="No tienes permiso para acceder a este repartidor. Solo puedes ver tu propio perfil."
+            )
+    
     return _rider_to_dict(rider)
 
 # [ADMIN/REPARTIDOR] Actualizar datos de un repartidor específico
