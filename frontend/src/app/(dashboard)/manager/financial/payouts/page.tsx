@@ -1,44 +1,71 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuthStore } from '@/stores/authStore';
+import { payoutService, Payout } from '@/services/payout.service';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { 
   Wallet, Users, DollarSign, CheckCircle, Clock, AlertCircle, 
-  Search, Filter, Eye, Download, TrendingUp 
+  Search, Filter, Eye, Download, TrendingUp, Loader2 
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/formatters';
 
-interface Payout {
-  id: string;
-  riderName: string;
-  riderId: string;
-  amount: number;
-  period: string;
-  status: 'PENDIENTE' | 'PROCESADO' | 'RECHAZADO';
-  ordersCount: number;
-  dateRequested: string;
+interface PayoutWithRider extends Payout {
+  riderName?: string;
 }
 
-const MOCK_PAYOUTS: Payout[] = [
-  { id: 'PO-001', riderName: 'Carlos Ruiz', riderId: 'R-001', amount: 450000, period: 'Semana 20', status: 'PENDIENTE', ordersCount: 24, dateRequested: '2024-05-14' },
-  { id: 'PO-002', riderName: 'Ana María', riderId: 'R-002', amount: 380000, period: 'Semana 20', status: 'PENDIENTE', ordersCount: 19, dateRequested: '2024-05-14' },
-  { id: 'PO-003', riderName: 'Luis Pérez', riderId: 'R-003', amount: 520000, period: 'Semana 19', status: 'PROCESADO', ordersCount: 28, dateRequested: '2024-05-07' },
-  { id: 'PO-004', riderName: 'Sofía L.', riderId: 'R-004', amount: 120000, period: 'Semana 19', status: 'RECHAZADO', ordersCount: 8, dateRequested: '2024-05-07' },
-];
-
 export default function PayoutsPage() {
+  const router = useRouter();
+  const { user, isAuthenticated } = useAuthStore();
+  
+  const [payouts, setPayouts] = useState<PayoutWithRider[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isMounted, setIsMounted] = useState(false);
 
-  const filteredPayouts = MOCK_PAYOUTS.filter(p => {
-    const matchesSearch = p.riderName.toLowerCase().includes(searchTerm.toLowerCase()) || p.riderId.includes(searchTerm);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isMounted || !isAuthenticated) return;
+    loadPayouts();
+  }, [isAuthenticated, isMounted]);
+
+  const loadPayouts = async () => {
+    setLoadingData(true);
+    try {
+      const data = await payoutService.getAll({ limit: 100 });
+      setPayouts(data);
+    } catch (error) {
+      console.error('Error loading payouts:', error);
+    } finally {
+      setLoadingData(false);
+    }
+  };
+
+  const filteredPayouts = payouts.filter(p => {
+    const matchesSearch = p.rider_id?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          p.id?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = filterStatus === 'ALL' || p.status === filterStatus;
     return matchesSearch && matchesStatus;
   });
 
-  const totalPending = MOCK_PAYOUTS.filter(p => p.status === 'PENDIENTE').reduce((acc, curr) => acc + curr.amount, 0);
+  const totalPending = payouts.filter(p => p.status === 'PENDIENTE').reduce((acc, curr) => acc + curr.amount, 0);
+  const pendingCount = payouts.filter(p => p.status === 'PENDIENTE').length;
+
+  if (!isMounted || !isAuthenticated || loadingData) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <Loader2 className="animate-spin h-12 w-12 text-blue-600 mr-4" />
+        <p className="text-gray-600 font-medium">Cargando pagos...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
@@ -52,7 +79,7 @@ export default function PayoutsPage() {
             <p className="text-gray-500 mt-1">Gestiona y aprueba los pagos semanales</p>
           </div>
           <Button className="bg-green-600 hover:bg-green-700" disabled={totalPending === 0}>
-            <CheckCircle className="w-4 h-4 mr-2" /> Aprobar Todos ({MOCK_PAYOUTS.filter(p => p.status === 'PENDIENTE').length})
+            <CheckCircle className="w-4 h-4 mr-2" /> Aprobar Todos ({pendingCount})
           </Button>
         </div>
 
@@ -64,7 +91,7 @@ export default function PayoutsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-green-700">{formatCurrency(totalPending)}</div>
-              <p className="text-xs text-gray-500 mt-1">{MOCK_PAYOUTS.filter(p => p.status === 'PENDIENTE').length} repartidores pendientes</p>
+              <p className="text-xs text-gray-500 mt-1">{pendingCount} repartidores pendientes</p>
             </CardContent>
           </Card>
           <Card className="border-l-4 border-l-blue-500">

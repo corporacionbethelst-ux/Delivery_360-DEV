@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore'; // ✅ CORRECCIÓN: Usar Zustand
-// import { payoutService } from '@/services/payout.service';
-// import { financialService } from '@/services/financial.service';
+import { useAuthStore } from '@/stores/authStore';
+import { payoutService } from '@/services/payout.service';
+import { financialService } from '@/services/financial.service';
 import { ArrowLeft, DollarSign, AlertCircle, CheckCircle, Info, Loader2, Banknote } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -47,14 +47,12 @@ export default function WithdrawPage() {
     setLoadingBalance(true);
     setError(null);
     try {
-      // INTENTO REAL (Descomentar cuando tengas el servicio)
-      // const data = await financialService.getRiderEarnings();
-      // const balance = Number(data.pending_balance || data.wallet_balance || 0);
-      // setAvailable(balance);
-      
-      // MOCK DATA (Simulación)
-      await new Promise(r => setTimeout(r, 800));
-      setAvailable(125.50); 
+      // LLAMADA REAL AL BACKEND
+      const data = await financialService.getRiderEarnings();
+      // getRiderEarnings devuelve un array, tomamos el primero o usamos pending_payout
+      const earnings = Array.isArray(data) ? data[0] : data;
+      const balance = Number(earnings?.pending_payout || earnings?.pending_balance || 0);
+      setAvailable(balance);
     } catch (e) {
       console.error('Error cargando saldo:', e);
       setError('No se pudo cargar tu saldo disponible. Intente nuevamente.');
@@ -86,19 +84,16 @@ export default function WithdrawPage() {
     setIsSubmitting(true);
 
     try {
-      // INTENTO REAL
-      // await payoutService.requestPayout({
-      //   amount: numAmount,
-      //   method: 'TRANSFERENCIA'
-      // });
+      // LLAMADA REAL AL BACKEND
+      await payoutService.requestPayout({
+        amount: numAmount,
+        method: 'TRANSFERENCIA'
+      });
 
-      // SIMULACIÓN DE ÉXITO
-      await new Promise(r => setTimeout(r, 1500));
-      
       setSuccess(true);
       setAmount('');
-      // Opcional: Recargar saldo actualizado
-      // loadBalance(); 
+      // Recargar saldo actualizado
+      loadBalance();
     } catch (err: any) {
       console.error(err);
       setError(err.detail || err.message || 'Error al procesar la solicitud. Intente más tarde.');
