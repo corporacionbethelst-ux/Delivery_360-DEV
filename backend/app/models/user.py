@@ -77,13 +77,10 @@ class User(Base):
     # 2. Relación Uno-a-Muchos con Notificaciones
     notifications = relationship("Notification", back_populates="user", foreign_keys="Notification.user_id")
 
-    # 3. Relación Uno-a-Muchos con Vehicle (Flota de vehículos) - COMENTADA PARA EVITAR CIRCULARIDAD
+    # 3. Relación Uno-a-Muchos con Vehicle (Flota de vehículos)
     # Un usuario (dueño) puede tener múltiples vehículos.
-    # Esta relación se configura automáticamente cuando Vehicle se importa.
-    # vehicles = relationship("Vehicle", back_populates="rider", foreign_keys="Vehicle.rider_id", lazy="select")
+    # ✅ CORRECCIÓN: Usar lazy="select" para evitar problemas de circularidad
+    vehicles = relationship("Vehicle", back_populates="rider", foreign_keys="Vehicle.rider_id", lazy="select")
 
-try:
+    # Importación condicional para asegurar que Vehicle esté disponible
     from app.models.vehicle import Vehicle
-except ImportError:
-    # Si vehicle aún no existe (primera migración), ignoramos el error
-    pass
