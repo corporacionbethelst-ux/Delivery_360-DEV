@@ -1,14 +1,14 @@
 # app/models/vehicle.py
 from sqlalchemy import Column, String, Integer, Date, Text, ForeignKey, DateTime, Enum as SQLEnum, Index
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship, declarative_base
+from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 import uuid
 
 # Importar los enums compartidos
 from app.models.enums import VehicleType, VehicleStatus
-
-Base = declarative_base()
+# Importar Base desde database para mantener consistencia con el resto de modelos
+from app.core.database import Base
 
 def utc_now_naive():
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -38,9 +38,9 @@ class Vehicle(Base):
     )
     
     # Relación: Un vehículo pertenece a un Usuario (que puede ser repartidor)
-    # back_populates debe coincidir con lo que definamos en User
-    # ✅ CORRECCIÓN: Usar string lazy para evitar problemas de circularidad
-    rider = relationship("User", back_populates="vehicles", foreign_keys=[rider_id], lazy="select")
+    # ✅ CORRECCIÓN: Eliminar back_populates para evitar circularidad.
+    # La relación es unidireccional desde Vehicle hacia User.
+    rider = relationship("User", foreign_keys=[rider_id], lazy="select")
 
     created_at = Column(DateTime(timezone=False), default=utc_now_naive, nullable=False)
     updated_at = Column(DateTime(timezone=False), default=utc_now_naive, onupdate=utc_now_naive, nullable=True)
