@@ -66,6 +66,8 @@ async def list_payouts(
             "bank_account_last4": p.bank_account_last4,
             "reference_code": p.reference_code,
             "rejection_reason": p.rejection_reason,
+            "orders_count": 0,
+            "period": "Semana actual",
         }
         for p in payouts
     ]

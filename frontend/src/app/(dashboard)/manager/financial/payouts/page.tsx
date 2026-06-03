@@ -15,6 +15,11 @@ import { formatCurrency } from '@/lib/formatters';
 
 interface PayoutWithRider extends Payout {
   riderName?: string;
+  rider_id?: string;
+  riderId?: string;
+  ordersCount?: number;
+  orders_count?: number;
+  period?: string;
 }
 
 export default function PayoutsPage() {
@@ -26,6 +31,8 @@ export default function PayoutsPage() {
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [isMounted, setIsMounted] = useState(false);
+  const [totalPaidMonth, setTotalPaidMonth] = useState(0);
+  const [rejectedCount, setRejectedCount] = useState(0);
 
   useEffect(() => {
     setIsMounted(true);
@@ -40,7 +47,36 @@ export default function PayoutsPage() {
     setLoadingData(true);
     try {
       const data = await payoutService.getAll({ limit: 100 });
-      setPayouts(data);
+      // Enriquecer datos con información del rider
+      const enrichedData = await Promise.all(data.map(async (payout) => {
+        try {
+          const rider = await fetch(`/api/v1/riders/${payout.rider_id}`, {
+            headers: { Authorization: `Bearer ${useAuthStore.getState().token}` }
+          }).then(res => res.ok ? res.json() : null);
+          return {
+            ...payout,
+            riderName: rider?.user?.full_name || rider?.name || 'Repartidor',
+            riderId: payout.rider_id,
+            ordersCount: payout.orders_count || 0,
+            period: payout.period || 'Semana actual'
+          };
+        } catch {
+          return {
+            ...payout,
+            riderName: 'Repartidor',
+            riderId: payout.rider_id,
+            ordersCount: payout.orders_count || 0,
+            period: payout.period || 'Semana actual'
+          };
+        }
+      }));
+      setPayouts(enrichedData);
+      
+      // Calcular métricas
+      const paid = data.filter(p => p.status === 'PROCESADO').reduce((acc, curr) => acc + curr.amount, 0);
+      const rejected = data.filter(p => p.status === 'RECHAZADO').length;
+      setTotalPaidMonth(paid);
+      setRejectedCount(rejected);
     } catch (error) {
       console.error('Error loading payouts:', error);
     } finally {
@@ -99,7 +135,7 @@ export default function PayoutsPage() {
               <CardTitle className="text-sm font-medium text-gray-500">Total Pagado (Mes)</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-blue-700">$2.450.000</div>
+              <div className="text-3xl font-bold text-blue-700">{formatCurrency(totalPaidMonth)}</div>
               <p className="text-xs text-gray-500 mt-1 flex items-center gap-1"><TrendingUp className="w-3 h-3" /> +12% vs mes anterior</p>
             </CardContent>
           </Card>
@@ -108,7 +144,7 @@ export default function PayoutsPage() {
               <CardTitle className="text-sm font-medium text-gray-500">Observaciones</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-orange-700">{MOCK_PAYOUTS.filter(p => p.status === 'RECHAZADO').length}</div>
+              <div className="text-3xl font-bold text-orange-700">{rejectedCount}</div>
               <p className="text-xs text-gray-500 mt-1">Pagos rechazados o con errores</p>
             </CardContent>
           </Card>
@@ -152,11 +188,11 @@ export default function PayoutsPage() {
                 <div key={payout.id} className="flex flex-col md:flex-row items-center justify-between p-4 border rounded-lg hover:shadow-md transition-shadow bg-white">
                   <div className="flex items-center gap-4 w-full md:w-auto mb-4 md:mb-0">
                     <div className="w-12 h-12 rounded-full bg-green-100 text-green-700 flex items-center justify-center font-bold text-lg">
-                      {payout.riderName.charAt(0)}
+                      {payout.riderName?.charAt(0) || 'R'}
                     </div>
                     <div>
                       <h3 className="font-bold text-gray-900">{payout.riderName}</h3>
-                      <p className="text-sm text-gray-500">ID: {payout.riderId} • {payout.ordersCount} entregas</p>
+                      <p className="text-sm text-gray-500">ID: {payout.riderId || payout.rider_id} • {payout.ordersCount} entregas</p>
                       <p className="text-xs text-gray-400">Periodo: {payout.period}</p>
                     </div>
                   </div>

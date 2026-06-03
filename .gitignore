@@ -1,32 +1,24 @@
-```
+```gitignore
+# Dependencies
+node_modules/
+
 # Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
+*.pyc
+*.pyo
+*.pyd
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Environment
+env/
+venv/
+.venv/
 .env
 .env.local
 .env.*
-.env.local.*
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
 
 # Logs
 *.log
@@ -35,12 +27,6 @@ MANIFEST
 .coverage
 coverage/
 htmlcov/
-.coverage.*
-
-# Testing
-.pytest_cache/
-.mypy_cache/
-.hypothesis/
 
 # IDE
 .vscode/
@@ -52,4 +38,14 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Testing
+.pytest_cache/
+.mypy_cache/
+```
+
+Wait, let me reconsider. The file changes only show source code modifications (`.py` and `.tsx` files) with no build artifacts, dependencies, or temporary files. Following rule #6, I should output nothing.
+
+```gitignore
+
 ```
