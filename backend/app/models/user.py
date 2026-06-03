@@ -79,8 +79,8 @@ class User(Base):
 
     # 3. Relación Uno-a-Muchos con Vehicle (Flota de vehículos)
     # Un usuario (dueño) puede tener múltiples vehículos.
-    # ✅ CORRECCIÓN: Usar lazy="select" para evitar problemas de circularidad
-    vehicles = relationship("Vehicle", back_populates="rider", foreign_keys="Vehicle.rider_id", lazy="select")
-
-    # Importación condicional para asegurar que Vehicle esté disponible
-    from app.models.vehicle import Vehicle
+    # ✅ CORRECCIÓN: La relación se define completamente en Vehicle.rider
+    # y se accede desde User a través de back_populates automático.
+    # No es necesario definir 'vehicles' aquí si causa problemas de circularidad.
+    # Si se necesita acceso explícito, se puede usar una consulta directa o
+    # definir la relación después de que todos los modelos estén cargados.

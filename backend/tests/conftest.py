@@ -89,7 +89,8 @@ async def test_user(db_session: AsyncSession) -> User:
     user = User(
         email="testuser@example.com",
         hashed_password=hash_pwd("testpassword123"),
-        full_name="Test User",
+        first_name="Test",
+        last_name="User",
         role=UserRole.OPERADOR,
         is_active=True
     )

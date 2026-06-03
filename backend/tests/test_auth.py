@@ -40,16 +40,21 @@ class TestAuth:
 
     def test_register_new_user(self, client: TestClient):
         """Prueba registro de nuevo repartidor (endpoint disponible)."""
-        # El endpoint register no existe, usamos register-rider
+        # El endpoint register-rider espera parámetros específicos
+        import random
+        counter = random.randint(1000, 9999)
         response = client.post(
             "/api/v1/auth/register-rider",
             json={
-                "email": f"newuser_{pytest.test_counter}@example.com",
+                "email": f"newuser_{counter}@example.com",
                 "password": "newpassword123",
-                "full_name": "Nuevo Usuario Repartidor"
+                "first_name": "Nuevo",
+                "last_name": "Usuario Repartidor",
+                "phone": "+1234567890",
+                "vehicle_type": "MOTO",
+                "vehicle_plate": f"ABC{counter}"
             }
         )
-        pytest.test_counter += 1
         assert response.status_code == 201
         data = response.json()
         assert "user" in data or "id" in data
