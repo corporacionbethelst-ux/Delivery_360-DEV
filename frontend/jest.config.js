@@ -13,7 +13,7 @@ module.exports = {
     '<rootDir>/.next/',
   ],
   transform: {
-    '^.+\\.(js|jsx|ts|tsx)$': ['babel-jest', { presets: ['next/babel'] }],
+    '^.+\\.(js|jsx|ts|tsx)$': ['babel-jest', { configFile: './babel.config.jest.js' }],
   },
   collectCoverageFrom: [
     'src/**/*.{js,jsx,ts,tsx}',
