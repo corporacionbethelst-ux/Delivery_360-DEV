@@ -695,7 +695,6 @@ async def get_pending_documents(
 # Deben ir al final para no interceptar rutas específicas como /me
 # ------------------------------------------------------------------------------
 
-# [TODOS] Obtener detalle de un repartidor por ID (con validación de permisos)
 @router.get("/{rider_id}")
 async def get_rider(
     rider_id: str,

@@ -139,6 +139,47 @@ async def request_payout(
         "rejection_reason": payout.rejection_reason,
     }
 
+@router.get("/{payout_id}")
+async def get_payout(
+    payout_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Obtener detalle de un retiro específico por su ID.
+    - Repartidores solo pueden ver sus propios retiros.
+    - Admin/Gerente pueden ver todos los retiros.
+    """
+    payout_id_uuid = _parse_uuid(payout_id)
+    
+    result = await db.execute(select(Payout).where(Payout.id == payout_id_uuid))
+    payout = result.scalar_one_or_none()
+    
+    if not payout:
+        raise HTTPException(status_code=404, detail="Retiro no encontrado")
+    
+    # Validar permisos: REPARTIDOR solo puede ver sus propios retiros
+    if current_user.role == UserRole.REPARTIDOR:
+        rider = await _get_rider_from_user(db, current_user)
+        if payout.rider_id != rider.id:
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes permiso para acceder a este retiro"
+            )
+    
+    return {
+        "id": str(payout.id),
+        "rider_id": str(payout.rider_id),
+        "amount": float(payout.amount),
+        "status": payout.status.value,
+        "method": payout.method.value,
+        "requested_at": payout.requested_at.isoformat() if payout.requested_at else None,
+        "processed_at": payout.processed_at.isoformat() if payout.processed_at else None,
+        "bank_account_last4": payout.bank_account_last4,
+        "reference_code": payout.reference_code,
+        "rejection_reason": payout.rejection_reason,
+    }
+
 @router.patch("/{payout_id}/approve")
 async def approve_payout(
     payout_id: str,

@@ -6,12 +6,12 @@ logger = logging.getLogger(__name__)
 
 # Configuración de conexión
 conf = ConnectionConfig(
-    MAIL_USERNAME=settings.MAIL_USERNAME,
-    MAIL_PASSWORD=settings.MAIL_PASSWORD,
-    MAIL_FROM=settings.MAIL_FROM,
-    MAIL_PORT=settings.MAIL_PORT,
-    MAIL_SERVER=settings.MAIL_SERVER,
-    MAIL_FROM_NAME=settings.MAIL_FROM_NAME,
+    MAIL_USERNAME=settings.SMTP_USER or "",
+    MAIL_PASSWORD=settings.SMTP_PASSWORD or "",
+    MAIL_FROM=settings.EMAIL_FROM,
+    MAIL_PORT=settings.SMTP_PORT,
+    MAIL_SERVER=settings.SMTP_HOST,
+    MAIL_FROM_NAME=settings.APP_NAME,
     MAIL_TLS=True,
     MAIL_SSL=False,
     USE_CREDENTIALS=True,

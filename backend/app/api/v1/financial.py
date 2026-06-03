@@ -125,3 +125,71 @@ async def get_financial_summary(
         "total_rider_payouts": 0, # Implementar suma de retiros
         "avg_per_delivery": total_revenue / total_transactions if total_transactions > 0 else 0
     }
+
+@router.get("/transactions")
+async def get_transactions(
+    rider_id: Optional[str] = Query(None, description="Filtrar por ID de repartidor"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    transaction_type: Optional[TransactionType] = Query(None, alias="type"),
+    status: Optional[PaymentStatus] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Obtener lista de transacciones financieras.
+    - Repartidores solo pueden ver sus propias transacciones.
+    - Admin/Gerente pueden ver todas o filtrar por rider_id.
+    """
+    # Validar permisos y determinar filtro de rider
+    if current_user.role == UserRole.REPARTIDOR:
+        # Repartidor solo ve las suyas
+        result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
+        rider = result.scalar_one_or_none()
+        if not rider:
+            raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
+        rider_filter = rider.id
+    elif rider_id:
+        # Admin puede filtrar por un rider específico
+        rider_filter = _parse_uuid(rider_id)
+    else:
+        # Admin ve todas
+        rider_filter = None
+    
+    # Construir query
+    stmt = select(Financial)
+    
+    if rider_filter:
+        stmt = stmt.where(Financial.rider_id == rider_filter)
+    
+    if transaction_type:
+        stmt = stmt.where(Financial.transaction_type == transaction_type)
+    
+    if status:
+        stmt = stmt.where(Financial.status == status)
+    
+    stmt = stmt.order_by(Financial.created_at.desc()).offset(offset).limit(limit)
+    
+    result = await db.execute(stmt)
+    transactions = result.scalars().all()
+    
+    return [
+        {
+            "id": str(t.id),
+            "rider_id": str(t.rider_id),
+            "amount": float(t.amount),
+            "transaction_type": t.transaction_type.value,
+            "description": t.description,
+            "reference_id": t.reference_id,
+            "status": t.status.value,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+        }
+        for t in transactions
+    ]
+
+def _parse_uuid(value: str):
+    import uuid
+    try:
+        return uuid.UUID(value)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="ID inválido")
