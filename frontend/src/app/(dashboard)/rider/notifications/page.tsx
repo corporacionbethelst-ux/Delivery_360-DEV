@@ -1,11 +1,10 @@
-'use client';
-
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore'; // ✅ CORRECCIÓN: Usar Zustand
+import { useAuthStore } from '@/stores/authStore';
 import { Bell, CheckCheck, AlertCircle, Package, TrendingUp, Loader2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { notificationService } from '@/services/notification.service';
 
 // Interfaz simple local
 interface Notification {
@@ -46,38 +45,21 @@ export default function RiderNotificationsPage() {
   const loadNotifications = async () => {
     setLoadingData(true);
     try {
-      // Mock data mientras no haya servicio real
-      // TODO: Reemplazar con: const data = await notificationService.getAll({ rider_id: user.id });
-      await new Promise(r => setTimeout(r, 600));
+      // ✅ LLAMADA REAL AL BACKEND usando notificationService
+      const data = await notificationService.getAll({ limit: 50 });
       
-      setNotifications([
-        {
-          id: '1',
-          title: 'Nueva entrega asignada',
-          message: 'Tienes una nueva entrega disponible en tu zona.',
-          type: 'ASSIGNMENT',
-          status: 'NO_LEIDO',
-          created_at: new Date().toISOString()
-        },
-        {
-          id: '2',
-          title: 'Pago procesado',
-          message: 'Tu solicitud de retiro ha sido aprobada.',
-          type: 'SUCCESS',
-          status: 'LEIDO',
-          created_at: new Date(Date.now() - 86400000).toISOString()
-        },
-        {
-          id: '3',
-          title: 'Actualización de perfil',
-          message: 'Tu documento de identidad ha sido aprobado.',
-          type: 'SUCCESS',
-          status: 'NO_LEIDO',
-          created_at: new Date(Date.now() - 172800000).toISOString()
-        }
-      ]);
+      // Mapear al formato local si es necesario
+      setNotifications(data.map(n => ({
+        id: n.id,
+        title: n.title,
+        message: n.message,
+        type: n.type,
+        status: n.status,
+        created_at: n.created_at
+      })));
     } catch (error) {
       console.error('Error loading notifications:', error);
+      // Opcional: Mostrar toast de error
     } finally {
       setLoadingData(false);
     }

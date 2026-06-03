@@ -61,41 +61,9 @@ export const useNotificationStore = create<NotificationState>()(
       fetchNotifications: async () => {
         set({ isLoading: true });
         try {
-          // TODO: Reemplazar con tu endpoint real
-          // const response = await api.get<Notification[]>('/notifications?limit=50');
-          // const data = response; 
-          
-          // --- SIMULACIÓN PARA DEMO (Eliminar cuando tengas el backend) ---
-          await new Promise(resolve => setTimeout(resolve, 800));
-          const mockData: Notification[] = [
-            {
-              id: 'n1',
-              type: 'ORDER',
-              title: 'Nueva Orden #ORD-1234',
-              message: 'Un cliente ha realizado un nuevo pedido en tu zona.',
-              read: false,
-              createdAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(), // hace 5 min
-              actionUrl: '/manager/orders/ORD-1234'
-            },
-            {
-              id: 'n2',
-              type: 'ALERT',
-              title: 'Repartidor Retrasado',
-              message: 'El repartidor Juan Pérez tiene un retraso significativo en la entrega #DEL-999.',
-              read: false,
-              createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(), // hace 30 min
-            },
-            {
-              id: 'n3',
-              type: 'PAYMENT',
-              title: 'Pago Confirmado',
-              message: 'Se ha procesado correctamente el pago de la orden #ORD-1230.',
-              read: true,
-              createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), // hace 2 horas
-            }
-          ];
-          const data = mockData;
-          // ---------------------------------------------------------------
+          // ✅ LLAMADA REAL AL BACKEND
+          const response = await api.get<Notification[]>('/notifications?limit=50');
+          const data = response;
 
           set({ 
             notifications: data.slice(0, MAX_NOTIFICATIONS), 

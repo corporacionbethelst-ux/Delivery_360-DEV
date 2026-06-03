@@ -1,27 +1,13 @@
-'use client';
-
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore'; // ✅ CORRECCIÓN: Usar Zustand
-// import { payoutService, Payout } from '@/services/payout.service'; // Descomentar cuando exista el servicio real
+import { useAuthStore } from '@/stores/authStore';
+import { payoutService, Payout } from '@/services/payout.service';
 import { formatCurrency, formatDate } from '@/lib/formatters';
 import { ArrowLeft, Download, Clock, CheckCircle, XCircle, AlertCircle, Wallet } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
-
-// Interfaz local (Mover a types/user.ts o services/payout.service.ts cuando se cree el archivo)
-interface Payout {
-  id: string;
-  amount: number;
-  status: 'PENDIENTE' | 'PROCESADO' | 'RECHAZADO';
-  requested_at: string;
-  processed_at?: string;
-  method: string;
-  rejection_reason?: string;
-  reference_code?: string;
-}
 
 export default function RiderPayoutsPage() {
   const router = useRouter();
@@ -53,38 +39,9 @@ export default function RiderPayoutsPage() {
   const loadPayouts = async () => {
     setLoadingData(true);
     try {
-      // 🔴 TODO: Descomentar cuando el servicio esté implementado en backend/frontend
-      // const data = await payoutService.getAll({ limit: 50 });
-      // setPayouts(data);
-
-      // 🟡 MOCK DATA (Simulación para desarrollo visual)
-      await new Promise(r => setTimeout(r, 800));
-      setPayouts([
-        {
-          id: '1',
-          amount: 150.00,
-          status: 'PROCESADO',
-          requested_at: new Date(Date.now() - 86400000 * 5).toISOString(),
-          processed_at: new Date(Date.now() - 86400000 * 3).toISOString(),
-          method: 'TRANSFERENCIA',
-          reference_code: 'TXN-998877'
-        },
-        {
-          id: '2',
-          amount: 85.50,
-          status: 'PENDIENTE',
-          requested_at: new Date(Date.now() - 86400000 * 1).toISOString(),
-          method: 'TRANSFERENCIA'
-        },
-        {
-          id: '3',
-          amount: 40.00,
-          status: 'RECHAZADO',
-          requested_at: new Date(Date.now() - 86400000 * 10).toISOString(),
-          method: 'TRANSFERENCIA',
-          rejection_reason: 'Datos bancarios incorrectos o cuenta inválida'
-        }
-      ]);
+      // ✅ LLAMADA REAL AL BACKEND usando payoutService
+      const data = await payoutService.getAll({ limit: 50 });
+      setPayouts(data);
     } catch (error) {
       console.error('Error loading payouts:', error);
       // Opcional: Mostrar toast de error
