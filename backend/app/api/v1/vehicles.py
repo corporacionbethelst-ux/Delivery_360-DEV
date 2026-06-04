@@ -92,6 +92,8 @@ def _format_date(date_val: Any) -> Optional[str]:
 
 def _get_enum_value(enum_obj: Any) -> str:
     """Extrae el valor string de un Enum de SQLAlchemy o Pydantic de forma segura."""
+    if enum_obj is None:
+        return ""
     if hasattr(enum_obj, 'value'):
         return enum_obj.value
     return str(enum_obj)
@@ -99,13 +101,14 @@ def _get_enum_value(enum_obj: Any) -> str:
 def _safe_parse_enum(enum_class, value: Optional[str]) -> Optional[Any]:
     """
     Intenta convertir un string a un Enum específico de forma segura.
-    Retorna None si el valor es None o no es válido.
+    Retorna None si el valor es None, vacío o no es válido.
+    Esto previene errores 422 al permitir filtrado flexible.
     """
-    if not value:
+    if not value or value.strip() == "":
         return None
     
     # Normalizar entrada
-    val_upper = value.strip().upper()
+    val_upper = str(value).strip().upper()
     
     # Intentar coincidir por valor (ej: "MOTO" == VehicleType.MOTO.value)
     for item in enum_class:
@@ -145,6 +148,7 @@ except ImportError:
 
 @router.get("", response_model=List[VehicleResponse])
 async def list_vehicles(
+    # FORZAMOS QUE SEAN STRINGS PARA EVITAR VALIDACIÓN AUTOMÁTICA DE FASTAPI
     type: Optional[str] = Query(None, description="Filtrar por tipo (MOTO, AUTO, etc.)"),
     status: Optional[str] = Query(None, description="Filtrar por estado (ACTIVO, MANTENIMIENTO, etc.)"),
     search: Optional[str] = Query(None),
@@ -164,7 +168,6 @@ async def list_vehicles(
     stmt = select(Vehicle).options(selectinload(Vehicle.rider))
     
     # Convertir strings a Enums de forma segura MANUALMENTE
-    # Esto evita que FastAPI intente validar automáticamente y falle con 422
     type_enum = _safe_parse_enum(VehicleType, type)
     status_enum = _safe_parse_enum(VehicleStatus, status)
 
@@ -187,7 +190,6 @@ async def list_vehicles(
         )
     
     if available_only:
-        # Aseguramos que el enum se usa directamente aquí ya que es un valor conocido
         stmt = stmt.where(
             (Vehicle.rider_id.is_(None)) & 
             (Vehicle.status == VehicleStatus.ACTIVO)

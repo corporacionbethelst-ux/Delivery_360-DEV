@@ -56,11 +56,6 @@ class ServiceError extends Error {
 
 // --- Helpers Internos ---
 
-const extractData = <T>(response: any): T => {
-  if (!response) throw new ServiceError('Respuesta vacía del servidor');
-  return response.data ?? response;
-};
-
 const handleApiError = (error: unknown, context: string): never => {
   console.error(`[VehicleService] ${context}:`, error);
 
@@ -100,8 +95,10 @@ export const vehicleService = {
       if (params?.page) queryParams.append('page', String(params.page));
 
       const query = queryParams.toString() ? `?${queryParams}` : '';
+      
+      // api.get ya devuelve los datos directamente (T), no hay que hacer .data ni extractData
       const response = await api.get<Vehicle[]>(`/vehicles${query}`);
-      return extractData<Vehicle[]>(response);
+      return response;
     } catch (error) {
       throw handleApiError(error, 'Error fetching vehicles');
     }
@@ -117,7 +114,7 @@ export const vehicleService = {
     }
     try {
       const response = await api.get<Vehicle>(`/vehicles/${id}`);
-      return extractData<Vehicle>(response);
+      return response;
     } catch (error) {
       throw handleApiError(error, `Error fetching vehicle ${id}`);
     }
@@ -128,7 +125,6 @@ export const vehicleService = {
    * POST /vehicles
    */
   create: async (data: VehicleCreateInput): Promise<Vehicle> => {
-    // Validaciones estrictas
     if (!data.plate || !data.model || !data.year) {
       throw new ServiceError('Placa, Modelo y Año son requeridos', 400);
     }
@@ -145,7 +141,7 @@ export const vehicleService = {
     try {
       const payload = { ...data, plate: cleanPlate };
       const response = await api.post<Vehicle>('/vehicles', payload);
-      return extractData<Vehicle>(response);
+      return response;
     } catch (error) {
       throw handleApiError(error, 'Error creating vehicle');
     }
@@ -160,7 +156,6 @@ export const vehicleService = {
       throw new ServiceError('ID de vehículo inválido', 400);
     }
     
-    // Limpieza de datos opcionales
     const payload: any = { ...data };
     if (payload.plate) {
       payload.plate = payload.plate.trim().toUpperCase();
@@ -171,7 +166,7 @@ export const vehicleService = {
 
     try {
       const response = await api.patch<Vehicle>(`/vehicles/${id}`, payload);
-      return extractData<Vehicle>(response);
+      return response;
     } catch (error) {
       throw handleApiError(error, `Error updating vehicle ${id}`);
     }
@@ -187,7 +182,7 @@ export const vehicleService = {
     }
     try {
       const response = await api.patch<Vehicle>(`/vehicles/${id}`, { status: 'BAJA' });
-      return extractData<Vehicle>(response);
+      return response;
     } catch (error) {
       throw handleApiError(error, `Error deactivating vehicle ${id}`);
     }

@@ -1,6 +1,6 @@
 /**
- * API
-
+ * API Client Configuration
+ * Manejo centralizado de Axios, Interceptors, Auth y Refresh Tokens
  */
 
 import axios, {
@@ -96,7 +96,6 @@ export const clearStoredTokens = (): void => {
   try {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
-    // Limpieza adicional de claves legacy si existen
     localStorage.removeItem('user');
     localStorage.removeItem('auth-storage');
     authTokens = { accessToken: null, refreshToken: null };
@@ -108,12 +107,13 @@ export const clearStoredTokens = (): void => {
 // Interceptor de request
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    // Asegurar que haya URL
     if (!config.url) {
       config.url = '/';
     }
     
+    // Obtener tokens frescos justo antes de enviar
     const tokens = getStoredTokens();
+    
     if (tokens.accessToken && config.headers) {
       config.headers.Authorization = `Bearer ${tokens.accessToken}`;
     }
@@ -157,7 +157,6 @@ apiClient.interceptors.response.use(
         isRefreshing = false;
         processQueue(new Error('No refresh token available'));
         if (isClient()) {
-          // Redirección segura
           window.location.href = '/login';
         }
         return Promise.reject(error);
@@ -165,7 +164,6 @@ apiClient.interceptors.response.use(
 
       try {
         // Intentar refrescar el token
-        // Nota: Usamos axios directo aquí para evitar bucles infinitos si este mismo interceptor se dispara
         const response = await axios.post<TokenPair>(
           `${API_BASE_URL}/auth/refresh`,
           { refresh_token: tokens.refreshToken },
@@ -195,7 +193,7 @@ apiClient.interceptors.response.use(
       }
     }
     
-    // Manejo global de errores (opcional: mostrar toasts aquí)
+    // Manejo global de errores
     if (error.response?.status === 403) {
       console.warn('Acceso denegado: Permisos insuficientes.');
     }
@@ -217,21 +215,10 @@ export const authApi = {
     return response.data;
   },
 
-  registerRider: async (data: {
-    email: string;
-    password: string;
-    first_name: string;
-    last_name: string;
-    phone: string;
-    vehicle_type: string;
-    vehicle_plate?: string;
-    license_file?: File;
-    id_card_file?: File;
-  }) => {
-    // Para FormData, dejamos que axios establezca los headers automáticamente
+  registerRider: async (data: any) => {
     const formData = new FormData();
     Object.keys(data).forEach(key => {
-      const value = (data as any)[key];
+      const value = data[key];
       if (value !== undefined && value !== null) {
         formData.append(key, value);
       }
@@ -268,6 +255,7 @@ export const authApi = {
 };
 
 // Exportación genérica para otros servicios (Wrappers tipados)
+// IMPORTANTE: Estos métodos DEVUELVEN DIRECTAMENTE los datos (res.data), no la respuesta completa
 export const api = {
   get: <T>(url: string, config?: any) => apiClient.get<T>(url, config).then(res => res.data),
   post: <T>(url: string, data?: any, config?: any) => apiClient.post<T>(url, data, config).then(res => res.data),
