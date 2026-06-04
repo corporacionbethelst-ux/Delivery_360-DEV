@@ -20,7 +20,7 @@ from app.api.v1 import (
     auth, users, riders, orders, deliveries,
     shifts, productivity, financial, dashboard,
     routes, alerts, integrations, audit, payouts, 
-    vehicles
+    vehicles, zones
 )
 from app.middleware import RateLimitMiddleware, AuditLogMiddleware
 from app.monitoring.health_check import health_router
@@ -103,6 +103,7 @@ def create_app() -> FastAPI:
     app.include_router(orders.router, prefix="/api/v1", tags=["Orders"])
     app.include_router(deliveries.router, prefix="/api/v1", tags=["Deliveries"])
     app.include_router(vehicles.router, prefix="/api/v1", tags=["Vehicles"])
+    app.include_router(zones.router, prefix="/api/v1", tags=["Zones"])
     app.include_router(shifts.router, prefix="/api/v1/shifts", tags=["Shifts"])
     app.include_router(productivity.router, prefix="/api/v1/productivity", tags=["Productivity"])
     app.include_router(financial.router, prefix="/api/v1", tags=["Financial"])
