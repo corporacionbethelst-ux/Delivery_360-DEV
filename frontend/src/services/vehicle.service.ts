@@ -3,8 +3,11 @@ import { AxiosError } from 'axios';
 
 // --- Tipos e Interfaces Estrictas ---
 
-export type VehicleType = 'MOTO' | 'AUTO' | 'FURGONETA' | 'BICICLETA';
-export type VehicleStatus = 'ACTIVO' | 'MANTENIMIENTO' | 'BAJA';
+export const VEHICLE_TYPES = ['MOTO', 'AUTO', 'FURGONETA', 'BICICLETA'] as const;
+export const VEHICLE_STATUSES = ['ACTIVO', 'MANTENIMIENTO', 'BAJA'] as const;
+
+export type VehicleType = (typeof VEHICLE_TYPES)[number];
+export type VehicleStatus = (typeof VEHICLE_STATUSES)[number];
 
 export interface Vehicle {
   id: string;
@@ -33,12 +36,12 @@ export interface VehicleCreateInput {
 }
 
 export interface VehicleFilters {
-  type?: VehicleType;
-  status?: VehicleStatus;
-  search?: string;
-  available_only?: boolean;
-  limit?: number;
-  page?: number;
+  type?: VehicleType | 'ALL' | string | null;
+  status?: VehicleStatus | 'ALL' | string | null;
+  search?: string | null;
+  available_only?: boolean | null;
+  limit?: number | null;
+  page?: number | null;
 }
 
 // --- Clases de Error Personalizadas ---
@@ -56,11 +59,31 @@ class ServiceError extends Error {
 
 // --- Helpers Internos ---
 
+const formatApiDetail = (data: any): string | undefined => {
+  if (!data) return undefined;
+  if (typeof data.detail === 'string') return data.detail;
+  if (Array.isArray(data.detail)) {
+    return data.detail
+      .map((item: any) => `${Array.isArray(item.loc) ? item.loc.join('.') : 'campo'}: ${item.msg || item.message || 'inválido'}`)
+      .join('; ');
+  }
+  if (typeof data.message === 'string') {
+    if (Array.isArray(data.details) && data.details.length > 0) {
+      const detailText = data.details
+        .map((item: any) => `${item.field || 'campo'}: ${item.message || item.msg || 'inválido'}`)
+        .join('; ');
+      return `${data.message}: ${detailText}`;
+    }
+    return data.message;
+  }
+  return undefined;
+};
+
 const handleApiError = (error: unknown, context: string): never => {
   console.error(`[VehicleService] ${context}:`, error);
 
   if (error instanceof AxiosError) {
-    const message = error.response?.data?.detail || error.message || 'Error desconocido';
+    const message = formatApiDetail(error.response?.data) || error.message || 'Error desconocido';
     throw new ServiceError(message, error.response?.status, error.code);
   }
 
@@ -76,6 +99,36 @@ const isValidUuid = (id: string): boolean => {
   return uuidRegex.test(id);
 };
 
+const isVehicleType = (value: unknown): value is VehicleType =>
+  typeof value === 'string' && VEHICLE_TYPES.includes(value.trim().toUpperCase() as VehicleType);
+
+const isVehicleStatus = (value: unknown): value is VehicleStatus =>
+  typeof value === 'string' && VEHICLE_STATUSES.includes(value.trim().toUpperCase() as VehicleStatus);
+
+const sanitizePositiveInteger = (value: number | null | undefined, fallback: number, max: number): number => {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(Math.max(Math.trunc(Number(value)), 1), max);
+};
+
+export const normalizeVehicleFilters = (params?: Readonly<VehicleFilters>): Record<string, string | boolean | number> => {
+  const clean: Record<string, string | boolean | number> = {};
+
+  const type = typeof params?.type === 'string' ? params.type.trim().toUpperCase() : undefined;
+  if (isVehicleType(type)) clean.type = type;
+
+  const status = typeof params?.status === 'string' ? params.status.trim().toUpperCase() : undefined;
+  if (isVehicleStatus(status)) clean.status = status;
+
+  const search = params?.search?.trim();
+  if (search) clean.search = search;
+
+  if (params?.available_only === true) clean.available_only = true;
+  if (params?.limit !== undefined && params.limit !== null) clean.limit = sanitizePositiveInteger(params.limit, 100, 500);
+  if (params?.page !== undefined && params.page !== null) clean.page = sanitizePositiveInteger(params.page, 1, Number.MAX_SAFE_INTEGER);
+
+  return clean;
+};
+
 // --- Servicio Principal ---
 
 export const vehicleService = {
@@ -85,19 +138,12 @@ export const vehicleService = {
    */
   getAll: async (params?: Readonly<VehicleFilters>): Promise<Vehicle[]> => {
     try {
-      const queryParams = new URLSearchParams();
-      
-      if (params?.type) queryParams.append('type', params.type);
-      if (params?.status) queryParams.append('status', params.status);
-      if (params?.search) queryParams.append('search', params.search);
-      if (params?.available_only) queryParams.append('available_only', 'true');
-      if (params?.limit) queryParams.append('limit', String(params.limit));
-      if (params?.page) queryParams.append('page', String(params.page));
+      const cleanParams = normalizeVehicleFilters(params);
 
-      const query = queryParams.toString() ? `?${queryParams}` : '';
-      
-      // api.get ya devuelve los datos directamente (T), no hay que hacer .data ni extractData
-      const response = await api.get<Vehicle[]>(`/vehicles${query}`);
+      // api.get ya devuelve los datos directamente (T), no hay que hacer .data ni extractData.
+      // Enviamos los filtros vía Axios params para no construir URLs manuales y para omitir
+      // valores centinela del UI como ALL, que el backend no debe recibir.
+      const response = await api.get<Vehicle[]>('/vehicles', { params: cleanParams });
       return response;
     } catch (error) {
       throw handleApiError(error, 'Error fetching vehicles');
