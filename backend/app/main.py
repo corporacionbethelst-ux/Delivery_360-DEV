@@ -96,22 +96,24 @@ def create_app() -> FastAPI:
 
     # --- REGISTRO DE ROUTERS ---
     app.include_router(auth.router, prefix="/api/v1", tags=["Auth"])
-    app.include_router(users.router, prefix="/api/v1", tags=["Users"])
+    # Routers without an internal prefix must be mounted under their resource path.
+    # Otherwise their generic /{item_id} routes catch requests like /api/v1/vehicles.
+    app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
     app.include_router(riders.router, prefix="/api/v1", tags=["Riders"])
     app.include_router(orders.router, prefix="/api/v1", tags=["Orders"])
     app.include_router(deliveries.router, prefix="/api/v1", tags=["Deliveries"])
-    app.include_router(shifts.router, prefix="/api/v1", tags=["Shifts"])
-    app.include_router(productivity.router, prefix="/api/v1", tags=["Productivity"])
-    app.include_router(financial.router, prefix="/api/v1", tags=["Financial"])
-    app.include_router(dashboard.router, prefix="/api/v1", tags=["Dashboard"])
-    app.include_router(routes.router, prefix="/api/v1", tags=["Routes"])
-    app.include_router(alerts.router, prefix="/api/v1", tags=["Alerts"])
-    app.include_router(integrations.router, prefix="/api/v1", tags=["Integrations"])
-    app.include_router(audit.router, prefix="/api/v1", tags=["Audit"])
     app.include_router(vehicles.router, prefix="/api/v1", tags=["Vehicles"])
+    app.include_router(shifts.router, prefix="/api/v1/shifts", tags=["Shifts"])
+    app.include_router(productivity.router, prefix="/api/v1/productivity", tags=["Productivity"])
+    app.include_router(financial.router, prefix="/api/v1", tags=["Financial"])
+    app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"])
+    app.include_router(routes.router, prefix="/api/v1/routes", tags=["Routes"])
+    app.include_router(alerts.router, prefix="/api/v1", tags=["Alerts"])
+    app.include_router(integrations.router, prefix="/api/v1/integrations", tags=["Integrations"])
+    app.include_router(audit.router, prefix="/api/v1/audit", tags=["Audit"])
     app.include_router(health_router, prefix="/health", tags=["Health"])
     app.include_router(metrics_router, prefix="/metrics", tags=["Metrics"])
-    app.include_router(payouts.router, prefix="/api/v1/payouts", tags=["Payouts"])
+    app.include_router(payouts.router, prefix="/api/v1", tags=["Payouts"])
 
     # --- ARCHIVOS ESTÁTICOS (DOCUMENTOS E IMÁGENES) ---
     uploads_path = Path("uploads")
