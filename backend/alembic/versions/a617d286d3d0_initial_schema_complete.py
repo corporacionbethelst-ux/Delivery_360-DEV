@@ -54,7 +54,29 @@ def upgrade() -> None:
     op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
     op.create_index(op.f('ix_users_id'), 'users', ['id'], unique=False)
 
-    # 2. AUDIT_LOGS
+    # 2. ZONES
+    op.create_table('zones',
+    sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
+    sa.Column('name', sa.String(length=100), nullable=False),
+    sa.Column('code', sa.String(length=20), nullable=False),
+    sa.Column('description', sa.Text(), nullable=True),
+    sa.Column('delivery_fee_base', sa.Float(), server_default='0', nullable=False),
+    sa.Column('cost_per_km', sa.Float(), server_default='0', nullable=False),
+    sa.Column('estimated_time_min', sa.Float(), server_default='30', nullable=False),
+    sa.Column('is_priority', sa.Boolean(), server_default=sa.text('false'), nullable=False),
+    sa.Column('is_active', sa.Boolean(), server_default=sa.text('true'), nullable=False),
+    sa.Column('color_hex', sa.String(length=7), server_default='#6b7280', nullable=False),
+    sa.Column('center_lat', sa.Float(), nullable=True),
+    sa.Column('center_lng', sa.Float(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=False), server_default=sa.text('NOW()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=False), nullable=True),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_zones_id'), 'zones', ['id'], unique=False)
+    op.create_index(op.f('ix_zones_code'), 'zones', ['code'], unique=True)
+    op.create_index('ix_zones_active_priority', 'zones', ['is_active', 'is_priority'], unique=False)
+
+    # 3. AUDIT_LOGS
     op.create_table('audit_logs',
     sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
     sa.Column('user_id', sa.UUID(), nullable=True),
@@ -92,7 +114,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_audit_logs_resource_type'), 'audit_logs', ['resource_type'], unique=False)
     op.create_index(op.f('ix_audit_logs_user_id'), 'audit_logs', ['user_id'], unique=False)
 
-    # 3. INTEGRATIONS
+    # 4. INTEGRATIONS
     op.create_table('integrations',
     sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
     sa.Column('name', sa.String(length=100), nullable=False),
@@ -124,7 +146,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_integrations_created_by'), 'integrations', ['created_by'], unique=False)
     op.create_index(op.f('ix_integrations_id'), 'integrations', ['id'], unique=False)
 
-    # 4. RIDERS (Con PostGIS y Balances)
+    # 5. RIDERS (Con PostGIS y Balances)
     op.create_table('riders',
     sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
     sa.Column('user_id', sa.UUID(), nullable=False),
@@ -132,6 +154,7 @@ def upgrade() -> None:
     sa.Column('vehicle_plate', sa.String(length=20), nullable=True),
     sa.Column('vehicle_model', sa.String(length=100), nullable=True),
     sa.Column('operating_zone', sa.String(length=100), nullable=True),
+    sa.Column('zone_id', sa.UUID(), nullable=True),
     sa.Column('cpf', sa.String(length=14), nullable=True),
     sa.Column('cnh', sa.String(length=20), nullable=True),
     sa.Column('status', sa.Enum('PENDIENTE', 'ACTIVO', 'INACTIVO', 'OCUPADO', 'SUSPENDIDO', name='riderstatus'), nullable=True),
@@ -152,10 +175,12 @@ def upgrade() -> None:
     sa.Column('pending_balance', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('documents_metadata', sa.JSON(), nullable=True), 
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['zone_id'], ['zones.id'], ondelete='SET NULL'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_riders_id'), 'riders', ['id'], unique=False)
     op.create_index(op.f('ix_riders_user_id'), 'riders', ['user_id'], unique=True)
+    op.create_index(op.f('ix_riders_zone_id'), 'riders', ['zone_id'], unique=False)
 
     # 5. AUDIT_ACTIONS
     op.create_table('audit_actions',
@@ -675,17 +700,24 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_audit_actions_id'), table_name='audit_actions')
     op.drop_table('audit_actions')
 
-    # 4. RIDERS
+    # 5. RIDERS
+    op.drop_index(op.f('ix_riders_zone_id'), table_name='riders')
     op.drop_index(op.f('ix_riders_user_id'), table_name='riders')
     op.drop_index(op.f('ix_riders_id'), table_name='riders')
     op.drop_table('riders')
 
-    # 3. INTEGRATIONS
+    # 4. INTEGRATIONS
     op.drop_index(op.f('ix_integrations_created_by'), table_name='integrations')
     op.drop_index(op.f('ix_integrations_id'), table_name='integrations')
     op.drop_table('integrations')
 
-    # 2. AUDIT_LOGS
+    # 2. ZONES
+    op.drop_index('ix_zones_active_priority', table_name='zones')
+    op.drop_index(op.f('ix_zones_code'), table_name='zones')
+    op.drop_index(op.f('ix_zones_id'), table_name='zones')
+    op.drop_table('zones')
+
+    # 3. AUDIT_LOGS
     op.drop_index('idx_audit_user_date', table_name='audit_logs')
     op.drop_index('idx_audit_resource', table_name='audit_logs')
     op.drop_index(op.f('ix_audit_logs_action_type'), table_name='audit_logs')

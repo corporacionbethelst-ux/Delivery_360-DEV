@@ -50,6 +50,7 @@ class Rider(Base):
     vehicle_plate = Column(String(20))
     vehicle_model = Column(String(100))
     operating_zone = Column(String(100))
+    zone_id = Column(UUID(as_uuid=True), ForeignKey("zones.id", ondelete="SET NULL"), nullable=True, index=True)
     cpf = Column(String(14))
     cnh = Column(String(20))
 
@@ -83,6 +84,7 @@ class Rider(Base):
     
     # RELACIONES
     user = relationship("User", back_populates="rider_profile")
+    zone = relationship("Zone", back_populates="riders", foreign_keys=[zone_id])
     deliveries = relationship("Delivery", back_populates="rider", foreign_keys="Delivery.rider_id")
     documents = relationship("RiderDocument", back_populates="rider", cascade="all, delete-orphan")
     transactions = relationship("Financial", back_populates="rider", cascade="all, delete-orphan", foreign_keys="Financial.rider_id")
