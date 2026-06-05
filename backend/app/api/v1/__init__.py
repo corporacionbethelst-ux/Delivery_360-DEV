@@ -5,6 +5,7 @@ from app.api.v1 import riders
 from app.api.v1 import deliveries as deliveries_module
 from app.api.v1 import alerts as alerts_module
 from app.api.v1 import vehicles as vehicles_module # Importar el nuevo módulo correctamente
+from app.api.v1 import zones as zones_module
 
 # 2. Importar solo lo necesario de routers_combined para los otros módulos
 from app.api.v1.routers_combined import (
@@ -38,6 +39,7 @@ def _make_module(router_obj, name):
 deliveries = deliveries_module
 alerts = alerts_module
 vehicles = vehicles_module # <--- ASIGNAR EL MÓDULO REAL DE VEHÍCULOS AQUÍ
+zones = zones_module
 
 # Los demás siguen siendo wrappers hacia routers_combined
 shifts       = _make_module(shifts_router,        "shifts")
@@ -62,6 +64,7 @@ __all__ = [
     "deliveries",
     "alerts",
     "vehicles", # <--- ASEGURAR QUE ESTÉ EN LA LISTA
+    "zones",
     "shifts",
     "financial",
     "productivity",
