@@ -2,11 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from typing import List, Optional
-from decimal import Decimal
 from datetime import datetime, timedelta
 
 from app.core.database import get_db
 from app.models.financial import Financial, TransactionType, PaymentStatus
+from app.models.order import Order, OrderStatus
+from app.models.payout import Payout, PayoutStatus
 from app.models.rider import Rider
 from app.models.user import User, UserRole
 from app.api.v1.auth import get_current_user, require_role
@@ -86,44 +87,107 @@ async def get_financial_summary(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.GERENTE, UserRole.SUPERADMIN)),
 ):
-    """Resumen financiero global para gerentes."""
+    """Resumen financiero global para gerentes basado en datos reales de BD."""
     now = datetime.utcnow()
-    start_date = None
-    
+    period = (period or "today").lower().strip()
+
     if period == "today":
         start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
     elif period == "week":
-        start_date = now - timedelta(days=now.weekday())
-        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_date = (now - timedelta(days=now.weekday())).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
     elif period == "month":
         start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    
-    if not start_date:
+    else:
         raise HTTPException(status_code=400, detail="Periodo inválido")
 
-    # Calcular métricas básicas
-    result = await db.execute(
+    paid_statuses = ["PAGADO", "PAID", "COMPLETADO", "COMPLETADA", "PROCESADO"]
+    order_period_date = func.coalesce(Order.delivered_at, Order.updated_at, Order.created_at, Order.ordered_at)
+
+    revenue_result = await db.execute(
         select(
-            func.sum(Financial.amount).label('total_revenue'),
-            func.count(Financial.id).label('total_transactions')
+            func.coalesce(func.sum(Order.delivery_fee), 0).label("total_revenue"),
+            func.count(Order.id).label("completed_deliveries"),
+            func.coalesce(func.sum(Order.total), 0).label("gross_order_value"),
         ).where(
-            Financial.created_at >= start_date,
-            Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO])
+            Order.status == OrderStatus.ENTREGADO,
+            order_period_date >= start_date,
+            func.upper(func.coalesce(Order.payment_status, "")).in_(paid_statuses),
         )
     )
-    row = result.first()
-    
-    total_revenue = float(row.total_revenue or 0)
-    total_transactions = row.total_transactions or 0
+    revenue_row = revenue_result.one()
+    total_revenue = float(revenue_row.total_revenue or 0)
+    completed_deliveries = int(revenue_row.completed_deliveries or 0)
+    gross_order_value = float(revenue_row.gross_order_value or 0)
+
+    financial_period_filters = [Financial.created_at >= start_date]
+
+    transactions_result = await db.execute(
+        select(func.count(Financial.id)).where(*financial_period_filters)
+    )
+    total_transactions = int(transactions_result.scalar() or 0)
+
+    rider_earnings_result = await db.execute(
+        select(func.coalesce(func.sum(Financial.amount), 0)).where(
+            *financial_period_filters,
+            Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+            Financial.status.in_([PaymentStatus.PROCESADO, PaymentStatus.PAGADO]),
+        )
+    )
+    earned_rider_payouts = float(rider_earnings_result.scalar() or 0)
+
+    deductions_result = await db.execute(
+        select(func.coalesce(func.sum(Financial.amount), 0)).where(
+            *financial_period_filters,
+            Financial.transaction_type == TransactionType.DESCUENTO,
+            Financial.status.in_([PaymentStatus.PROCESADO, PaymentStatus.PAGADO]),
+        )
+    )
+    rider_deductions = float(deductions_result.scalar() or 0)
+
+    adjustments_result = await db.execute(
+        select(func.coalesce(func.sum(Financial.amount), 0)).where(
+            *financial_period_filters,
+            Financial.transaction_type == TransactionType.AJUSTE,
+            Financial.status.in_([PaymentStatus.PROCESADO, PaymentStatus.PAGADO]),
+        )
+    )
+    operational_adjustments = float(adjustments_result.scalar() or 0)
+
+    payout_period_date = func.coalesce(Payout.processed_at, Payout.requested_at)
+    processed_payouts_result = await db.execute(
+        select(func.coalesce(func.sum(Payout.amount), 0)).where(
+            payout_period_date >= start_date,
+            Payout.status == PayoutStatus.PROCESADO,
+        )
+    )
+    processed_cash_payouts = float(processed_payouts_result.scalar() or 0)
+
+    # PAGO_ENTREGA/BONO representa el costo operativo devengado por rider.
+    # Payout representa salida de caja. Se usa el mayor para soportar instalaciones
+    # que aún no registran ambas capas y evitar doble conteo cuando sí existen.
+    total_rider_payouts = max(0, max(earned_rider_payouts - rider_deductions, processed_cash_payouts))
+    other_costs = max(0, operational_adjustments)
+    total_costs = total_rider_payouts + other_costs
+    net_margin = total_revenue - total_costs
 
     return {
         "period": period,
-        "total_revenue": total_revenue,
+        "period_start": start_date.isoformat(),
+        "period_end": now.isoformat(),
+        "total_revenue": round(total_revenue, 2),
+        "gross_order_value": round(gross_order_value, 2),
+        "completed_deliveries": completed_deliveries,
         "total_transactions": total_transactions,
-        "total_costs": 0, # Implementar lógica de costos si existe
-        "net_margin": total_revenue, # Simplificado
-        "total_rider_payouts": 0, # Implementar suma de retiros
-        "avg_per_delivery": total_revenue / total_transactions if total_transactions > 0 else 0
+        "total_costs": round(total_costs, 2),
+        "net_margin": round(net_margin, 2),
+        "total_rider_payouts": round(total_rider_payouts, 2),
+        "other_costs": round(other_costs, 2),
+        "avg_per_delivery": round(total_revenue / completed_deliveries, 2) if completed_deliveries > 0 else 0,
+        "cash_payouts_processed": round(processed_cash_payouts, 2),
+        "rider_earnings_accrued": round(earned_rider_payouts, 2),
+        "rider_deductions": round(rider_deductions, 2),
     }
 
 @router.get("/transactions")
