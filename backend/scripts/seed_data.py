@@ -18,6 +18,7 @@ from app.core.security import get_password_hash
 from app.models.user import User, UserRole
 from app.models.rider import Rider, RiderStatus, VehicleType as RiderVehicleType
 from app.models.vehicle import Vehicle, VehicleType, VehicleStatus # Importamos el nuevo modelo y enums
+from app.models.zone import Zone
 from app.models.order import Order, OrderStatus, OrderPriority
 from app.models.delivery import Delivery, DeliveryStatus, ProofType
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
@@ -140,12 +141,81 @@ async def seed_users(db: AsyncSession, count: int = 10) -> List[User]:
     print(f"   ✅ {len(users)} usuarios creados.")
     return users
 
-async def seed_riders(db: AsyncSession, count: int = 15) -> List[Rider]:
+async def seed_zones(db: AsyncSession) -> List[Zone]:
+    """Seed real operating zones used by fleet and order dashboards."""
+    print("🗺️ Sembrando zonas operativas...")
+    zone_defs = [
+        {
+            "name": "Norte",
+            "code": "NRT",
+            "description": "Zona norte y Chapinero alto.",
+            "delivery_fee_base": 4500,
+            "cost_per_km": 900,
+            "estimated_time_min": 35,
+            "is_priority": True,
+            "color_hex": "#3b82f6",
+            "center_lat": 4.676,
+            "center_lng": -74.047,
+        },
+        {
+            "name": "Centro",
+            "code": "CTR",
+            "description": "Centro ampliado y zonas de alta rotación.",
+            "delivery_fee_base": 4000,
+            "cost_per_km": 850,
+            "estimated_time_min": 30,
+            "is_priority": False,
+            "color_hex": "#22c55e",
+            "center_lat": 4.600,
+            "center_lng": -74.075,
+        },
+        {
+            "name": "Sur",
+            "code": "SUR",
+            "description": "Operación sur y periferia cercana.",
+            "delivery_fee_base": 5000,
+            "cost_per_km": 1000,
+            "estimated_time_min": 45,
+            "is_priority": False,
+            "color_hex": "#f97316",
+            "center_lat": 4.570,
+            "center_lng": -74.110,
+        },
+        {
+            "name": "Zona G",
+            "code": "ZNG",
+            "description": "Restaurantes premium Zona G y alrededores.",
+            "delivery_fee_base": 5500,
+            "cost_per_km": 1100,
+            "estimated_time_min": 25,
+            "is_priority": True,
+            "color_hex": "#a855f7",
+            "center_lat": 4.668,
+            "center_lng": -74.050,
+        },
+    ]
+
+    zones: List[Zone] = []
+    created = 0
+    for data in zone_defs:
+        existing = await db.execute(select(Zone).where(Zone.code == data["code"]))
+        zone = existing.scalar_one_or_none()
+        if not zone:
+            zone = Zone(id=uuid.uuid4(), is_active=True, **data)
+            db.add(zone)
+            created += 1
+        zones.append(zone)
+
+    await db.commit()
+    print(f"   ✅ {created} zonas creadas / {len(zones)} zonas disponibles.")
+    return zones
+
+async def seed_riders(db: AsyncSession, zones: List[Zone], count: int = 15) -> List[Rider]:
     print(f"🛵 Sembrando repartidores...")
     riders = []
     # Usamos los valores string directamente para evitar conflictos de enums entre modelos
     vehicle_types = ["MOTO", "MOTO", "BICICLETA", "AUTO"] 
-    zones = [(4.668, -74.050), (4.676, -74.047), (4.600, -74.075), (4.695, -74.030)]
+    fallback_zone_points = [(4.668, -74.050), (4.676, -74.047), (4.600, -74.075), (4.695, -74.030)]
 
     for i in range(count):
         email = f"rider{i+1}@delivery360.com"
@@ -170,7 +240,10 @@ async def seed_riders(db: AsyncSession, count: int = 15) -> List[Rider]:
         rider = exists_rider.scalar_one_or_none()
         
         if not rider:
-            base_lat, base_lng = random.choice(zones)
+            selected_zone = random.choice(zones) if zones else None
+            fallback_lat, fallback_lng = random.choice(fallback_zone_points)
+            base_lat = selected_zone.center_lat if selected_zone and selected_zone.center_lat else fallback_lat
+            base_lng = selected_zone.center_lng if selected_zone and selected_zone.center_lng else fallback_lng
             lat, lng = get_random_location_near(base_lat, base_lng, 1.0)
             status = random.choices(["ACTIVO", "INACTIVO", "OCUPADO"], weights=[80, 10, 10])[0]
             
@@ -180,7 +253,8 @@ async def seed_riders(db: AsyncSession, count: int = 15) -> List[Rider]:
                 vehicle_type=random.choice(vehicle_types),
                 vehicle_plate=f"{random.choice(['ABC', 'XYZ'])}-{random.randint(100, 999)}",
                 vehicle_model=f"Yamaha NMAX {random.randint(2020, 2024)}",
-                operating_zone=random.choice(["Norte", "Centro", "Sur"]),
+                operating_zone=selected_zone.name if selected_zone else random.choice(["Norte", "Centro", "Sur"]),
+                zone_id=selected_zone.id if selected_zone else None,
                 cpf=str(random.randint(1000000000, 9999999999)),
                 cnh=f"LIC{random.randint(100000, 999999)}",
                 status=status,
@@ -213,8 +287,11 @@ async def seed_vehicles(db: AsyncSession, users: List[User], riders: List[Rider]
     
     # 1. Crear vehículos para los riders existentes (simulando que su vehículo está en la flota formal)
     for rider in riders:
-        # Obtenemos el usuario dueño del rider
+        # Obtenemos el usuario dueño del rider. Si no está en la lista local,
+        # lo consultamos en BD porque seed_users solo retorna usuarios recién creados.
         user = next((u for u in users if u.id == rider.user_id), None)
+        if not user:
+            user = await db.get(User, rider.user_id)
         if not user:
             continue
             
@@ -507,11 +584,12 @@ async def seed_alerts(db: AsyncSession, orders: List[Order], riders: List[Rider]
 # ==========================================
 
 async def main():
-    print("🚀 INICIANDO SEED DATA AVANZADO (CON VEHÍCULOS Y ALERTAS)")
+    print("🚀 INICIANDO SEED DATA AVANZADO (CON ZONAS, VEHÍCULOS Y ALERTAS)")
     async with AsyncSessionLocal() as db:
         try:
             users = await seed_users(db)
-            riders = await seed_riders(db)
+            zones = await seed_zones(db)
+            riders = await seed_riders(db, zones)
             
             # NUEVO: Sembrar vehículos después de tener usuarios y riders
             await seed_vehicles(db, users, riders, count=25)
@@ -523,7 +601,7 @@ async def main():
             print("\n🔐 CREDENCIALES:")
             print("   Superadmin: super@delivery360.com / Admin123!")
             print("\n💡 DATOS GENERADOS:")
-            print("   - Usuarios, Riders, Vehículos (Flota)")
+            print("   - Usuarios, Zonas, Riders, Vehículos (Flota)")
             print("   - Órdenes, Entregas, Finanzas, Productividad")
             print("   - Alertas Operacionales Reales")
             

@@ -77,6 +77,12 @@ from app.schemas.dashboard import (
     FinancialMetrics,
 )
 
+from app.schemas.zone import (
+    ZoneCreate,
+    ZoneUpdate,
+    ZoneResponse,
+)
+
 __all__ = [
     # Auth
     "Token",
@@ -142,4 +148,9 @@ __all__ = [
     "OrderMetrics",
     "RiderMetrics",
     "FinancialMetrics",
+
+    # Zones
+    "ZoneCreate",
+    "ZoneUpdate",
+    "ZoneResponse",
 ]
