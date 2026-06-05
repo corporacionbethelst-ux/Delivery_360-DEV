@@ -197,6 +197,8 @@ async def get_transactions(
     offset: int = Query(0, ge=0),
     transaction_type: Optional[TransactionType] = Query(None, alias="type"),
     status: Optional[PaymentStatus] = Query(None),
+    date_from: Optional[str] = Query(None, description="Fecha inicial ISO"),
+    date_to: Optional[str] = Query(None, description="Fecha final ISO"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -205,51 +207,101 @@ async def get_transactions(
     - Repartidores solo pueden ver sus propias transacciones.
     - Admin/Gerente pueden ver todas o filtrar por rider_id.
     """
-    # Validar permisos y determinar filtro de rider
+    rider_filter = await _resolve_transaction_rider_filter(db, current_user, rider_id)
+
+    stmt = select(Financial)
+
+    if rider_filter:
+        stmt = stmt.where(Financial.rider_id == rider_filter)
+
+    if transaction_type:
+        stmt = stmt.where(Financial.transaction_type == transaction_type)
+
+    if status:
+        stmt = stmt.where(Financial.status == status)
+
+    if date_from:
+        stmt = stmt.where(Financial.created_at >= _parse_datetime_param(date_from, "date_from"))
+
+    if date_to:
+        stmt = stmt.where(Financial.created_at <= _parse_datetime_param(date_to, "date_to"))
+
+    stmt = stmt.order_by(Financial.created_at.desc()).offset(offset).limit(limit)
+
+    result = await db.execute(stmt)
+    transactions = result.scalars().all()
+
+    return [_serialize_transaction(t) for t in transactions]
+
+@router.get("/transactions/{transaction_id}")
+async def get_transaction_detail(
+    transaction_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Obtener una transacción financiera real por ID respetando permisos."""
+    transaction_uuid = _parse_uuid(transaction_id)
+
+    result = await db.execute(select(Financial).where(Financial.id == transaction_uuid))
+    transaction = result.scalar_one_or_none()
+
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transacción no encontrada")
+
     if current_user.role == UserRole.REPARTIDOR:
-        # Repartidor solo ve las suyas
+        rider_filter = await _resolve_transaction_rider_filter(db, current_user, None)
+        if transaction.rider_id != rider_filter:
+            raise HTTPException(status_code=403, detail="No tienes permiso para ver esta transacción")
+    elif current_user.role not in [UserRole.GERENTE, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+
+    return _serialize_transaction(transaction)
+
+async def _resolve_transaction_rider_filter(
+    db: AsyncSession,
+    current_user: User,
+    rider_id: Optional[str],
+):
+    if current_user.role == UserRole.REPARTIDOR:
         result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
         rider = result.scalar_one_or_none()
         if not rider:
             raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
-        rider_filter = rider.id
-    elif rider_id:
-        # Admin puede filtrar por un rider específico
-        rider_filter = _parse_uuid(rider_id)
-    else:
-        # Admin ve todas
-        rider_filter = None
-    
-    # Construir query
-    stmt = select(Financial)
-    
-    if rider_filter:
-        stmt = stmt.where(Financial.rider_id == rider_filter)
-    
-    if transaction_type:
-        stmt = stmt.where(Financial.transaction_type == transaction_type)
-    
-    if status:
-        stmt = stmt.where(Financial.status == status)
-    
-    stmt = stmt.order_by(Financial.created_at.desc()).offset(offset).limit(limit)
-    
-    result = await db.execute(stmt)
-    transactions = result.scalars().all()
-    
-    return [
-        {
-            "id": str(t.id),
-            "rider_id": str(t.rider_id),
-            "amount": float(t.amount),
-            "transaction_type": t.transaction_type.value,
-            "description": t.description,
-            "reference_id": t.reference_id,
-            "status": t.status.value,
-            "created_at": t.created_at.isoformat() if t.created_at else None,
-        }
-        for t in transactions
-    ]
+        return rider.id
+
+    if current_user.role not in [UserRole.GERENTE, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+
+    return _parse_uuid(rider_id) if rider_id else None
+
+def _serialize_transaction(transaction: Financial):
+    transaction_type = _enum_value(transaction.transaction_type)
+    status = _enum_value(transaction.status)
+
+    return {
+        "id": str(transaction.id),
+        "rider_id": str(transaction.rider_id),
+        "amount": float(transaction.amount or 0),
+        "balance_after": float(transaction.balance_after or 0),
+        "transaction_type": transaction_type,
+        "type": transaction_type,
+        "description": transaction.description or "Sin descripción",
+        "reference_id": transaction.reference_id,
+        "status": status,
+        "created_at": transaction.created_at.isoformat() if transaction.created_at else None,
+        "updated_at": transaction.updated_at.isoformat() if transaction.updated_at else None,
+    }
+
+def _enum_value(value):
+    return value.value if hasattr(value, "value") else value
+
+def _parse_datetime_param(value: str, field_name: str):
+    try:
+        normalized = value.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+        return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{field_name} inválida")
 
 def _parse_uuid(value: str):
     import uuid
