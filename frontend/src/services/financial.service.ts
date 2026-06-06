@@ -2,12 +2,20 @@ import { api } from '@/lib/api';
 
 export interface FinancialSummary {
   period: string;
+  period_start?: string;
+  period_end?: string;
   total_revenue: number;
+  gross_order_value?: number;
+  completed_deliveries?: number;
   total_transactions: number;
   total_costs: number;
   net_margin: number;
   total_rider_payouts: number;
+  other_costs?: number;
   avg_per_delivery: number;
+  cash_payouts_processed?: number;
+  rider_earnings_accrued?: number;
+  rider_deductions?: number;
 }
 
 export interface RiderEarnings {
