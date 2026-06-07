@@ -2,12 +2,20 @@ import { api } from '@/lib/api';
 
 export interface FinancialSummary {
   period: string;
+  period_start?: string;
+  period_end?: string;
   total_revenue: number;
+  gross_order_value?: number;
+  completed_deliveries?: number;
   total_transactions: number;
   total_costs: number;
   net_margin: number;
   total_rider_payouts: number;
+  other_costs?: number;
   avg_per_delivery: number;
+  cash_payouts_processed?: number;
+  rider_earnings_accrued?: number;
+  rider_deductions?: number;
 }
 
 export interface RiderEarnings {
@@ -24,6 +32,47 @@ export interface FinancialSummaryParams {
   period?: 'today' | 'week' | 'month';
   start_date?: string;
   end_date?: string;
+}
+
+
+export interface FinancialOrderReportRow {
+  id: string;
+  external_id?: string | null;
+  created_at?: string | null;
+  ordered_at?: string | null;
+  delivered_at?: string | null;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  customer_email?: string | null;
+  pickup_address?: string | null;
+  delivery_address?: string | null;
+  status: string;
+  priority?: string | null;
+  subtotal: number;
+  delivery_fee: number;
+  total: number;
+  payment_method?: string | null;
+  payment_status?: string | null;
+  rider_id?: string | null;
+}
+
+export interface FinancialOrdersReport {
+  period_start?: string | null;
+  period_end?: string | null;
+  total_revenue: number;
+  gross_order_value: number;
+  total_orders: number;
+  completed_orders: number;
+  active_customers: number;
+  status_counts: Record<string, number>;
+  rows: FinancialOrderReportRow[];
+}
+
+export interface FinancialReportParams {
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+  offset?: number;
 }
 
 export const financialService = {
@@ -75,6 +124,31 @@ export const financialService = {
       return await api.post('/financial/payouts/request', { amount });
     } catch (error) {
       console.error('[FinancialService] Error requesting payout:', error);
+      throw error;
+    }
+  },
+
+
+
+  /**
+   * Obtener reporte real de órdenes para estadísticas y exportación CSV.
+   */
+  getOrdersReport: async (params?: FinancialReportParams): Promise<FinancialOrdersReport> => {
+    const queryParams = new URLSearchParams();
+
+    if (params?.date_from) queryParams.append('date_from', params.date_from);
+    if (params?.date_to) queryParams.append('date_to', params.date_to);
+    if (params?.limit) queryParams.append('limit', String(Math.min(Math.max(Math.trunc(params.limit), 1), 5000)));
+    if (Number.isFinite(params?.offset) && Number(params?.offset) >= 0) {
+      queryParams.append('offset', String(Math.trunc(Number(params?.offset))));
+    }
+
+    const query = queryParams.toString() ? `?${queryParams}` : '';
+
+    try {
+      return await api.get<FinancialOrdersReport>(`/financial/reports/orders${query}`);
+    } catch (error) {
+      console.error('[FinancialService] Error fetching orders report:', error);
       throw error;
     }
   },

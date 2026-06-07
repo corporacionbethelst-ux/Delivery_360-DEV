@@ -7,6 +7,7 @@ Import this module to ensure all models are registered with the Base metadata.
 from app.models.user import User
 from app.models.rider import Rider
 from app.models.vehicle import Vehicle  # ✅ AÑADIDO: Vehicle debe importarse aquí
+from app.models.zone import Zone
 from app.models.order import Order
 from app.models.delivery import Delivery, DeliveryStatus, ProofType
 from app.models.route import Route, RoutePoint, RouteDeviation, RouteStatus
@@ -59,6 +60,7 @@ __all__ = [
     "User",
     "Rider",
     "Vehicle",  # ✅ AÑADIDO
+    "Zone",
     "Order",
     "Delivery", "DeliveryStatus", "ProofType",
     "Route", "RoutePoint", "RouteDeviation", "RouteStatus",

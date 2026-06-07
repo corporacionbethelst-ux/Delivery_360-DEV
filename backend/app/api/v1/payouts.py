@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import List, Optional
+from typing import Optional
 from decimal import Decimal
 import uuid
 import logging
@@ -17,11 +18,24 @@ from app.models.rider import utc_now_naive
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/payouts", tags=["Payouts"])
 
+
+class PayoutRequestBody(BaseModel):
+    amount: float = Field(..., gt=0)
+    method: PayoutMethod = PayoutMethod.TRANSFERENCIA
+    bank_account_last4: Optional[str] = Field(None, max_length=10)
+
+
+class PayoutRejectBody(BaseModel):
+    reason: Optional[str] = Field(None, max_length=500)
+    rejection_reason: Optional[str] = Field(None, max_length=500)
+
+
 def _parse_uuid(value: str) -> uuid.UUID:
     try:
         return uuid.UUID(value)
     except ValueError:
         raise HTTPException(status_code=400, detail="ID inválido")
+
 
 async def _get_rider_from_user(db: AsyncSession, user: User) -> Rider:
     result = await db.execute(select(Rider).where(Rider.user_id == user.id))
@@ -30,116 +44,162 @@ async def _get_rider_from_user(db: AsyncSession, user: User) -> Rider:
         raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
     return rider
 
-@router.get("/")
-async def list_payouts(
-    limit: int = Query(50, ge=1, le=100),
-    status_filter: Optional[PayoutStatus] = Query(None, alias="status"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Listar retiros del usuario actual (o todos si es admin)."""
-    rider = None
-    if current_user.role == UserRole.REPARTIDOR:
-        rider = await _get_rider_from_user(db, current_user)
-        stmt = select(Payout).where(Payout.rider_id == rider.id)
-    else:
-        # Admin ve todos
-        stmt = select(Payout)
 
-    if status_filter:
-        stmt = stmt.where(Payout.status == status_filter)
+def _enum_value(value):
+    return value.value if hasattr(value, "value") else value
 
-    stmt = stmt.order_by(Payout.requested_at.desc()).limit(limit)
-    
-    result = await db.execute(stmt)
-    payouts = result.scalars().all()
 
-    return [
-        {
-            "id": str(p.id),
-            "rider_id": str(p.rider_id),
-            "amount": float(p.amount),
-            "status": p.status.value,
-            "method": p.method.value,
-            "requested_at": p.requested_at.isoformat() if p.requested_at else None,
-            "processed_at": p.processed_at.isoformat() if p.processed_at else None,
-            "bank_account_last4": p.bank_account_last4,
-            "reference_code": p.reference_code,
-            "rejection_reason": p.rejection_reason,
-            "orders_count": 0,
-            "period": "Semana actual",
-        }
-        for p in payouts
-    ]
+def _serialize_payout(payout: Payout):
+    amount = float(payout.amount or 0)
+    requested_at = payout.requested_at.isoformat() if payout.requested_at else None
+    processed_at = payout.processed_at.isoformat() if payout.processed_at else None
 
-@router.post("/request", status_code=201)
-async def request_payout(
-    amount: float,
-    method: PayoutMethod = PayoutMethod.TRANSFERENCIA,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Solicitar un nuevo retiro."""
-    if current_user.role != UserRole.REPARTIDOR:
-        raise HTTPException(status_code=403, detail="Solo repartidores pueden solicitar retiros")
+    return {
+        "id": str(payout.id),
+        "rider_id": str(payout.rider_id),
+        "amount": amount,
+        "total_amount": amount,
+        "status": _enum_value(payout.status),
+        "method": _enum_value(payout.method),
+        "payment_method": _enum_value(payout.method),
+        "requested_at": requested_at,
+        "created_at": requested_at,
+        "updated_at": processed_at or requested_at,
+        "processed_at": processed_at,
+        "bank_account_last4": payout.bank_account_last4,
+        "reference_code": payout.reference_code,
+        "rejection_reason": payout.rejection_reason,
+        "orders_count": 0,
+        "period": "Periodo no especificado",
+        "period_start": None,
+        "period_end": None,
+    }
 
-    rider = await _get_rider_from_user(db, current_user)
-    
-    # Calcular saldo disponible (Total ganado - Total retirado procesado)
-    # 1. Sumar transacciones positivas (entregas, bonos)
+
+async def _calculate_available_balance(db: AsyncSession, rider_id) -> dict:
     earnings_result = await db.execute(
         select(func.sum(Financial.amount)).where(
-            Financial.rider_id == rider.id,
+            Financial.rider_id == rider_id,
             Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
-            Financial.status == PaymentStatus.PROCESADO
+            Financial.status.in_([PaymentStatus.PROCESADO, PaymentStatus.PAGADO]),
         )
     )
     total_earned = float(earnings_result.scalar() or 0)
 
-    # 2. Sumar retiros ya procesados o pendientes (dinero que ya salió o está saliendo)
-    payouts_result = await db.execute(
+    pending_result = await db.execute(
         select(func.sum(Payout.amount)).where(
-            Payout.rider_id == rider.id,
-            Payout.status.in_([PayoutStatus.PROCESADO, PayoutStatus.PENDIENTE])
+            Payout.rider_id == rider_id,
+            Payout.status == PayoutStatus.PENDIENTE,
         )
     )
-    total_withdrawn = float(payouts_result.scalar() or 0)
+    pending = float(pending_result.scalar() or 0)
 
-    available_balance = total_earned - total_withdrawn
-
-    if amount > available_balance:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Saldo insuficiente. Disponible: {available_balance:.2f}"
+    processed_result = await db.execute(
+        select(func.sum(Payout.amount)).where(
+            Payout.rider_id == rider_id,
+            Payout.status == PayoutStatus.PROCESADO,
         )
-    
-    if amount < 10:
+    )
+    processed = float(processed_result.scalar() or 0)
+
+    available = max(0, total_earned - pending - processed)
+    return {
+        "available": round(available, 2),
+        "pending": round(pending, 2),
+        "processed": round(processed, 2),
+        "total_earned": round(total_earned, 2),
+        "currency": "COP",
+    }
+
+
+@router.get("")
+@router.get("/")
+async def list_payouts(
+    rider_id: Optional[str] = Query(None, description="Filtrar por ID de repartidor"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    status_filter: Optional[PayoutStatus] = Query(None, alias="status"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Listar retiros reales. Riders ven solo sus retiros; gerentes/superadmins ven todos."""
+    if current_user.role == UserRole.REPARTIDOR:
+        rider = await _get_rider_from_user(db, current_user)
+        stmt = select(Payout).where(Payout.rider_id == rider.id)
+    elif current_user.role in [UserRole.GERENTE, UserRole.SUPERADMIN]:
+        stmt = select(Payout)
+        if rider_id:
+            stmt = stmt.where(Payout.rider_id == _parse_uuid(rider_id))
+    else:
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+
+    if status_filter:
+        stmt = stmt.where(Payout.status == status_filter)
+
+    stmt = stmt.order_by(Payout.requested_at.desc()).offset(offset).limit(limit)
+    result = await db.execute(stmt)
+    payouts = result.scalars().all()
+
+    return [_serialize_payout(p) for p in payouts]
+
+
+@router.get("/balance")
+async def get_available_balance(
+    rider_id: Optional[str] = Query(None, description="ID de repartidor para gerentes/superadmins"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Obtener saldo real disponible para retiro."""
+    if current_user.role == UserRole.REPARTIDOR:
+        rider = await _get_rider_from_user(db, current_user)
+        target_rider_id = rider.id
+    elif current_user.role in [UserRole.GERENTE, UserRole.SUPERADMIN]:
+        if not rider_id:
+            raise HTTPException(status_code=400, detail="rider_id es requerido")
+        target_rider_id = _parse_uuid(rider_id)
+    else:
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+
+    return await _calculate_available_balance(db, target_rider_id)
+
+
+@router.post("/request", status_code=201)
+async def request_payout(
+    body: PayoutRequestBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Solicitar un nuevo retiro con payload JSON real."""
+    if current_user.role != UserRole.REPARTIDOR:
+        raise HTTPException(status_code=403, detail="Solo repartidores pueden solicitar retiros")
+
+    rider = await _get_rider_from_user(db, current_user)
+    balance = await _calculate_available_balance(db, rider.id)
+
+    if body.amount > balance["available"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Saldo insuficiente. Disponible: {balance['available']:.2f}",
+        )
+
+    if body.amount < 10:
         raise HTTPException(status_code=400, detail="El monto mínimo de retiro es 10.00")
 
     payout = Payout(
         rider_id=rider.id,
-        amount=Decimal(str(amount)),
-        method=method,
-        status=PayoutStatus.PENDIENTE
-        # Aquí podrías agregar lógica para obtener los últimos 4 dígitos de la cuenta
+        amount=Decimal(str(body.amount)),
+        method=body.method,
+        bank_account_last4=body.bank_account_last4,
+        status=PayoutStatus.PENDIENTE,
     )
-    
+
     db.add(payout)
     await db.commit()
     await db.refresh(payout)
 
-    logger.info(f"Retiro solicitado: {payout.id} por rider {rider.id}")
-    
-    return {
-        "id": str(payout.id),
-        "rider_id": str(payout.rider_id),
-        "amount": float(payout.amount),
-        "status": payout.status.value,
-        "method": payout.method.value,
-        "requested_at": payout.requested_at.isoformat(),
-        "reference_code": payout.reference_code,
-        "rejection_reason": payout.rejection_reason,
-    }
+    logger.info("Retiro solicitado: %s por rider %s", payout.id, rider.id)
+    return _serialize_payout(payout)
+
 
 @router.get("/{payout_id}")
 async def get_payout(
@@ -147,40 +207,24 @@ async def get_payout(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Obtener detalle de un retiro específico por su ID.
-    - Repartidores solo pueden ver sus propios retiros.
-    - Admin/Gerente pueden ver todos los retiros.
-    """
+    """Obtener detalle real de un retiro por ID respetando permisos."""
     payout_id_uuid = _parse_uuid(payout_id)
-    
+
     result = await db.execute(select(Payout).where(Payout.id == payout_id_uuid))
     payout = result.scalar_one_or_none()
-    
+
     if not payout:
         raise HTTPException(status_code=404, detail="Retiro no encontrado")
-    
-    # Validar permisos: REPARTIDOR solo puede ver sus propios retiros
+
     if current_user.role == UserRole.REPARTIDOR:
         rider = await _get_rider_from_user(db, current_user)
         if payout.rider_id != rider.id:
-            raise HTTPException(
-                status_code=403,
-                detail="No tienes permiso para acceder a este retiro"
-            )
-    
-    return {
-        "id": str(payout.id),
-        "rider_id": str(payout.rider_id),
-        "amount": float(payout.amount),
-        "status": payout.status.value,
-        "method": payout.method.value,
-        "requested_at": payout.requested_at.isoformat() if payout.requested_at else None,
-        "processed_at": payout.processed_at.isoformat() if payout.processed_at else None,
-        "bank_account_last4": payout.bank_account_last4,
-        "reference_code": payout.reference_code,
-        "rejection_reason": payout.rejection_reason,
-    }
+            raise HTTPException(status_code=403, detail="No tienes permiso para acceder a este retiro")
+    elif current_user.role not in [UserRole.GERENTE, UserRole.SUPERADMIN]:
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+
+    return _serialize_payout(payout)
+
 
 @router.patch("/{payout_id}/approve")
 async def approve_payout(
@@ -188,48 +232,58 @@ async def approve_payout(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.GERENTE, UserRole.SUPERADMIN)),
 ):
-    """Aprobar un retiro (Admin)."""
+    """Aprobar un retiro y registrar la transacción financiera de salida."""
     result = await db.execute(select(Payout).where(Payout.id == _parse_uuid(payout_id)))
     payout = result.scalar_one_or_none()
     if not payout:
         raise HTTPException(status_code=404, detail="Retiro no encontrado")
 
+    if payout.status != PayoutStatus.PENDIENTE:
+        raise HTTPException(status_code=400, detail="Solo se pueden aprobar retiros pendientes")
+
     payout.status = PayoutStatus.PROCESADO
     payout.processed_at = utc_now_naive()
-    # Generar código de referencia simulado
-    import random
-    payout.reference_code = f"REF-{random.randint(10000, 99999)}"
+    payout.reference_code = f"PAY-{payout.processed_at.strftime('%Y%m%d')}-{str(payout.id)[:8].upper()}"
 
-    # Registrar transacción de salida
     transaction = Financial(
         rider_id=payout.rider_id,
         amount=payout.amount,
         transaction_type=TransactionType.RETIRO,
         description=f"Retiro aprobado: {payout.reference_code}",
         reference_id=str(payout.id),
-        status=PaymentStatus.PROCESADO
+        status=PaymentStatus.PROCESADO,
     )
     db.add(transaction)
     await db.commit()
+    await db.refresh(payout)
 
-    return {"message": "Retiro aprobado", "reference_code": payout.reference_code}
+    return _serialize_payout(payout)
+
 
 @router.patch("/{payout_id}/reject")
 async def reject_payout(
     payout_id: str,
-    reason: str,
+    body: PayoutRejectBody,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.GERENTE, UserRole.SUPERADMIN)),
 ):
-    """Rechazar un retiro (Admin)."""
+    """Rechazar un retiro pendiente con motivo enviado en JSON."""
+    reason = (body.rejection_reason or body.reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Motivo de rechazo requerido")
+
     result = await db.execute(select(Payout).where(Payout.id == _parse_uuid(payout_id)))
     payout = result.scalar_one_or_none()
     if not payout:
         raise HTTPException(status_code=404, detail="Retiro no encontrado")
+
+    if payout.status != PayoutStatus.PENDIENTE:
+        raise HTTPException(status_code=400, detail="Solo se pueden rechazar retiros pendientes")
 
     payout.status = PayoutStatus.RECHAZADO
     payout.rejection_reason = reason
     payout.processed_at = utc_now_naive()
 
     await db.commit()
-    return {"message": "Retiro rechazado", "reason": reason}
+    await db.refresh(payout)
+    return _serialize_payout(payout)
