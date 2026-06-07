@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_
-import sqlalchemy as sa
-from typing import List, Optional
+from sqlalchemy import select, func, case
+from typing import Optional
 from datetime import datetime, timedelta
 
 from app.core.database import get_db
@@ -50,17 +49,6 @@ async def get_my_earnings(
         )
     )
     total_withdrawn = float(withdrawn_result.scalar() or 0)
-    
-    # Opcional: Sumar retiros pendientes para mostrarlos como "no disponibles"
-    pending_payouts_result = await db.execute(
-        select(func.sum(Financial.amount)).where(
-            Financial.rider_id == rider.id,
-            Financial.transaction_type == TransactionType.RETIRO,
-            Financial.status == PaymentStatus.PENDIENTE
-        )
-    )
-    # En realidad, lo más fácil es calcularlo desde la tabla Payouts directamente en el endpoint de payout
-    # Pero para este ejemplo, diremos que pending_payout es lo ganado menos lo ya retirado
     
     # Contar entregas completadas (transacciones de tipo PAGO_ENTREGA)
     deliveries_count_result = await db.execute(
@@ -228,7 +216,7 @@ async def get_orders_financial_report(
         func.count(Order.id).label("total_orders"),
         func.coalesce(
             func.sum(
-                func.cast(Order.status == OrderStatus.ENTREGADO, sa.Integer)
+                case((Order.status == OrderStatus.ENTREGADO, 1), else_=0)
             ),
             0,
         ).label("completed_orders"),
