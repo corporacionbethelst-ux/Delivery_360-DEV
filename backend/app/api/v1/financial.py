@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
+import sqlalchemy as sa
 from typing import List, Optional
 from datetime import datetime, timedelta
 
@@ -190,6 +191,80 @@ async def get_financial_summary(
         "rider_deductions": round(rider_deductions, 2),
     }
 
+
+@router.get("/reports/orders")
+async def get_orders_financial_report(
+    date_from: Optional[str] = Query(None, description="Fecha inicial ISO o YYYY-MM-DD"),
+    date_to: Optional[str] = Query(None, description="Fecha final ISO o YYYY-MM-DD"),
+    limit: int = Query(1000, ge=1, le=5000),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.GERENTE, UserRole.SUPERADMIN)),
+):
+    """Reporte financiero/exportable de órdenes basado en datos reales de BD."""
+    start_date = _parse_report_datetime(date_from, "date_from", end_of_day=False) if date_from else None
+    end_date = _parse_report_datetime(date_to, "date_to", end_of_day=True) if date_to else None
+
+    date_column = func.coalesce(Order.delivered_at, Order.created_at, Order.ordered_at)
+    filters = []
+
+    if start_date:
+        filters.append(date_column >= start_date)
+    if end_date:
+        filters.append(date_column <= end_date)
+
+    base_stmt = select(Order)
+    if filters:
+        base_stmt = base_stmt.where(*filters)
+
+    orders_result = await db.execute(
+        base_stmt.order_by(date_column.desc()).offset(offset).limit(limit)
+    )
+    orders = orders_result.scalars().all()
+
+    stats_stmt = select(
+        func.coalesce(func.sum(Order.delivery_fee), 0).label("total_revenue"),
+        func.coalesce(func.sum(Order.total), 0).label("gross_order_value"),
+        func.count(Order.id).label("total_orders"),
+        func.coalesce(
+            func.sum(
+                func.cast(Order.status == OrderStatus.ENTREGADO, sa.Integer)
+            ),
+            0,
+        ).label("completed_orders"),
+        func.count(
+            func.distinct(
+                func.coalesce(Order.customer_email, Order.customer_phone, Order.customer_name)
+            )
+        ).label("active_customers"),
+    )
+    if filters:
+        stats_stmt = stats_stmt.where(*filters)
+
+    stats_result = await db.execute(stats_stmt)
+    stats = stats_result.one()
+
+    status_result = await db.execute(
+        (select(Order.status, func.count(Order.id)).where(*filters) if filters else select(Order.status, func.count(Order.id)))
+        .group_by(Order.status)
+    )
+
+    rows = [_serialize_order_report_row(order) for order in orders]
+
+    return {
+        "period_start": start_date.isoformat() if start_date else None,
+        "period_end": end_date.isoformat() if end_date else None,
+        "total_revenue": float(stats.total_revenue or 0),
+        "gross_order_value": float(stats.gross_order_value or 0),
+        "total_orders": int(stats.total_orders or 0),
+        "completed_orders": int(stats.completed_orders or 0),
+        "active_customers": int(stats.active_customers or 0),
+        "status_counts": {
+            _enum_value(status): count for status, count in status_result.all()
+        },
+        "rows": rows,
+    }
+
 @router.get("/transactions")
 async def get_transactions(
     rider_id: Optional[str] = Query(None, description="Filtrar por ID de repartidor"),
@@ -256,6 +331,47 @@ async def get_transaction_detail(
         raise HTTPException(status_code=403, detail="Acceso denegado")
 
     return _serialize_transaction(transaction)
+
+
+def _serialize_order_report_row(order: Order):
+    status = _enum_value(order.status)
+    return {
+        "id": str(order.id),
+        "external_id": order.external_id,
+        "created_at": order.created_at.isoformat() if order.created_at else None,
+        "ordered_at": order.ordered_at.isoformat() if order.ordered_at else None,
+        "delivered_at": order.delivered_at.isoformat() if order.delivered_at else None,
+        "customer_name": order.customer_name,
+        "customer_phone": order.customer_phone,
+        "customer_email": order.customer_email,
+        "pickup_address": order.pickup_address,
+        "delivery_address": order.delivery_address,
+        "status": status,
+        "priority": _enum_value(order.priority),
+        "subtotal": float(order.subtotal or 0),
+        "delivery_fee": float(order.delivery_fee or 0),
+        "total": float(order.total or 0),
+        "payment_method": order.payment_method,
+        "payment_status": order.payment_status,
+        "rider_id": str(order.assigned_rider_id) if order.assigned_rider_id else None,
+    }
+
+
+def _parse_report_datetime(value: str, field_name: str, end_of_day: bool = False):
+    try:
+        normalized = value.strip().replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+        parsed = parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+        if len(value.strip()) == 10:
+            parsed = parsed.replace(
+                hour=23 if end_of_day else 0,
+                minute=59 if end_of_day else 0,
+                second=59 if end_of_day else 0,
+                microsecond=999999 if end_of_day else 0,
+            )
+        return parsed
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{field_name} inválida")
 
 async def _resolve_transaction_rider_filter(
     db: AsyncSession,
