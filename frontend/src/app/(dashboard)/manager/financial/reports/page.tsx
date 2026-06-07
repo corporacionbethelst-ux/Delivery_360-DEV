@@ -1,72 +1,100 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Download, Calendar, DollarSign, Package, Users, AlertCircle, Loader2 } from 'lucide-react';
-import { downloadCSV } from '@/lib/csv-export'; 
-import { orderService, Order } from '@/services/order.service';
+import { downloadCSV } from '@/lib/csv-export';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { formatCurrency } from '@/lib/formatters';
+import { financialService, FinancialOrdersReport } from '@/services/financial.service';
+
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
 
 export default function ReportsPage() {
-  const router = useRouter();
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState({ totalRevenue: 0, completedOrders: 0, activeCustomers: 0 });
+  const [report, setReport] = useState<FinancialOrdersReport | null>(null);
 
-  // Cargar estadísticas iniciales (Simulado para este ejemplo, idealmente vendría del backend)
-  React.useEffect(() => {
-    // Aquí podrías llamar a un endpoint de dashboard para obtener los números reales
-    setStats({
-      totalRevenue: 12450000, // Ejemplo en pesos
-      completedOrders: 450,
-      activeCustomers: 320
-    });
-  }, []);
-
-  const handleExportOrders = async () => {
+  const loadReport = async () => {
     setLoading(true);
     setError(null);
+
     try {
-      // 1. Obtener datos reales del backend
-      // Nota: Si tu backend soporta filtros ?start_date=...&end_date=..., úsalos aquí
-      const allOrders = await orderService.getAll({ limit: 1000 }); 
-
-      if (allOrders.length === 0) {
-        setError('No hay órdenes disponibles para exportar en este rango.');
-        setLoading(false);
-        return;
-      }
-
-      // 2. Transformar datos complejos a formato plano para CSV
-      const csvData = allOrders.map((order: Order) => ({
-        id_orden: order.external_id || order.id,
-        fecha: order.created_at ? new Date(order.created_at).toLocaleDateString() : 'N/A',
-        cliente: order.customer_name,
-        telefono: order.customer_phone,
-        direccion_entrega: order.delivery_address,
-        estado: order.status,
-        total: order.total || 0,
-        repartidor: order.rider ? `${order.rider.first_name} ${order.rider.last_name}` : 'No asignado',
-        metodo_pago: order.payment_method || 'No especificado',
-      }));
-
-      // 3. Generar nombre de archivo con fecha
-      const today = new Date().toISOString().split('T')[0];
-      const filename = `reporte_ordenes_${today}`;
-
-      // 4. Descargar
-      downloadCSV(csvData, filename);
-      
-    } catch (err: any) {
-      console.error('Error al exportar:', err);
-      setError(err.message || 'No se pudo generar el reporte. Intente nuevamente.');
+      const data = await financialService.getOrdersReport({
+        date_from: dateRange.start || undefined,
+        date_to: dateRange.end || undefined,
+        limit: 1000,
+      });
+      setReport(data);
+    } catch (err: unknown) {
+      console.error('Error loading financial report:', err);
+      setError(getErrorMessage(err, 'No se pudo cargar el reporte financiero.'));
+      setReport(null);
     } finally {
       setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    loadReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleExportOrders = async () => {
+    setExporting(true);
+    setError(null);
+
+    try {
+      const data = await financialService.getOrdersReport({
+        date_from: dateRange.start || undefined,
+        date_to: dateRange.end || undefined,
+        limit: 5000,
+      });
+
+      if (data.rows.length === 0) {
+        setError('No hay órdenes disponibles para exportar en este rango.');
+        return;
+      }
+
+      const csvData = data.rows.map((order) => ({
+        id_orden: order.external_id || order.id,
+        fecha_creacion: order.created_at ? new Date(order.created_at).toLocaleString() : 'N/A',
+        fecha_entrega: order.delivered_at ? new Date(order.delivered_at).toLocaleString() : 'N/A',
+        cliente: order.customer_name || 'N/A',
+        telefono: order.customer_phone || 'N/A',
+        email: order.customer_email || 'N/A',
+        direccion_recogida: order.pickup_address || 'N/A',
+        direccion_entrega: order.delivery_address || 'N/A',
+        estado: order.status,
+        prioridad: order.priority || 'N/A',
+        subtotal: order.subtotal || 0,
+        tarifa_entrega: order.delivery_fee || 0,
+        total: order.total || 0,
+        metodo_pago: order.payment_method || 'No especificado',
+        estado_pago: order.payment_status || 'No especificado',
+        rider_id: order.rider_id || 'No asignado',
+      }));
+
+      const today = new Date().toISOString().split('T')[0];
+      const filename = `reporte_ordenes_${dateRange.start || 'inicio'}_${dateRange.end || today}`;
+      downloadCSV(csvData, filename);
+      setReport(data);
+    } catch (err: unknown) {
+      console.error('Error al exportar:', err);
+      setError(getErrorMessage(err, 'No se pudo generar el reporte. Intente nuevamente.'));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const stats = {
+    totalRevenue: report?.total_revenue || 0,
+    completedOrders: report?.completed_orders || 0,
+    activeCustomers: report?.active_customers || 0,
   };
 
   return (
@@ -75,7 +103,7 @@ export default function ReportsPage() {
         <div className="flex justify-between items-center mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Reportes y Exportación</h1>
-            <p className="text-gray-500">Genera informes de rendimiento y descárgalos en CSV.</p>
+            <p className="text-gray-500">Genera informes reales de rendimiento y descárgalos en CSV.</p>
           </div>
         </div>
 
@@ -83,12 +111,12 @@ export default function ReportsPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Ingresos Totales</CardTitle>
+              <CardTitle className="text-sm font-medium">Ingresos por Entrega</CardTitle>
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{formatCurrency(stats.totalRevenue)}</div>
-              <p className="text-xs text-muted-foreground">Acumulado histórico</p>
+              <div className="text-2xl font-bold">{loading ? '...' : formatCurrency(stats.totalRevenue)}</div>
+              <p className="text-xs text-muted-foreground">Según filtros seleccionados</p>
             </CardContent>
           </Card>
           <Card>
@@ -97,8 +125,8 @@ export default function ReportsPage() {
               <Package className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.completedOrders}</div>
-              <p className="text-xs text-muted-foreground">Total exitosas</p>
+              <div className="text-2xl font-bold">{loading ? '...' : stats.completedOrders}</div>
+              <p className="text-xs text-muted-foreground">Total exitosas en el período</p>
             </CardContent>
           </Card>
           <Card>
@@ -107,8 +135,8 @@ export default function ReportsPage() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.activeCustomers}</div>
-              <p className="text-xs text-muted-foreground">En la base de datos</p>
+              <div className="text-2xl font-bold">{loading ? '...' : stats.activeCustomers}</div>
+              <p className="text-xs text-muted-foreground">Por email/teléfono/nombre</p>
             </CardContent>
           </Card>
         </div>
@@ -120,11 +148,10 @@ export default function ReportsPage() {
               <Calendar className="w-5 h-5" /> Generar Reporte de Órdenes
             </CardTitle>
             <CardDescription>
-              Descarga un detalle de todas las órdenes en formato CSV compatible con Excel.
+              Descarga un detalle real de órdenes desde la base de datos en formato CSV compatible con Excel.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            
             {error && (
               <Alert variant="destructive" className="bg-red-50 border-red-200">
                 <AlertCircle className="h-4 w-4" />
@@ -132,11 +159,11 @@ export default function ReportsPage() {
               </Alert>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-4 rounded-lg border">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white p-4 rounded-lg border">
               <div>
                 <label className="text-sm font-medium mb-1 block text-gray-700">Fecha Inicio</label>
-                <input 
-                  type="date" 
+                <input
+                  type="date"
                   className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                   value={dateRange.start}
                   onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
@@ -144,20 +171,31 @@ export default function ReportsPage() {
               </div>
               <div>
                 <label className="text-sm font-medium mb-1 block text-gray-700">Fecha Fin</label>
-                <input 
-                  type="date" 
+                <input
+                  type="date"
                   className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                   value={dateRange.end}
                   onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
                 />
               </div>
               <div className="flex items-end">
-                <Button 
-                  onClick={handleExportOrders} 
-                  disabled={loading} 
+                <Button
+                  onClick={loadReport}
+                  disabled={loading || exporting}
+                  variant="outline"
+                  className="w-full font-medium"
+                >
+                  {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Calendar className="w-4 h-4 mr-2" />}
+                  Actualizar
+                </Button>
+              </div>
+              <div className="flex items-end">
+                <Button
+                  onClick={handleExportOrders}
+                  disabled={loading || exporting}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium"
                 >
-                  {loading ? (
+                  {exporting ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Procesando...
                     </>
@@ -169,9 +207,18 @@ export default function ReportsPage() {
                 </Button>
               </div>
             </div>
-            
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
+              <div className="bg-gray-50 p-3 rounded border">
+                <span className="font-semibold text-gray-800">Total de órdenes:</span> {report?.total_orders || 0}
+              </div>
+              <div className="bg-gray-50 p-3 rounded border">
+                <span className="font-semibold text-gray-800">Valor bruto de órdenes:</span> {formatCurrency(report?.gross_order_value || 0)}
+              </div>
+            </div>
+
             <p className="text-xs text-gray-500 mt-2">
-              * El reporte incluirá: ID, Cliente, Dirección, Estado, Total y Repartidor asignado.
+              * El reporte incluirá: ID, cliente, teléfonos, direcciones, estado, subtotal, tarifa de entrega, total, método de pago y rider asignado.
             </p>
           </CardContent>
         </Card>
