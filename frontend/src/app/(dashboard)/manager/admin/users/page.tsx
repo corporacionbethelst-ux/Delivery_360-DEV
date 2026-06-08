@@ -37,6 +37,7 @@ export default function ManagerUsersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [error, setError] = useState<string | null>(null);
   
   // Estado para eliminación
@@ -60,7 +61,7 @@ export default function ManagerUsersPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await userService.getAll(); 
+      const data = await userService.getAll({ limit: 500 });
       setUsers(data);
     } catch (err: any) {
       console.error('Error loading users:', err);
@@ -71,13 +72,12 @@ export default function ManagerUsersPage() {
   };
 
   const filteredUsers = users.filter(u => {
-    const fullName = `${u.first_name || ''} ${u.last_name || ''}`.toLowerCase();
-    const matchesSearch = 
-      fullName.includes(searchTerm.toLowerCase()) || 
-      u.email.toLowerCase().includes(searchTerm.toLowerCase());
-    
+    const fullName = (u.full_name || `${u.first_name || ''} ${u.last_name || ''}`).toLowerCase();
+    const term = searchTerm.toLowerCase();
+    const matchesSearch = fullName.includes(term) || u.email.toLowerCase().includes(term);
     const matchesRole = roleFilter === 'ALL' || u.role === roleFilter;
-    return matchesSearch && matchesRole;
+    const matchesStatus = statusFilter === 'ALL' || String(u.is_active) === statusFilter;
+    return matchesSearch && matchesRole && matchesStatus;
   });
 
   const getRoleColor = (role: string) => {
@@ -86,6 +86,7 @@ export default function ManagerUsersPage() {
       case ROLES.GERENTE: return 'bg-blue-100 text-blue-800 border-blue-200';
       case ROLES.OPERADOR: return 'bg-orange-100 text-orange-800 border-orange-200';
       case ROLES.REPARTIDOR: return 'bg-green-100 text-green-800 border-green-200';
+      case ROLES.CLIENTE: return 'bg-slate-100 text-slate-800 border-slate-200';
       default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
@@ -177,6 +178,19 @@ export default function ManagerUsersPage() {
                   <option value={ROLES.GERENTE}>Gerentes</option>
                   <option value={ROLES.OPERADOR}>Operadores</option>
                   <option value={ROLES.REPARTIDOR}>Repartidores</option>
+                  <option value={ROLES.CLIENTE}>Clientes</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="flex-1 md:flex-none px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
+                  disabled={isLoading}
+                >
+                  <option value="ALL">Todos los estados</option>
+                  <option value="true">Activos</option>
+                  <option value="false">Inactivos</option>
                 </select>
               </div>
             </div>
@@ -203,7 +217,7 @@ export default function ManagerUsersPage() {
             <CardContent className="py-16 text-center text-gray-500">
               <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
               <p>No se encontraron usuarios con los filtros actuales.</p>
-              <Button variant="link" onClick={() => {setSearchTerm(''); setRoleFilter('ALL');}} className="mt-2">
+              <Button variant="link" onClick={() => {setSearchTerm(''); setRoleFilter('ALL'); setStatusFilter('ALL');}} className="mt-2">
                 Limpiar filtros
               </Button>
             </CardContent>
@@ -225,11 +239,11 @@ export default function ManagerUsersPage() {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-white flex items-center justify-center font-bold text-sm shadow-sm">
-                          {(u.first_name || 'U')[0]}{(u.last_name || 'S')[0]}
+                          {(u.first_name || u.full_name || 'U')[0]}{(u.last_name || 'S')[0]}
                         </div>
                         <div>
                           <p className="font-bold text-gray-900">
-                            {u.first_name || ''} {u.last_name || ''}
+                            {u.full_name || `${u.first_name || ''} ${u.last_name || ''}`}
                           </p>
                           <p className="text-xs text-gray-500 flex items-center gap-1">
                             <Mail className="w-3 h-3" /> {u.email}
