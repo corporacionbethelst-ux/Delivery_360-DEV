@@ -24,6 +24,7 @@ class PayoutRequestBody(BaseModel):
     method: PayoutMethod = PayoutMethod.TRANSFERENCIA
     bank_account_last4: Optional[str] = Field(None, max_length=10)
     idempotency_key: Optional[str] = Field(None, max_length=100)
+    idempotency_key: Optional[str] = Field(None, max_length=100)
 
 
 class PayoutRejectBody(BaseModel):
@@ -74,6 +75,7 @@ def _serialize_payout(payout: Payout):
         "payment_method": _enum_value(payout.method),
         "requested_at": requested_at,
         "created_at": requested_at,
+        "updated_at": updated_at,
         "updated_at": updated_at,
         "processed_at": processed_at,
         "bank_account_last4": payout.bank_account_last4,
@@ -224,6 +226,8 @@ async def request_payout(
     current_user: User = Depends(get_current_user),
 ):
     """Solicitar un nuevo retiro con payload JSON real e idempotencia opcional."""
+    """Solicitar un nuevo retiro con payload JSON real e idempotencia opcional."""
+
     if current_user.role != UserRole.REPARTIDOR:
         raise HTTPException(status_code=403, detail="Solo repartidores pueden solicitar retiros")
 
@@ -252,6 +256,31 @@ async def request_payout(
         )
 
     if requested_amount < Decimal("10.00"):
+    idempotency_key = body.idempotency_key.strip() if body.idempotency_key else None
+
+    if idempotency_key:
+        existing_result = await db.execute(
+            select(Payout).where(
+                Payout.rider_id == rider.id,
+                Payout.idempotency_key == idempotency_key,
+            )
+        )
+        existing_payout = existing_result.scalar_one_or_none()
+        if existing_payout:
+            return _serialize_payout(existing_payout)
+
+    balance = await _calculate_available_balance(db, rider.id)
+    requested_amount = _money(body.amount)
+    available = _money(balance["available"])
+
+    if requested_amount > available:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Saldo insuficiente. Disponible: {available:.2f}",
+        )
+
+    if requested_amount < Decimal("10.00"):
+
         raise HTTPException(status_code=400, detail="El monto mínimo de retiro es 10.00")
 
     balance_after = available - requested_amount
@@ -265,6 +294,7 @@ async def request_payout(
         balance_after=balance_after,
         requested_by_user_id=current_user.id,
         idempotency_key=idempotency_key,
+
     )
 
     db.add(payout)
@@ -349,6 +379,9 @@ async def approve_payout(
     """Aprobar un retiro y registrar salida contable de forma atómica."""
     payout_uuid = _parse_uuid(payout_id)
     result = await db.execute(select(Payout).where(Payout.id == payout_uuid).with_for_update())
+    """Aprobar un retiro y registrar salida contable de forma atómica."""
+    payout_uuid = _parse_uuid(payout_id)
+    result = await db.execute(select(Payout).where(Payout.id == payout_uuid).with_for_update())
     payout = result.scalar_one_or_none()
     if not payout:
         raise HTTPException(status_code=404, detail="Retiro no encontrado")
@@ -415,10 +448,14 @@ async def reject_payout(
     current_user: User = Depends(require_role(UserRole.GERENTE, UserRole.SUPERADMIN)),
 ):
     """Rechazar un retiro pendiente con motivo enviado en JSON y liberar reserva de saldo."""
+    """Rechazar un retiro pendiente con motivo enviado en JSON y liberar reserva de saldo."""
+
     reason = (body.rejection_reason or body.reason or "").strip()
     if not reason:
         raise HTTPException(status_code=400, detail="Motivo de rechazo requerido")
 
+    payout_uuid = _parse_uuid(payout_id)
+    result = await db.execute(select(Payout).where(Payout.id == payout_uuid).with_for_update())
     payout_uuid = _parse_uuid(payout_id)
     result = await db.execute(select(Payout).where(Payout.id == payout_uuid).with_for_update())
     payout = result.scalar_one_or_none()
