@@ -409,18 +409,28 @@ def upgrade() -> None:
     sa.Column('shift_id', sa.UUID(), nullable=True),
     sa.Column('transaction_type', sa.Enum('PAGO_ENTREGA', 'BONO', 'DESCUENTO', 'AJUSTE', 'RETIRO', name='transactiontype'), nullable=False),
     sa.Column('amount', sa.Numeric(precision=10, scale=2), nullable=False),
+    sa.Column('balance_before', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('balance_after', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('status', sa.Enum('PENDIENTE', 'PROCESADO', 'PAGADO', 'RECHAZADO', name='paymentstatus'), nullable=True),
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('reference_id', sa.String(length=100), nullable=True),
+    sa.Column('source_type', sa.String(length=50), nullable=True),
+    sa.Column('source_id', sa.String(length=100), nullable=True),
+    sa.Column('idempotency_key', sa.String(length=100), nullable=True),
+    sa.Column('created_by_user_id', sa.UUID(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
+    sa.ForeignKeyConstraint(['created_by_user_id'], ['users.id'], ),
     sa.ForeignKeyConstraint(['rider_id'], ['riders.id'], ),
     sa.ForeignKeyConstraint(['shift_id'], ['shifts.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_financials_created_by_user_id'), 'financials', ['created_by_user_id'], unique=False)
     op.create_index(op.f('ix_financials_id'), 'financials', ['id'], unique=False)
+    op.create_index(op.f('ix_financials_idempotency_key'), 'financials', ['idempotency_key'], unique=True)
     op.create_index(op.f('ix_financials_rider_id'), 'financials', ['rider_id'], unique=False)
+    op.create_index(op.f('ix_financials_source_id'), 'financials', ['source_id'], unique=False)
+    op.create_index(op.f('ix_financials_source_type'), 'financials', ['source_type'], unique=False)
     op.create_index(op.f('ix_financials_shift_id'), 'financials', ['shift_id'], unique=False)
 
     # 13. PRODUCTIVITY_RECORDS
@@ -565,13 +575,44 @@ def upgrade() -> None:
     sa.Column('bank_account_last4', sa.String(length=10), nullable=True),
     sa.Column('reference_code', sa.String(length=50), nullable=True),
     sa.Column('rejection_reason', sa.Text(), nullable=True),
+    sa.Column('idempotency_key', sa.String(length=100), nullable=True),
+    sa.Column('balance_before', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('balance_after', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('requested_by_user_id', sa.UUID(), nullable=True),
+    sa.Column('processed_by_user_id', sa.UUID(), nullable=True),
     sa.Column('requested_at', sa.DateTime(), nullable=True),
     sa.Column('processed_at', sa.DateTime(), nullable=True),
+    sa.Column('updated_at', sa.DateTime(), nullable=True),
+    sa.ForeignKeyConstraint(['processed_by_user_id'], ['users.id'], ),
+    sa.ForeignKeyConstraint(['requested_by_user_id'], ['users.id'], ),
     sa.ForeignKeyConstraint(['rider_id'], ['riders.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_payouts_id'), 'payouts', ['id'], unique=False)
+    op.create_index(op.f('ix_payouts_idempotency_key'), 'payouts', ['idempotency_key'], unique=True)
+    op.create_index(op.f('ix_payouts_processed_by_user_id'), 'payouts', ['processed_by_user_id'], unique=False)
+    op.create_index(op.f('ix_payouts_requested_by_user_id'), 'payouts', ['requested_by_user_id'], unique=False)
     op.create_index(op.f('ix_payouts_rider_id'), 'payouts', ['rider_id'], unique=False)
+
+    # 18.1 PAYOUT STATUS HISTORY
+    op.create_table('payout_status_history',
+    sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
+    sa.Column('payout_id', sa.UUID(), nullable=False),
+    sa.Column('old_status', sa.String(length=30), nullable=True),
+    sa.Column('new_status', sa.String(length=30), nullable=False),
+    sa.Column('reason', sa.Text(), nullable=True),
+    sa.Column('changed_by_user_id', sa.UUID(), nullable=True),
+    sa.Column('balance_before', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('balance_after', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=True),
+    sa.ForeignKeyConstraint(['changed_by_user_id'], ['users.id'], ),
+    sa.ForeignKeyConstraint(['payout_id'], ['payouts.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_payout_status_history_changed_by_user_id'), 'payout_status_history', ['changed_by_user_id'], unique=False)
+    op.create_index(op.f('ix_payout_status_history_created_at'), 'payout_status_history', ['created_at'], unique=False)
+    op.create_index(op.f('ix_payout_status_history_payout_id'), 'payout_status_history', ['payout_id'], unique=False)
+    op.create_index('idx_payout_status_history_payout_date', 'payout_status_history', ['payout_id', 'created_at'], unique=False)
 
     # ==========================================
     # 19. VEHICLES (NUEVA TABLA AGREGADA)
@@ -617,8 +658,18 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_vehicles_id'), table_name='vehicles')
     op.drop_table('vehicles')
 
+    # 18.1 PAYOUT STATUS HISTORY
+    op.drop_index('idx_payout_status_history_payout_date', table_name='payout_status_history')
+    op.drop_index(op.f('ix_payout_status_history_payout_id'), table_name='payout_status_history')
+    op.drop_index(op.f('ix_payout_status_history_created_at'), table_name='payout_status_history')
+    op.drop_index(op.f('ix_payout_status_history_changed_by_user_id'), table_name='payout_status_history')
+    op.drop_table('payout_status_history')
+
     # 18. PAYOUTS
     op.drop_index(op.f('ix_payouts_rider_id'), table_name='payouts')
+    op.drop_index(op.f('ix_payouts_requested_by_user_id'), table_name='payouts')
+    op.drop_index(op.f('ix_payouts_processed_by_user_id'), table_name='payouts')
+    op.drop_index(op.f('ix_payouts_idempotency_key'), table_name='payouts')
     op.drop_index(op.f('ix_payouts_id'), table_name='payouts')
     op.drop_table('payouts')
 
@@ -651,8 +702,12 @@ def downgrade() -> None:
 
     # 12. FINANCIALS
     op.drop_index(op.f('ix_financials_shift_id'), table_name='financials')
+    op.drop_index(op.f('ix_financials_source_type'), table_name='financials')
+    op.drop_index(op.f('ix_financials_source_id'), table_name='financials')
     op.drop_index(op.f('ix_financials_rider_id'), table_name='financials')
+    op.drop_index(op.f('ix_financials_idempotency_key'), table_name='financials')
     op.drop_index(op.f('ix_financials_id'), table_name='financials')
+    op.drop_index(op.f('ix_financials_created_by_user_id'), table_name='financials')
     op.drop_table('financials')
 
     # 11. DELIVERIES

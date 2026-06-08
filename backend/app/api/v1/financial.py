@@ -4,6 +4,7 @@ from sqlalchemy import select, func, case
 from sqlalchemy.orm import selectinload
 from typing import Optional
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from app.core.database import get_db
 from app.models.financial import Financial, TransactionType, PaymentStatus
@@ -73,6 +74,43 @@ async def get_my_earnings(
         "total_earned": total_earned,
         "completed_deliveries": completed_deliveries,
         "pending_payout": max(0, pending_payout) # Evitar negativos
+    }
+
+
+@router.get("/riders/me/earnings")
+async def get_my_earnings_breakdown(
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    transaction_type: Optional[TransactionType] = Query(None, alias="type"),
+    date_from: Optional[str] = Query(None, description="Fecha inicial ISO"),
+    date_to: Optional[str] = Query(None, description="Fecha final ISO"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Desglose auditable de ganancias, bonos, descuentos y retiros del rider autenticado."""
+    if current_user.role != UserRole.REPARTIDOR:
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+
+    rider_result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
+    rider = rider_result.scalar_one_or_none()
+    if not rider:
+        raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
+
+    stmt = select(Financial).where(Financial.rider_id == rider.id)
+
+    if transaction_type:
+        stmt = stmt.where(Financial.transaction_type == transaction_type)
+    if date_from:
+        stmt = stmt.where(Financial.created_at >= _parse_datetime_param(date_from, "date_from"))
+    if date_to:
+        stmt = stmt.where(Financial.created_at <= _parse_datetime_param(date_to, "date_to"))
+
+    stmt = stmt.order_by(Financial.created_at.desc()).offset(offset).limit(limit)
+    result = await db.execute(stmt)
+
+    return {
+        "rider_id": str(rider.id),
+        "items": [_serialize_transaction(transaction) for transaction in result.scalars().all()],
     }
 
 @router.get("/summary")

@@ -108,7 +108,7 @@ export default function ReportsPage() {
         </div>
 
         {/* Tarjetas de Estadísticas Rápidas */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Ingresos por Entrega</CardTitle>
@@ -140,6 +140,46 @@ export default function ReportsPage() {
             </CardContent>
           </Card>
         </div>
+
+
+        <Card className="mb-8 border-t-4 border-t-emerald-500">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-emerald-600" /> Conciliación Financiera
+            </CardTitle>
+            <CardDescription>
+              Cruce de ingresos reales, obligaciones rider, retiros pendientes/procesados y margen operativo.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              <div className="bg-emerald-50 p-3 rounded border border-emerald-100">
+                <span className="block text-emerald-700 font-semibold">Ganancias riders</span>
+                <span className="text-lg font-bold text-emerald-900">{formatCurrency(reconciliation?.rider_earnings || 0)}</span>
+              </div>
+              <div className="bg-yellow-50 p-3 rounded border border-yellow-100">
+                <span className="block text-yellow-700 font-semibold">Retiros pendientes</span>
+                <span className="text-lg font-bold text-yellow-900">{formatCurrency(stats.pendingPayouts)}</span>
+              </div>
+              <div className="bg-blue-50 p-3 rounded border border-blue-100">
+                <span className="block text-blue-700 font-semibold">Retiros procesados</span>
+                <span className="text-lg font-bold text-blue-900">{formatCurrency(reconciliation?.processed_payouts || 0)}</span>
+              </div>
+              <div className="bg-gray-50 p-3 rounded border">
+                <span className="block text-gray-700 font-semibold">Pasivo disponible</span>
+                <span className="text-lg font-bold text-gray-900">{formatCurrency(reconciliation?.available_liability || 0)}</span>
+              </div>
+              <div className="bg-gray-50 p-3 rounded border">
+                <span className="block text-gray-700 font-semibold">Transacciones ledger</span>
+                <span className="text-lg font-bold text-gray-900">{reconciliation?.ledger_transactions || 0}</span>
+              </div>
+              <div className="bg-gray-50 p-3 rounded border">
+                <span className="block text-gray-700 font-semibold">Solicitudes payout</span>
+                <span className="text-lg font-bold text-gray-900">{reconciliation?.payout_count || 0}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Sección de Exportación */}
         <Card>

@@ -8,7 +8,7 @@ import uuid
 import logging
 
 from app.core.database import get_db
-from app.models.payout import Payout, PayoutStatus, PayoutMethod
+from app.models.payout import Payout, PayoutStatus, PayoutMethod, PayoutStatusHistory
 from app.models.financial import Financial, TransactionType, PaymentStatus
 from app.models.rider import Rider
 from app.models.user import User, UserRole
@@ -185,6 +185,7 @@ async def request_payout(
     if body.amount < 10:
         raise HTTPException(status_code=400, detail="El monto mínimo de retiro es 10.00")
 
+    balance_after = available - requested_amount
     payout = Payout(
         rider_id=rider.id,
         amount=Decimal(str(body.amount)),
@@ -194,6 +195,17 @@ async def request_payout(
     )
 
     db.add(payout)
+    await db.flush()
+    _add_status_history(
+        db,
+        payout,
+        None,
+        PayoutStatus.PENDIENTE,
+        current_user,
+        "Solicitud de retiro creada",
+        available,
+        balance_after,
+    )
     await db.commit()
     await db.refresh(payout)
 
@@ -247,13 +259,25 @@ async def approve_payout(
 
     transaction = Financial(
         rider_id=payout.rider_id,
-        amount=payout.amount,
+        amount=payout_amount,
+        balance_before=balance_before,
+        balance_after=balance_after,
         transaction_type=TransactionType.RETIRO,
         description=f"Retiro aprobado: {payout.reference_code}",
         reference_id=str(payout.id),
         status=PaymentStatus.PROCESADO,
     )
     db.add(transaction)
+    _add_status_history(
+        db,
+        payout,
+        old_status,
+        PayoutStatus.PROCESADO,
+        current_user,
+        f"Retiro aprobado: {payout.reference_code}",
+        balance_before,
+        balance_after,
+    )
     await db.commit()
     await db.refresh(payout)
 
@@ -283,7 +307,21 @@ async def reject_payout(
     payout.status = PayoutStatus.RECHAZADO
     payout.rejection_reason = reason
     payout.processed_at = utc_now_naive()
+    payout.updated_at = payout.processed_at
+    payout.processed_by_user_id = current_user.id
+    payout.balance_before = balance_before
+    payout.balance_after = balance_after
 
+    _add_status_history(
+        db,
+        payout,
+        old_status,
+        PayoutStatus.RECHAZADO,
+        current_user,
+        reason,
+        balance_before,
+        balance_after,
+    )
     await db.commit()
     await db.refresh(payout)
     return _serialize_payout(payout)

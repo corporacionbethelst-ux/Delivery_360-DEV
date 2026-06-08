@@ -21,7 +21,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { payoutService, Payout, PayoutStatus } from '@/services/payout.service';
+import { payoutService, Payout, PayoutStatus, PayoutStatusHistory } from '@/services/payout.service';
 import { formatCurrency } from '@/lib/formatters';
 
 const getErrorMessage = (error: unknown, fallback: string): string =>
@@ -44,6 +44,7 @@ export default function PayoutDetailPage() {
   const router = useRouter();
   const params = useParams();
   const [payout, setPayout] = useState<Payout | null>(null);
+  const [history, setHistory] = useState<PayoutStatusHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

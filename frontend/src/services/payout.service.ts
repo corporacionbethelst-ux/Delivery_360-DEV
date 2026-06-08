@@ -35,6 +35,19 @@ export interface PayoutRequestInput {
   method: PayoutMethod;
   bank_account_last4?: string;
   bank_account_id?: string;
+  idempotency_key?: string;
+}
+
+export interface PayoutStatusHistory {
+  id: string;
+  payout_id: string;
+  old_status?: PayoutStatus | null;
+  new_status: PayoutStatus;
+  reason?: string | null;
+  changed_by_user_id?: string | null;
+  balance_before?: number | null;
+  balance_after?: number | null;
+  created_at?: string | null;
 }
 
 export interface PayoutBalance {

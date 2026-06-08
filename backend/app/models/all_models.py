@@ -10,6 +10,7 @@ from app.models.vehicle import Vehicle  # ✅ AÑADIDO: Vehicle debe importarse 
 from app.models.zone import Zone
 from app.models.order import Order
 from app.models.delivery import Delivery, DeliveryStatus, ProofType
+from app.models.payout import Payout, PayoutStatus, PayoutMethod, PayoutStatusHistory
 from app.models.route import Route, RoutePoint, RouteDeviation, RouteStatus
 
 # Importaciones condicionales para modelos opcionales
@@ -63,6 +64,7 @@ __all__ = [
     "Zone",
     "Order",
     "Delivery", "DeliveryStatus", "ProofType",
+    "Payout", "PayoutStatus", "PayoutMethod", "PayoutStatusHistory",
     "Route", "RoutePoint", "RouteDeviation", "RouteStatus",
     # Opcionales (solo si se importaron)
     "Shift", "ShiftStatus", "CheckInOut",

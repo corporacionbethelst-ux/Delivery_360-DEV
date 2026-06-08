@@ -174,11 +174,54 @@ export const financialService = {
     }
   },
 
+
+  /**
+   * Obtener reporte real de órdenes para estadísticas y exportación CSV.
+   */
+  getOrdersReport: async (params?: FinancialReportParams): Promise<FinancialOrdersReport> => {
+    const queryParams = new URLSearchParams();
+
+    if (params?.date_from) queryParams.append('date_from', params.date_from);
+    if (params?.date_to) queryParams.append('date_to', params.date_to);
+    if (params?.limit) queryParams.append('limit', String(Math.min(Math.max(Math.trunc(params.limit), 1), 5000)));
+    if (Number.isFinite(params?.offset) && Number(params?.offset) >= 0) {
+      queryParams.append('offset', String(Math.trunc(Number(params?.offset))));
+    }
+
+    const query = queryParams.toString() ? `?${queryParams}` : '';
+
+    try {
+      return await api.get<FinancialOrdersReport>(`/financial/reports/orders${query}`);
+    } catch (error) {
+      console.error('[FinancialService] Error fetching orders report:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Obtener conciliación financiera real para gerencia.
+   */
+  getReconciliation: async (params?: FinancialReportParams): Promise<FinancialReconciliation> => {
+    const queryParams = new URLSearchParams();
+    if (params?.date_from) queryParams.append('date_from', params.date_from);
+    if (params?.date_to) queryParams.append('date_to', params.date_to);
+
+    const query = queryParams.toString() ? `?${queryParams}` : '';
+
+    try {
+      return await api.get<FinancialReconciliation>(`/financial/reconciliation${query}`);
+    } catch (error) {
+      console.error('[FinancialService] Error fetching reconciliation:', error);
+      throw error;
+    }
+  },
+
+
   /**
    * Obtener historial de transacciones/pagos.
    * NUEVO MÉTODO: Útil para la página de historial.
    */
-  getTransactions: async (limit: number = 20): Promise<any[]> => {
+  getTransactions: async (limit: number = 20): Promise<FinancialTransaction[]> => {
     try {
       return await api.get(`/financial/transactions?limit=${limit}`);
     } catch (error) {
