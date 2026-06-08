@@ -8,8 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { 
-  ArrowLeft, Wallet, DollarSign, Calendar, User, Banknote, 
+import {
+  ArrowLeft, Wallet, DollarSign, Calendar, User, Banknote,
   AlertCircle, CheckCircle, Loader2, ShieldCheck, XCircle, AlertTriangle
 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -21,8 +21,11 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { payoutService, Payout, PayoutStatus } from '@/services/payout.service';
+import { payoutService, Payout, PayoutStatus, PayoutStatusHistory } from '@/services/payout.service';
 import { formatCurrency } from '@/lib/formatters';
+
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
 
 const STATUS_COLORS: Record<PayoutStatus, string> = {
   PENDIENTE: 'bg-yellow-100 text-yellow-800 border-yellow-200',
@@ -41,9 +44,10 @@ export default function PayoutDetailPage() {
   const router = useRouter();
   const params = useParams();
   const [payout, setPayout] = useState<Payout | null>(null);
+  const [history, setHistory] = useState<PayoutStatusHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Estados para acciones de admin
   const [actionLoading, setActionLoading] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
@@ -58,27 +62,18 @@ export default function PayoutDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await payoutService.getById(params.id as string); // Asumiendo que existe getById o similar
-      // Nota: Si tu servicio no tiene getById, usa getAll y filtra, o créalo en el servicio.
-      // Para este ejemplo, asumiremos que el servicio lo devuelve o simulamos la estructura si falla.
+      const payoutId = params.id as string;
+      const [data, historyData] = await Promise.all([
+        payoutService.getById(payoutId),
+        payoutService.getHistory(payoutId),
+      ]);
       setPayout(data);
-    } catch (err: any) {
-      // Fallback simulado si el servicio no tiene getById implementado aún en tu backend
-      console.warn('GetById no disponible, usando mock para demo:', err);
-      // En producción: setError(err.message); return;
-      
-      // Mock temporal para visualización si el endpoint falla
-      const mockData: Payout = {
-        id: params.id as string,
-        rider_id: 'rider-123',
-        amount: 150000,
-        status: 'PENDIENTE',
-        method: 'TRANSFERENCIA',
-        requested_at: new Date().toISOString(),
-        bank_account_last4: '4589',
-        reference_code: 'REF-998877'
-      };
-      setPayout(mockData);
+      setHistory(historyData);
+    } catch (err: unknown) {
+      console.error('Error loading payout:', err);
+      setError(getErrorMessage(err, 'No se pudo cargar el retiro solicitado.'));
+      setPayout(null);
+      setHistory([]);
     } finally {
       setLoading(false);
     }
@@ -89,10 +84,9 @@ export default function PayoutDetailPage() {
     setActionLoading(true);
     try {
       await payoutService.approve(payout.id);
-      alert('Pago aprobado exitosamente');
-      loadPayout();
-    } catch (err: any) {
-      alert('Error al aprobar: ' + err.message);
+      await loadPayout();
+    } catch (err: unknown) {
+      alert('Error al aprobar: ' + getErrorMessage(err, 'Intente nuevamente'));
     } finally {
       setActionLoading(false);
     }
@@ -104,10 +98,10 @@ export default function PayoutDetailPage() {
     try {
       await payoutService.reject(payout.id, rejectReason);
       setShowRejectDialog(false);
-      alert('Pago rechazado correctamente');
-      loadPayout();
-    } catch (err: any) {
-      alert('Error al rechazar: ' + err.message);
+      setRejectReason('');
+      await loadPayout();
+    } catch (err: unknown) {
+      alert('Error al rechazar: ' + getErrorMessage(err, 'Intente nuevamente'));
     } finally {
       setActionLoading(false);
     }
@@ -140,7 +134,7 @@ export default function PayoutDetailPage() {
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-4xl mx-auto space-y-6">
-        
+
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
@@ -166,15 +160,15 @@ export default function PayoutDetailPage() {
               <div>
                 <CardTitle className="text-lg text-gray-600">Solicitud de Retiro</CardTitle>
                 <CardDescription className="flex items-center gap-2 mt-1">
-                  <Calendar className="w-4 h-4" /> 
-                  Solicitado el: {new Date(payout.requested_at).toLocaleDateString('es-ES', { 
-                    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+                  <Calendar className="w-4 h-4" />
+                  Solicitado el: {new Date(payout.requested_at).toLocaleDateString('es-ES', {
+                    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
                   })}
                 </CardDescription>
               </div>
             </div>
           </CardHeader>
-          
+
           <CardContent className="space-y-8">
             {/* Monto y Método */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -184,7 +178,7 @@ export default function PayoutDetailPage() {
                   {formatCurrency(payout.amount)}
                 </span>
               </div>
-              
+
               <div className="space-y-4 p-6 bg-gray-50 rounded-xl border border-gray-100">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-500 flex items-center gap-2"><Banknote className="w-4 h-4" /> Método</span>
@@ -233,7 +227,43 @@ export default function PayoutDetailPage() {
                 <p className="text-red-700 text-sm">{payout.rejection_reason}</p>
               </div>
             )}
-            
+
+
+
+            <div className="pt-4 border-t">
+              <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-600" /> Trazabilidad y Conciliación
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="bg-gray-50 p-4 rounded border">
+                  <p className="text-xs text-gray-500 uppercase font-semibold">Saldo antes</p>
+                  <p className="text-lg font-bold text-gray-900">{formatCurrency(payout.balance_before || 0)}</p>
+                </div>
+                <div className="bg-gray-50 p-4 rounded border">
+                  <p className="text-xs text-gray-500 uppercase font-semibold">Saldo después</p>
+                  <p className="text-lg font-bold text-gray-900">{formatCurrency(payout.balance_after || 0)}</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {history.length === 0 ? (
+                  <p className="text-sm text-gray-500">Sin movimientos de estado registrados todavía.</p>
+                ) : history.map((item) => (
+                  <div key={item.id} className="bg-white border rounded p-3 text-sm flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-gray-900">
+                        {item.old_status || 'Inicio'} → {item.new_status}
+                      </p>
+                      {item.reason && <p className="text-gray-500">{item.reason}</p>}
+                    </div>
+                    <div className="text-xs text-gray-500 md:text-right">
+                      <p>{item.created_at ? new Date(item.created_at).toLocaleString() : 'Fecha no disponible'}</p>
+                      <p>{formatCurrency(item.balance_before || 0)} → {formatCurrency(item.balance_after || 0)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* Fecha de Procesamiento (Si aplica) */}
             {payout.processed_at && (
                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
@@ -250,15 +280,15 @@ export default function PayoutDetailPage() {
           {/* Acciones Administrativas (Solo si está pendiente) */}
           {isPending && (
             <CardFooter className="bg-gray-50 border-t p-6 flex flex-col sm:flex-row gap-4 justify-end">
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 className="w-full sm:w-auto border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
                 onClick={() => setShowRejectDialog(true)}
                 disabled={actionLoading}
               >
                 <XCircle className="w-4 h-4 mr-2" /> Rechazar Pago
               </Button>
-              <Button 
+              <Button
                 className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
                 onClick={handleApprove}
                 disabled={actionLoading}
@@ -284,9 +314,9 @@ export default function PayoutDetailPage() {
           </DialogHeader>
           <div className="py-4">
             <Label htmlFor="reason">Motivo del Rechazo *</Label>
-            <Textarea 
-              id="reason" 
-              value={rejectReason} 
+            <Textarea
+              id="reason"
+              value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               placeholder="Ej: Datos bancarios incorrectos, saldo insuficiente, etc."
               rows={4}
