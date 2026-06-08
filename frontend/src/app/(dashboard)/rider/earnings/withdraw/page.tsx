@@ -3,9 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
-import { payoutService } from '@/services/payout.service';
-import { financialService } from '@/services/financial.service';
-import { ArrowLeft, DollarSign, AlertCircle, CheckCircle, Info, Loader2, Banknote } from 'lucide-react';
+import { payoutService, PayoutBalance } from '@/services/payout.service';
+import { ArrowLeft, AlertCircle, CheckCircle, Info, Loader2, Banknote } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,8 +17,10 @@ export default function WithdrawPage() {
   // ✅ CORRECCIÓN: Obtener datos del store
   const { user, isAuthenticated } = useAuthStore();
   
-  const [available, setAvailable] = useState<number>(0);
+  const [balance, setBalance] = useState<PayoutBalance | null>(null);
   const [amount, setAmount] = useState<string>('');
+  const [bankAccountLast4, setBankAccountLast4] = useState<string>('');
+  const [submittedAmount, setSubmittedAmount] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -47,16 +48,12 @@ export default function WithdrawPage() {
     setLoadingBalance(true);
     setError(null);
     try {
-      // LLAMADA REAL AL BACKEND
-      const data = await financialService.getRiderEarnings();
-      // getRiderEarnings devuelve un array, tomamos el primero o usamos pending_payout
-      const earnings = Array.isArray(data) ? data[0] : data;
-      const balance = Number(earnings?.pending_payout || earnings?.pending_balance || 0);
-      setAvailable(balance);
+      const data = await payoutService.getAvailableBalance();
+      setBalance(data);
     } catch (e) {
       console.error('Error cargando saldo:', e);
       setError('No se pudo cargar tu saldo disponible. Intente nuevamente.');
-      setAvailable(0);
+      setBalance(null);
     } finally {
       setLoadingBalance(false);
     }
@@ -72,6 +69,8 @@ export default function WithdrawPage() {
       setError('Por favor ingresa un monto válido mayor a 0.');
       return;
     }
+    const available = Number(balance?.available ?? 0);
+
     if (numAmount > available) {
       setError('El monto ingresado supera tu saldo disponible.');
       return;
@@ -84,19 +83,21 @@ export default function WithdrawPage() {
     setIsSubmitting(true);
 
     try {
-      // LLAMADA REAL AL BACKEND
-      await payoutService.requestPayout({
+      const payout = await payoutService.requestPayout({
         amount: numAmount,
-        method: 'TRANSFERENCIA'
+        method: 'TRANSFERENCIA',
+        bank_account_last4: bankAccountLast4.trim() || undefined,
       });
 
+      setSubmittedAmount(payout.amount);
       setSuccess(true);
       setAmount('');
-      // Recargar saldo actualizado
-      loadBalance();
-    } catch (err: any) {
+      setBankAccountLast4('');
+      void loadBalance();
+    } catch (err) {
       console.error(err);
-      setError(err.detail || err.message || 'Error al procesar la solicitud. Intente más tarde.');
+      const message = err instanceof Error ? err.message : 'Error al procesar la solicitud. Intente más tarde.';
+      setError(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -123,7 +124,7 @@ export default function WithdrawPage() {
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">¡Solicitud Enviada!</h2>
           <p className="text-gray-600 mb-8 leading-relaxed">
-            Hemos recibido tu solicitud de retiro de <strong className="text-gray-900">{formatCurrency(parseFloat(amount))}</strong>.
+            Hemos recibido tu solicitud de retiro de <strong className="text-gray-900">{formatCurrency(submittedAmount ?? 0)}</strong>.
             <br/>
             El dinero se depositará en tu cuenta registrada en el próximo ciclo de pagos.
           </p>
@@ -134,6 +135,8 @@ export default function WithdrawPage() {
       </div>
     );
   }
+
+  const available = Number(balance?.available ?? 0);
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
@@ -213,11 +216,26 @@ export default function WithdrawPage() {
                     </div>
                     <div>
                       <p className="font-medium text-sm text-gray-900">Transferencia Bancaria</p>
-                      <p className="text-xs text-gray-500">Cuenta registrada **** 4589</p>
+                      <p className="text-xs text-gray-500">Transferencia a cuenta registrada o validada</p>
                     </div>
                   </div>
-                  <Button type="button" variant="link" className="text-xs text-blue-600 font-medium">Cambiar</Button>
+                  <span className="text-xs text-blue-600 font-medium">Backend real</span>
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="bankAccountLast4" className="font-semibold text-gray-700">Últimos 4 dígitos de la cuenta (opcional)</Label>
+                <Input
+                  id="bankAccountLast4"
+                  value={bankAccountLast4}
+                  maxLength={4}
+                  inputMode="numeric"
+                  pattern="[0-9]{4}"
+                  onChange={(e) => setBankAccountLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  placeholder="Ej. 4589"
+                  disabled={isSubmitting}
+                />
+                <p className="text-xs text-gray-500">Este dato viaja al backend para registrar la cuenta destino del retiro.</p>
               </div>
 
               <Button 
