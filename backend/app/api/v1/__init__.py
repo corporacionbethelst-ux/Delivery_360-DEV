@@ -2,6 +2,7 @@ from app.api.v1 import auth
 from app.api.v1 import orders
 from app.api.v1 import riders
 from app.api.v1 import users as users_module
+from app.api.v1 import roles as roles_module
 # 1. Importar módulos reales explícitos
 from app.api.v1 import deliveries as deliveries_module
 from app.api.v1 import alerts as alerts_module
@@ -49,6 +50,7 @@ routes       = _make_module(routes_router,        "routes")
 dashboard    = _make_module(dashboard_router,     "dashboard")
 integrations = _make_module(integrations_router,  "integrations")
 users        = users_module
+roles        = roles_module
 
 # Payouts
 if not hasattr(payouts_module, 'router'):
@@ -71,5 +73,6 @@ __all__ = [
     "routes",
     "dashboard",
     "integrations",
-    "users"
+    "users",
+    "roles"
 ]

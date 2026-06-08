@@ -17,7 +17,7 @@ from app.core.config import settings
 from app.core.database import engine, Base
 from app.core.exception_handlers import register_exception_handlers
 from app.api.v1 import (
-    auth, users, riders, orders, deliveries,
+    auth, users, roles, riders, orders, deliveries,
     shifts, productivity, financial, dashboard,
     routes, alerts, integrations, audit, payouts, 
     vehicles, zones
@@ -99,6 +99,7 @@ def create_app() -> FastAPI:
     # Routers without an internal prefix must be mounted under their resource path.
     # Otherwise their generic /{item_id} routes catch requests like /api/v1/vehicles.
     app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
+    app.include_router(roles.router, prefix="/api/v1", tags=["Roles"])
     app.include_router(riders.router, prefix="/api/v1", tags=["Riders"])
     app.include_router(orders.router, prefix="/api/v1", tags=["Orders"])
     app.include_router(deliveries.router, prefix="/api/v1", tags=["Deliveries"])
