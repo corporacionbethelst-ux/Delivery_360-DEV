@@ -116,23 +116,44 @@ async def get_my_earnings_breakdown(
 @router.get("/summary")
 async def get_financial_summary(
     period: str = Query("today", description="today, week, month"),
+    start_date_filter: Optional[str] = Query(None, alias="start_date", description="Fecha inicial ISO o YYYY-MM-DD"),
+    end_date_filter: Optional[str] = Query(None, alias="end_date", description="Fecha final ISO o YYYY-MM-DD"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.GERENTE, UserRole.SUPERADMIN)),
 ):
-    """Resumen financiero global para gerentes basado en datos reales de BD."""
+    """Resumen financiero global para gerentes basado en datos reales de BD.
+
+    Acepta el filtro legacy `period` y también rangos explícitos `start_date/end_date`,
+    que son los parámetros enviados por el frontend para reportes personalizados.
+    """
     now = datetime.utcnow()
     period = (period or "today").lower().strip()
 
-    if period == "today":
-        start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if start_date_filter:
+        period_start = _parse_report_datetime(start_date_filter, "start_date", end_of_day=False)
+        response_period = "custom"
+    elif period == "today":
+        period_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        response_period = period
     elif period == "week":
-        start_date = (now - timedelta(days=now.weekday())).replace(
+        period_start = (now - timedelta(days=now.weekday())).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
+        response_period = period
     elif period == "month":
-        start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        period_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        response_period = period
     else:
         raise HTTPException(status_code=400, detail="Periodo inválido")
+
+    period_end = (
+        _parse_report_datetime(end_date_filter, "end_date", end_of_day=True)
+        if end_date_filter
+        else now
+    )
+
+    if period_start > period_end:
+        raise HTTPException(status_code=400, detail="start_date no puede ser mayor que end_date")
 
     paid_statuses = ["PAGADO", "PAID", "COMPLETADO", "COMPLETADA", "PROCESADO"]
     order_period_date = func.coalesce(Order.delivered_at, Order.updated_at, Order.created_at, Order.ordered_at)
@@ -144,7 +165,8 @@ async def get_financial_summary(
             func.coalesce(func.sum(Order.total), 0).label("gross_order_value"),
         ).where(
             Order.status == OrderStatus.ENTREGADO,
-            order_period_date >= start_date,
+            order_period_date >= period_start,
+            order_period_date <= period_end,
             func.upper(func.coalesce(Order.payment_status, "")).in_(paid_statuses),
         )
     )
@@ -153,7 +175,7 @@ async def get_financial_summary(
     completed_deliveries = int(revenue_row.completed_deliveries or 0)
     gross_order_value = float(revenue_row.gross_order_value or 0)
 
-    financial_period_filters = [Financial.created_at >= start_date]
+    financial_period_filters = [Financial.created_at >= period_start, Financial.created_at <= period_end]
 
     transactions_result = await db.execute(
         select(func.count(Financial.id)).where(*financial_period_filters)
@@ -190,7 +212,8 @@ async def get_financial_summary(
     payout_period_date = func.coalesce(Payout.processed_at, Payout.requested_at)
     processed_payouts_result = await db.execute(
         select(func.coalesce(func.sum(Payout.amount), 0)).where(
-            payout_period_date >= start_date,
+            payout_period_date >= period_start,
+            payout_period_date <= period_end,
             Payout.status == PayoutStatus.PROCESADO,
         )
     )
@@ -205,9 +228,9 @@ async def get_financial_summary(
     net_margin = total_revenue - total_costs
 
     return {
-        "period": period,
-        "period_start": start_date.isoformat(),
-        "period_end": now.isoformat(),
+        "period": response_period,
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
         "total_revenue": round(total_revenue, 2),
         "gross_order_value": round(gross_order_value, 2),
         "completed_deliveries": completed_deliveries,
@@ -294,7 +317,6 @@ async def get_orders_financial_report(
             _enum_value(status): count for status, count in status_result.all()
         },
         "rows": rows,
-<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
     }
 
 
@@ -399,8 +421,7 @@ async def get_financial_reconciliation(
         "net_margin_after_rider_costs": round(delivery_revenue - total_costs, 2),
         "payout_count": int(payouts.payout_count or 0),
         "currency": "COP",
-=======
->>>>>>> main
+
     }
 
 @router.get("/transactions")
@@ -535,31 +556,25 @@ def _serialize_transaction(transaction: Financial):
     return {
         "id": str(transaction.id),
         "rider_id": str(transaction.rider_id),
-<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
         "amount": _float_money(transaction.amount),
         "balance_before": _float_money(getattr(transaction, "balance_before", 0)),
         "balance_after": _float_money(transaction.balance_after),
-=======
-        "amount": float(transaction.amount or 0),
-        "balance_after": float(transaction.balance_after or 0),
->>>>>>> main
+        "amount": _float_money(transaction.amount),
+        "balance_before": _float_money(getattr(transaction, "balance_before", 0)),
+        "balance_after": _float_money(transaction.balance_after),
         "transaction_type": transaction_type,
         "type": transaction_type,
         "description": transaction.description or "Sin descripción",
         "reference_id": transaction.reference_id,
-<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
         "source_type": getattr(transaction, "source_type", None),
         "source_id": getattr(transaction, "source_id", None),
         "idempotency_key": getattr(transaction, "idempotency_key", None),
         "created_by_user_id": str(transaction.created_by_user_id) if getattr(transaction, "created_by_user_id", None) else None,
-=======
->>>>>>> main
         "status": status,
         "created_at": transaction.created_at.isoformat() if transaction.created_at else None,
         "updated_at": transaction.updated_at.isoformat() if transaction.updated_at else None,
     }
 
-<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
 
 def _money(value) -> Decimal:
     return Decimal(str(value or 0)).quantize(Decimal("0.01"))
@@ -568,8 +583,6 @@ def _money(value) -> Decimal:
 def _float_money(value) -> float:
     return float(_money(value))
 
-=======
->>>>>>> main
 def _enum_value(value):
     return value.value if hasattr(value, "value") else value
 
