@@ -1,6 +1,7 @@
 from app.api.v1 import auth
 from app.api.v1 import orders
 from app.api.v1 import riders
+from app.api.v1 import users as users_module
 # 1. Importar módulos reales explícitos
 from app.api.v1 import deliveries as deliveries_module
 from app.api.v1 import alerts as alerts_module
@@ -15,7 +16,6 @@ from app.api.v1.routers_combined import (
     routes_router,
     dashboard_router,
     integrations_router,
-    users_router,
 )
 
 # 3. Manejo seguro de payouts (si existe)
@@ -48,7 +48,7 @@ productivity = _make_module(productivity_router,  "productivity")
 routes       = _make_module(routes_router,        "routes")
 dashboard    = _make_module(dashboard_router,     "dashboard")
 integrations = _make_module(integrations_router,  "integrations")
-users        = _make_module(users_router,         "users")
+users        = users_module
 
 # Payouts
 if not hasattr(payouts_module, 'router'):
