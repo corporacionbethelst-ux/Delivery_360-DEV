@@ -24,11 +24,6 @@ export interface Payout {
   bank_account_last4?: string | null;
   reference_code?: string | null;
   rejection_reason?: string | null;
-  balance_before?: number | null;
-  balance_after?: number | null;
-  requested_by_user_id?: string | null;
-  processed_by_user_id?: string | null;
-  idempotency_key?: string | null;
   orders_count?: number;
   period?: string | null;
   period_start?: string | null;
@@ -106,11 +101,6 @@ const normalizePayout = (payout: ApiPayout): Payout => {
     bank_account_last4: payout.bank_account_last4 ?? null,
     reference_code: payout.reference_code ?? null,
     rejection_reason: payout.rejection_reason ?? null,
-    balance_before: payout.balance_before ?? null,
-    balance_after: payout.balance_after ?? null,
-    requested_by_user_id: payout.requested_by_user_id ?? null,
-    processed_by_user_id: payout.processed_by_user_id ?? null,
-    idempotency_key: payout.idempotency_key ?? null,
     orders_count: payout.orders_count ?? 0,
     period: payout.period ?? null,
     period_start: payout.period_start ?? null,
@@ -136,14 +126,6 @@ const buildQuery = (params?: Readonly<PayoutFilters>): string => {
   return query ? `?${query}` : '';
 };
 
-const buildIdempotencyKey = (): string => {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
-  }
-
-  return `payout-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-};
-
 export const payoutService = {
   /** Obtener historial real de retiros con filtros opcionales. */
   getAll: async (params?: Readonly<PayoutFilters>): Promise<Payout[]> => {
@@ -166,8 +148,7 @@ export const payoutService = {
     }
 
     try {
-      const payload = { ...data, idempotency_key: data.idempotency_key || buildIdempotencyKey() };
-      const response = await api.post<ApiPayout>('/payouts/request', payload);
+      const response = await api.post<ApiPayout>('/payouts/request', data);
       return normalizePayout(response);
     } catch (error) {
       console.error('[PayoutService] Error requesting payout:', error);
@@ -213,19 +194,6 @@ export const payoutService = {
       return normalizePayout(response);
     } catch (error) {
       console.error(`[PayoutService] Error rejecting payout ${payoutId}:`, error);
-      throw error;
-    }
-  },
-
-  /** Obtener historial auditable de cambios de estado de un retiro. */
-  getHistory: async (id: string): Promise<PayoutStatusHistory[]> => {
-    const payoutId = id?.trim();
-    if (!payoutId) throw new Error('[PayoutService] ID de pago requerido para historial');
-
-    try {
-      return await api.get<PayoutStatusHistory[]>(`/payouts/${payoutId}/history`);
-    } catch (error) {
-      console.error(`[PayoutService] Error fetching payout history ${payoutId}:`, error);
       throw error;
     }
   },
