@@ -294,6 +294,7 @@ async def get_orders_financial_report(
             _enum_value(status): count for status, count in status_result.all()
         },
         "rows": rows,
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
     }
 
 
@@ -398,6 +399,8 @@ async def get_financial_reconciliation(
         "net_margin_after_rider_costs": round(delivery_revenue - total_costs, 2),
         "payout_count": int(payouts.payout_count or 0),
         "currency": "COP",
+=======
+>>>>>>> main
     }
 
 @router.get("/transactions")
@@ -532,22 +535,31 @@ def _serialize_transaction(transaction: Financial):
     return {
         "id": str(transaction.id),
         "rider_id": str(transaction.rider_id),
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
         "amount": _float_money(transaction.amount),
         "balance_before": _float_money(getattr(transaction, "balance_before", 0)),
         "balance_after": _float_money(transaction.balance_after),
+=======
+        "amount": float(transaction.amount or 0),
+        "balance_after": float(transaction.balance_after or 0),
+>>>>>>> main
         "transaction_type": transaction_type,
         "type": transaction_type,
         "description": transaction.description or "Sin descripción",
         "reference_id": transaction.reference_id,
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
         "source_type": getattr(transaction, "source_type", None),
         "source_id": getattr(transaction, "source_id", None),
         "idempotency_key": getattr(transaction, "idempotency_key", None),
         "created_by_user_id": str(transaction.created_by_user_id) if getattr(transaction, "created_by_user_id", None) else None,
+=======
+>>>>>>> main
         "status": status,
         "created_at": transaction.created_at.isoformat() if transaction.created_at else None,
         "updated_at": transaction.updated_at.isoformat() if transaction.updated_at else None,
     }
 
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
 
 def _money(value) -> Decimal:
     return Decimal(str(value or 0)).quantize(Decimal("0.01"))
@@ -556,6 +568,8 @@ def _money(value) -> Decimal:
 def _float_money(value) -> float:
     return float(_money(value))
 
+=======
+>>>>>>> main
 def _enum_value(value):
     return value.value if hasattr(value, "value") else value
 

@@ -23,7 +23,10 @@ class PayoutRequestBody(BaseModel):
     amount: float = Field(..., gt=0)
     method: PayoutMethod = PayoutMethod.TRANSFERENCIA
     bank_account_last4: Optional[str] = Field(None, max_length=10)
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
     idempotency_key: Optional[str] = Field(None, max_length=100)
+=======
+>>>>>>> main
 
 
 class PayoutRejectBody(BaseModel):
@@ -50,6 +53,7 @@ def _enum_value(value):
     return value.value if hasattr(value, "value") else value
 
 
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
 def _money(value) -> Decimal:
     return Decimal(str(value or 0)).quantize(Decimal("0.01"))
 
@@ -63,6 +67,12 @@ def _serialize_payout(payout: Payout):
     requested_at = payout.requested_at.isoformat() if payout.requested_at else None
     processed_at = payout.processed_at.isoformat() if payout.processed_at else None
     updated_at = payout.updated_at.isoformat() if getattr(payout, "updated_at", None) else processed_at or requested_at
+=======
+def _serialize_payout(payout: Payout):
+    amount = float(payout.amount or 0)
+    requested_at = payout.requested_at.isoformat() if payout.requested_at else None
+    processed_at = payout.processed_at.isoformat() if payout.processed_at else None
+>>>>>>> main
 
     return {
         "id": str(payout.id),
@@ -74,16 +84,23 @@ def _serialize_payout(payout: Payout):
         "payment_method": _enum_value(payout.method),
         "requested_at": requested_at,
         "created_at": requested_at,
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
         "updated_at": updated_at,
+=======
+        "updated_at": processed_at or requested_at,
+>>>>>>> main
         "processed_at": processed_at,
         "bank_account_last4": payout.bank_account_last4,
         "reference_code": payout.reference_code,
         "rejection_reason": payout.rejection_reason,
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
         "balance_before": _float_money(payout.balance_before),
         "balance_after": _float_money(payout.balance_after),
         "requested_by_user_id": str(payout.requested_by_user_id) if payout.requested_by_user_id else None,
         "processed_by_user_id": str(payout.processed_by_user_id) if payout.processed_by_user_id else None,
         "idempotency_key": payout.idempotency_key,
+=======
+>>>>>>> main
         "orders_count": 0,
         "period": "Periodo no especificado",
         "period_start": None,
@@ -91,6 +108,7 @@ def _serialize_payout(payout: Payout):
     }
 
 
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
 def _serialize_status_history(row: PayoutStatusHistory):
     return {
         "id": str(row.id),
@@ -106,6 +124,9 @@ def _serialize_status_history(row: PayoutStatusHistory):
 
 
 async def _calculate_available_balance(db: AsyncSession, rider_id, exclude_payout_id=None) -> dict:
+=======
+async def _calculate_available_balance(db: AsyncSession, rider_id) -> dict:
+>>>>>>> main
     earnings_result = await db.execute(
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider_id,
@@ -113,6 +134,7 @@ async def _calculate_available_balance(db: AsyncSession, rider_id, exclude_payou
             Financial.status.in_([PaymentStatus.PROCESADO, PaymentStatus.PAGADO]),
         )
     )
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
     total_earned = _money(earnings_result.scalar())
 
     pending_stmt = select(func.sum(Payout.amount)).where(
@@ -139,10 +161,37 @@ async def _calculate_available_balance(db: AsyncSession, rider_id, exclude_payou
         "pending": _float_money(pending),
         "processed": _float_money(processed),
         "total_earned": _float_money(total_earned),
+=======
+    total_earned = float(earnings_result.scalar() or 0)
+
+    pending_result = await db.execute(
+        select(func.sum(Payout.amount)).where(
+            Payout.rider_id == rider_id,
+            Payout.status == PayoutStatus.PENDIENTE,
+        )
+    )
+    pending = float(pending_result.scalar() or 0)
+
+    processed_result = await db.execute(
+        select(func.sum(Payout.amount)).where(
+            Payout.rider_id == rider_id,
+            Payout.status == PayoutStatus.PROCESADO,
+        )
+    )
+    processed = float(processed_result.scalar() or 0)
+
+    available = max(0, total_earned - pending - processed)
+    return {
+        "available": round(available, 2),
+        "pending": round(pending, 2),
+        "processed": round(processed, 2),
+        "total_earned": round(total_earned, 2),
+>>>>>>> main
         "currency": "COP",
     }
 
 
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
 def _add_status_history(
     db: AsyncSession,
     payout: Payout,
@@ -166,6 +215,8 @@ def _add_status_history(
     )
 
 
+=======
+>>>>>>> main
 @router.get("")
 @router.get("/")
 async def list_payouts(
@@ -223,11 +274,16 @@ async def request_payout(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
     """Solicitar un nuevo retiro con payload JSON real e idempotencia opcional."""
+=======
+    """Solicitar un nuevo retiro con payload JSON real."""
+>>>>>>> main
     if current_user.role != UserRole.REPARTIDOR:
         raise HTTPException(status_code=403, detail="Solo repartidores pueden solicitar retiros")
 
     rider = await _get_rider_from_user(db, current_user)
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
     idempotency_key = body.idempotency_key.strip() if body.idempotency_key else None
 
     if idempotency_key:
@@ -252,11 +308,23 @@ async def request_payout(
         )
 
     if requested_amount < Decimal("10.00"):
+=======
+    balance = await _calculate_available_balance(db, rider.id)
+
+    if body.amount > balance["available"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Saldo insuficiente. Disponible: {balance['available']:.2f}",
+        )
+
+    if body.amount < 10:
+>>>>>>> main
         raise HTTPException(status_code=400, detail="El monto mínimo de retiro es 10.00")
 
     balance_after = available - requested_amount
     payout = Payout(
         rider_id=rider.id,
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
         amount=requested_amount,
         method=body.method,
         bank_account_last4=body.bank_account_last4,
@@ -265,6 +333,12 @@ async def request_payout(
         balance_after=balance_after,
         requested_by_user_id=current_user.id,
         idempotency_key=idempotency_key,
+=======
+        amount=Decimal(str(body.amount)),
+        method=body.method,
+        bank_account_last4=body.bank_account_last4,
+        status=PayoutStatus.PENDIENTE,
+>>>>>>> main
     )
 
     db.add(payout)
@@ -310,6 +384,7 @@ async def get_payout(
 
     return _serialize_payout(payout)
 
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
 
 @router.get("/{payout_id}/history")
 async def get_payout_history(
@@ -339,6 +414,8 @@ async def get_payout_history(
     )
     return [_serialize_status_history(row) for row in history_result.scalars().all()]
 
+=======
+>>>>>>> main
 
 @router.patch("/{payout_id}/approve")
 async def approve_payout(
@@ -346,9 +423,14 @@ async def approve_payout(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.GERENTE, UserRole.SUPERADMIN)),
 ):
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
     """Aprobar un retiro y registrar salida contable de forma atómica."""
     payout_uuid = _parse_uuid(payout_id)
     result = await db.execute(select(Payout).where(Payout.id == payout_uuid).with_for_update())
+=======
+    """Aprobar un retiro y registrar la transacción financiera de salida."""
+    result = await db.execute(select(Payout).where(Payout.id == _parse_uuid(payout_id)))
+>>>>>>> main
     payout = result.scalar_one_or_none()
     if not payout:
         raise HTTPException(status_code=404, detail="Retiro no encontrado")
@@ -356,6 +438,7 @@ async def approve_payout(
     if payout.status != PayoutStatus.PENDIENTE:
         raise HTTPException(status_code=400, detail="Solo se pueden aprobar retiros pendientes")
 
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
     balance_before_data = await _calculate_available_balance(db, payout.rider_id, exclude_payout_id=payout.id)
     balance_before = _money(balance_before_data["available"])
     payout_amount = _money(payout.amount)
@@ -374,6 +457,10 @@ async def approve_payout(
     payout.processed_by_user_id = current_user.id
     payout.balance_before = balance_before
     payout.balance_after = balance_after
+=======
+    payout.status = PayoutStatus.PROCESADO
+    payout.processed_at = utc_now_naive()
+>>>>>>> main
     payout.reference_code = f"PAY-{payout.processed_at.strftime('%Y%m%d')}-{str(payout.id)[:8].upper()}"
 
     transaction = Financial(
@@ -384,10 +471,13 @@ async def approve_payout(
         transaction_type=TransactionType.RETIRO,
         description=f"Retiro aprobado: {payout.reference_code}",
         reference_id=str(payout.id),
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
         source_type="PAYOUT",
         source_id=str(payout.id),
         idempotency_key=f"payout-approve-{payout.id}",
         created_by_user_id=current_user.id,
+=======
+>>>>>>> main
         status=PaymentStatus.PROCESADO,
     )
     db.add(transaction)
@@ -414,13 +504,21 @@ async def reject_payout(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.GERENTE, UserRole.SUPERADMIN)),
 ):
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
     """Rechazar un retiro pendiente con motivo enviado en JSON y liberar reserva de saldo."""
+=======
+    """Rechazar un retiro pendiente con motivo enviado en JSON."""
+>>>>>>> main
     reason = (body.rejection_reason or body.reason or "").strip()
     if not reason:
         raise HTTPException(status_code=400, detail="Motivo de rechazo requerido")
 
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
     payout_uuid = _parse_uuid(payout_id)
     result = await db.execute(select(Payout).where(Payout.id == payout_uuid).with_for_update())
+=======
+    result = await db.execute(select(Payout).where(Payout.id == _parse_uuid(payout_id)))
+>>>>>>> main
     payout = result.scalar_one_or_none()
     if not payout:
         raise HTTPException(status_code=404, detail="Retiro no encontrado")
@@ -428,11 +526,14 @@ async def reject_payout(
     if payout.status != PayoutStatus.PENDIENTE:
         raise HTTPException(status_code=400, detail="Solo se pueden rechazar retiros pendientes")
 
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
     balance_before_data = await _calculate_available_balance(db, payout.rider_id)
     balance_before = _money(balance_before_data["available"])
     balance_after = balance_before + _money(payout.amount)
     old_status = payout.status
 
+=======
+>>>>>>> main
     payout.status = PayoutStatus.RECHAZADO
     payout.rejection_reason = reason
     payout.processed_at = utc_now_naive()
@@ -453,5 +554,8 @@ async def reject_payout(
     )
     await db.commit()
     await db.refresh(payout)
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
 
+=======
+>>>>>>> main
     return _serialize_payout(payout)
