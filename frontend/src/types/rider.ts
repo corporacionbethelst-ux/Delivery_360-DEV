@@ -1,3 +1,4 @@
+import type { Rider as UserRider } from './user';
 // Tipos TypeScript para Riders - Delivery360
 
 export type RiderStatus = 'PENDIENTE' | 'ACTIVO' | 'INACTIVO' | 'SUSPENDIDO';
@@ -157,4 +158,14 @@ export interface ShiftFilters {
   isActive?: boolean;
   dateFrom?: Date;
   dateTo?: Date;
+}
+
+// Compatibilidad: componentes legacy usan camelCase mientras el backend devuelve snake_case.
+export interface Rider extends UserRider {
+  status: NonNullable<UserRider['status']>;
+  fullName?: string;
+  isOnline?: boolean;
+  operatingZone?: string;
+  vehicle?: Partial<RiderVehicle>;
+  stats?: Partial<RiderStats>;
 }
