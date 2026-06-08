@@ -55,8 +55,8 @@ export default function NewUserPage() {
       setError('Email inválido.');
       return;
     }
-    if (formData.password.length < 6) {
-      setError('La contraseña debe tener al menos 6 caracteres.');
+    if (formData.password.length < 8) {
+      setError('La contraseña debe tener al menos 8 caracteres.');
       return;
     }
     if (formData.password !== formData.confirm) {
@@ -157,6 +157,8 @@ export default function NewUserPage() {
                   <SelectItem value="SUPERADMIN">Super Admin</SelectItem>
                   <SelectItem value="GERENTE">Gerente</SelectItem>
                   <SelectItem value="OPERADOR">Operador</SelectItem>
+                  <SelectItem value="REPARTIDOR">Repartidor</SelectItem>
+                  <SelectItem value="CLIENTE">Cliente</SelectItem>
                 </SelectContent>
               </Select>
             </div>

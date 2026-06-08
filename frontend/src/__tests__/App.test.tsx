@@ -191,7 +191,7 @@ describe('Frontend Basic Tests', () => {
       const coord2 = { lat: 34.0522, lng: -118.2437 };
 
       // Fórmula Haversine simplificada para test
-      const calculateDistance = (c1, c2) => {
+      const calculateDistance = (c1: { lat: number; lng: number }, c2: { lat: number; lng: number }) => {
         const R = 6371; // Radio de la Tierra en km
         const dLat = ((c2.lat - c1.lat) * Math.PI) / 180;
         const dLng = ((c2.lng - c1.lng) * Math.PI) / 180;
@@ -218,7 +218,7 @@ describe('Frontend Basic Tests', () => {
       try {
         throw mockNetworkError;
       } catch (error) {
-        expect(error.message).toBe('Network Error');
+        expect((error as Error).message).toBe('Network Error');
       }
     });
 

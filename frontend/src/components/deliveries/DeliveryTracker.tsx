@@ -381,7 +381,7 @@ export default function DeliveryTracker() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
-                            {getRiderName(selectedDelivery).charAt(0)}
+                            {(getRiderName(selectedDelivery) || "R").charAt(0)}
                           </div>
                           <div>
                             <p className="font-medium">{getRiderName(selectedDelivery)}</p>
