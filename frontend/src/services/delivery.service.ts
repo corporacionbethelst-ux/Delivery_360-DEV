@@ -14,7 +14,7 @@ export interface Delivery {
   id: string;
   order_id: string;
   external_id?: string;
-  rider_id: string;
+  rider_id?: string;
   status: string;
   started_at?: string | null;
   completed_at?: string | null;
@@ -26,10 +26,20 @@ export interface Delivery {
   distance_total?: number | null;
   sla_compliant?: boolean | null;
   proof_otp?: string | null;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
   // Datos Enriquecidos (Vienen del backend gracias al join)
   customer_name?: string;
+  rider_name?: string;
+  rider_phone?: string;
+  customer_phone?: string;
+  pickup_address?: string;
+  delivery_address?: string;
+  total_amount?: number;
+  payment_method?: string;
+  notes?: string;
+  estimated_delivery_time?: string;
+  order?: { customer_name?: string; customer_phone?: string; delivery_address?: string; total_amount?: number } | null;
   rider?: RiderInfo | null;
 }
 
