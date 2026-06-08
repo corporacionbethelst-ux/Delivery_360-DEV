@@ -62,12 +62,18 @@ export default function PayoutDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await payoutService.getById(params.id as string);
+      const payoutId = params.id as string;
+      const [data, historyData] = await Promise.all([
+        payoutService.getById(payoutId),
+        payoutService.getHistory(payoutId),
+      ]);
       setPayout(data);
+      setHistory(historyData);
     } catch (err: unknown) {
       console.error('Error loading payout:', err);
       setError(getErrorMessage(err, 'No se pudo cargar el retiro solicitado.'));
       setPayout(null);
+      setHistory([]);
     } finally {
       setLoading(false);
     }
@@ -221,6 +227,42 @@ export default function PayoutDetailPage() {
                 <p className="text-red-700 text-sm">{payout.rejection_reason}</p>
               </div>
             )}
+
+
+
+            <div className="pt-4 border-t">
+              <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-600" /> Trazabilidad y Conciliación
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="bg-gray-50 p-4 rounded border">
+                  <p className="text-xs text-gray-500 uppercase font-semibold">Saldo antes</p>
+                  <p className="text-lg font-bold text-gray-900">{formatCurrency(payout.balance_before || 0)}</p>
+                </div>
+                <div className="bg-gray-50 p-4 rounded border">
+                  <p className="text-xs text-gray-500 uppercase font-semibold">Saldo después</p>
+                  <p className="text-lg font-bold text-gray-900">{formatCurrency(payout.balance_after || 0)}</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {history.length === 0 ? (
+                  <p className="text-sm text-gray-500">Sin movimientos de estado registrados todavía.</p>
+                ) : history.map((item) => (
+                  <div key={item.id} className="bg-white border rounded p-3 text-sm flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-gray-900">
+                        {item.old_status || 'Inicio'} → {item.new_status}
+                      </p>
+                      {item.reason && <p className="text-gray-500">{item.reason}</p>}
+                    </div>
+                    <div className="text-xs text-gray-500 md:text-right">
+                      <p>{item.created_at ? new Date(item.created_at).toLocaleString() : 'Fecha no disponible'}</p>
+                      <p>{formatCurrency(item.balance_before || 0)} → {formatCurrency(item.balance_after || 0)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
 
             {/* Fecha de Procesamiento (Si aplica) */}
             {payout.processed_at && (

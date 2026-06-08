@@ -101,8 +101,13 @@ class Rider(Base):
         viewonly=True
     )
     
-    # Relación inversa para financial_transactions (sin back_populates para evitar conflicto, overlaps para silenciar warning)
-    financial_transactions = relationship("FinancialTransaction", foreign_keys="FinancialTransaction.rider_id", overlaps="rider")
+    # Alias relacional de compatibilidad para código legacy que aún lee financial_transactions.
+    financial_transactions = relationship(
+        "Financial",
+        foreign_keys="Financial.rider_id",
+        viewonly=True,
+        overlaps="rider,transactions",
+    )
     
     # Relación inversa para productivity_metrics (sin back_populates para evitar conflicto, overlaps para silenciar warning)
     productivity_metrics = relationship("ProductivityRecord", foreign_keys="ProductivityRecord.rider_id", overlaps="rider")

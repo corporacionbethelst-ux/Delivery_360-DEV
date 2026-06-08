@@ -3,11 +3,11 @@
 import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Download, Calendar, DollarSign, Package, Users, AlertCircle, Loader2 } from 'lucide-react';
+import { Download, Calendar, DollarSign, Package, Users, AlertCircle, Loader2, ShieldCheck } from 'lucide-react';
 import { downloadCSV } from '@/lib/csv-export';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { formatCurrency } from '@/lib/formatters';
-import { financialService, FinancialOrdersReport } from '@/services/financial.service';
+import { financialService, FinancialOrdersReport, FinancialReconciliation } from '@/services/financial.service';
 
 const getErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
@@ -18,22 +18,28 @@ export default function ReportsPage() {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<FinancialOrdersReport | null>(null);
+  const [reconciliation, setReconciliation] = useState<FinancialReconciliation | null>(null);
 
   const loadReport = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const data = await financialService.getOrdersReport({
+      const filters = {
         date_from: dateRange.start || undefined,
         date_to: dateRange.end || undefined,
-        limit: 1000,
-      });
-      setReport(data);
+      };
+      const [ordersData, reconciliationData] = await Promise.all([
+        financialService.getOrdersReport({ ...filters, limit: 1000 }),
+        financialService.getReconciliation(filters),
+      ]);
+      setReport(ordersData);
+      setReconciliation(reconciliationData);
     } catch (err: unknown) {
       console.error('Error loading financial report:', err);
       setError(getErrorMessage(err, 'No se pudo cargar el reporte financiero.'));
       setReport(null);
+      setReconciliation(null);
     } finally {
       setLoading(false);
     }
@@ -95,6 +101,8 @@ export default function ReportsPage() {
     totalRevenue: report?.total_revenue || 0,
     completedOrders: report?.completed_orders || 0,
     activeCustomers: report?.active_customers || 0,
+    pendingPayouts: reconciliation?.pending_payouts || 0,
+    netMarginAfterRiderCosts: reconciliation?.net_margin_after_rider_costs || 0,
   };
 
   return (
@@ -137,6 +145,16 @@ export default function ReportsPage() {
             <CardContent>
               <div className="text-2xl font-bold">{loading ? '...' : stats.activeCustomers}</div>
               <p className="text-xs text-muted-foreground">Por email/teléfono/nombre</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Margen Conciliado</CardTitle>
+              <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{loading ? '...' : formatCurrency(stats.netMarginAfterRiderCosts)}</div>
+              <p className="text-xs text-muted-foreground">Después de costos y reservas rider</p>
             </CardContent>
           </Card>
         </div>

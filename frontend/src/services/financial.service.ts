@@ -35,6 +35,51 @@ export interface FinancialSummaryParams {
 }
 
 
+export interface FinancialTransaction {
+  id: string;
+  rider_id: string;
+  amount: number;
+  balance_before?: number | null;
+  balance_after?: number | null;
+  transaction_type: string;
+  type: string;
+  description: string;
+  reference_id?: string | null;
+  source_type?: string | null;
+  source_id?: string | null;
+  idempotency_key?: string | null;
+  created_by_user_id?: string | null;
+  status: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface RiderEarningsBreakdown {
+  rider_id: string;
+  items: FinancialTransaction[];
+}
+
+export interface FinancialReconciliation {
+  period_start?: string | null;
+  period_end?: string | null;
+  gross_order_value: number;
+  delivery_revenue: number;
+  completed_orders: number;
+  ledger_transactions: number;
+  rider_earnings: number;
+  rider_deductions: number;
+  adjustments: number;
+  net_rider_liability: number;
+  pending_payouts: number;
+  processed_payouts: number;
+  rejected_payouts: number;
+  available_liability: number;
+  total_costs: number;
+  net_margin_after_rider_costs: number;
+  payout_count: number;
+  currency?: string;
+}
+
 export interface FinancialOrderReportRow {
   id: string;
   external_id?: string | null;
@@ -73,6 +118,10 @@ export interface FinancialReportParams {
   date_to?: string;
   limit?: number;
   offset?: number;
+}
+
+export interface RiderEarningsBreakdownParams extends FinancialReportParams {
+  type?: string;
 }
 
 export const financialService = {
@@ -127,14 +176,14 @@ export const financialService = {
 
 
   /**
-   * Obtener reporte real de órdenes para estadísticas y exportación CSV.
+   * Desglose auditable de ganancias/retiros del rider autenticado.
    */
-  getOrdersReport: async (params?: FinancialReportParams): Promise<FinancialOrdersReport> => {
+  getMyEarningsBreakdown: async (params?: RiderEarningsBreakdownParams): Promise<RiderEarningsBreakdown> => {
     const queryParams = new URLSearchParams();
-
+    if (params?.type) queryParams.append('type', params.type);
     if (params?.date_from) queryParams.append('date_from', params.date_from);
     if (params?.date_to) queryParams.append('date_to', params.date_to);
-    if (params?.limit) queryParams.append('limit', String(Math.min(Math.max(Math.trunc(params.limit), 1), 5000)));
+    if (params?.limit) queryParams.append('limit', String(Math.min(Math.max(Math.trunc(params.limit), 1), 500)));
     if (Number.isFinite(params?.offset) && Number(params?.offset) >= 0) {
       queryParams.append('offset', String(Math.trunc(Number(params?.offset))));
     }
@@ -142,34 +191,9 @@ export const financialService = {
     const query = queryParams.toString() ? `?${queryParams}` : '';
 
     try {
-      return await api.get<FinancialOrdersReport>(`/financial/reports/orders${query}`);
+      return await api.get<RiderEarningsBreakdown>(`/financial/riders/me/earnings${query}`);
     } catch (error) {
-      console.error('[FinancialService] Error fetching orders report:', error);
-      throw error;
-    }
-  },
-
-
-
-  /**
-   * Obtener reporte real de órdenes para estadísticas y exportación CSV.
-   */
-  getOrdersReport: async (params?: FinancialReportParams): Promise<FinancialOrdersReport> => {
-    const queryParams = new URLSearchParams();
-
-    if (params?.date_from) queryParams.append('date_from', params.date_from);
-    if (params?.date_to) queryParams.append('date_to', params.date_to);
-    if (params?.limit) queryParams.append('limit', String(Math.min(Math.max(Math.trunc(params.limit), 1), 5000)));
-    if (Number.isFinite(params?.offset) && Number(params?.offset) >= 0) {
-      queryParams.append('offset', String(Math.trunc(Number(params?.offset))));
-    }
-
-    const query = queryParams.toString() ? `?${queryParams}` : '';
-
-    try {
-      return await api.get<FinancialOrdersReport>(`/financial/reports/orders${query}`);
-    } catch (error) {
-      console.error('[FinancialService] Error fetching orders report:', error);
+      console.error('[FinancialService] Error fetching rider earnings breakdown:', error);
       throw error;
     }
   },

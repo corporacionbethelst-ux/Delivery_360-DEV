@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { SimpleBarChart } from '@/components/charts/SimpleBarChart';
 import { formatCurrency } from '@/lib/formatters';
-import { financialService, RiderEarnings } from '@/services/financial.service';
+import { financialService, RiderEarnings, FinancialTransaction } from '@/services/financial.service';
 import { payoutService, PayoutBalance } from '@/services/payout.service';
 
 const MIN_WITHDRAWAL_AMOUNT = 10;
@@ -28,6 +28,7 @@ export default function RiderEarningsPage() {
 
   const [earnings, setEarnings] = useState<RiderEarnings | null>(null);
   const [balance, setBalance] = useState<PayoutBalance | null>(null);
+  const [recentMovements, setRecentMovements] = useState<FinancialTransaction[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
@@ -48,18 +49,21 @@ export default function RiderEarningsPage() {
       setLoadingData(true);
       setError(null);
       try {
-        const [earningsData, balanceData] = await Promise.all([
+        const [earningsData, balanceData, breakdownData] = await Promise.all([
           financialService.getMyEarnings(),
           payoutService.getAvailableBalance(),
+          financialService.getMyEarningsBreakdown({ limit: 5 }),
         ]);
 
         setEarnings(earningsData);
         setBalance(balanceData);
+        setRecentMovements(breakdownData.items);
       } catch (err) {
         console.error('Error loading rider earnings:', err);
         setError(getErrorMessage(err, 'No se pudieron cargar tus ganancias reales.'));
         setEarnings(null);
         setBalance(null);
+        setRecentMovements([]);
       } finally {
         setLoadingData(false);
       }
@@ -186,6 +190,34 @@ export default function RiderEarningsPage() {
           </CardHeader>
           <CardContent>
             <SimpleBarChart data={chartData} height={250} showValues className="pt-4" formatValue={formatCurrency} />
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-lg">Últimos movimientos financieros</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {recentMovements.length === 0 ? (
+              <p className="text-sm text-gray-500">Aún no hay movimientos financieros para mostrar.</p>
+            ) : (
+              <div className="space-y-3">
+                {recentMovements.map((movement) => (
+                  <div key={movement.id} className="flex items-center justify-between border rounded-lg p-3 bg-white">
+                    <div>
+                      <p className="font-semibold text-gray-900">{movement.description}</p>
+                      <p className="text-xs text-gray-500">
+                        {movement.transaction_type} · {movement.created_at ? new Date(movement.created_at).toLocaleString() : 'Sin fecha'}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-gray-900">{formatCurrency(movement.amount)}</p>
+                      <p className="text-xs text-gray-500">Saldo: {formatCurrency(movement.balance_after || 0)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 

@@ -294,6 +294,113 @@ async def get_orders_financial_report(
             _enum_value(status): count for status, count in status_result.all()
         },
         "rows": rows,
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
+    }
+
+
+@router.get("/reconciliation")
+async def get_financial_reconciliation(
+    date_from: Optional[str] = Query(None, description="Fecha inicial ISO"),
+    date_to: Optional[str] = Query(None, description="Fecha final ISO"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.GERENTE, UserRole.SUPERADMIN)),
+):
+    """Reporte de conciliación: ingresos, obligaciones rider, reservas, retiros y margen."""
+    start_date = _parse_report_datetime(date_from, "date_from") if date_from else None
+    end_date = _parse_report_datetime(date_to, "date_to", end_of_day=True) if date_to else None
+
+    order_date = func.coalesce(Order.delivered_at, Order.updated_at, Order.created_at, Order.ordered_at)
+    financial_filters = []
+    payout_filters = []
+    order_filters = []
+
+    if start_date:
+        financial_filters.append(Financial.created_at >= start_date)
+        payout_filters.append(func.coalesce(Payout.processed_at, Payout.requested_at) >= start_date)
+        order_filters.append(order_date >= start_date)
+    if end_date:
+        financial_filters.append(Financial.created_at <= end_date)
+        payout_filters.append(func.coalesce(Payout.processed_at, Payout.requested_at) <= end_date)
+        order_filters.append(order_date <= end_date)
+
+    paid_statuses = ["PAGADO", "PAID", "COMPLETADO", "COMPLETADA", "PROCESADO"]
+    revenue_stmt = select(
+        func.coalesce(func.sum(Order.delivery_fee), 0).label("delivery_revenue"),
+        func.coalesce(func.sum(Order.total), 0).label("gross_order_value"),
+        func.count(Order.id).label("completed_orders"),
+    ).where(
+        Order.status == OrderStatus.ENTREGADO,
+        func.upper(func.coalesce(Order.payment_status, "")).in_(paid_statuses),
+        *order_filters,
+    )
+    revenue = (await db.execute(revenue_stmt)).one()
+
+    earnings_stmt = select(
+        func.coalesce(
+            func.sum(
+                case(
+                    (Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]), Financial.amount),
+                    else_=0,
+                )
+            ),
+            0,
+        ).label("rider_earnings"),
+        func.coalesce(
+            func.sum(case((Financial.transaction_type == TransactionType.DESCUENTO, Financial.amount), else_=0)),
+            0,
+        ).label("rider_deductions"),
+        func.coalesce(
+            func.sum(case((Financial.transaction_type == TransactionType.AJUSTE, Financial.amount), else_=0)),
+            0,
+        ).label("adjustments"),
+        func.count(Financial.id).label("ledger_transactions"),
+    ).where(
+        Financial.status.in_([PaymentStatus.PROCESADO, PaymentStatus.PAGADO]),
+        *financial_filters,
+    )
+    ledger = (await db.execute(earnings_stmt)).one()
+
+    payouts_stmt = select(
+        func.coalesce(func.sum(case((Payout.status == PayoutStatus.PENDIENTE, Payout.amount), else_=0)), 0).label("pending_payouts"),
+        func.coalesce(func.sum(case((Payout.status == PayoutStatus.PROCESADO, Payout.amount), else_=0)), 0).label("processed_payouts"),
+        func.coalesce(func.sum(case((Payout.status == PayoutStatus.RECHAZADO, Payout.amount), else_=0)), 0).label("rejected_payouts"),
+        func.count(Payout.id).label("payout_count"),
+    ).where(*payout_filters)
+    payouts = (await db.execute(payouts_stmt)).one()
+
+    delivery_revenue = _float_money(revenue.delivery_revenue)
+    gross_order_value = _float_money(revenue.gross_order_value)
+    rider_earnings = _float_money(ledger.rider_earnings)
+    rider_deductions = _float_money(ledger.rider_deductions)
+    adjustments = _float_money(ledger.adjustments)
+    pending_payouts = _float_money(payouts.pending_payouts)
+    processed_payouts = _float_money(payouts.processed_payouts)
+    rejected_payouts = _float_money(payouts.rejected_payouts)
+    net_rider_liability = max(0, rider_earnings - rider_deductions + adjustments)
+    available_liability = max(0, net_rider_liability - pending_payouts - processed_payouts)
+    total_costs = processed_payouts + pending_payouts
+
+    return {
+        "period_start": start_date.isoformat() if start_date else None,
+        "period_end": end_date.isoformat() if end_date else None,
+        "gross_order_value": gross_order_value,
+        "delivery_revenue": delivery_revenue,
+        "completed_orders": int(revenue.completed_orders or 0),
+        "ledger_transactions": int(ledger.ledger_transactions or 0),
+        "rider_earnings": rider_earnings,
+        "rider_deductions": rider_deductions,
+        "adjustments": adjustments,
+        "net_rider_liability": round(net_rider_liability, 2),
+        "pending_payouts": pending_payouts,
+        "processed_payouts": processed_payouts,
+        "rejected_payouts": rejected_payouts,
+        "available_liability": round(available_liability, 2),
+        "total_costs": round(total_costs, 2),
+        "net_margin_after_rider_costs": round(delivery_revenue - total_costs, 2),
+        "payout_count": int(payouts.payout_count or 0),
+        "currency": "COP",
+=======
+>>>>>>> main
     }
 
 @router.get("/transactions")
@@ -428,17 +535,41 @@ def _serialize_transaction(transaction: Financial):
     return {
         "id": str(transaction.id),
         "rider_id": str(transaction.rider_id),
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
+        "amount": _float_money(transaction.amount),
+        "balance_before": _float_money(getattr(transaction, "balance_before", 0)),
+        "balance_after": _float_money(transaction.balance_after),
+=======
         "amount": float(transaction.amount or 0),
         "balance_after": float(transaction.balance_after or 0),
+>>>>>>> main
         "transaction_type": transaction_type,
         "type": transaction_type,
         "description": transaction.description or "Sin descripción",
         "reference_id": transaction.reference_id,
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
+        "source_type": getattr(transaction, "source_type", None),
+        "source_id": getattr(transaction, "source_id", None),
+        "idempotency_key": getattr(transaction, "idempotency_key", None),
+        "created_by_user_id": str(transaction.created_by_user_id) if getattr(transaction, "created_by_user_id", None) else None,
+=======
+>>>>>>> main
         "status": status,
         "created_at": transaction.created_at.isoformat() if transaction.created_at else None,
         "updated_at": transaction.updated_at.isoformat() if transaction.updated_at else None,
     }
 
+<<<<<<< codex/analyze-project-for-vulnerabilities-and-inconsistencies-w5mu98
+
+def _money(value) -> Decimal:
+    return Decimal(str(value or 0)).quantize(Decimal("0.01"))
+
+
+def _float_money(value) -> float:
+    return float(_money(value))
+
+=======
+>>>>>>> main
 def _enum_value(value):
     return value.value if hasattr(value, "value") else value
 

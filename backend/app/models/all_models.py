@@ -22,9 +22,10 @@ except ImportError:
     CheckInOut = None
 
 try:
-    from app.models.financial import Financial, TransactionType, PaymentStatus
+    from app.models.financial import Financial, FinancialTransaction, TransactionType, PaymentStatus
 except ImportError:
     Financial = None
+    FinancialTransaction = None
     TransactionType = None
     PaymentStatus = None
 
@@ -68,7 +69,7 @@ __all__ = [
     "Route", "RoutePoint", "RouteDeviation", "RouteStatus",
     # Opcionales (solo si se importaron)
     "Shift", "ShiftStatus", "CheckInOut",
-    "Financial", "TransactionType", "PaymentStatus",
+    "Financial", "FinancialTransaction", "TransactionType", "PaymentStatus",
     "ProductivityRecord", "MetricType",
     "AuditLog", "AuditAction", "ActionType",
     "Notification", "NotificationType", "NotificationPriority", "Alert",
