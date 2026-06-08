@@ -40,7 +40,7 @@ import Link from 'next/link';
 interface PayoutMetrics {
   totalPaidMonth: number;
   pendingCount: number;
-  approvedCount: number;
+  processedCount: number;
   rejectedCount: number;
 }
 
@@ -53,7 +53,7 @@ export default function ManagerPayoutsPage() {
   const [metrics, setMetrics] = useState<PayoutMetrics>({
     totalPaidMonth: 0,
     pendingCount: 0,
-    approvedCount: 0,
+    processedCount: 0,
     rejectedCount: 0,
   });
 
@@ -67,9 +67,8 @@ export default function ManagerPayoutsPage() {
       setLoading(true);
       const data = await payoutService.getAll();
       
-      // Ahora 'data' es compatible con PayoutWithRider porque las propiedades coinciden
-      const riderIds = [...new Set(data.map((p) => p.rider_id))]; 
-      
+      const riderIds = Array.from(new Set(data.map((p) => p.rider_id)));
+
       const ridersData = await Promise.all(
         riderIds.map((id) => riderService.getById(id).catch(() => null))
       );
@@ -82,14 +81,7 @@ export default function ManagerPayoutsPage() {
       });
 
       setRidersMap(ridersMapTemp);
-      // Asegurar que los objetos cumplan con PayoutWithRider
-      const mappedData: PayoutWithRider[] = data.map((p: any) => ({
-        ...p,
-        total_amount: p.total_amount ?? p.totalAmount ?? 0,
-        orders_count: p.orders_count ?? p.ordersCount ?? 0,
-        created_at: p.created_at ?? p.createdAt ?? new Date().toISOString(),
-        updated_at: p.updated_at ?? p.updatedAt ?? new Date().toISOString(),
-      }));
+      const mappedData: PayoutWithRider[] = data.map((p) => ({ ...p }));
 
       setPayouts(mappedData);
       calculateMetrics(mappedData);
@@ -108,7 +100,7 @@ export default function ManagerPayoutsPage() {
       .filter((p) => {
         const payoutDate = new Date(p.created_at);
         return (
-          p.status === 'paid' &&
+          p.status === 'PROCESADO' &&
           payoutDate.getMonth() === currentMonth &&
           payoutDate.getFullYear() === currentYear
         );
@@ -117,17 +109,15 @@ export default function ManagerPayoutsPage() {
 
     setMetrics({
       totalPaidMonth: paidThisMonth,
-      pendingCount: data.filter((p) => p.status === 'pending').length,
-      approvedCount: data.filter((p) => p.status === 'approved').length,
-      rejectedCount: data.filter((p) => p.status === 'rejected').length,
+      pendingCount: data.filter((p) => p.status === 'PENDIENTE').length,
+      processedCount: data.filter((p) => p.status === 'PROCESADO').length,
+      rejectedCount: data.filter((p) => p.status === 'RECHAZADO').length,
     });
   };
 
   const filteredPayouts = payouts.filter((payout) => {
     const rider = ridersMap[payout.rider_id];
-    
-    // ✅ CORRECCIÓN: Rider extiende User, no tiene propiedad 'user' anidada.
-    // Usamos first_name y last_name directamente.
+
     const firstName = rider?.first_name || '';
     const lastName = rider?.last_name || '';
     const riderName = `${firstName} ${lastName}`.trim() || 'Desconocido';
@@ -146,14 +136,14 @@ export default function ManagerPayoutsPage() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'paid':
-        return <Badge className="bg-green-100 text-green-800">Pagado</Badge>;
-      case 'pending':
+      case 'PROCESADO':
+        return <Badge className="bg-green-100 text-green-800">Procesado</Badge>;
+      case 'PENDIENTE':
         return <Badge className="bg-yellow-100 text-yellow-800">Pendiente</Badge>;
-      case 'approved':
-        return <Badge className="bg-blue-100 text-blue-800">Aprobado</Badge>;
-      case 'rejected':
+      case 'RECHAZADO':
         return <Badge className="bg-red-100 text-red-800">Rechazado</Badge>;
+      case 'CANCELADO':
+        return <Badge className="bg-gray-100 text-gray-800">Cancelado</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -228,12 +218,12 @@ export default function ManagerPayoutsPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Aprobados</CardTitle>
+            <CardTitle className="text-sm font-medium">Procesados</CardTitle>
             <CheckCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{metrics.approvedCount}</div>
-            <p className="text-xs text-muted-foreground">Listos para pago</p>
+            <div className="text-2xl font-bold">{metrics.processedCount}</div>
+            <p className="text-xs text-muted-foreground">Retiros completados</p>
           </CardContent>
         </Card>
 
@@ -274,10 +264,10 @@ export default function ManagerPayoutsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos los estados</SelectItem>
-                <SelectItem value="pending">Pendientes</SelectItem>
-                <SelectItem value="approved">Aprobados</SelectItem>
-                <SelectItem value="paid">Pagados</SelectItem>
-                <SelectItem value="rejected">Rechazados</SelectItem>
+                <SelectItem value="PENDIENTE">Pendientes</SelectItem>
+                <SelectItem value="PROCESADO">Procesados</SelectItem>
+                <SelectItem value="RECHAZADO">Rechazados</SelectItem>
+                <SelectItem value="CANCELADO">Cancelados</SelectItem>
               </SelectContent>
             </Select>
           </div>
