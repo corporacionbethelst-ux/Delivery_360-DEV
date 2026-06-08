@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, case
+from sqlalchemy.orm import selectinload
 from typing import Optional
 from datetime import datetime, timedelta
 
@@ -24,7 +25,11 @@ async def get_my_earnings(
         raise HTTPException(status_code=403, detail="Acceso denegado")
 
     # Obtener rider
-    result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
+    result = await db.execute(
+        select(Rider)
+        .options(selectinload(Rider.user))
+        .where(Rider.user_id == current_user.id)
+    )
     rider = result.scalar_one_or_none()
     if not rider:
         raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")

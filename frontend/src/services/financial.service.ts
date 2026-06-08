@@ -99,31 +99,52 @@ export const financialService = {
   },
 
   /**
+   * Obtener ganancias reales del repartidor autenticado.
+   */
+  getMyEarnings: async (): Promise<RiderEarnings> => {
+    try {
+      return await api.get<RiderEarnings>('/financial/riders/me');
+    } catch (error) {
+      console.error('[FinancialService] Error fetching current rider earnings:', error);
+      throw error;
+    }
+  },
+
+  /**
    * Obtener ganancias de repartidores, opcionalmente filtrado por ID.
-   * CORREGIDO: Ahora devuelve response.data correctamente.
+   * Este método queda para pantallas administrativas; el flujo rider usa getMyEarnings().
    */
   getRiderEarnings: async (riderId?: string): Promise<RiderEarnings[]> => {
     try {
-      const params = riderId ? `?rider_id=${riderId}` : '';
-      const response = await api.get<RiderEarnings[]>(`/financial/riders${params}`);
-      return response;
+      const params = riderId ? `?rider_id=${encodeURIComponent(riderId)}` : '';
+      return await api.get<RiderEarnings[]>(`/financial/riders${params}`);
     } catch (error) {
       console.error('[FinancialService] Error fetching rider earnings:', error);
       throw error;
     }
   },
 
+
+
   /**
-   * Solicitar retiro de ganancias para el repartidor actual.
-   * NUEVO MÉTODO: Esencial para la página de withdraw.
+   * Obtener reporte real de órdenes para estadísticas y exportación CSV.
    */
-  requestPayout: async (amount: number): Promise<{ message: string; transaction_id: string }> => {
-    if (amount <= 0) throw new Error('[FinancialService] El monto debe ser mayor a 0');
-    
+  getOrdersReport: async (params?: FinancialReportParams): Promise<FinancialOrdersReport> => {
+    const queryParams = new URLSearchParams();
+
+    if (params?.date_from) queryParams.append('date_from', params.date_from);
+    if (params?.date_to) queryParams.append('date_to', params.date_to);
+    if (params?.limit) queryParams.append('limit', String(Math.min(Math.max(Math.trunc(params.limit), 1), 5000)));
+    if (Number.isFinite(params?.offset) && Number(params?.offset) >= 0) {
+      queryParams.append('offset', String(Math.trunc(Number(params?.offset))));
+    }
+
+    const query = queryParams.toString() ? `?${queryParams}` : '';
+
     try {
-      return await api.post('/financial/payouts/request', { amount });
+      return await api.get<FinancialOrdersReport>(`/financial/reports/orders${query}`);
     } catch (error) {
-      console.error('[FinancialService] Error requesting payout:', error);
+      console.error('[FinancialService] Error fetching orders report:', error);
       throw error;
     }
   },
