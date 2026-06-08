@@ -421,7 +421,6 @@ async def get_financial_reconciliation(
         "net_margin_after_rider_costs": round(delivery_revenue - total_costs, 2),
         "payout_count": int(payouts.payout_count or 0),
         "currency": "COP",
-
     }
 
 @router.get("/transactions")
@@ -556,9 +555,6 @@ def _serialize_transaction(transaction: Financial):
     return {
         "id": str(transaction.id),
         "rider_id": str(transaction.rider_id),
-        "amount": _float_money(transaction.amount),
-        "balance_before": _float_money(getattr(transaction, "balance_before", 0)),
-        "balance_after": _float_money(transaction.balance_after),
         "amount": _float_money(transaction.amount),
         "balance_before": _float_money(getattr(transaction, "balance_before", 0)),
         "balance_after": _float_money(transaction.balance_after),
