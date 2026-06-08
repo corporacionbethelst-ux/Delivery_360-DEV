@@ -52,6 +52,7 @@ class FinancialTransaction(Base):
     # Transaction Details
     transaction_type: Any = Column(SQLEnum(TransactionType), nullable=False)
     amount = Column(Numeric(10, 2), nullable=False, default=0.0)
+    balance_before = Column(Numeric(10, 2), default=0.0)
     balance_after = Column(Numeric(10, 2), default=0.0)
     
     # Status
@@ -60,6 +61,10 @@ class FinancialTransaction(Base):
     # Description
     description = Column(Text)
     reference_id = Column(String(100))
+    source_type = Column(String(50), index=True)
+    source_id = Column(String(100), index=True)
+    idempotency_key = Column(String(100), unique=True, index=True)
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
     extra_data = Column(sa.JSON)
     
     # Payment processing
@@ -105,6 +110,7 @@ class Financial(Base):
     # Transaction Details
     transaction_type: Any = Column(SQLEnum(TransactionType), nullable=False)
     amount = Column(Numeric(10, 2), nullable=False, default=0.0)
+    balance_before = Column(Numeric(10, 2), default=0.0)
     balance_after = Column(Numeric(10, 2), default=0.0)
     
     # Status
@@ -113,6 +119,10 @@ class Financial(Base):
     # Description
     description = Column(Text)
     reference_id = Column(String(100))
+    source_type = Column(String(50), index=True)
+    source_id = Column(String(100), index=True)
+    idempotency_key = Column(String(100), unique=True, index=True)
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
     
     # Timestamps
     created_at = Column(DateTime, default=utc_now_naive)
