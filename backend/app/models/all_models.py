@@ -8,6 +8,7 @@ from app.models.user import User
 from app.models.rider import Rider
 from app.models.vehicle import Vehicle  # ✅ AÑADIDO: Vehicle debe importarse aquí
 from app.models.zone import Zone
+from app.models.platform_setting import PlatformSetting
 from app.models.order import Order
 from app.models.delivery import Delivery, DeliveryStatus, ProofType
 from app.models.payout import Payout, PayoutStatus, PayoutMethod, PayoutStatusHistory
@@ -63,6 +64,7 @@ __all__ = [
     "Rider",
     "Vehicle",  # ✅ AÑADIDO
     "Zone",
+    "PlatformSetting",
     "Order",
     "Delivery", "DeliveryStatus", "ProofType",
     "Payout", "PayoutStatus", "PayoutMethod", "PayoutStatusHistory",

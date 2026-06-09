@@ -12,14 +12,14 @@ from fastapi.staticfiles import StaticFiles
 from typing import AsyncGenerator
 from pathlib import Path
 import logging
- 
+
 from app.core.config import settings
 from app.core.database import engine, Base
 from app.core.exception_handlers import register_exception_handlers
 from app.api.v1 import (
     auth, users, roles, riders, orders, deliveries,
     shifts, productivity, financial, dashboard,
-    routes, alerts, integrations, audit, payouts, 
+    routes, alerts, integrations, audit, settings as settings_router, payouts,
     vehicles, zones
 )
 from app.middleware import RateLimitMiddleware, AuditLogMiddleware
@@ -87,11 +87,11 @@ def create_app() -> FastAPI:
 
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(AuditLogMiddleware)
-    
+
     # Configurar middleware de caché para optimización
     from app.middleware.cache_middleware import setup_cache_middleware
     setup_cache_middleware(app)
-    
+
     register_exception_handlers(app)
 
     # --- REGISTRO DE ROUTERS ---
@@ -113,6 +113,7 @@ def create_app() -> FastAPI:
     app.include_router(alerts.router, prefix="/api/v1", tags=["Alerts"])
     app.include_router(integrations.router, prefix="/api/v1/integrations", tags=["Integrations"])
     app.include_router(audit.router, prefix="/api/v1/audit", tags=["Audit"])
+    app.include_router(settings_router.router, prefix="/api/v1", tags=["Settings"])
     app.include_router(health_router, prefix="/health", tags=["Health"])
     app.include_router(metrics_router, prefix="/metrics", tags=["Metrics"])
     app.include_router(payouts.router, prefix="/api/v1", tags=["Payouts"])
