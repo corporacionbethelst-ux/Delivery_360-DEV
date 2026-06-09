@@ -6,8 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { 
-  CreditCard, Search, Filter, Download, ArrowUpRight, ArrowDownLeft, 
+import {
+  CreditCard, Search, Filter, Download, ArrowUpRight, ArrowDownLeft,
   DollarSign, Calendar, MoreHorizontal, CheckCircle, Clock, XCircle, AlertCircle, Loader2
 } from 'lucide-react';
 import {
@@ -22,27 +22,29 @@ import { transactionService, Transaction, TransactionType, TransactionStatus } f
 
 // Mapeo de colores para Tipos
 const TYPE_COLORS: Record<TransactionType, string> = {
-  INGRESO: 'text-green-600 bg-green-50 border-green-200',
-  PAGO_RIDER: 'text-blue-600 bg-blue-50 border-blue-200',
-  REEMBOLSO: 'text-orange-600 bg-orange-50 border-orange-200',
+  PAGO_ENTREGA: 'text-green-600 bg-green-50 border-green-200',
+  BONO: 'text-emerald-600 bg-emerald-50 border-emerald-200',
+  DESCUENTO: 'text-orange-600 bg-orange-50 border-orange-200',
   AJUSTE: 'text-purple-600 bg-purple-50 border-purple-200',
+  RETIRO: 'text-blue-600 bg-blue-50 border-blue-200',
 };
 
-// Mapeo de iconos para Estados
+// Mapeo de iconos para Estados reales del backend financiero
 const STATUS_CONFIG: Record<TransactionStatus, { icon: any; color: string }> = {
-  COMPLETADA: { icon: CheckCircle, color: 'text-green-600' },
+  PROCESADO: { icon: CheckCircle, color: 'text-green-600' },
+  PAGADO: { icon: CheckCircle, color: 'text-green-600' },
   PENDIENTE: { icon: Clock, color: 'text-orange-600' },
-  FALLIDA: { icon: XCircle, color: 'text-red-600' },
+  RECHAZADO: { icon: XCircle, color: 'text-red-600' },
 };
 
 export default function TransactionsPage() {
   const router = useRouter();
-  
+
   // Estados de Datos
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Estados de Filtros
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('ALL');
@@ -72,14 +74,14 @@ export default function TransactionsPage() {
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
       const searchLower = searchTerm.toLowerCase();
-      const matchesSearch = 
-        t.description.toLowerCase().includes(searchLower) || 
+      const matchesSearch =
+        t.description.toLowerCase().includes(searchLower) ||
         t.reference_id?.toLowerCase().includes(searchLower) ||
         t.user_id?.toLowerCase().includes(searchLower);
-      
+
       const matchesType = filterType === 'ALL' || t.type === filterType;
       const matchesStatus = filterStatus === 'ALL' || t.status === filterStatus;
-      
+
       return matchesSearch && matchesType && matchesStatus;
     });
   }, [transactions, searchTerm, filterType, filterStatus]);
@@ -139,36 +141,38 @@ export default function TransactionsPage() {
           <CardContent className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <Input 
-                placeholder="Buscar por descripción, ref o ID usuario..." 
+              <Input
+                placeholder="Buscar por descripción, ref o rider..."
                 className="pl-9 bg-gray-50 border-gray-200 focus:bg-white"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 disabled={loading}
               />
             </div>
-            <select 
-              value={filterType} 
+            <select
+              value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
               className="border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-50"
               disabled={loading}
             >
               <option value="ALL">Todos los tipos</option>
-              <option value="INGRESO">Ingresos</option>
-              <option value="PAGO_RIDER">Pagos a Riders</option>
-              <option value="REEMBOLSO">Reembolsos</option>
+              <option value="PAGO_ENTREGA">Pago por entrega</option>
+              <option value="BONO">Bonos</option>
+              <option value="DESCUENTO">Descuentos</option>
               <option value="AJUSTE">Ajustes</option>
+              <option value="RETIRO">Retiros</option>
             </select>
-            <select 
-              value={filterStatus} 
+            <select
+              value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
               className="border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-50"
               disabled={loading}
             >
               <option value="ALL">Todos los estados</option>
-              <option value="COMPLETADA">Completadas</option>
+              <option value="PROCESADO">Procesadas</option>
+              <option value="PAGADO">Pagadas</option>
               <option value="PENDIENTE">Pendientes</option>
-              <option value="FALLIDA">Fallidas</option>
+              <option value="RECHAZADO">Rechazadas</option>
             </select>
           </CardContent>
         </Card>
@@ -202,7 +206,7 @@ export default function TransactionsPage() {
                     filteredTransactions.map((t) => {
                       const StatusIcon = STATUS_CONFIG[t.status].icon;
                       const statusColor = STATUS_CONFIG[t.status].color;
-                      
+
                       return (
                         <tr key={t.id} className="bg-white border-b hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => router.push(`/manager/financial/transactions/${t.id}`)}>
                           <td className="px-6 py-4">
@@ -212,7 +216,7 @@ export default function TransactionsPage() {
                           </td>
                           <td className="px-6 py-4">
                             <div className="font-medium text-gray-900">{t.description}</div>
-                            {t.user_id && <div className="text-xs text-gray-500">User: {t.user_id}</div>}
+                            {t.rider_id && <div className="text-xs text-gray-500">Rider: {t.rider_id}</div>}
                           </td>
                           <td className="px-6 py-4">
                             <Badge className={`border ${TYPE_COLORS[t.type]}`}>{t.type.replace('_', ' ')}</Badge>
@@ -236,9 +240,6 @@ export default function TransactionsPage() {
                               <DropdownMenuContent align="end">
                                 <DropdownMenuItem onClick={() => router.push(`/manager/financial/transactions/${t.id}`)}>
                                   Ver detalles completos
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => alert('Descargando comprobante...')}>
-                                  Descargar comprobante
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>

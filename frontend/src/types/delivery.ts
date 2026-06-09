@@ -65,6 +65,7 @@ export interface Delivery {
   priority: 'NORMAL' | 'ALTA' | 'URGENTE';
   
   riderId?: string;
+  rider_id?: string;
   rider?: Rider;
   
   pickupLocation: DeliveryLocation;
@@ -72,6 +73,7 @@ export interface Delivery {
   
   estimatedPickupTime?: Date;
   estimatedDeliveryTime?: Date;
+  estimated_delivery_time?: string | Date;
   actualPickupTime?: Date;
   actualDeliveryTime?: Date;
   
@@ -88,6 +90,8 @@ export interface Delivery {
   
   createdAt: Date;
   updatedAt: Date;
+  created_at?: string | Date;
+  updated_at?: string | Date;
   completedAt?: Date;
   cancelledAt?: Date;
   
@@ -101,10 +105,12 @@ export interface DeliveryCreateInput {
   type: DeliveryType;
   priority?: 'NORMAL' | 'ALTA' | 'URGENTE';
   riderId?: string;
+  rider_id?: string;
   pickupLocation: Omit<DeliveryLocation, 'address'> & { address: string };
   deliveryLocation: Omit<DeliveryLocation, 'address'> & { address: string };
   estimatedPickupTime?: Date;
   estimatedDeliveryTime?: Date;
+  estimated_delivery_time?: string | Date;
   observations?: string;
   customerInstructions?: string;
 }
@@ -114,6 +120,7 @@ export interface DeliveryUpdateInput {
   riderId?: string | null;
   estimatedPickupTime?: Date;
   estimatedDeliveryTime?: Date;
+  estimated_delivery_time?: string | Date;
   observations?: string;
   internalNotes?: string;
 }
@@ -132,10 +139,13 @@ export interface DeliveryFilters {
   status?: DeliveryStatus[];
   type?: DeliveryType[];
   riderId?: string;
+  rider_id?: string;
   orderId?: string;
   dateFrom?: Date;
   dateTo?: Date;
   search?: string;
+  limit?: number;
+  offset?: number;
 }
 
 export interface DeliveryStats {
