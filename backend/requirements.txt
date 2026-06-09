@@ -11,6 +11,7 @@ prometheus-client==0.20.0
 # --- Base de datos (Async) ---
 sqlalchemy==2.0.31
 asyncpg==0.29.0
+aiosqlite==0.20.0
 alembic==1.13.2
 
 # --- Caché y Colas ---
