@@ -7,60 +7,60 @@ export interface PlatformSettings {
   active_zones: string[];
   support_email: string;
   maintenance_mode: boolean;
+  updated_at?: string | null;
+  updated_by_user_id?: string | null;
 }
 
-// Valores por defecto seguros (Fallback)
-const DEFAULT_SETTINGS: PlatformSettings = {
-  delivery_fee_base: 5000,
-  commission_percentage: 15,
-  min_order_amount: 10000,
-  active_zones: ['Norte', 'Sur', 'Centro'],
-  support_email: 'soporte@delivery.com',
-  maintenance_mode: false
+export type PlatformSettingsUpdate = Partial<Omit<PlatformSettings, 'updated_at' | 'updated_by_user_id'>>;
+
+const normalizeSettings = (settings: PlatformSettings): PlatformSettings => ({
+  ...settings,
+  delivery_fee_base: Number(settings.delivery_fee_base ?? 0),
+  commission_percentage: Number(settings.commission_percentage ?? 0),
+  min_order_amount: Number(settings.min_order_amount ?? 0),
+  active_zones: Array.isArray(settings.active_zones) ? settings.active_zones : [],
+  support_email: settings.support_email || 'soporte@delivery.com',
+  maintenance_mode: Boolean(settings.maintenance_mode),
+});
+
+const validateSettings = (settings: PlatformSettingsUpdate): void => {
+  if (settings.commission_percentage !== undefined && (settings.commission_percentage < 0 || settings.commission_percentage > 100)) {
+    throw new Error('La comisión debe estar entre 0 y 100');
+  }
+  if (settings.delivery_fee_base !== undefined && settings.delivery_fee_base < 0) {
+    throw new Error('La tarifa base no puede ser negativa');
+  }
+  if (settings.min_order_amount !== undefined && settings.min_order_amount < 0) {
+    throw new Error('El pedido mínimo no puede ser negativo');
+  }
+  if (settings.active_zones !== undefined && settings.active_zones.filter(Boolean).length === 0) {
+    throw new Error('Debe existir al menos una zona activa');
+  }
+  if (settings.support_email !== undefined && !/\S+@\S+\.\S+/.test(settings.support_email)) {
+    throw new Error('El correo de soporte no es válido');
+  }
 };
 
 export const settingsService = {
-  /**
-   * Obtiene la configuración global de la plataforma.
-   * Intenta traer datos reales del backend. Si falla (ej. endpoint no listo),
-   * devuelve valores por defecto seguros para no romper la UI.
-   */
+  /** Obtener configuración global persistida de la plataforma. */
   getSettings: async (): Promise<PlatformSettings> => {
     try {
-      const response = await api.get<PlatformSettings>('/settings');
-      // Asumiendo que api.get retorna directamente los datos gracias a nuestros interceptores
-      // Si tu interceptor retorna el objeto Axios completo, usar: return response.data;
-      return response; 
+      return normalizeSettings(await api.get<PlatformSettings>('/settings'));
     } catch (error) {
-      console.warn('⚠️ No se pudo cargar la configuración del backend. Usando valores por defecto.', error);
-      // Retornamos una copia para evitar mutaciones accidentales del default
-      return { ...DEFAULT_SETTINGS };
+      console.error('[SettingsService] Error fetching platform settings:', error);
+      throw error;
     }
   },
 
-  /**
-   * Actualiza la configuración global.
-   * Incluye validaciones básicas antes de enviar al backend.
-   */
-  updateSettings: async (settings: Partial<PlatformSettings>): Promise<PlatformSettings> => {
-    // Validaciones de seguridad básicas
-    if (settings.commission_percentage !== undefined) {
-      if (settings.commission_percentage < 0 || settings.commission_percentage > 100) {
-        throw new Error('La comisión debe estar entre 0 y 100');
-      }
-    }
-
-    if (settings.delivery_fee_base !== undefined && settings.delivery_fee_base < 0) {
-      throw new Error('La tarifa base no puede ser negativa');
-    }
+  /** Actualizar configuración global y devolver el estado persistido. */
+  updateSettings: async (settings: PlatformSettingsUpdate): Promise<PlatformSettings> => {
+    validateSettings(settings);
 
     try {
-      const response = await api.patch<PlatformSettings>('/settings', settings);
-      return response;
+      return normalizeSettings(await api.patch<PlatformSettings>('/settings', settings));
     } catch (error: any) {
-      console.error('❌ Error al actualizar configuración:', error);
-      // Propagamos el error para que el componente muestre la alerta correspondiente
-      throw new Error(error.response?.data?.detail || 'No se pudo guardar la configuración');
+      console.error('[SettingsService] Error updating platform settings:', error);
+      throw new Error(error.response?.data?.detail || error.message || 'No se pudo guardar la configuración');
     }
-  }
+  },
 };

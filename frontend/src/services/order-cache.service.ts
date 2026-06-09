@@ -40,8 +40,7 @@ export const orderServiceWithCache = {
     if (filters?.skip !== undefined) params.append('skip', filters.skip.toString());
     if (filters?.limit !== undefined) params.append('limit', filters.limit.toString());
 
-    const response = await api.get(`/api/v1/orders?${params.toString()}`);
-    const orders = response.data;
+    const orders = await api.get<Order[]>(`/api/v1/orders?${params.toString()}`);
 
     // Guardar en caché
     cacheUtils.set(cacheKey, orders, ORDERS_LIST_CACHE_TTL);
@@ -64,8 +63,7 @@ export const orderServiceWithCache = {
     }
 
     // Hacer llamada a API
-    const response = await api.get(`/api/v1/orders/${orderId}`);
-    const order = response.data;
+    const order = await api.get<Order>(`/api/v1/orders/${orderId}`);
 
     // Guardar en caché
     cacheUtils.set(cacheKey, order, ORDER_CACHE_TTL);
@@ -78,8 +76,7 @@ export const orderServiceWithCache = {
    * Crear una orden (invalida caché relacionado)
    */
   async createOrder(orderData: Partial<Order>): Promise<Order> {
-    const response = await api.post('/api/v1/orders', orderData);
-    const order = response.data;
+    const order = await api.post<Order>('/api/v1/orders', orderData);
 
     // Invalidar caché de listados de órdenes
     cacheUtils.removePattern('orders:list');
@@ -92,8 +89,7 @@ export const orderServiceWithCache = {
    * Actualizar una orden (invalida caché específico y de listados)
    */
   async updateOrder(orderId: string, updateData: Partial<Order>): Promise<Order> {
-    const response = await api.put(`/api/v1/orders/${orderId}`, updateData);
-    const order = response.data;
+    const order = await api.put<Order>(`/api/v1/orders/${orderId}`, updateData);
 
     // Invalidar caché específico
     cacheUtils.remove(`order:${orderId}`);
@@ -108,8 +104,7 @@ export const orderServiceWithCache = {
    * Cancelar una orden (invalida caché relacionado)
    */
   async cancelOrder(orderId: string, reason: string): Promise<Order> {
-    const response = await api.post(`/api/v1/orders/${orderId}/cancel`, { reason });
-    const order = response.data;
+    const order = await api.post<Order>(`/api/v1/orders/${orderId}/cancel`, { reason });
 
     // Invalidar caché
     cacheUtils.remove(`order:${orderId}`);
@@ -123,8 +118,7 @@ export const orderServiceWithCache = {
    * Asignar repartidor a una orden (invalida caché relacionado)
    */
   async assignRider(orderId: string, riderId: string): Promise<Order> {
-    const response = await api.post(`/api/v1/orders/${orderId}/assign`, { rider_id: riderId });
-    const order = response.data;
+    const order = await api.post<Order>(`/api/v1/orders/${orderId}/assign`, { rider_id: riderId });
 
     // Invalidar caché de orden y repartidor
     cacheUtils.remove(`order:${orderId}`);

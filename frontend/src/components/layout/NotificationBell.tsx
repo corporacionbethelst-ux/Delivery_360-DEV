@@ -10,7 +10,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 // Mapeo de tipos a iconos
-const getIconByType = (type: string) => {
+export const getIconByType = (type: string) => {
   switch (type) {
     case 'ORDER': return <Truck className="h-4 w-4 text-blue-500" />;
     case 'PAYMENT': return <DollarSign className="h-4 w-4 text-green-500" />;
