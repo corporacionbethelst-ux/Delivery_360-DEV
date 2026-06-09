@@ -1,3 +1,299 @@
+# 📊 Informe ejecutivo actualizado — Delivery360
+
+**Fecha de actualización:** 09 de junio de 2026
+**Estado revisado:** monorepo FastAPI + Next.js con PostgreSQL/Redis y módulos operativos ampliados.
+**Nivel estimado de preparación para producción:** **72/100 — Pre-producción avanzada / beta técnica controlada**.
+
+> Este informe consolida la revisión actual del repositorio después de las mejoras de finanzas, payouts, zonas, vehículos, usuarios, roles, auditoría, configuración de plataforma y seed de datos demo. El sistema ya tiene una base funcional amplia, pero todavía requiere estabilización de QA, limpieza de deuda técnica y hardening operativo antes de considerarlo producción plena.
+
+---
+
+## 0. Resumen de producción actual
+
+### 0.1 Veredicto rápido
+
+Delivery360 está en un punto **muy superior a prototipo**: ya cuenta con backend real, modelos persistentes, migraciones Alembic, frontend por roles, servicios API, seed de datos, Docker Compose, auditoría, configuración global y trazabilidad financiera. Sin embargo, aún no está en producción final porque faltan elementos de cierre:
+
+- suite de pruebas integral y ejecutable en CI;
+- eliminación de mocks/fallbacks restantes en algunas pantallas;
+- scripts operativos completos para setup/migraciones;
+- validación end-to-end con base limpia y base ya migrada;
+- hardening de observabilidad, seguridad y despliegue;
+- documentación de runbooks y procedimientos de rollback;
+- verificación de performance/carga sobre flujos críticos.
+
+### 0.2 Calificación por área
+
+| Área | Estado | Nivel | Observación |
+|---|---:|---:|---|
+| Backend FastAPI | Avanzado | 78/100 | API amplia, routers reales, trazabilidad financiera y auditoría; falta mayor cobertura de integración. |
+| Base de datos / migraciones | Avanzado con riesgo controlado | 75/100 | Alembic existe y se corrigió `platform_settings` para migración idempotente; falta probar matriz completa base nueva/base existente. |
+| Finanzas / payouts | Avanzado | 82/100 | Ledger canónico, idempotencia, balances e historial; falta conciliación automatizada y pruebas end-to-end completas. |
+| Admin users/roles/audit/settings | Medio-alto | 74/100 | Ya usa datos reales y endpoints propios; falta cerrar permisos granulares y datos operativos completos. |
+| Fleet / vehicles / zones | Medio-alto | 76/100 | Rutas robustecidas y zonas reales; falta validación operativa con flujos completos de asignación. |
+| Frontend Next.js | Medio-alto | 70/100 | Muchas páginas conectadas a API; persisten logs de debug y algunos mocks/fallbacks. |
+| Testing / QA | Bajo-medio | 45/100 | Hay tests enfocados en ledger/payouts, pero el conteo global es bajo frente al tamaño del sistema. |
+| DevOps / producción | Medio | 60/100 | Docker Compose y migraciones existen; scripts `setup_dev.sh` y `run_migrations.sh` siguen como TODO. |
+| Observabilidad / auditoría | Medio-alto | 72/100 | Auditoría real y middleware existen; falta tablero/alertas productivas y retención formal. |
+| Seguridad | Medio | 65/100 | Roles, auth y headers existen; falta revisión final de secretos, rate limits, permisos finos y LGPD/PII. |
+
+---
+
+## 1. Avances técnicos confirmados
+
+### 1.1 Módulo financiero y payouts
+
+Se fortaleció el módulo financiero con:
+
+- movimientos contables con `balance_before` y `balance_after`;
+- `idempotency_key` para evitar duplicados;
+- `source_type` y `source_id` para rastrear origen;
+- `created_by_user_id` para auditoría de usuario;
+- `FinancialService` como punto canónico de escritura;
+- retiros/payouts con historial (`PayoutStatusHistory`);
+- endpoints de resumen, conciliación, reportes, transacciones y ganancias rider;
+- seed de datos con ledger trazable y payouts demo.
+
+**Estado:** listo para validación en pre-producción con datos reales controlados.
+**Riesgo restante:** conciliación automática diaria, pruebas de concurrencia y rollback contable.
+
+### 1.2 Módulos administrativos
+
+Se avanzó en:
+
+- usuarios (`/api/v1/users`) con corrección de montaje para evitar 404;
+- roles (`/api/v1/roles`) con frontend conectado;
+- auditoría (`/api/v1/audit`) con filtros, export y resumen;
+- configuración (`/api/v1/settings`) persistida en `platform_settings`;
+- seed de eventos de auditoría y configuración global.
+
+**Estado:** funcional para administración básica y auditoría demo.
+**Riesgo restante:** permisos granulares por acción, bloqueo de acciones peligrosas y pruebas por rol.
+
+### 1.3 Fleet, zonas y vehículos
+
+Se incorporó:
+
+- entidad `Zone` y CRUD/API de zonas;
+- relación de riders con zona;
+- robustecimiento de vehículos y filtros;
+- corrección de colisiones de rutas dinámicas;
+- seed de zonas y vehículos.
+
+**Estado:** operativo para pruebas funcionales.
+**Riesgo restante:** asegurar asignación automática por zona, capacidad, distancia y disponibilidad en escenarios reales.
+
+### 1.4 Frontend
+
+Se actualizaron servicios y páginas para consumir APIs reales:
+
+- `financial.service.ts`, `payout.service.ts`, `transaction.service.ts`;
+- `zone.service.ts`, `vehicle.service.ts`;
+- `user.service.ts`, `role.service.ts`, `audit.service.ts`, `settings.service.ts`;
+- pantallas de finanzas, payouts, auditoría, roles, settings, zonas y vehículos.
+
+**Estado:** UI funcional conectada a backend en varios módulos.
+**Riesgo restante:** limpiar logs de debug, reducir `any`, eliminar mocks restantes y fortalecer estados vacíos/error.
+
+---
+
+## 2. Hallazgos e inconsistencias detectadas en la revisión
+
+### 2.1 Scripts operativos incompletos
+
+Se encontraron scripts con implementación pendiente:
+
+- `backend/scripts/setup_dev.sh` contiene únicamente `TODO: implement setup_dev.sh`.
+- `backend/scripts/run_migrations.sh` contiene únicamente `TODO: implement run_migrations.sh`.
+
+**Impacto:** para producción/pre-producción, los pasos de bootstrap y migración no quedan automatizados ni estandarizados.
+**Prioridad:** Alta antes de despliegue formal.
+
+### 2.2 Cobertura de tests insuficiente para el tamaño actual
+
+El repositorio contiene aproximadamente:
+
+- 139 archivos Python backend;
+- 196 archivos TypeScript/TSX frontend;
+- solo 4 archivos de test identificados.
+
+**Impacto:** el sistema tiene módulos críticos (finanzas, payouts, usuarios, auditoría, órdenes, entregas) con bajo respaldo automático.
+**Prioridad:** Alta.
+
+### 2.3 Mocks/fallbacks pendientes en frontend
+
+Se detectaron referencias a mocks/fallbacks en módulos como:
+
+- estadísticas de órdenes con fallback mock;
+- productividad rider con comentario de mock;
+- algunos servicios/stores con normalización amplia usando `any`.
+
+**Impacto:** puede ocultar errores reales de backend o mostrar datos irreales en producción.
+**Prioridad:** Media-alta.
+
+### 2.4 Logs de debug en frontend
+
+Persisten `console.log` en servicios y páginas, especialmente cache de órdenes y perfil rider.
+
+**Impacto:** ruido en consola, posible exposición de datos operativos y menor calidad productiva.
+**Prioridad:** Media.
+
+### 2.5 Migraciones y bases parcialmente creadas
+
+Ya se corrigió el caso observado de `DuplicateTableError` para `platform_settings` haciendo la migración idempotente. Aun así, debe probarse una matriz de migraciones:
+
+1. base vacía;
+2. base con `Base.metadata.create_all()` previo;
+3. base con migración financiera aplicada pero settings sin stamp;
+4. base con datos seed;
+5. downgrade/rollback controlado en entorno temporal.
+
+**Impacto:** evita bloqueos de arranque en contenedores.
+**Prioridad:** Alta hasta validar la matriz completa.
+
+### 2.6 Seguridad y permisos
+
+Hay roles y dependencias de autorización, pero antes de producción se debe verificar:
+
+- matriz de permisos por endpoint;
+- acciones `SUPERADMIN` vs `GERENTE` vs `OPERADOR` vs `REPARTIDOR`;
+- protección de endpoints de auditoría/exportación;
+- rotación de secretos y variables de entorno;
+- CORS, TrustedHost, headers y rate limiting con valores productivos;
+- tratamiento de PII en logs/auditoría.
+
+**Prioridad:** Alta.
+
+---
+
+## 3. Nivel de producción recomendado
+
+### 3.1 Estado actual: Pre-producción avanzada
+
+El proyecto puede pasar a una **pre-producción interna** si se despliega con:
+
+- base de datos controlada;
+- seed o datos de prueba realistas;
+- usuarios internos;
+- monitoreo de logs activo;
+- migraciones revisadas;
+- feature flags o acceso restringido.
+
+No se recomienda aún abrirlo como producción pública/operativa sin completar las fases de endurecimiento.
+
+### 3.2 Criterios para pasar a producción real
+
+Para declarar el sistema como **producción 1.0**, deberían cumplirse estos criterios mínimos:
+
+1. `alembic upgrade head` exitoso en base limpia y base existente.
+2. `seed_data.py` exitoso e idempotente.
+3. Backend test suite con cobertura mínima de módulos críticos.
+4. Frontend `type-check`, `lint` y build productivo exitosos.
+5. Pruebas E2E de flujos críticos:
+   - login;
+   - crear/editar usuario;
+   - crear/editar zona;
+   - crear/editar vehículo;
+   - crear orden;
+   - asignar rider;
+   - completar delivery;
+   - generar earning;
+   - solicitar payout;
+   - aprobar/rechazar payout;
+   - revisar auditoría;
+   - exportar reportes.
+6. Revisión de seguridad por rol y endpoint.
+7. Observabilidad mínima: logs estructurados, métricas, health checks y alertas.
+8. Backup/restore probado.
+9. Runbook de despliegue y rollback.
+10. Limpieza de mocks/logs de debug.
+
+---
+
+## 4. Roadmap recomendado hacia producción
+
+### Fase 1 — Estabilización inmediata (1 a 3 días)
+
+- Implementar `setup_dev.sh` y `run_migrations.sh`.
+- Ejecutar migraciones en base limpia y base existente.
+- Validar seed completo.
+- Corregir cualquier migración no idempotente restante.
+- Eliminar conflict markers y trailing whitespace en todo el repo.
+- Documentar comandos estándar de arranque.
+
+### Fase 2 — QA funcional por módulos (3 a 7 días)
+
+- Crear tests de API para users, roles, settings, audit, zones, vehicles.
+- Agregar tests de integración para payouts approve/reject.
+- Validar frontend por rol con datos seed.
+- Revisar estados vacíos, loading y errores en pantallas admin.
+- Eliminar mocks/fallbacks restantes o protegerlos con `NODE_ENV !== 'production'`.
+
+### Fase 3 — Seguridad y permisos (3 a 5 días)
+
+- Crear matriz de permisos por endpoint.
+- Verificar exports y endpoints sensibles solo para roles autorizados.
+- Revisar CORS/TrustedHost/rate limits productivos.
+- Revisar PII en auditoría y logs.
+- Asegurar secretos fuera del repositorio.
+
+### Fase 4 — Observabilidad y operaciones (3 a 5 días)
+
+- Consolidar logs estructurados backend.
+- Definir métricas clave: latencia, errores 4xx/5xx, payouts, órdenes, riders activos.
+- Configurar health checks reales de DB/Redis.
+- Probar backup/restore.
+- Documentar rollback de migraciones.
+
+### Fase 5 — Release candidate (5 a 10 días)
+
+- Ejecutar pruebas E2E completas.
+- Ejecutar prueba de carga básica.
+- Congelar cambios no críticos.
+- Crear release notes.
+- Hacer despliegue canary/staging.
+- Monitorear por 24-48 horas antes de producción.
+
+---
+
+## 5. Comandos de verificación recomendados
+
+```bash
+# Backend syntax
+python -m py_compile backend/app/api/v1/financial.py backend/app/api/v1/payouts.py backend/app/api/v1/settings.py backend/app/api/v1/audit.py backend/scripts/seed_data.py
+
+# Migraciones
+cd backend && alembic upgrade head
+
+# Tests backend
+cd backend && pytest -q
+
+# Frontend
+cd frontend && npm run type-check
+cd frontend && npm run lint
+cd frontend && npm run build
+
+# Limpieza de conflictos
+rg -n "^(<<<<<<<|=======|>>>>>>>)" .
+
+# Buscar mocks y TODO productivos
+rg -n "TODO|FIXME|mock|Mock|console\.log" backend frontend/src
+```
+
+---
+
+## 6. Conclusión ejecutiva
+
+Delivery360 ya tiene una base sólida para operar como **beta técnica o pre-producción interna**. El avance más importante fue pasar módulos clave de mocks o rutas frágiles a APIs reales con persistencia: finanzas, payouts, zonas, vehículos, usuarios, roles, auditoría y settings.
+
+El siguiente salto no debe ser agregar más funcionalidades grandes, sino **cerrar calidad productiva**: scripts, migraciones, tests, permisos, observabilidad, limpieza frontend y pruebas E2E. Si esas tareas se completan, el sistema puede avanzar razonablemente a un release candidate de producción.
+
+---
+
+
+
+# Histórico del informe anterior
+
 # 📊 Informe de Análisis del Proyecto Delivery360
 
 **Fecha de Generación:** Junio 2025

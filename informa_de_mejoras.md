@@ -1,3 +1,237 @@
+# ✅ Actualización de mejoras y adecuaciones — 09/06/2026
+
+## 1. Estado general del sistema
+
+Después de la última ronda de adecuaciones, Delivery360 queda en estado de **pre-producción avanzada**. El sistema ya no debe verse como una maqueta: la mayoría de módulos estratégicos tienen backend real, persistencia, servicios frontend y datos seed para pruebas.
+
+**Nivel estimado:** **72/100**.
+
+Esto significa:
+
+- ✅ suficiente madurez para pruebas internas con datos controlados;
+- ✅ suficiente base para staging/pre-producción;
+- ⚠️ todavía no recomendado para producción pública sin completar QA, seguridad y DevOps;
+- ⚠️ se deben eliminar inconsistencias menores antes del release candidate.
+
+---
+
+## 2. Mejoras ya aplicadas
+
+### 2.1 Finanzas y payouts
+
+Se implementó una base financiera mucho más robusta:
+
+- ledger financiero con `balance_before` y `balance_after`;
+- idempotencia por `idempotency_key`;
+- trazabilidad con `source_type`, `source_id` y `created_by_user_id`;
+- servicio canónico `FinancialService`;
+- endpoints para resumen, conciliación, reportes y transacciones;
+- payouts con estados, aprobación/rechazo e historial;
+- seed con ganancias trazables y retiros demo.
+
+**Resultado:** módulo apto para pre-producción, pendiente de pruebas de carga/concurrencia y conciliación automática.
+
+### 2.2 Admin: usuarios, roles, auditoría y configuración
+
+Se fortalecieron los módulos administrativos:
+
+- `/api/v1/users` corregido y conectado;
+- roles con API y frontend;
+- auditoría real con filtros, resumen y exportación;
+- settings persistido en `platform_settings`;
+- migración de settings corregida para evitar `DuplicateTableError` si la tabla ya existe;
+- seed de settings y eventos de auditoría.
+
+**Resultado:** administración funcional con datos reales y auditables.
+
+### 2.3 Fleet: zonas y vehículos
+
+Se mejoró el dominio operativo:
+
+- `zones` como entidad real;
+- riders vinculados a zonas;
+- vehículos con rutas y filtros robustecidos;
+- corrección de rutas ambiguas en FastAPI;
+- seed de zonas y flota.
+
+**Resultado:** Fleet está listo para QA funcional de operaciones.
+
+### 2.4 Frontend y servicios
+
+Se conectaron servicios frontend a endpoints reales:
+
+- finanzas;
+- payouts;
+- auditoría;
+- roles;
+- usuarios;
+- settings;
+- zonas;
+- vehículos;
+- transacciones.
+
+**Resultado:** las pantallas principales de manager/rider empiezan a operar contra la base real, no únicamente con mocks.
+
+---
+
+## 3. Inconsistencias o riesgos detectados para resolver
+
+### 3.1 Scripts pendientes
+
+Archivos pendientes:
+
+- `backend/scripts/setup_dev.sh`;
+- `backend/scripts/run_migrations.sh`.
+
+Actualmente siguen como TODO. Deben implementarse para estandarizar:
+
+- instalación local;
+- validación de variables;
+- ejecución de migraciones;
+- seed de datos;
+- checks básicos post-arranque.
+
+**Prioridad:** Alta.
+
+### 3.2 Tests insuficientes
+
+Aunque existe un test enfocado en finanzas/payouts, el proyecto ya es grande y necesita más cobertura.
+
+Próximos tests mínimos:
+
+- `test_users_api.py`;
+- `test_roles_api.py`;
+- `test_settings_api.py`;
+- `test_audit_api.py`;
+- `test_zones_api.py`;
+- `test_vehicles_api.py`;
+- `test_orders_deliveries_flow.py`;
+- `test_payouts_concurrency.py`.
+
+**Prioridad:** Alta.
+
+### 3.3 Mocks y fallback frontend
+
+Quedan referencias a mocks/fallbacks en algunos puntos frontend, especialmente estadísticas/productividad. Deben reemplazarse por endpoints reales o bloquearse para que solo funcionen en desarrollo.
+
+**Prioridad:** Media-alta.
+
+### 3.4 Logs de debug
+
+Se detectaron `console.log` en servicios/páginas. En producción deben eliminarse o reemplazarse por un logger controlado por entorno.
+
+**Prioridad:** Media.
+
+### 3.5 Matriz de permisos
+
+Hay roles, pero falta documentar y probar una matriz formal:
+
+| Recurso | SUPERADMIN | GERENTE | OPERADOR | REPARTIDOR | CLIENTE |
+|---|---|---|---|---|---|
+| Usuarios | CRUD total | lectura/gestión limitada | no | no | no |
+| Roles | CRUD/consulta | consulta | no | no | no |
+| Auditoría | total/export | lectura/export limitada | no | no | no |
+| Settings | lectura/escritura | lectura | no | no | no |
+| Finanzas | total | total operativo | limitado | propio | no |
+| Payouts | aprobar/rechazar | aprobar/rechazar | no | solicitar/ver propio | no |
+| Zonas/Vehículos | total | total operativo | parcial | no | no |
+
+**Prioridad:** Alta.
+
+---
+
+## 4. Plan de mejoras recomendado desde este punto
+
+### Paso 1 — Cerrar operación backend
+
+1. Implementar `setup_dev.sh`.
+2. Implementar `run_migrations.sh`.
+3. Verificar `alembic upgrade head` en base limpia.
+4. Verificar `alembic upgrade head` en base existente.
+5. Ejecutar `seed_data.py` y validar módulos admin/finance/fleet.
+
+### Paso 2 — QA de API
+
+1. Crear tests para users, roles, settings y audit.
+2. Crear tests para zones y vehicles.
+3. Crear tests de flujo order → delivery → earning → payout.
+4. Agregar pruebas de permisos por rol.
+5. Validar errores 400/403/404/409/422.
+
+### Paso 3 — Limpieza frontend
+
+1. Eliminar `console.log` productivos.
+2. Reemplazar mocks restantes.
+3. Mejorar pantallas vacías con CTA y mensajes claros.
+4. Revisar todos los `any` críticos en servicios/stores.
+5. Ejecutar `npm run type-check`, `npm run lint`, `npm run build`.
+
+### Paso 4 — Seguridad
+
+1. Revisar secretos y `.env`.
+2. Confirmar CORS productivo.
+3. Confirmar rate limits.
+4. Confirmar TrustedHost en producción.
+5. Revisar exposición de PII en audit/logs.
+6. Crear matriz de permisos final.
+
+### Paso 5 — Observabilidad y despliegue
+
+1. Health checks DB/Redis.
+2. Métricas Prometheus útiles.
+3. Logs estructurados.
+4. Alertas de error rate y latencia.
+5. Backup/restore de PostgreSQL.
+6. Runbook de rollback.
+7. Deploy staging.
+8. Prueba canary.
+
+---
+
+## 5. Orden sugerido de próximos módulos
+
+Recomendación para continuar sin dispersarse:
+
+1. **DevOps/scripts/migraciones** — porque bloquea estabilidad de entorno.
+2. **Tests de admin/settings/audit/users** — porque son módulos recién fortalecidos.
+3. **Orders + deliveries** — flujo central del negocio.
+4. **Rider mobile/dashboard** — experiencia operativa.
+5. **Notificaciones y alertas** — operación en tiempo real.
+6. **Performance y observabilidad** — preparación release candidate.
+
+---
+
+## 6. Checklist para declarar Release Candidate
+
+- [ ] `alembic upgrade head` pasa en base vacía.
+- [ ] `alembic upgrade head` pasa en base existente.
+- [ ] `seed_data.py` pasa y es idempotente.
+- [ ] Backend `pytest -q` pasa.
+- [ ] Frontend `npm run type-check` pasa.
+- [ ] Frontend `npm run lint` pasa.
+- [ ] Frontend `npm run build` pasa.
+- [ ] No hay conflict markers.
+- [ ] No hay mocks productivos activos.
+- [ ] No hay logs debug sensibles.
+- [ ] Matriz de permisos validada.
+- [ ] Backup/restore probado.
+- [ ] Health checks y métricas revisadas.
+- [ ] Runbook de despliegue documentado.
+
+---
+
+## 7. Conclusión
+
+La prioridad ya no es “hacer que exista el módulo”, porque los módulos principales ya existen. La prioridad ahora es **hacer que el sistema sea confiable, repetible, verificable y desplegable**.
+
+El proyecto está bien encaminado y puede avanzar a staging/pre-producción. Para producción real, el foco debe estar en QA, DevOps, seguridad, observabilidad y eliminación de deuda técnica visible.
+
+---
+
+
+
+# Histórico de mejoras anterior
+
 # Informe maestro de mejoras y alineación del repositorio
 
 ## Propósito
