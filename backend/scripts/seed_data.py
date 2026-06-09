@@ -23,7 +23,10 @@ from app.models.order import Order, OrderStatus, OrderPriority
 from app.models.delivery import Delivery, DeliveryStatus, ProofType
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
 from app.models.financial import Financial, TransactionType, PaymentStatus
-from app.models.payout import Payout, PayoutStatus, PayoutMethod
+from app.models.payout import Payout, PayoutStatus, PayoutMethod, PayoutStatusHistory
+from app.models.audit_log import AuditLog, ActionType
+from app.models.platform_setting import PlatformSetting
+from app.services.financial_service import FinancialService, money
 from app.models.productivity import ProductivityRecord, MetricType
 from app.models.notification import Notification, NotificationType, NotificationPriority 
 from app.models.route import Route, RoutePoint, RouteStatus
@@ -209,6 +212,70 @@ async def seed_zones(db: AsyncSession) -> List[Zone]:
     await db.commit()
     print(f"   ✅ {created} zonas creadas / {len(zones)} zonas disponibles.")
     return zones
+
+
+async def seed_platform_settings(db: AsyncSession, zones: List[Zone]):
+    """Seed persisted platform settings used by the admin settings module."""
+    print("⚙️ Sembrando configuración global de plataforma...")
+
+    admin_result = await db.execute(
+        select(User).where(User.role.in_([UserRole.SUPERADMIN, UserRole.GERENTE])).order_by(User.created_at.asc())
+    )
+    admin_user = admin_result.scalars().first()
+    active_zone_names = [zone.name for zone in zones if getattr(zone, "is_active", True)] or ["Norte", "Sur", "Centro"]
+
+    setting_defs = {
+        "delivery_fee_base": {
+            "value": 5000,
+            "description": "Tarifa base de envío usada para pruebas operativas.",
+        },
+        "commission_percentage": {
+            "value": 15,
+            "description": "Comisión de plataforma usada para reportes demo.",
+        },
+        "min_order_amount": {
+            "value": 10000,
+            "description": "Pedido mínimo habilitado para flujos de prueba.",
+        },
+        "active_zones": {
+            "value": active_zone_names,
+            "description": "Zonas activas precargadas desde seed_data.",
+        },
+        "support_email": {
+            "value": "soporte@delivery360.com",
+            "description": "Correo de soporte visible en configuración.",
+        },
+        "maintenance_mode": {
+            "value": False,
+            "description": "Modo mantenimiento inicial desactivado.",
+        },
+    }
+
+    created = 0
+    updated_descriptions = 0
+    now = utc_now_naive()
+    for key, data in setting_defs.items():
+        result = await db.execute(select(PlatformSetting).where(PlatformSetting.key == key))
+        setting = result.scalar_one_or_none()
+        if not setting:
+            db.add(
+                PlatformSetting(
+                    key=key,
+                    value=data["value"],
+                    description=data["description"],
+                    updated_by_user_id=admin_user.id if admin_user else None,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            created += 1
+        elif not setting.description:
+            setting.description = data["description"]
+            updated_descriptions += 1
+
+    await db.commit()
+    print(f"   ✅ {created} configuraciones creadas / {updated_descriptions} descripciones actualizadas.")
+
 
 async def seed_riders(db: AsyncSession, zones: List[Zone], count: int = 15) -> List[Rider]:
     print(f"🛵 Sembrando repartidores...")
@@ -483,23 +550,208 @@ async def seed_orders_and_complex_data(db: AsyncSession, riders: List[Rider], co
             db.add(record)
             
             if stats["earnings"] > 0:
-                txn = Financial(
-                    id=uuid.uuid4(),
-                    rider_id=r_id,
-                    transaction_type="PAGO_ENTREGA",
-                    amount=stats["earnings"],
-                    status="PROCESADO",
-                    description=f"Saldo del día ({stats['completed']} entregas)",
-                )
-                db.add(txn)
-                
-                if r_id in db_riders:
-                    db_riders[r_id].wallet_balance = (db_riders[r_id].wallet_balance or 0) + stats["earnings"]
+                idempotency_key = f"seed-earnings-{now.date()}-{r_id}"
+                existing_txn = await db.execute(select(Financial).where(Financial.idempotency_key == idempotency_key))
+                existing_txn = existing_txn.scalar_one_or_none()
+
+                if existing_txn:
+                    if r_id in db_riders:
+                        db_riders[r_id].wallet_balance = existing_txn.balance_after
+                else:
+                    txn = await FinancialService(db).create_ledger_entry(
+                        rider_id=r_id,
+                        transaction_type=TransactionType.PAGO_ENTREGA,
+                        amount=stats["earnings"],
+                        status=PaymentStatus.PROCESADO,
+                        description=f"Saldo del día ({stats['completed']} entregas)",
+                        source_type="SEED_ORDER_BATCH",
+                        source_id=str(now.date()),
+                        idempotency_key=idempotency_key,
+                        commit=False,
+                    )
+
+                    if r_id in db_riders:
+                        db_riders[r_id].wallet_balance = txn.balance_after
                 
     await db.commit()
-    print("   ✅ Productividad y finanzas actualizadas.")
+    print("   ✅ Productividad y finanzas actualizadas con ledger trazable.")
     
     return orders
+
+
+async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
+    """Seed payout requests with status history for manager/rider finance demos."""
+    print("💸 Sembrando retiros demo con historial...")
+
+    admin_result = await db.execute(select(User).where(User.role == UserRole.SUPERADMIN))
+    admin_user = admin_result.scalar_one_or_none()
+    if not admin_user:
+        print("   ⚠️ No hay superadmin para trazar retiros demo.")
+        return
+
+    candidates = [rider for rider in riders if money(getattr(rider, "wallet_balance", 0)) > Decimal("20.00")]
+    if not candidates:
+        result = await db.execute(select(Rider).where(Rider.wallet_balance > 20).limit(5))
+        candidates = list(result.scalars().all())
+
+    statuses = [PayoutStatus.PENDIENTE, PayoutStatus.PROCESADO, PayoutStatus.RECHAZADO]
+    created = 0
+    now = utc_now_naive()
+
+    for index, rider in enumerate(candidates[:6]):
+        status_value = statuses[index % len(statuses)]
+        idempotency_key = f"seed-payout-{status_value.value.lower()}-{rider.id}"
+        existing = await db.execute(select(Payout).where(Payout.idempotency_key == idempotency_key))
+        if existing.scalar_one_or_none():
+            continue
+
+        current_balance = money(getattr(rider, "wallet_balance", 0))
+        if current_balance <= Decimal("20.00"):
+            continue
+
+        amount = min(Decimal("30000.00"), max(Decimal("10.00"), money(current_balance * Decimal("0.30"))))
+        balance_after = current_balance - amount if status_value in [PayoutStatus.PENDIENTE, PayoutStatus.PROCESADO] else current_balance
+        payout_id = uuid.uuid4()
+        requested_at = now - timedelta(hours=8 + index)
+        processed_at = requested_at + timedelta(hours=2) if status_value != PayoutStatus.PENDIENTE else None
+
+        payout = Payout(
+            id=payout_id,
+            rider_id=rider.id,
+            amount=amount,
+            status=status_value,
+            method=random.choice([PayoutMethod.TRANSFERENCIA, PayoutMethod.BILLETERA_DIGITAL]),
+            bank_account_last4=str(random.randint(1000, 9999)),
+            reference_code=f"SEED-PAY-{str(payout_id)[:8].upper()}" if status_value == PayoutStatus.PROCESADO else None,
+            rejection_reason="Datos bancarios pendientes de validación" if status_value == PayoutStatus.RECHAZADO else None,
+            idempotency_key=idempotency_key,
+            balance_before=current_balance,
+            balance_after=balance_after,
+            requested_by_user_id=rider.user_id,
+            processed_by_user_id=admin_user.id if status_value != PayoutStatus.PENDIENTE else None,
+            requested_at=requested_at,
+            processed_at=processed_at,
+            updated_at=processed_at or requested_at,
+        )
+        db.add(payout)
+        db.add(
+            PayoutStatusHistory(
+                payout_id=payout_id,
+                old_status=None,
+                new_status=PayoutStatus.PENDIENTE.value,
+                reason="Solicitud demo creada desde seed_data",
+                changed_by_user_id=rider.user_id,
+                balance_before=current_balance,
+                balance_after=current_balance - amount,
+                created_at=requested_at,
+            )
+        )
+
+        if status_value == PayoutStatus.PROCESADO:
+            db.add(
+                PayoutStatusHistory(
+                    payout_id=payout_id,
+                    old_status=PayoutStatus.PENDIENTE.value,
+                    new_status=PayoutStatus.PROCESADO.value,
+                    reason="Retiro demo aprobado",
+                    changed_by_user_id=admin_user.id,
+                    balance_before=current_balance,
+                    balance_after=balance_after,
+                    created_at=processed_at,
+                )
+            )
+            await FinancialService(db).create_ledger_entry(
+                rider_id=rider.id,
+                amount=amount,
+                balance_before=current_balance,
+                transaction_type=TransactionType.RETIRO,
+                status=PaymentStatus.PROCESADO,
+                description=f"Retiro demo aprobado: {payout.reference_code}",
+                reference_id=str(payout_id),
+                source_type="PAYOUT",
+                source_id=str(payout_id),
+                idempotency_key=f"seed-payout-ledger-{payout_id}",
+                created_by_user_id=admin_user.id,
+                commit=False,
+            )
+            rider.wallet_balance = balance_after
+        elif status_value == PayoutStatus.RECHAZADO:
+            db.add(
+                PayoutStatusHistory(
+                    payout_id=payout_id,
+                    old_status=PayoutStatus.PENDIENTE.value,
+                    new_status=PayoutStatus.RECHAZADO.value,
+                    reason=payout.rejection_reason,
+                    changed_by_user_id=admin_user.id,
+                    balance_before=current_balance - amount,
+                    balance_after=current_balance,
+                    created_at=processed_at,
+                )
+            )
+
+        created += 1
+
+    await db.commit()
+    print(f"   ✅ {created} retiros demo creados con historial.")
+
+
+async def seed_audit_logs(db: AsyncSession):
+    """Seed representative audit events for the admin audit module."""
+    print("🧾 Sembrando eventos de auditoría demo...")
+
+    existing = await db.execute(select(AuditLog).where(AuditLog.resource_id == "demo-audit-v1"))
+    if existing.scalar_one_or_none():
+        print("   ℹ️ Auditoría demo ya existe; se omite duplicación.")
+        return
+
+    user_result = await db.execute(
+        select(User).where(User.role.in_([UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR])).limit(3)
+    )
+    actors = list(user_result.scalars().all())
+    if not actors:
+        print("   ⚠️ No hay usuarios administrativos para auditoría demo.")
+        return
+
+    now = utc_now_naive()
+    templates = [
+        (ActionType.LOGIN, "Auth", "login", "Inicio de sesión administrativo", True, None, "/api/v1/auth/login"),
+        (ActionType.CONFIG_CHANGE, "PlatformSettings", "global", "Actualización de configuración global", True, "delivery_fee_base, active_zones", "/api/v1/settings"),
+        (ActionType.CREATE, "User", "demo-rider", "Creación de usuario repartidor demo", True, None, "/api/v1/users"),
+        (ActionType.UPDATE, "Zone", "NRT", "Actualización de zona operativa Norte", True, "delivery_fee_base", "/api/v1/zones/NRT"),
+        (ActionType.PAYMENT, "Payout", "demo-payout", "Aprobación de retiro demo", True, "status", "/api/v1/payouts/demo/approve"),
+        (ActionType.EXPORT, "AuditLog", "csv", "Exportación de auditoría demo", True, None, "/api/v1/audit/export"),
+        (ActionType.ACCESS_DENIED, "Settings", "global", "Intento de cambio de configuración sin permisos", False, None, "/api/v1/settings"),
+    ]
+
+    for idx, (action, resource_type, resource_id, description, success, summary, path) in enumerate(templates):
+        actor = actors[idx % len(actors)]
+        db.add(
+            AuditLog(
+                user_id=actor.id,
+                user_email=actor.email,
+                user_role=actor.role.value if hasattr(actor.role, "value") else str(actor.role),
+                action_type=action,
+                resource_type=resource_type,
+                resource_id="demo-audit-v1" if idx == 0 else resource_id,
+                description=description,
+                old_values={"seed": False} if action in [ActionType.CONFIG_CHANGE, ActionType.UPDATE] else None,
+                new_values={"seed": True} if action in [ActionType.CONFIG_CHANGE, ActionType.UPDATE] else None,
+                changes_summary=summary,
+                ip_address=f"10.0.0.{idx + 10}",
+                user_agent="Delivery360 SeedData/1.0",
+                request_method="POST" if action in [ActionType.CREATE, ActionType.PAYMENT, ActionType.LOGIN] else "GET",
+                request_path=path,
+                status_code=200 if success else 403,
+                success=success,
+                error_message=None if success else "Permisos insuficientes para modificar configuración",
+                contains_personal_data=resource_type == "User",
+                created_at=now - timedelta(minutes=idx * 17),
+            )
+        )
+
+    await db.commit()
+    print(f"   ✅ {len(templates)} eventos de auditoría demo creados.")
+
 
 async def seed_alerts(db: AsyncSession, orders: List[Order], riders: List[Rider]):
     print(f"🔔 Generando alertas operacionales basadas en datos reales...")
@@ -589,13 +841,16 @@ async def main():
         try:
             users = await seed_users(db)
             zones = await seed_zones(db)
+            await seed_platform_settings(db, zones)
             riders = await seed_riders(db, zones)
             
             # NUEVO: Sembrar vehículos después de tener usuarios y riders
             await seed_vehicles(db, users, riders, count=25)
             
-            orders = await seed_orders_and_complex_data(db, riders, count=60) 
+            orders = await seed_orders_and_complex_data(db, riders, count=60)
+            await seed_demo_payouts(db, riders)
             await seed_alerts(db, orders, riders)
+            await seed_audit_logs(db)
             
             print("\n✅ ¡SEED COMPLETADO CON ÉXITO!")
             print("\n🔐 CREDENCIALES:")
@@ -604,6 +859,7 @@ async def main():
             print("   - Usuarios, Zonas, Riders, Vehículos (Flota)")
             print("   - Órdenes, Entregas, Finanzas, Productividad")
             print("   - Alertas Operacionales Reales")
+            print("   - Configuración global, retiros e historial/auditoría demo")
             
         except Exception as e:
             await db.rollback()
