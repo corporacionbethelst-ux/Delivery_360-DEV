@@ -2,7 +2,7 @@
 import { useMemo } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 
-export type Role = 'SUPERADMIN' | 'GERENTE' | 'OPERADOR' | 'REPARTIDOR';
+export type Role = 'SUPERADMIN' | 'GERENTE' | 'OPERADOR' | 'REPARTIDOR' | 'CLIENTE';
 
 interface PermissionDef {
   module: string;
@@ -25,6 +25,8 @@ const ROLE_CONFIGURATIONS: Record<Role, RoleConfig> = {
       { module: 'orders', actions: ['create', 'read', 'update', 'delete', 'approve', 'export'] },
       { module: 'deliveries', actions: ['create', 'read', 'update', 'delete', 'assign', 'export'] },
       { module: 'riders', actions: ['create', 'read', 'update', 'delete', 'approve', 'suspend', 'export'] },
+      { module: 'vehicles', actions: ['read', 'create', 'update', 'delete'] },
+      { module: 'zones', actions: ['read', 'create', 'update', 'delete'] },
       { module: 'financial', actions: ['read', 'export', 'configure', 'approve_payments'] },
       { module: 'reports', actions: ['read', 'export', 'configure'] },
       { module: 'settings', actions: ['read', 'update', 'configure'] },
@@ -40,6 +42,8 @@ const ROLE_CONFIGURATIONS: Record<Role, RoleConfig> = {
       { module: 'orders', actions: ['create', 'read', 'update', 'delete', 'approve', 'export'] },
       { module: 'deliveries', actions: ['create', 'read', 'update', 'delete', 'assign', 'export'] },
       { module: 'riders', actions: ['create', 'read', 'update', 'delete', 'approve', 'suspend', 'export'] },
+      { module: 'vehicles', actions: ['read', 'create', 'update', 'delete'] },
+      { module: 'zones', actions: ['read', 'create', 'update', 'delete'] },
       { module: 'financial', actions: ['read', 'export', 'configure', 'approve_payments'] },
       { module: 'reports', actions: ['read', 'export', 'configure'] },
       { module: 'settings', actions: ['read', 'update', 'configure'] },
@@ -55,6 +59,8 @@ const ROLE_CONFIGURATIONS: Record<Role, RoleConfig> = {
       { module: 'orders', actions: ['create', 'read', 'update'] },
       { module: 'deliveries', actions: ['read', 'update', 'assign'] },
       { module: 'riders', actions: ['read'] },
+      { module: 'vehicles', actions: ['read'] },
+      { module: 'zones', actions: ['read'] },
       { module: 'live-map', actions: ['read'] },
       { module: 'shifts', actions: ['read', 'update'] },
       { module: 'alerts', actions: ['read', 'create', 'update'] },
@@ -69,6 +75,14 @@ const ROLE_CONFIGURATIONS: Record<Role, RoleConfig> = {
       { module: 'productivity', actions: ['read'] },
       { module: 'profile', actions: ['read', 'update'] },
       { module: 'shifts', actions: ['read', 'create', 'update'] },
+    ],
+  },
+  CLIENTE: {
+    name: 'Cliente',
+    description: 'App del cliente',
+    permissions: [
+      { module: 'orders', actions: ['read', 'create'] },
+      { module: 'profile', actions: ['read', 'update'] },
     ],
   },
 };
@@ -133,6 +147,7 @@ export const useRole = () => {
     isGerente: () => currentRole === 'GERENTE',
     isOperador: () => currentRole === 'OPERADOR',
     isRepartidor: () => currentRole === 'REPARTIDOR',
+    isCliente: () => currentRole === 'CLIENTE',
   };
 };
 

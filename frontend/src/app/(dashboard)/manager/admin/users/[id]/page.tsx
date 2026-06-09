@@ -27,6 +27,8 @@ const ROLES_OPTIONS: { value: UserRole; label: string }[] = [
   { value: 'SUPERADMIN', label: 'Super Administrador' },
   { value: 'GERENTE', label: 'Gerente' },
   { value: 'OPERADOR', label: 'Operador' },
+  { value: 'REPARTIDOR', label: 'Repartidor' },
+  { value: 'CLIENTE', label: 'Cliente' },
 ];
 
 export default function EditUserPage() {
@@ -84,8 +86,8 @@ export default function EditUserPage() {
       return;
     }
     if (changePassword) {
-      if (passwords.new.length < 6) {
-        setError('La contraseña debe tener al menos 6 caracteres.');
+      if (passwords.new.length < 8) {
+        setError('La contraseña debe tener al menos 8 caracteres.');
         return;
       }
       if (passwords.new !== passwords.confirm) {
@@ -98,9 +100,6 @@ export default function EditUserPage() {
     setError(null);
 
     try {
-      // Nota: Si tu backend no permite cambiar password en el PATCH /users, 
-      // deberías hacer una llamada separada a un endpoint específico de cambio de password.
-      // Aquí asumimos que actualizamos los datos básicos.
       await userService.update(params.id as string, {
         first_name: formData.first_name,
         last_name: formData.last_name,
@@ -109,6 +108,10 @@ export default function EditUserPage() {
         is_active: formData.is_active,
         phone: formData.phone
       });
+
+      if (changePassword) {
+        await userService.updatePassword(params.id as string, passwords.new);
+      }
 
       setSuccess(true);
       setTimeout(() => router.push('/manager/admin/users'), 1500);
@@ -210,7 +213,7 @@ export default function EditUserPage() {
                   <Label>Confirmar Contraseña</Label>
                   <Input type="password" value={passwords.confirm} onChange={(e) => setPasswords({...passwords, confirm: e.target.value})} placeholder="••••••" />
                 </div>
-                <p className="col-span-full text-xs text-orange-600">Nota: Esta funcionalidad requiere un endpoint específico en el backend si no está incluido en la actualización general.</p>
+                <p className="col-span-full text-xs text-gray-500">La contraseña se actualizará mediante el endpoint seguro de administración.</p>
               </div>
             )}
           </div>
