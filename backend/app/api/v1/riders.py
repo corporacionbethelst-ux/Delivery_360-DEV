@@ -614,26 +614,28 @@ async def update_my_rider_profile(
             print(f"   🚫 Estado del repartidor cambiado a PENDIENTE. Acceso a pedidos bloqueado.")
 
         try:
-            from app.models.audit_log import AuditLog, AuditAction
+            from app.models.audit_log import ActionType, AuditLog
             audit_entry = AuditLog(
                 id=uuid.uuid4(),
                 user_id=current_user.id,
-                action=AuditAction.UPDATE,
-                entity_type="Rider",
-                entity_id=rider.id,
-                changes={
-                    "reason": "Solicitud de cambio de vehículo desde perfil",
-                    "old_vehicle": old_vehicle_info,
-                    "new_vehicle": new_vehicle_info,
+                user_email=current_user.email,
+                user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
+                action_type=ActionType.UPDATE,
+                resource_type="Rider",
+                resource_id=str(rider.id),
+                description="Solicitud de cambio de vehículo desde perfil",
+                old_values={"vehicle": old_vehicle_info},
+                new_values={
+                    "vehicle": new_vehicle_info,
                     "documents_invalidated": len(documents),
-                    "status_changed_to": "PENDIENTE"
+                    "status_changed_to": "PENDIENTE",
                 },
-                created_at=utc_now_naive()
+                changes_summary="Cambio de vehículo; documentos invalidados y rider pendiente",
+                success=True,
+                created_at=utc_now_naive(),
             )
             db.add(audit_entry)
             print(f"   📝 Registro de auditoría creado exitosamente.")
-        except ImportError:
-            print(f"   ⚠️ Modelo AuditLog no encontrado. Se omite el registro en BD.")
         except Exception as e:
             print(f"   ❌ Error al crear registro de auditoría: {str(e)}")
 

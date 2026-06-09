@@ -9,9 +9,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { 
-  ArrowLeft, Save, MapPin, AlertCircle, CheckCircle, Loader2, 
-  Globe, DollarSign, Clock, Users, Trash2, AlertTriangle 
+import {
+  ArrowLeft, Save, MapPin, AlertCircle, CheckCircle, Loader2,
+  Globe, DollarSign, Clock, Users, Trash2, AlertTriangle
 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -22,7 +22,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { zoneService, ZoneCreateInput } from '@/services/zone.service';
+import { zoneService, Zone, ZoneCreateInput } from '@/services/zone.service';
 
 export default function EditZonePage() {
   const router = useRouter();
@@ -32,7 +32,9 @@ export default function EditZonePage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  
+  const [currentZone, setCurrentZone] = useState<Zone | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   // Usamos el tipo del servicio para mayor consistencia
   const [formData, setFormData] = useState<ZoneCreateInput>({
     name: '', code: '', description: '', delivery_fee_base: 0, cost_per_km: 0,
@@ -44,6 +46,7 @@ export default function EditZonePage() {
     const loadZone = async () => {
       try {
         const data = await zoneService.getById(params.id as string);
+        setCurrentZone(data);
         setFormData({
           name: data.name,
           code: data.code,
@@ -84,7 +87,7 @@ export default function EditZonePage() {
 
     setSaving(true);
     setError(null);
-    
+
     try {
       await zoneService.update(params.id as string, formData);
       setSuccess(true);
@@ -98,12 +101,14 @@ export default function EditZonePage() {
   };
 
   const handleDeleteConfirm = async () => {
+    setDeleting(true);
     try {
       await zoneService.delete(params.id as string);
       router.push('/manager/fleet/zones?deleted=true');
     } catch (err: any) {
-      alert('Error al eliminar: ' + (err.message || 'No se pudo eliminar la zona.'));
+      setError(err.message || 'No se pudo eliminar la zona.');
       setShowDeleteDialog(false);
+      setDeleting(false);
     }
   };
 
@@ -167,46 +172,46 @@ export default function EditZonePage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="name">Nombre de la Zona *</Label>
-                  <Input 
-                    id="name" 
-                    value={formData.name} 
+                  <Input
+                    id="name"
+                    value={formData.name}
                     onChange={(e) => handleChange('name', e.target.value)}
-                    placeholder="Ej: Norte Industrial" 
+                    placeholder="Ej: Norte Industrial"
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="code">Código Corto *</Label>
-                  <Input 
-                    id="code" 
-                    value={formData.code} 
+                  <Input
+                    id="code"
+                    value={formData.code}
                     onChange={(e) => handleChange('code', e.target.value.toUpperCase())}
-                    placeholder="Ej: NRT" 
+                    placeholder="Ej: NRT"
                     className="uppercase font-mono"
                     maxLength={5}
                   />
                 </div>
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="desc">Descripción Operativa</Label>
-                <Textarea 
-                  id="desc" 
-                  value={formData.description} 
+                <Textarea
+                  id="desc"
+                  value={formData.description || ''}
                   onChange={(e) => handleChange('description', e.target.value)}
-                  placeholder="Detalles sobre límites, referencias o restricciones..." 
-                  rows={3} 
+                  placeholder="Detalles sobre límites, referencias o restricciones..."
+                  rows={3}
                 />
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="color">Color Identificativo</Label>
                 <div className="flex gap-4 items-center">
-                  <Input 
-                    id="color" 
-                    type="color" 
-                    value={formData.color_hex} 
+                  <Input
+                    id="color"
+                    type="color"
+                    value={formData.color_hex}
                     onChange={(e) => handleChange('color_hex', e.target.value)}
-                    className="w-20 h-10 p-1 cursor-pointer" 
+                    className="w-20 h-10 p-1 cursor-pointer"
                   />
                   <span className="text-sm text-gray-500">Este color se usará en el mapa para delimitar la zona.</span>
                 </div>
@@ -225,9 +230,9 @@ export default function EditZonePage() {
                   <Label className="flex items-center gap-2 text-gray-700">
                     <DollarSign className="w-4 h-4" /> Tarifa Base ($)
                   </Label>
-                  <Input 
-                    type="number" 
-                    value={formData.delivery_fee_base} 
+                  <Input
+                    type="number"
+                    value={formData.delivery_fee_base}
                     onChange={(e) => handleChange('delivery_fee_base', parseFloat(e.target.value) || 0)}
                     min={0}
                   />
@@ -237,9 +242,9 @@ export default function EditZonePage() {
                   <Label className="flex items-center gap-2 text-gray-700">
                     Costo por Km ($)
                   </Label>
-                  <Input 
-                    type="number" 
-                    value={formData.cost_per_km} 
+                  <Input
+                    type="number"
+                    value={formData.cost_per_km}
                     onChange={(e) => handleChange('cost_per_km', parseFloat(e.target.value) || 0)}
                     min={0}
                   />
@@ -249,9 +254,9 @@ export default function EditZonePage() {
                   <Label className="flex items-center gap-2 text-gray-700">
                     <Clock className="w-4 h-4" /> Tiempo Est. (min)
                   </Label>
-                  <Input 
-                    type="number" 
-                    value={formData.estimated_time_min} 
+                  <Input
+                    type="number"
+                    value={formData.estimated_time_min}
                     onChange={(e) => handleChange('estimated_time_min', parseInt(e.target.value) || 0)}
                     min={5}
                   />
@@ -274,20 +279,20 @@ export default function EditZonePage() {
                   <Label className="text-base">Zona Activa</Label>
                   <p className="text-xs text-gray-500">Si se desactiva, no se aceptarán pedidos.</p>
                 </div>
-                <Switch 
-                  checked={formData.is_active} 
-                  onCheckedChange={(v) => handleChange('is_active', v)} 
+                <Switch
+                  checked={formData.is_active}
+                  onCheckedChange={(v) => handleChange('is_active', v)}
                 />
               </div>
-              
+
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label className="text-base">Prioritaria</Label>
                   <p className="text-xs text-gray-500">Asignación preferente de repartidores.</p>
                 </div>
-                <Switch 
-                  checked={formData.is_priority} 
-                  onCheckedChange={(v) => handleChange('is_priority', v)} 
+                <Switch
+                  checked={formData.is_priority}
+                  onCheckedChange={(v) => handleChange('is_priority', v)}
                 />
               </div>
 
@@ -295,7 +300,7 @@ export default function EditZonePage() {
                 <div className="flex items-center gap-2 text-sm text-gray-600 mb-2">
                   <Users className="w-4 h-4" /> Repartidores en zona
                 </div>
-                <div className="text-3xl font-bold text-gray-900">--</div>
+                <div className="text-3xl font-bold text-gray-900">{currentZone?.riders_count ?? 0}</div>
               </div>
             </CardContent>
           </Card>
@@ -321,9 +326,9 @@ export default function EditZonePage() {
             </CardContent>
           </Card>
 
-          <Button 
-            variant="destructive" 
-            className="w-full mt-4" 
+          <Button
+            variant="destructive"
+            className="w-full mt-4"
             onClick={() => setShowDeleteDialog(true)}
           >
             <Trash2 className="w-4 h-4 mr-2" /> Eliminar Zona
@@ -338,7 +343,7 @@ export default function EditZonePage() {
             {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Guardando...</> : <><Save className="mr-2 h-4 w-4" /> Guardar Cambios</>}
          </Button>
       </div>
-      
+
       <div className="hidden lg:flex justify-end gap-3 pb-10">
         <Button variant="outline" onClick={() => router.back()}>Cancelar</Button>
         <Button onClick={handleSave} disabled={saving} className="bg-indigo-600 hover:bg-indigo-700">
@@ -354,16 +359,18 @@ export default function EditZonePage() {
               <AlertTriangle className="w-5 h-5" /> Eliminar Zona
             </DialogTitle>
             <DialogDescription>
-              ¿Estás seguro de eliminar la zona <strong>{formData.name}</strong>? 
+              ¿Estás seguro de eliminar la zona <strong>{formData.name}</strong>?
               <br/><br/>
               <span className="text-orange-600 font-medium">
-                Esto podría afectar a órdenes pendientes y repartidores asignados. Esta acción no se puede deshacer.
+                El backend liberará a los repartidores asignados a esta zona. Esta acción no se puede deshacer.
               </span>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>Cancelar</Button>
-            <Button variant="destructive" onClick={handleDeleteConfirm}>Sí, eliminar zona</Button>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)} disabled={deleting}>Cancelar</Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm} disabled={deleting}>
+              {deleting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Eliminando...</> : 'Sí, eliminar zona'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
