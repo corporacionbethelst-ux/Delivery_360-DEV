@@ -5,7 +5,9 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { deliveryService, Delivery } from '@/services/delivery.service';
-import { Navigation, Loader2, AlertCircle, MapPin } from 'lucide-react';
+import { useAuthStore } from '@/stores/authStore';
+import { useRouter } from 'next/navigation';
+import { Navigation, Loader2, MapPin } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -33,6 +35,8 @@ function MapUpdater({ centers }: { centers: [number, number][] }) {
 }
 
 export default function OperatorLiveMapPage() {
+  const router = useRouter();
+  const { user, isAuthenticated } = useAuthStore();
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
@@ -55,16 +59,22 @@ export default function OperatorLiveMapPage() {
   };
 
   useEffect(() => {
-    if (!isMounted) return;
+    if (!isMounted || !isAuthenticated || !user) return;
+
+    const allowedRoles = ['SUPERADMIN', 'GERENTE', 'OPERADOR'];
+    if (!allowedRoles.includes(user.role)) {
+      router.push('/login');
+      return;
+    }
     
     loadLiveData();
     
     // Polling cada 10 segundos
     const interval = setInterval(loadLiveData, 10000);
     return () => clearInterval(interval);
-  }, [isMounted]);
+  }, [isMounted, isAuthenticated, user, router]);
 
-  if (!isMounted || isLoading) {
+  if (!isMounted || !isAuthenticated || !user || isLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-50">
         <div className="text-center">
