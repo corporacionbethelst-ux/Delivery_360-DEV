@@ -5,9 +5,9 @@ import { useRouter, useParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { 
-  ArrowLeft, Download, Printer, AlertCircle, CheckCircle, Loader2, 
-  CreditCard, Calendar, User, Package, DollarSign, Clock, RefreshCw, ShieldAlert
+import {
+  ArrowLeft, Printer, AlertCircle, CheckCircle, Loader2,
+  CreditCard, Calendar, Package, DollarSign, Clock, RefreshCw, ShieldAlert
 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { formatCurrency } from '@/lib/formatters';
@@ -15,15 +15,16 @@ import { transactionService, Transaction, TransactionStatus } from '@/services/t
 
 // Mapeo de estados a colores y etiquetas legibles
 const STATUS_CONFIG: Record<TransactionStatus, { label: string; color: string; icon: any }> = {
-  COMPLETADA: { label: 'Completada', color: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle },
+  PROCESADO: { label: 'Procesada', color: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle },
+  PAGADO: { label: 'Pagada', color: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle },
   PENDIENTE: { label: 'Pendiente', color: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: Clock },
-  FALLIDA: { label: 'Fallida', color: 'bg-red-100 text-red-800 border-red-200', icon: AlertCircle },
+  RECHAZADO: { label: 'Rechazada', color: 'bg-red-100 text-red-800 border-red-200', icon: AlertCircle },
 };
 
 export default function TransactionDetailPage() {
   const router = useRouter();
   const params = useParams();
-  
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<Transaction | null>(null);
@@ -60,11 +61,6 @@ export default function TransactionDetailPage() {
     } finally {
       setActionLoading(false);
     }
-  };
-
-  const handleRefund = () => {
-    // Aquí iría la lógica para llamar a un endpoint de reembolso si existiera
-    alert('Funcionalidad de reembolso: Conectar con endpoint POST /transactions/{id}/refund');
   };
 
   if (loading) {
@@ -110,8 +106,8 @@ export default function TransactionDetailPage() {
               Transacción #{data.id.slice(-8).toUpperCase()}
             </h1>
             <p className="text-gray-500 text-sm flex items-center gap-2">
-              <Calendar className="w-3 h-3" /> {new Date(data.created_at).toLocaleDateString()} 
-              <span className="hidden sm:inline">•</span> 
+              <Calendar className="w-3 h-3" /> {new Date(data.created_at).toLocaleDateString()}
+              <span className="hidden sm:inline">•</span>
               <span className="hidden sm:inline">{new Date(data.created_at).toLocaleTimeString()}</span>
             </p>
           </div>
@@ -120,27 +116,24 @@ export default function TransactionDetailPage() {
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={actionLoading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${actionLoading ? 'animate-spin' : ''}`} /> Actualizar
           </Button>
-          <Button variant="outline" size="sm" className="hidden md:flex">
+          <Button variant="outline" size="sm" className="hidden md:flex" onClick={() => window.print()}>
             <Printer className="w-4 h-4 mr-2" /> Imprimir
-          </Button>
-          <Button variant="outline" size="sm">
-            <Download className="w-4 h-4 mr-2" /> PDF
           </Button>
         </div>
       </div>
 
-      {data.status === 'FALLIDA' && (
+      {data.status === 'RECHAZADO' && (
         <Alert variant="destructive" className="bg-red-50 border-red-200">
           <ShieldAlert className="h-4 w-4" />
           <AlertDescription>
-            Esta transacción falló. Verifique los logs del sistema o intente procesar el pago nuevamente.
+            Esta transacción fue rechazada. Verifique la descripción, referencia y logs del sistema antes de reintentar cualquier proceso relacionado.
           </AlertDescription>
         </Alert>
       )}
 
       {/* Grid Principal */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
+
         {/* Columna Izquierda: Detalles Financieros */}
         <div className="lg:col-span-2 space-y-6">
           <Card>
@@ -154,8 +147,7 @@ export default function TransactionDetailPage() {
                   <span className="text-gray-600 font-medium">Monto Total</span>
                   <span className="text-xl font-bold text-gray-900">{formatCurrency(data.amount)}</span>
                 </div>
-                
-                {/* Nota: Si tu backend no devuelve 'fee' o 'net', esto es informativo basado en el total */}
+
                 <div className="grid grid-cols-2 gap-4 pt-4 border-t">
                   <div>
                     <p className="text-xs text-gray-500 uppercase mb-1">Moneda</p>
@@ -164,9 +156,9 @@ export default function TransactionDetailPage() {
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-500 uppercase mb-1">Método</p>
+                    <p className="text-xs text-gray-500 uppercase mb-1">Tipo</p>
                     <p className="font-semibold text-gray-700 capitalize flex items-center gap-2">
-                      {data.type === 'INGRESO' ? <CreditCard className="w-4 h-4"/> : <Package className="w-4 h-4"/>}
+                      {['PAGO_ENTREGA', 'BONO'].includes(data.type) ? <CreditCard className="w-4 h-4"/> : <Package className="w-4 h-4"/>}
                       {data.type.replace('_', ' ')}
                     </p>
                   </div>
@@ -198,12 +190,12 @@ export default function TransactionDetailPage() {
                   <p className="font-mono text-sm text-slate-700 truncate">{data.id}</p>
                 </div>
                 <div className="p-3 bg-slate-50 rounded border border-slate-100">
-                  <p className="text-xs text-slate-500 uppercase">Usuario关联 (ID)</p>
-                  <p className="font-mono text-sm text-slate-700">{data.user_id || 'N/A'}</p>
+                  <p className="text-xs text-slate-500 uppercase">Rider asociado (ID)</p>
+                  <p className="font-mono text-sm text-slate-700">{data.rider_id || 'N/A'}</p>
                 </div>
               </div>
-              
-              {/* Simulación de Timeline basada en fechas de creación/proceso */}
+
+              {/* Timeline basado en fechas reales de creación/proceso */}
               <div className="mt-4 pt-4 border-t">
                 <p className="text-sm font-semibold mb-3">Registro de Actividad</p>
                 <div className="space-y-3 relative pl-4 border-l-2 border-gray-200">
@@ -214,9 +206,9 @@ export default function TransactionDetailPage() {
                   </div>
                   {data.processed_at && (
                     <div className="relative pl-4">
-                      <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 border-white ${data.status === 'COMPLETADA' ? 'bg-green-500' : 'bg-red-500'}`} />
+                      <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 border-white ${['PROCESADO', 'PAGADO'].includes(data.status) ? 'bg-green-500' : 'bg-red-500'}`} />
                       <p className="text-sm font-medium text-gray-900">
-                        {data.status === 'COMPLETADA' ? 'Procesamiento Exitoso' : 'Procesamiento Fallido'}
+                        {['PROCESADO', 'PAGADO'].includes(data.status) ? 'Procesamiento Exitoso' : 'Procesamiento Rechazado'}
                       </p>
                       <p className="text-xs text-gray-500">{new Date(data.processed_at).toLocaleString()}</p>
                     </div>
@@ -229,7 +221,7 @@ export default function TransactionDetailPage() {
 
         {/* Columna Derecha: Estado y Acciones */}
         <div className="space-y-6">
-          <Card className={`border-t-4 ${data.status === 'COMPLETADA' ? 'border-t-green-500' : data.status === 'PENDIENTE' ? 'border-t-yellow-500' : 'border-t-red-500'}`}>
+          <Card className={`border-t-4 ${['PROCESADO', 'PAGADO'].includes(data.status) ? 'border-t-green-500' : data.status === 'PENDIENTE' ? 'border-t-yellow-500' : 'border-t-red-500'}`}>
             <CardHeader className="text-center pb-2">
               <p className="text-sm text-gray-500">Estado Actual</p>
               <div className="flex justify-center mt-2">
@@ -240,12 +232,6 @@ export default function TransactionDetailPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-3 pt-4">
-              {data.status === 'COMPLETADA' && (
-                <Button variant="outline" className="w-full text-orange-600 hover:text-orange-700 hover:bg-orange-50 border-orange-200" onClick={handleRefund}>
-                  <RefreshCw className="w-4 h-4 mr-2" /> Procesar Reembolso
-                </Button>
-              )}
-              
               {data.status === 'PENDIENTE' && (
                 <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={handleRefresh} disabled={actionLoading}>
                   {actionLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
@@ -253,29 +239,9 @@ export default function TransactionDetailPage() {
                 </Button>
               )}
 
-              {data.status === 'FALLIDA' && (
-                <Button variant="outline" className="w-full text-gray-600" onClick={() => alert('Contacte a soporte técnico con el ID de transacción.')}>
-                  Contactar Soporte
-                </Button>
-              )}
             </CardContent>
           </Card>
-          
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Nota Interna</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <textarea 
-                className="w-full text-sm border rounded-md p-2 min-h-[120px] focus:ring-2 focus:ring-blue-500 outline-none resize-none"
-                placeholder="Escriba una nota administrativa sobre esta transacción..."
-                defaultValue={data.metadata?.notes || ''}
-              />
-              <Button size="sm" className="w-full mt-2" variant="secondary" onClick={() => alert('Nota guardada (Simulado)')}>
-                Guardar Nota
-              </Button>
-            </CardContent>
-          </Card>
+
         </div>
       </div>
     </div>

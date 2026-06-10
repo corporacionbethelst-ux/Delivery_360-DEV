@@ -1,7 +1,7 @@
 import { api } from '@/lib/api';
 
 // Usamos string union para ser flexibles con el filtro
-export type DeliveryStatus = 'PENDIENTE' | 'INICIADA' | 'EN_RUTA' | 'COMPLETADA' | 'INCIDENCIA' | 'FALLIDA' | 'EN_PICKUP' | 'EN_DESTINO';
+export type DeliveryStatus = 'PENDIENTE' | 'INICIADA' | 'EN_ROUTE' | 'EN_RUTA' | 'COMPLETADA' | 'INCIDENCIA' | 'FALLIDA' | 'EN_PICKUP' | 'EN_DESTINO';
 
 export interface RiderInfo {
   id: string;
@@ -14,7 +14,7 @@ export interface Delivery {
   id: string;
   order_id: string;
   external_id?: string;
-  rider_id: string;
+  rider_id?: string;
   status: string;
   started_at?: string | null;
   completed_at?: string | null;
@@ -26,10 +26,20 @@ export interface Delivery {
   distance_total?: number | null;
   sla_compliant?: boolean | null;
   proof_otp?: string | null;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
   // Datos Enriquecidos (Vienen del backend gracias al join)
   customer_name?: string;
+  rider_name?: string;
+  rider_phone?: string;
+  customer_phone?: string;
+  pickup_address?: string;
+  delivery_address?: string;
+  total_amount?: number;
+  payment_method?: string;
+  notes?: string;
+  estimated_delivery_time?: string;
+  order?: { customer_name?: string; customer_phone?: string; delivery_address?: string; total_amount?: number } | null;
   rider?: RiderInfo | null;
 }
 
@@ -124,7 +134,7 @@ export const deliveryService = {
   GetActiveTracking: async (): Promise<Delivery[]> => {
      try {
        // Obtenemos solo las que están en ruta para no cargar todo el historial
-       const response = await api.get<Delivery[]>('/deliveries?status=EN_RUTA&limit=100');
+       const response = await api.get<Delivery[]>('/deliveries?status=EN_ROUTE&limit=100');
        return response;
      } catch (error) {
        console.error('[DeliveryService] Error fetching active tracking:', error);
