@@ -146,11 +146,17 @@ export const deliveryService = {
     try {
       // Pedimos un límite mayor para el mapa
       const response = await api.get<Delivery[]>('/deliveries?limit=100&status=EN_ROUTE');
+
+      const isValidCoordinate = (value: number | string | null | undefined, min: number, max: number): boolean => {
+        if (value === null || value === undefined || value === '') return false;
+        const coordinate = Number(value);
+        return Number.isFinite(coordinate) && coordinate >= min && coordinate <= max;
+      };
       
       // Filtramos cliente-side para asegurarnos que tengan coordenadas válidas
       return response.filter(d => 
-        d.current_latitude !== null && 
-        d.current_longitude !== null &&
+        isValidCoordinate(d.current_latitude, -90, 90) &&
+        isValidCoordinate(d.current_longitude, -180, 180) &&
         [ 'INICIADA', 'EN_PICKUP', 'EN_ROUTE', 'EN_DESTINO' ].includes(d.status)
       );
     } catch (error) {
