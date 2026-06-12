@@ -173,6 +173,8 @@ export const financialService = {
     }
   },
 
+
+
   /**
    * Desglose auditable de ganancias/retiros del rider autenticado.
    */
