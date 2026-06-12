@@ -579,6 +579,191 @@ async def seed_orders_and_complex_data(db: AsyncSession, riders: List[Rider], co
     return orders
 
 
+async def seed_live_map_demo_data(db: AsyncSession, riders: List[Rider], target_count: int = 5) -> List[Order]:
+    """Ensure operator live-map has real active deliveries with valid GPS coordinates.
+
+    The operator map intentionally reads /deliveries?status=EN_ROUTE and renders only
+    deliveries with finite current_latitude/current_longitude. This seed creates or
+    refreshes deterministic demo orders/deliveries so local/dev environments can
+    validate the production flow without frontend mocks.
+    """
+    print("🗺️ Poblando mapa en vivo de operador con entregas GPS demo...")
+
+    now = utc_now_naive()
+    demo_routes = [
+        {
+            "external_id": "LIVE-MAP-DEMO-001",
+            "customer_name": "Cliente Demo Norte",
+            "pickup_name": "Burger King Zona G",
+            "pickup_address": "Cra 4 #85-10, Chapinero",
+            "pickup_lat": 4.6680,
+            "pickup_lng": -74.0500,
+            "delivery_address": "Calle 92 #15-20, Chicó",
+            "delivery_lat": 4.6738,
+            "delivery_lng": -74.0521,
+            "current_lat": 4.6706,
+            "current_lng": -74.0510,
+        },
+        {
+            "external_id": "LIVE-MAP-DEMO-002",
+            "customer_name": "Cliente Demo Centro",
+            "pickup_name": "Saludpan Farmacia",
+            "pickup_address": "Av 19 #11-40, Centro",
+            "pickup_lat": 4.6000,
+            "pickup_lng": -74.0750,
+            "delivery_address": "Carrera 7 #26-35, Centro Internacional",
+            "delivery_lat": 4.6129,
+            "delivery_lng": -74.0705,
+            "current_lat": 4.6068,
+            "current_lng": -74.0729,
+        },
+        {
+            "external_id": "LIVE-MAP-DEMO-003",
+            "customer_name": "Cliente Demo Usaquén",
+            "pickup_name": "Sushi Master Usaquén",
+            "pickup_address": "Cra 6 #119-60, Usaquén",
+            "pickup_lat": 4.6950,
+            "pickup_lng": -74.0300,
+            "delivery_address": "Calle 116 #14-20, Santa Bárbara",
+            "delivery_lat": 4.6958,
+            "delivery_lng": -74.0445,
+            "current_lat": 4.6952,
+            "current_lng": -74.0378,
+        },
+        {
+            "external_id": "LIVE-MAP-DEMO-004",
+            "customer_name": "Cliente Demo Chapinero",
+            "pickup_name": "Pizza Hut Parque 93",
+            "pickup_address": "Cll 93B #13-30, Parque 93",
+            "pickup_lat": 4.6760,
+            "pickup_lng": -74.0470,
+            "delivery_address": "Calle 72 #10-34, Quinta Camacho",
+            "delivery_lat": 4.6575,
+            "delivery_lng": -74.0583,
+            "current_lat": 4.6669,
+            "current_lng": -74.0524,
+        },
+        {
+            "external_id": "LIVE-MAP-DEMO-005",
+            "customer_name": "Cliente Demo Sur",
+            "pickup_name": "La Hamburguesa del Sur",
+            "pickup_address": "Cll 42 Sur #20-10",
+            "pickup_lat": 4.5700,
+            "pickup_lng": -74.1200,
+            "delivery_address": "Carrera 24 #38-15 Sur, Restrepo",
+            "delivery_lat": 4.5862,
+            "delivery_lng": -74.1037,
+            "current_lat": 4.5784,
+            "current_lng": -74.1112,
+        },
+    ][:target_count]
+
+    candidate_riders = [r for r in riders if (r.status == RiderStatus.ACTIVO or str(r.status) == RiderStatus.ACTIVO.value)]
+    if len(candidate_riders) < len(demo_routes):
+        result = await db.execute(
+            select(Rider)
+            .where(Rider.status == RiderStatus.ACTIVO)
+            .limit(len(demo_routes))
+        )
+        candidate_riders = list(result.scalars().all())
+
+    if not candidate_riders:
+        print("   ⚠️ No hay riders activos para poblar el live-map de operador.")
+        return []
+
+    created_or_updated: List[Order] = []
+
+    for index, route in enumerate(demo_routes):
+        rider = candidate_riders[index % len(candidate_riders)]
+        order_result = await db.execute(select(Order).where(Order.external_id == route["external_id"]))
+        order = order_result.scalar_one_or_none()
+
+        if not order:
+            order = Order(
+                id=uuid.uuid4(),
+                external_id=route["external_id"],
+                customer_name=route["customer_name"],
+                customer_phone=f"+573{random.randint(100000000, 999999999)}",
+                pickup_name=route["pickup_name"],
+                pickup_address=route["pickup_address"],
+                pickup_latitude=route["pickup_lat"],
+                pickup_longitude=route["pickup_lng"],
+                delivery_address=route["delivery_address"],
+                delivery_latitude=route["delivery_lat"],
+                delivery_longitude=route["delivery_lng"],
+                items=[{"product_name": "Pedido demo live-map", "quantity": 1, "unit_price": 25000, "subtotal": 25000}],
+                subtotal=25000,
+                delivery_fee=5000,
+                total=30000,
+                payment_method="TARJETA",
+                payment_status="PAGADO",
+                status=OrderStatus.EN_RUTA,
+                priority=OrderPriority.ALTA,
+                assigned_rider_id=rider.id,
+                ordered_at=now - timedelta(minutes=35 + index * 4),
+                accepted_at=now - timedelta(minutes=30 + index * 4),
+                picked_up_at=now - timedelta(minutes=18 + index * 2),
+                estimated_delivery_time=now + timedelta(minutes=15 + index * 3),
+                sla_deadline=now + timedelta(minutes=25 + index * 3),
+                source="seed_live_map",
+            )
+            db.add(order)
+            await db.flush()
+        else:
+            order.customer_name = route["customer_name"]
+            order.pickup_name = route["pickup_name"]
+            order.pickup_address = route["pickup_address"]
+            order.pickup_latitude = route["pickup_lat"]
+            order.pickup_longitude = route["pickup_lng"]
+            order.delivery_address = route["delivery_address"]
+            order.delivery_latitude = route["delivery_lat"]
+            order.delivery_longitude = route["delivery_lng"]
+            order.status = OrderStatus.EN_RUTA
+            order.priority = OrderPriority.ALTA
+            order.assigned_rider_id = rider.id
+            order.accepted_at = order.accepted_at or now - timedelta(minutes=30 + index * 4)
+            order.picked_up_at = order.picked_up_at or now - timedelta(minutes=18 + index * 2)
+            order.delivered_at = None
+            order.estimated_delivery_time = now + timedelta(minutes=15 + index * 3)
+            order.sla_deadline = now + timedelta(minutes=25 + index * 3)
+            order.source = "seed_live_map"
+
+        delivery_result = await db.execute(select(Delivery).where(Delivery.order_id == order.id))
+        delivery = delivery_result.scalar_one_or_none()
+        if not delivery:
+            delivery = Delivery(
+                id=uuid.uuid4(),
+                order_id=order.id,
+                rider_id=rider.id,
+                proof_type=ProofType.OTP,
+            )
+            db.add(delivery)
+
+        delivery.status = DeliveryStatus.EN_ROUTE
+        delivery.started_at = order.accepted_at or now - timedelta(minutes=30)
+        delivery.completed_at = None
+        delivery.current_latitude = route["current_lat"]
+        delivery.current_longitude = route["current_lng"]
+        delivery.last_location_update = now - timedelta(seconds=index * 45)
+        delivery.distance_total = random.uniform(3.5, 9.5)
+        delivery.sla_expected_minutes = 60
+        delivery.sla_actual_minutes = None
+        delivery.sla_compliant = None
+
+        rider.is_online = True
+        rider.status = RiderStatus.ACTIVO
+        rider.current_order_id = order.id
+        rider.last_lat = route["current_lat"]
+        rider.last_lng = route["current_lng"]
+        rider.last_location_at = delivery.last_location_update
+
+        created_or_updated.append(order)
+
+    await db.commit()
+    print(f"   ✅ {len(created_or_updated)} entregas activas con GPS listas para /operator/live-map.")
+    return created_or_updated
+
+
 async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
     """Seed payout requests with status history for manager/rider finance demos."""
     print("💸 Sembrando retiros demo con historial...")
@@ -848,6 +1033,8 @@ async def main():
             await seed_vehicles(db, users, riders, count=25)
             
             orders = await seed_orders_and_complex_data(db, riders, count=60)
+            live_map_orders = await seed_live_map_demo_data(db, riders)
+            orders = orders + live_map_orders
             await seed_demo_payouts(db, riders)
             await seed_alerts(db, orders, riders)
             await seed_audit_logs(db)
@@ -858,6 +1045,7 @@ async def main():
             print("\n💡 DATOS GENERADOS:")
             print("   - Usuarios, Zonas, Riders, Vehículos (Flota)")
             print("   - Órdenes, Entregas, Finanzas, Productividad")
+            print("   - Entregas activas con GPS para /operator/live-map")
             print("   - Alertas Operacionales Reales")
             print("   - Configuración global, retiros e historial/auditoría demo")
             
