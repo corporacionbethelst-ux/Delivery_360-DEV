@@ -7,7 +7,7 @@ import L from 'leaflet';
 import { deliveryService, Delivery } from '@/services/delivery.service';
 import { useAuthStore } from '@/stores/authStore';
 import { useRouter } from 'next/navigation';
-import { Navigation, Loader2, MapPin } from 'lucide-react';
+import { Navigation, Loader2, MapPin, RefreshCw } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -123,35 +123,43 @@ export default function OperatorLiveMapPage() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50">
+    <div className="relative flex h-screen flex-col overflow-hidden bg-slate-50">
       {/* Header Flotante */}
-      <div className="absolute top-4 left-4 right-4 z-[1000] flex justify-between items-start pointer-events-none">
-        <Card className="bg-white/95 backdrop-blur shadow-lg border-blue-100 pointer-events-auto max-w-md">
-          <div className="p-4">
-            <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-              <Navigation className="w-5 h-5 text-blue-600" />
-              Mapa en Vivo
-            </h1>
-            <div className="mt-2 flex items-center justify-between text-sm">
-              <span className="text-slate-500">
-                {trackedDeliveries.length} repartidores activos
-              </span>
-              <Badge variant={isLoading ? "secondary" : "outline"} className="text-xs">
-                {isLoading ? 'Actualizando...' : `Act. hace ${lastUpdate.toLocaleTimeString()}`}
-              </Badge>
-            </div>
-          </div>
-        </Card>
+      <div className="absolute left-3 right-3 top-3 z-[1000] pointer-events-none sm:left-4 sm:right-4 sm:top-4">
+        <div className="flex w-full max-w-5xl flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <Card className="pointer-events-auto w-full max-w-sm border-blue-100 bg-white/95 shadow-lg backdrop-blur sm:max-w-md">
+            <div className="space-y-3 p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                  <Navigation className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <h1 className="truncate text-xl font-bold text-slate-900">Mapa en Vivo</h1>
+                  <p className="text-xs text-slate-500">Monitoreo GPS de entregas activas</p>
+                </div>
+              </div>
 
-        <Button 
-          onClick={loadLiveData} 
-          disabled={isLoading}
-          className="pointer-events-auto bg-white hover:bg-slate-50 text-slate-700 shadow-md border border-slate-200"
-          size="sm"
-        >
-          <Loader2 className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-slate-500">
+                  {trackedDeliveries.length} repartidores activos
+                </span>
+                <Badge variant={isLoading ? "secondary" : "outline"} className="whitespace-nowrap text-xs">
+                  {isLoading ? 'Actualizando...' : `Act. hace ${lastUpdate.toLocaleTimeString()}`}
+                </Badge>
+              </div>
+            </div>
+          </Card>
+
+          <Button
+            onClick={loadLiveData}
+            disabled={isLoading}
+            className="pointer-events-auto w-fit border border-slate-200 bg-white text-slate-700 shadow-md hover:bg-slate-50"
+            size="sm"
+          >
+            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            Actualizar
+          </Button>
+        </div>
       </div>
 
       {/* Contenedor del Mapa */}
