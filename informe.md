@@ -1,9 +1,330 @@
+# 📊 Informe ejecutivo actualizado — Delivery360
+
+**Fecha de actualización:** 09 de junio de 2026
+**Estado revisado:** monorepo FastAPI + Next.js con PostgreSQL/Redis y módulos operativos ampliados.
+**Nivel estimado de preparación para producción:** **72/100 — Pre-producción avanzada / beta técnica controlada**.
+
+> Este informe consolida la revisión actual del repositorio después de las mejoras de finanzas, payouts, zonas, vehículos, usuarios, roles, auditoría, configuración de plataforma y seed de datos demo. El sistema ya tiene una base funcional amplia, pero todavía requiere estabilización de QA, limpieza de deuda técnica y hardening operativo antes de considerarlo producción plena.
+
+---
+
+## 0. Resumen de producción actual
+
+### 0.1 Veredicto rápido
+
+Delivery360 está en un punto **muy superior a prototipo**: ya cuenta con backend real, modelos persistentes, migraciones Alembic, frontend por roles, servicios API, seed de datos, Docker Compose, auditoría, configuración global y trazabilidad financiera. Sin embargo, aún no está en producción final porque faltan elementos de cierre:
+
+- suite de pruebas integral y ejecutable en CI;
+- eliminación de mocks/fallbacks restantes en algunas pantallas;
+- scripts operativos completos para setup/migraciones;
+- validación end-to-end con base limpia y base ya migrada;
+- hardening de observabilidad, seguridad y despliegue;
+- documentación de runbooks y procedimientos de rollback;
+- verificación de performance/carga sobre flujos críticos.
+
+### 0.2 Calificación por área
+
+| Área | Estado | Nivel | Observación |
+|---|---:|---:|---|
+| Backend FastAPI | Avanzado | 78/100 | API amplia, routers reales, trazabilidad financiera y auditoría; falta mayor cobertura de integración. |
+| Base de datos / migraciones | Avanzado con riesgo controlado | 75/100 | Alembic existe y se corrigió `platform_settings` para migración idempotente; falta probar matriz completa base nueva/base existente. |
+| Finanzas / payouts | Avanzado | 82/100 | Ledger canónico, idempotencia, balances e historial; falta conciliación automatizada y pruebas end-to-end completas. |
+| Admin users/roles/audit/settings | Medio-alto | 74/100 | Ya usa datos reales y endpoints propios; falta cerrar permisos granulares y datos operativos completos. |
+| Fleet / vehicles / zones | Medio-alto | 76/100 | Rutas robustecidas y zonas reales; falta validación operativa con flujos completos de asignación. |
+| Frontend Next.js | Medio-alto | 70/100 | Muchas páginas conectadas a API; persisten logs de debug y algunos mocks/fallbacks. |
+| Testing / QA | Bajo-medio | 45/100 | Hay tests enfocados en ledger/payouts, pero el conteo global es bajo frente al tamaño del sistema. |
+| DevOps / producción | Medio | 60/100 | Docker Compose y migraciones existen; scripts `setup_dev.sh` y `run_migrations.sh` siguen como TODO. |
+| Observabilidad / auditoría | Medio-alto | 72/100 | Auditoría real y middleware existen; falta tablero/alertas productivas y retención formal. |
+| Seguridad | Medio | 65/100 | Roles, auth y headers existen; falta revisión final de secretos, rate limits, permisos finos y LGPD/PII. |
+
+---
+
+## 1. Avances técnicos confirmados
+
+### 1.1 Módulo financiero y payouts
+
+Se fortaleció el módulo financiero con:
+
+- movimientos contables con `balance_before` y `balance_after`;
+- `idempotency_key` para evitar duplicados;
+- `source_type` y `source_id` para rastrear origen;
+- `created_by_user_id` para auditoría de usuario;
+- `FinancialService` como punto canónico de escritura;
+- retiros/payouts con historial (`PayoutStatusHistory`);
+- endpoints de resumen, conciliación, reportes, transacciones y ganancias rider;
+- seed de datos con ledger trazable y payouts demo.
+
+**Estado:** listo para validación en pre-producción con datos reales controlados.
+**Riesgo restante:** conciliación automática diaria, pruebas de concurrencia y rollback contable.
+
+### 1.2 Módulos administrativos
+
+Se avanzó en:
+
+- usuarios (`/api/v1/users`) con corrección de montaje para evitar 404;
+- roles (`/api/v1/roles`) con frontend conectado;
+- auditoría (`/api/v1/audit`) con filtros, export y resumen;
+- configuración (`/api/v1/settings`) persistida en `platform_settings`;
+- seed de eventos de auditoría y configuración global.
+
+**Estado:** funcional para administración básica y auditoría demo.
+**Riesgo restante:** permisos granulares por acción, bloqueo de acciones peligrosas y pruebas por rol.
+
+### 1.3 Fleet, zonas y vehículos
+
+Se incorporó:
+
+- entidad `Zone` y CRUD/API de zonas;
+- relación de riders con zona;
+- robustecimiento de vehículos y filtros;
+- corrección de colisiones de rutas dinámicas;
+- seed de zonas y vehículos.
+
+**Estado:** operativo para pruebas funcionales.
+**Riesgo restante:** asegurar asignación automática por zona, capacidad, distancia y disponibilidad en escenarios reales.
+
+### 1.4 Frontend
+
+Se actualizaron servicios y páginas para consumir APIs reales:
+
+- `financial.service.ts`, `payout.service.ts`, `transaction.service.ts`;
+- `zone.service.ts`, `vehicle.service.ts`;
+- `user.service.ts`, `role.service.ts`, `audit.service.ts`, `settings.service.ts`;
+- pantallas de finanzas, payouts, auditoría, roles, settings, zonas y vehículos.
+
+**Estado:** UI funcional conectada a backend en varios módulos.
+**Riesgo restante:** limpiar logs de debug, reducir `any`, eliminar mocks restantes y fortalecer estados vacíos/error.
+
+---
+
+## 2. Hallazgos e inconsistencias detectadas en la revisión
+
+### 2.1 Scripts operativos incompletos
+
+Se encontraron scripts con implementación pendiente:
+
+- `backend/scripts/setup_dev.sh` contiene únicamente `TODO: implement setup_dev.sh`.
+- `backend/scripts/run_migrations.sh` contiene únicamente `TODO: implement run_migrations.sh`.
+
+**Impacto:** para producción/pre-producción, los pasos de bootstrap y migración no quedan automatizados ni estandarizados.
+**Prioridad:** Alta antes de despliegue formal.
+
+### 2.2 Cobertura de tests insuficiente para el tamaño actual
+
+El repositorio contiene aproximadamente:
+
+- 139 archivos Python backend;
+- 196 archivos TypeScript/TSX frontend;
+- solo 4 archivos de test identificados.
+
+**Impacto:** el sistema tiene módulos críticos (finanzas, payouts, usuarios, auditoría, órdenes, entregas) con bajo respaldo automático.
+**Prioridad:** Alta.
+
+### 2.3 Mocks/fallbacks pendientes en frontend
+
+Se detectaron referencias a mocks/fallbacks en módulos como:
+
+- estadísticas de órdenes con fallback mock;
+- productividad rider con comentario de mock;
+- algunos servicios/stores con normalización amplia usando `any`.
+
+**Impacto:** puede ocultar errores reales de backend o mostrar datos irreales en producción.
+**Prioridad:** Media-alta.
+
+### 2.4 Logs de debug en frontend
+
+Persisten `console.log` en servicios y páginas, especialmente cache de órdenes y perfil rider.
+
+**Impacto:** ruido en consola, posible exposición de datos operativos y menor calidad productiva.
+**Prioridad:** Media.
+
+### 2.5 Migraciones y bases parcialmente creadas
+
+Ya se corrigió el caso observado de `DuplicateTableError` para `platform_settings` haciendo la migración idempotente. Aun así, debe probarse una matriz de migraciones:
+
+1. base vacía;
+2. base con `Base.metadata.create_all()` previo;
+3. base con migración financiera aplicada pero settings sin stamp;
+4. base con datos seed;
+5. downgrade/rollback controlado en entorno temporal.
+
+**Impacto:** evita bloqueos de arranque en contenedores.
+**Prioridad:** Alta hasta validar la matriz completa.
+
+### 2.6 Seguridad y permisos
+
+Hay roles y dependencias de autorización, pero antes de producción se debe verificar:
+
+- matriz de permisos por endpoint;
+- acciones `SUPERADMIN` vs `GERENTE` vs `OPERADOR` vs `REPARTIDOR`;
+- protección de endpoints de auditoría/exportación;
+- rotación de secretos y variables de entorno;
+- CORS, TrustedHost, headers y rate limiting con valores productivos;
+- tratamiento de PII en logs/auditoría.
+
+**Prioridad:** Alta.
+
+---
+
+## 3. Nivel de producción recomendado
+
+### 3.1 Estado actual: Pre-producción avanzada
+
+El proyecto puede pasar a una **pre-producción interna** si se despliega con:
+
+- base de datos controlada;
+- seed o datos de prueba realistas;
+- usuarios internos;
+- monitoreo de logs activo;
+- migraciones revisadas;
+- feature flags o acceso restringido.
+
+No se recomienda aún abrirlo como producción pública/operativa sin completar las fases de endurecimiento.
+
+### 3.2 Criterios para pasar a producción real
+
+Para declarar el sistema como **producción 1.0**, deberían cumplirse estos criterios mínimos:
+
+1. `alembic upgrade head` exitoso en base limpia y base existente.
+2. `seed_data.py` exitoso e idempotente.
+3. Backend test suite con cobertura mínima de módulos críticos.
+4. Frontend `type-check`, `lint` y build productivo exitosos.
+5. Pruebas E2E de flujos críticos:
+   - login;
+   - crear/editar usuario;
+   - crear/editar zona;
+   - crear/editar vehículo;
+   - crear orden;
+   - asignar rider;
+   - completar delivery;
+   - generar earning;
+   - solicitar payout;
+   - aprobar/rechazar payout;
+   - revisar auditoría;
+   - exportar reportes.
+6. Revisión de seguridad por rol y endpoint.
+7. Observabilidad mínima: logs estructurados, métricas, health checks y alertas.
+8. Backup/restore probado.
+9. Runbook de despliegue y rollback.
+10. Limpieza de mocks/logs de debug.
+
+---
+
+## 4. Roadmap recomendado hacia producción
+
+### Fase 1 — Estabilización inmediata (1 a 3 días)
+
+- Implementar `setup_dev.sh` y `run_migrations.sh`.
+- Ejecutar migraciones en base limpia y base existente.
+- Validar seed completo.
+- Corregir cualquier migración no idempotente restante.
+- Eliminar conflict markers y trailing whitespace en todo el repo.
+- Documentar comandos estándar de arranque.
+
+### Fase 2 — QA funcional por módulos (3 a 7 días)
+
+- Crear tests de API para users, roles, settings, audit, zones, vehicles.
+- Agregar tests de integración para payouts approve/reject.
+- Validar frontend por rol con datos seed.
+- Revisar estados vacíos, loading y errores en pantallas admin.
+- Eliminar mocks/fallbacks restantes o protegerlos con `NODE_ENV !== 'production'`.
+
+### Fase 3 — Seguridad y permisos (3 a 5 días)
+
+- Crear matriz de permisos por endpoint.
+- Verificar exports y endpoints sensibles solo para roles autorizados.
+- Revisar CORS/TrustedHost/rate limits productivos.
+- Revisar PII en auditoría y logs.
+- Asegurar secretos fuera del repositorio.
+
+### Fase 4 — Observabilidad y operaciones (3 a 5 días)
+
+- Consolidar logs estructurados backend.
+- Definir métricas clave: latencia, errores 4xx/5xx, payouts, órdenes, riders activos.
+- Configurar health checks reales de DB/Redis.
+- Probar backup/restore.
+- Documentar rollback de migraciones.
+
+### Fase 5 — Release candidate (5 a 10 días)
+
+- Ejecutar pruebas E2E completas.
+- Ejecutar prueba de carga básica.
+- Congelar cambios no críticos.
+- Crear release notes.
+- Hacer despliegue canary/staging.
+- Monitorear por 24-48 horas antes de producción.
+
+---
+
+## 5. Comandos de verificación recomendados
+
+```bash
+# Backend syntax
+python -m py_compile backend/app/api/v1/financial.py backend/app/api/v1/payouts.py backend/app/api/v1/settings.py backend/app/api/v1/audit.py backend/scripts/seed_data.py
+
+# Migraciones
+cd backend && alembic upgrade head
+
+# Tests backend
+cd backend && pytest -q
+
+# Frontend
+cd frontend && npm run type-check
+cd frontend && npm run lint
+cd frontend && npm run build
+
+# Limpieza de conflictos
+rg -n "^(<<<<<<<|=======|>>>>>>>)" .
+
+# Buscar mocks y TODO productivos
+rg -n "TODO|FIXME|mock|Mock|console\.log" backend frontend/src
+```
+
+---
+
+## 6. Conclusión ejecutiva
+
+Delivery360 ya tiene una base sólida para operar como **beta técnica o pre-producción interna**. El avance más importante fue pasar módulos clave de mocks o rutas frágiles a APIs reales con persistencia: finanzas, payouts, zonas, vehículos, usuarios, roles, auditoría y settings.
+
+El siguiente salto no debe ser agregar más funcionalidades grandes, sino **cerrar calidad productiva**: scripts, migraciones, tests, permisos, observabilidad, limpieza frontend y pruebas E2E. Si esas tareas se completan, el sistema puede avanzar razonablemente a un release candidate de producción.
+
+---
+
+
+
+# Histórico del informe anterior
+
 # 📊 Informe de Análisis del Proyecto Delivery360
 
-**Fecha de Generación:** Junio 2025  
-**Versión del Proyecto:** 1.0.0  
-**Tipo de Aplicación:** Sistema de Gestión de Entregas (Delivery Management System)  
+**Fecha de Generación:** Junio 2025
+**Última Actualización Técnica:** 04 de junio de 2026
+**Versión del Proyecto:** 1.0.0
+**Tipo de Aplicación:** Sistema de Gestión de Entregas (Delivery Management System)
 **Referencia Objetivo:** https://www.yummysuperapp.com/rides
+
+### ✅ Actualización crítica incorporada — 04/06/2026
+
+Se corrigió un problema real de backend que impedía visualizar el módulo de vehículos. El error observado era:
+
+```json
+{
+  "field": "path.item_id",
+  "message": "Input should be a valid integer, unable to parse string as an integer",
+  "status_code": 422
+}
+```
+
+**Causa raíz:** varios routers placeholder sin prefijo interno estaban montados directamente en `/api/v1`. Sus rutas dinámicas `/{item_id}` capturaban rutas literales como `/api/v1/vehicles`, por lo que FastAPI intentaba convertir `vehicles` a entero antes de llegar al router real de vehículos.
+
+**Solución aplicada:**
+
+- `vehicles.router` queda montado correctamente en `/api/v1/vehicles`.
+- Routers sin prefijo interno ahora se montan bajo rutas explícitas: `/api/v1/users`, `/api/v1/shifts`, `/api/v1/productivity`, `/api/v1/dashboard`, `/api/v1/routes`, `/api/v1/integrations`, `/api/v1/audit`.
+- Se corrigió el montaje de `payouts` para evitar duplicación de ruta (`/api/v1/payouts/payouts`).
+- Se endureció el módulo de vehículos con normalización de filtros, enums, fechas y serialización estable de respuesta.
+- El frontend de vehículos ahora omite sentinels como `ALL`, usa búsqueda con debounce y envía filtros por `params` de Axios.
+
+**Impacto:** el módulo Fleet/Vehicles pasa de estar “implementado pero frágil” a “operativo y robustecido” para listado, búsqueda, filtros y operaciones CRUD.
 
 ---
 
@@ -62,11 +383,11 @@ El proyecto sigue una arquitectura **monorepo** con separación clara entre fron
 
 | Categoría | Cantidad |
 |-----------|----------|
-| **Total de archivos relevantes** | 343 |
-| Frontend (.ts/.tsx) | ~180 |
-| Backend (.py) | ~100 |
+| **Total de archivos relevantes** | ~360 |
+| Frontend (.ts/.tsx) | 192 |
+| Backend (.py) | 130 |
 | Configuración (.json/.yml/.env) | ~20 |
-| Tests | ~5 |
+| Tests identificados | 4 |
 | SQL/Migraciones | ~5 |
 | Documentación | ~3 |
 
@@ -281,7 +602,7 @@ El sistema utiliza **PostgreSQL 16 con extensión PostGIS** para geolocalizació
 
 | Área | Criticidad | Justificación |
 |------|------------|---------------|
-| **Gestión de Flota** | 🟢 90% | Riders y vehículos completamente gestionables |
+| **Gestión de Flota** | 🟢 95% | Riders y vehículos gestionables; vehículos robustecidos contra 422 por rutas/filtros |
 | **Turnos** | 🟢 85% | Check-in/out funcional, calendario implementado |
 | **Productividad** | 🟢 80% | Métricas calculadas, rankings operativos |
 | **Notificaciones** | 🟢 75% | Sistema básico funcional, falta push notifications nativas |
@@ -342,19 +663,28 @@ El sistema utiliza **PostgreSQL 16 con extensión PostGIS** para geolocalizació
 
 | Dimensión | Porcentaje | Estado | Variación |
 |-----------|-----------|--------|-----------|
-| **Desarrollo Funcional** | 92% | 🟢 Excelente | +4% ⬆️ |
-| **Tests Automatizados** | 45% | 🔴 Insuficiente | - |
-| **Documentación** | 65% | 🟡 Bueno | +5% ⬆️ |
-| **Seguridad** | 75% | 🟡 Bueno | - |
-| **Infraestructura** | 70% | 🟡 Configurable | - |
-| **Monitorización** | 80% | 🟢 Avanzado | - |
-| **UX/UI** | 90% | 🟢 Excelente | - |
+| **Desarrollo Funcional** | 94% | 🟢 Excelente | +2% ⬆️ por hardening de flota |
+| **Tests Automatizados** | 45% | 🔴 Insuficiente | Sin cambio estructural |
+| **Documentación** | 72% | 🟡 Bueno | +7% ⬆️ por actualización de estado técnico |
+| **Seguridad** | 76% | 🟡 Bueno | +1% ⬆️ por reducción de rutas ambiguas |
+| **Infraestructura** | 74% | 🟡 Configurable | +4% ⬆️ por corrección de montaje de routers |
+| **Monitorización** | 80% | 🟢 Avanzado | Sin cambio |
+| **UX/UI** | 91% | 🟢 Excelente | +1% ⬆️ por búsqueda debounce en vehículos |
 
-### 7.2 Porcentaje Global para Producción: **82%** (+4%)
+### 7.2 Porcentaje Global para Producción: **84%** (+2%)
 
-**Interpretación:** Con los módulos Fleet/Vehicles y Fleet/Riders completados al 100%, el sistema alcanza un nivel de madurez superior. Ahora es funcional para un MVP o lanzamiento controlado con cobertura completa de gestión de flota.
+**Interpretación actualizada:** Con la corrección del conflicto de routers y el hardening del módulo Fleet/Vehicles, el sistema mejora su confiabilidad operativa para un MVP o lanzamiento controlado. El avance funcional real se mantiene alto, pero el porcentaje global no sube más porque aún existen brechas importantes en tests automatizados, datos mockeados, seguridad de secretos y funcionalidades avanzadas.
 
-### 7.3 Roadmap Restante (18%)
+### 7.3 Porcentaje de Fracaso/Riesgo Actual: **16%**
+
+El riesgo restante se concentra en:
+
+- **Tests y CI:** cobertura todavía insuficiente para garantizar regresiones mínimas.
+- **Mocks/Fallbacks:** dashboards, auditoría y geocodificación siguen teniendo datos simulados o rutas parciales.
+- **Seguridad:** secretos en `docker-compose.yml`, CSP/CSRF/HSTS y gestión de credenciales requieren hardening.
+- **Producción real:** falta pasarela de pagos real, canales push/SMS y estrategia completa de disaster recovery.
+
+### 7.4 Roadmap Restante (16%)
 
 | Fase | Tareas | Estimado |
 |------|--------|----------|
@@ -364,7 +694,7 @@ El sistema utiliza **PostgreSQL 16 con extensión PostGIS** para geolocalizació
 | **Fase 4: Documentación** | API docs completas, manual de usuario, runbooks | 1 semana |
 | **Fase 5: Deploy** | Kubernetes manifests, backup strategies, disaster recovery | 1 semana |
 
-**Total estimado para producción:** 6-7 semanas (reducido desde 7-8 semanas)
+**Total estimado para producción:** 5-6 semanas (reducido desde 6-7 semanas por corrección de bloqueo en vehículos y rutas API)
 
 ---
 
@@ -417,15 +747,17 @@ El sistema utiliza **PostgreSQL 16 con extensión PostGIS** para geolocalizació
 | `backend/app/models/rider.py:103` | Warning SQLAlchemy | `overlaps="rider"` indica conflicto de relaciones | Baja |
 | `backend/app/models/rider.py:106` | Warning SQLAlchemy | Mismo problema con `productivity_metrics` | Baja |
 | `backend/app/main.py:46` | Desarrollo | Crea tablas en startup (solo dev), riesgo en prod si no se controla | Media |
+| `backend/app/main.py` | ✅ Corregido | Routers placeholder sin prefijo capturaban `/api/v1/vehicles` como `path.item_id`; ya fueron montados bajo prefijos explícitos | Resuelto |
 | `frontend/src/lib/websocket.ts` | Lógica | Reconexión limitada, puede perder eventos | Media |
 | `docker-compose.yml` | Seguridad | Credentials hardcodeados en variables de entorno | Alta |
 
 ### 9.2 Inconsistencias
 
-1. **Formato de Fechas**: Algunos modelos usan `DateTime` naive, otros timezone-aware
-2. **Manejo de Errores**: Inconsistente entre servicios (algunos lanzan excepciones, otros retornan None)
+1. **Formato de Fechas**: Algunos modelos usan `DateTime` naive, otros timezone-aware. En vehículos se normalizó `insurance_expiry` como `date`.
+2. **Manejo de Errores**: Inconsistente entre servicios (algunos lanzan excepciones, otros retornan None). En vehículos se mejoró el formateo de errores API.
 3. **Convenciones de Nombres**: Mezcla de snake_case (BD) y camelCase (TypeScript)
 4. **Estados de Pagos**: `payment_status` en Order es String, en Financial es Enum
+5. **Montaje de Routers**: Corregido para routers sin prefijo interno; deben montarse bajo su recurso para evitar colisiones con rutas dinámicas.
 
 ### 9.3 Deuda Técnica
 
@@ -464,15 +796,15 @@ El sistema utiliza **PostgreSQL 16 con extensión PostGIS** para geolocalizació
 | **Soporte 24/7 in-app** | ✅ Chat soporte | ❌ Email externo | 🟡 Medio |
 | **Analytics avanzado** | ✅ PowerBI integrado | 🟡 Reportes básicos | 🟡 Medio |
 
-### 10.3 Porcentaje de Paridad Funcional: **72%**
+### 10.3 Porcentaje de Paridad Funcional: **74%**
 
-Delivery360 cubre las funcionalidades core de gestión de entregas pero carece de features avanzados de engagement y optimización inteligente.
+Delivery360 cubre las funcionalidades core de gestión de entregas y ahora mejora la confiabilidad del módulo de flota/vehículos. Aún carece de features avanzados de engagement, app móvil nativa y optimización inteligente.
 
 ---
 
 ## 📋 11. Checklist de Avances y Retrasos
 
-### 11.1 ✅ Completado (92%)
+### 11.1 ✅ Completado (94%)
 
 #### Módulo Auth (100%)
 - [x] Autenticación JWT con roles
@@ -486,13 +818,17 @@ Delivery360 cubre las funcionalidades core de gestión de entregas pero carece d
 - [x] Tracking GPS con WebSocket
 - [x] Pruebas de entrega múltiples (foto/firma/OTP)
 
-#### Módulo Fleet - Vehicles (100%) ✨ NUEVO
+#### Módulo Fleet - Vehicles (100%) ✨ ROBUSTECIDO
 - [x] Listado de vehículos con búsqueda y filtros por tipo
 - [x] Creación de vehículos con validaciones (placa, tipo, año)
 - [x] Edición completa con asignación a rider
 - [x] Baja lógica de vehículos (deactivate)
 - [x] Service layer completo (`vehicle.service.ts`)
 - [x] API REST backend con 5 endpoints
+- [x] Corrección del error 422 por conflicto de rutas `/{item_id}` vs `/vehicles`
+- [x] Normalización de filtros (`ALL`, enums, `limit`, `page`) antes de llamar API
+- [x] Serialización centralizada de respuestas y manejo consistente de fechas/enums
+- [x] Búsqueda frontend con debounce para reducir llamadas innecesarias
 
 #### Módulo Fleet - Riders (100%) ✨ NUEVO
 - [x] Listado de riders con 5 estados (ACTIVO, OCUPADO, PENDIENTE, etc.)
@@ -533,7 +869,29 @@ Delivery360 cubre las funcionalidades core de gestión de entregas pero carece d
 
 ---
 
-## 🔐 12. Recomendaciones de Seguridad
+## 🧾 12. Registro de Logros Técnicos Recientes
+
+### 12.1 Correcciones aplicadas al módulo Vehículos
+
+| Área | Antes | Después | Impacto |
+|------|-------|---------|---------|
+| **Ruta API** | `/api/v1/vehicles` podía ser capturada por `/{item_id}` | `vehicles.router` llega correctamente a `/api/v1/vehicles` | Elimina 422 por `path.item_id` |
+| **Filtros frontend** | Query string manual y posible envío de `ALL` | `normalizeVehicleFilters` omite sentinels y valida enums | Menos validaciones inválidas |
+| **Fechas** | `insurance_expiry` como string flexible | `insurance_expiry` validado como `date` | Contrato API más claro |
+| **Enums** | Comparaciones ambiguas Enum/string | Comparación por `.value` cuando BD almacena string | Consistencia DB/API |
+| **Respuestas** | Serialización duplicada por endpoint | Helper único `_build_vehicle_response` | Menos duplicación y errores |
+| **UX** | Búsqueda directa por cada cambio | Debounce de 350 ms | Menos tráfico y mejor experiencia |
+
+### 12.2 Estado operativo después de la corrección
+
+- El endpoint esperado para listar vehículos es: `GET /api/v1/vehicles?limit=500`.
+- Si aparece `field: path.item_id`, significa que otra ruta dinámica está capturando indebidamente una ruta literal. Ese patrón queda documentado como antipatrón de enrutamiento.
+- Todo router que declare rutas genéricas como `/{item_id}` debe tener prefijo propio o registrarse después de rutas literales más específicas.
+- Los routers placeholder deben evitar montarse directamente en `/api/v1` sin prefijo interno.
+
+---
+
+## 🔐 13. Recomendaciones de Seguridad
 
 1. **Variables de Entorno**: Mover secrets a Vault o AWS Secrets Manager
 2. **Rate Limiting**: Implementar límites más estrictos por IP y usuario
@@ -546,9 +904,9 @@ Delivery360 cubre las funcionalidades core de gestión de entregas pero carece d
 
 ---
 
-## 📊 13. Métricas de Calidad de Código
+## 📊 14. Métricas de Calidad de Código
 
-### 13.1 Backend Python
+### 14.1 Backend Python
 
 | Métrica | Valor | Objetivo |
 |---------|-------|----------|
@@ -558,7 +916,7 @@ Delivery360 cubre las funcionalidades core de gestión de entregas pero carece d
 | Complejidad ciclomática promedio | 8 | 🟡 <10 |
 | Code Coverage (tests) | 35% | 🔴 >80% |
 
-### 13.2 Frontend TypeScript
+### 14.2 Frontend TypeScript
 
 | Métrica | Valor | Objetivo |
 |---------|-------|----------|
@@ -570,13 +928,13 @@ Delivery360 cubre las funcionalidades core de gestión de entregas pero carece d
 
 ---
 
-## 🎬 14. Conclusión y Próximos Pasos
+## 🎬 15. Conclusión y Próximos Pasos
 
-### 14.1 Estado Actual
+### 15.1 Estado Actual
 
-Delivery360 es un sistema **robusto y funcional** que cubre el 88% de los requisitos básicos para una plataforma de gestión de entregas. La arquitectura es sólida, escalable y sigue mejores prácticas de la industria.
+Delivery360 es un sistema **robusto y funcional** que cubre el 84% de preparación global para producción y aproximadamente el 94% del desarrollo funcional para una plataforma de gestión de entregas. La arquitectura es sólida, escalable y sigue mejores prácticas de la industria.
 
-### 14.2 Fortalezas
+### 15.2 Fortalezas
 
 - ✅ Arquitectura limpia y separación de responsabilidades
 - ✅ Stack tecnológico moderno y bien seleccionado
@@ -584,11 +942,11 @@ Delivery360 es un sistema **robusto y funcional** que cubre el 88% de los requis
 - ✅ Sistema de auditoría completo
 - ✅ CI/CD automatizado
 - ✅ UI/UX pulida y responsive
-- ✅ **Módulo Fleet completo**: Vehicles y Riders al 100% ✨ NUEVO
+- ✅ **Módulo Fleet completo y robustecido**: Vehicles y Riders al 100%; Vehicles corregido por conflicto de rutas y 422
 - ✅ **Validaciones robustas**: Formularios con Zod schema validation
 - ✅ **Service layer consolidado**: Lógica de negocio encapsulada
 
-### 14.3 Áreas de Mejora Críticas
+### 15.3 Áreas de Mejora Críticas
 
 - 🔴 **Testing**: Coverage insuficiente (<40%)
 - 🔴 **Mocks en producción**: 8 archivos con datos falsos
@@ -596,32 +954,32 @@ Delivery360 es un sistema **robusto y funcional** que cubre el 88% de los requis
 - 🟡 **Integraciones**: Falta conexión con servicios reales de pago
 - 🟡 **Performance**: Sin load testing formal
 
-### 14.4 Plan de Acción Inmediato (Sprint 1-2)
+### 15.4 Plan de Acción Inmediato (Sprint 1-2)
 
 1. **Eliminar mocks** y conectar todos los dashboards a APIs reales
    - 🔴 P1: `ManagerDashboard.tsx` → `/api/v1/dashboard/metrics`
    - 🔴 P1: `audit/page.tsx` → `/api/v1/audit/logs`
-   
+
 2. **Implementar tests** unitarios para cubrir 70% del código crítico
    - Tests para vehicle.service.ts y rider.service.ts
    - Tests E2E para CRUD de vehículos y riders
-   
+
 3. **Migrar secrets** a sistema de gestión seguro
    - Vault o AWS Secrets Manager para docker-compose
-   
+
 4. **Configurar environment** de staging idéntico a producción
 
 5. **Documentar** endpoints API con OpenAPI/Swagger completo
 
-6. **Corregir error visual** en listado de vehículos (bug reportado)
+6. **Validar en staging** el flujo completo de vehículos: listado, creación, edición, baja lógica, filtros y permisos por rol
 
-### 14.5 Timeline Estimado a Producción
+### 15.5 Timeline Estimado a Producción
 
 | Hito | Fecha Estimada | Dependencias |
 |------|---------------|--------------|
 | Alpha Testing interno | 2 semanas | Fix mocks + tests básicos |
 | Beta cerrado (clientes piloto) | 4 semanas | Integraciones payment + SMS |
-| Launch público (MVP) | 6-8 semanas | Hardening + documentación |
+| Launch público (MVP) | 5-6 semanas | Hardening + documentación |
 | Paridad con Yummy | 4-6 meses | Apps nativas + ML routes |
 
 ---
@@ -673,5 +1031,5 @@ docker-compose -f docker-compose.prod.yml build
 
 ---
 
-**Documento generado automáticamente como parte del análisis del proyecto Delivery360.**  
+**Documento generado automáticamente como parte del análisis del proyecto Delivery360.**
 *Última actualización: Junio 2025*

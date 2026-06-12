@@ -1,14 +1,43 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { deliveryService, Delivery } from '@/services/delivery.service';
-import { Navigation, Loader2, AlertCircle, MapPin } from 'lucide-react';
+import { useAuthStore } from '@/stores/authStore';
+import { useRouter } from 'next/navigation';
+import { Navigation, Loader2, MapPin } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+
+type TrackedDelivery = Delivery & {
+  current_latitude: number;
+  current_longitude: number;
+};
+
+const DEFAULT_MAP_CENTER: [number, number] = [-34.6037, -58.3816];
+
+const toFiniteCoordinate = (value: number | string | null | undefined): number | null => {
+  if (value === null || value === undefined || value === '') return null;
+  const coordinate = Number(value);
+  return Number.isFinite(coordinate) ? coordinate : null;
+};
+
+const toTrackedDelivery = (delivery: Delivery): TrackedDelivery | null => {
+  const lat = toFiniteCoordinate(delivery.current_latitude);
+  const lng = toFiniteCoordinate(delivery.current_longitude);
+
+  if (lat === null || lng === null) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+
+  return {
+    ...delivery,
+    current_latitude: lat,
+    current_longitude: lng,
+  };
+};
 
 // Fix para iconos de Leaflet en Next.js
 const riderIcon = new L.Icon({
@@ -33,6 +62,8 @@ function MapUpdater({ centers }: { centers: [number, number][] }) {
 }
 
 export default function OperatorLiveMapPage() {
+  const router = useRouter();
+  const { user, isAuthenticated } = useAuthStore();
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
@@ -55,16 +86,32 @@ export default function OperatorLiveMapPage() {
   };
 
   useEffect(() => {
-    if (!isMounted) return;
+    if (!isMounted || !isAuthenticated || !user) return;
+
+    const allowedRoles = ['SUPERADMIN', 'GERENTE', 'OPERADOR'];
+    if (!allowedRoles.includes(user.role)) {
+      router.push('/login');
+      return;
+    }
     
     loadLiveData();
     
     // Polling cada 10 segundos
     const interval = setInterval(loadLiveData, 10000);
     return () => clearInterval(interval);
-  }, [isMounted]);
+  }, [isMounted, isAuthenticated, user, router]);
 
-  if (!isMounted || isLoading) {
+  const trackedDeliveries = useMemo(
+    () => deliveries.map(toTrackedDelivery).filter((delivery): delivery is TrackedDelivery => delivery !== null),
+    [deliveries]
+  );
+  const centers = useMemo(
+    () => trackedDeliveries.map(delivery => [delivery.current_latitude, delivery.current_longitude] as [number, number]),
+    [trackedDeliveries]
+  );
+  const mapCenter = centers[0] ?? DEFAULT_MAP_CENTER;
+
+  if (!isMounted || !isAuthenticated || !user || isLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-50">
         <div className="text-center">
@@ -74,8 +121,6 @@ export default function OperatorLiveMapPage() {
       </div>
     );
   }
-
-  const centers = deliveries.map(d => [d.current_latitude!, d.current_longitude!] as [number, number]);
 
   return (
     <div className="flex flex-col h-screen bg-slate-50">
@@ -89,7 +134,7 @@ export default function OperatorLiveMapPage() {
             </h1>
             <div className="mt-2 flex items-center justify-between text-sm">
               <span className="text-slate-500">
-                {deliveries.length} repartidores activos
+                {trackedDeliveries.length} repartidores activos
               </span>
               <Badge variant={isLoading ? "secondary" : "outline"} className="text-xs">
                 {isLoading ? 'Actualizando...' : `Act. hace ${lastUpdate.toLocaleTimeString()}`}
@@ -111,7 +156,7 @@ export default function OperatorLiveMapPage() {
 
       {/* Contenedor del Mapa */}
       <div className="flex-1 w-full h-full relative z-0">
-        {deliveries.length === 0 ? (
+        {trackedDeliveries.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full bg-slate-100 text-slate-400">
             <MapPin className="w-16 h-16 mb-4 opacity-20" />
             <p className="text-lg font-medium">No hay repartidores en movimiento</p>
@@ -119,7 +164,7 @@ export default function OperatorLiveMapPage() {
           </div>
         ) : (
           <MapContainer 
-            center={centers[0] || [-34.6037, -58.3816]} // Default BA si falla
+            center={mapCenter}
             zoom={13} 
             scrollWheelZoom={true}
             className="h-full w-full outline-none"
@@ -131,10 +176,10 @@ export default function OperatorLiveMapPage() {
             
             <MapUpdater centers={centers} />
 
-            {deliveries.map((delivery) => (
+            {trackedDeliveries.map((delivery) => (
               <Marker 
                 key={delivery.id} 
-                position={[delivery.current_latitude!, delivery.current_longitude!]}
+                position={[delivery.current_latitude, delivery.current_longitude]}
                 icon={riderIcon}
               >
                 <Popup className="custom-popup">
