@@ -1,72 +1,21 @@
 import type { Rider } from './user';
+import type {
+  Payout,
+  PayoutMethod,
+  PayoutStatus,
+  PayoutFilters,
+} from '@/services/payout.service';
 
-/**
- * Estados posibles de un pago/retiro (Payout)
- */
-export type PayoutStatus = 'pending' | 'approved' | 'paid' | 'rejected' | 'cancelled';
+export type { Payout, PayoutMethod, PayoutStatus, PayoutFilters };
 
-/**
- * Método de pago para el retiro
- */
-export type PayoutMethod = 'bank_transfer' | 'cash' | 'digital_wallet' | 'crypto';
-
-/**
- * Interfaz principal para un Payout (Retiro/Liquidación)
- * ACTUALIZADO: Usa snake_case para coincidir con la respuesta del Backend
- */
-export interface Payout {
-  id: string;
-  rider_id: string;          // ✅ Cambiado de riderId
-  
-  // Montos
-  total_amount: number;      // ✅ Cambiado de totalAmount
-  base_earnings?: number;    // ✅ Cambiado de baseEarnings
-  tips?: number;             // ✅ Cambiado de tips
-  bonuses?: number;          // ✅ Cambiado de bonuses
-  deductions?: number;       // ✅ Cambiado de deductions
-  net_amount?: number;       // ✅ Cambiado de netAmount
-  
-  // Período cubierto
-  period_start?: string;     // ✅ Cambiado de periodStart
-  period_end?: string;       // ✅ Cambiado de periodEnd
-  
-  // Conteo y detalles
-  orders_count: number;      // ✅ Cambiado de ordersCount
-  
-  // Estado y método
-  status: PayoutStatus;
-  payment_method?: PayoutMethod; // ✅ Cambiado de paymentMethod
-  
-  // Información bancaria (si aplica)
-  bank_name?: string;        // ✅ Cambiado de bankName
-  account_number?: string;   // ✅ Cambiado de accountNumber
-  account_type?: 'checking' | 'savings'; // ✅ Cambiado de accountType
-  
-  // Metadatos
-  request_notes?: string;    // ✅ Cambiado de requestNotes
-  rejection_reason?: string; // ✅ Cambiado de rejectionReason
-  processed_by?: string;     // ✅ Cambiado de processedBy
-  processed_at?: string;     // ✅ Cambiado de processedAt
-  paid_at?: string;          // ✅ Cambiado de paidAt
-  
-  // Timestamps (Requeridos por el error)
-  created_at: string;        // ✅ Agregado y cambiado de createdAt
-  updated_at: string;        // ✅ Agregado y cambiado de updatedAt
-}
-
-/**
- * Payout con información ampliada del repartidor
- * Usado en listados y vistas administrativas
- */
+/** Payout con información ampliada del repartidor para vistas administrativas. */
 export interface PayoutWithRider extends Payout {
-  rider?: Rider;             // Objeto completo del repartidor (opcional)
-  rider_name?: string;       // Nombre calculado (opcional)
-  rider_email?: string;      // Email calculado (opcional)
+  rider?: Rider;
+  rider_name?: string;
+  rider_email?: string;
 }
 
-/**
- * Detalle de una orden incluida en un payout
- */
+/** Detalle de una orden incluida en un payout cuando exista desglose futuro. */
 export interface PayoutOrderItem {
   order_id: string;
   order_number: string;
@@ -76,12 +25,10 @@ export interface PayoutOrderItem {
   bonus: number;
   deduction: number;
   total: number;
-  status: 'completed' | 'cancelled' | 'refunded';
+  status: 'COMPLETADA' | 'CANCELADA' | 'REEMBOLSADA';
 }
 
-/**
- * Desglose detallado de un payout
- */
+/** Desglose detallado de un payout. */
 export interface PayoutDetail extends Payout {
   items: PayoutOrderItem[];
   calculation_breakdown: {
@@ -92,51 +39,31 @@ export interface PayoutDetail extends Payout {
   };
 }
 
-/**
- * DTO para crear una solicitud de retiro
- */
+/** DTO para crear una solicitud de retiro. */
 export interface CreatePayoutRequest {
-  rider_id: string;
+  rider_id?: string;
   amount: number;
-  payment_method: PayoutMethod;
-  bank_name?: string;
-  account_number?: string;
-  account_type?: 'checking' | 'savings';
+  method: PayoutMethod;
+  bank_account_last4?: string;
   notes?: string;
 }
 
-/**
- * DTO para aprobar/rechazar un payout
- */
+/** DTO para aprobar/rechazar un payout. */
 export interface UpdatePayoutStatusRequest {
-  status: 'approved' | 'rejected' | 'paid' | 'cancelled';
+  status: PayoutStatus;
   rejection_reason?: string;
-  payment_method?: PayoutMethod;
+  method?: PayoutMethod;
   processed_notes?: string;
 }
 
-/**
- * Filtros disponibles para listar payouts
- */
-export interface PayoutFilters {
-  status?: PayoutStatus | 'all';
-  rider_id?: string;
-  start_date?: string;
-  end_date?: string;
-  payment_method?: PayoutMethod;
-  search?: string;
-}
-
-/**
- * Resumen estadístico de payouts
- */
+/** Resumen estadístico de payouts. */
 export interface PayoutMetrics {
   total_pending: number;
-  total_approved: number;
-  total_paid: number;
+  total_processed: number;
   total_rejected: number;
+  total_cancelled: number;
   total_amount_pending: number;
-  total_amount_paid: number;
+  total_amount_processed: number;
   average_payout: number;
   count_by_status: Record<PayoutStatus, number>;
 }

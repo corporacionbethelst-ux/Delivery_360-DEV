@@ -8,6 +8,7 @@ import { Package, Clock, CheckCircle, AlertCircle, MapPin, Search, Filter, Loade
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 
 export default function OperatorDeliveriesPage() {
   const router = useRouter();
@@ -62,6 +63,7 @@ export default function OperatorDeliveriesPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'COMPLETADA': return 'bg-green-100 text-green-800 border-green-200';
+      case 'EN_ROUTE':
       case 'EN_RUTA': return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'INCIDENCIA': return 'bg-red-100 text-red-800 border-red-200';
       case 'INICIADA': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
@@ -107,7 +109,7 @@ export default function OperatorDeliveriesPage() {
             <option value="ALL">Todos los estados</option>
             <option value="PENDIENTE">Pendientes</option>
             <option value="INICIADA">Iniciadas</option>
-            <option value="EN_RUTA">En Ruta</option>
+            <option value="EN_ROUTE">En Ruta</option>
             <option value="COMPLETADA">Completadas</option>
             <option value="INCIDENCIA">Incidencias</option>
           </select>
@@ -144,7 +146,7 @@ export default function OperatorDeliveriesPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-4">
+                    <div className="flex flex-wrap items-center justify-end gap-4">
                       <Badge className={`${getStatusColor(delivery.status)} border font-medium`}>
                         {delivery.status}
                       </Badge>
@@ -157,6 +159,13 @@ export default function OperatorDeliveriesPage() {
                           <AlertCircle className="w-5 h-5 text-red-500" />
                         </div>
                       )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => router.push(`/operator/deliveries/${delivery.id}`)}
+                      >
+                        Ver Detalle
+                      </Button>
                     </div>
                   </div>
                 </CardContent>
