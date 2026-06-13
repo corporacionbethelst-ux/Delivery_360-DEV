@@ -1,113 +1,98 @@
-import React, { useState, useEffect } from 'react';
+'use client';
+
+import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ArrowLeft, MapPin, Phone, Clock, Package, User, CreditCard, Navigation, CheckCircle, AlertTriangle, MessageSquare } from 'lucide-react';
-import { deliveryService, Delivery as DeliveryType } from '@/services/delivery.service';
+import { ArrowLeft, MapPin, Phone, Clock, User, Navigation, AlertTriangle, Loader2 } from 'lucide-react';
+import { deliveryService, Delivery } from '@/services/delivery.service';
+import { formatCurrency } from '@/lib/formatters';
 
-interface Delivery extends DeliveryType {
-  rider_name: string;
-  rider_phone: string;
-  customer_phone: string;
-  pickup_address: string;
-  delivery_address: string;
-  total_amount: number;
-  payment_method: string;
-  notes: string;
-  estimated_delivery_time: string;
-}
+const ACTIVE_STATUSES = ['INICIADA', 'EN_PICKUP', 'EN_ROUTE', 'EN_DESTINO'];
 
 export default function DeliveryDetailPage() {
   const router = useRouter();
-  
-  // CORRECCIÓN: Usar ! para afirmar que params no es null al acceder a id
-  const params = useParams();
-  const id = params!.id as string;
+  const params = useParams() as { id?: string };
+  const id = params.id;
+  const { user, isAuthenticated } = useAuthStore();
 
   const [delivery, setDelivery] = useState<Delivery | null>(null);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!id) return;
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isMounted || !isAuthenticated || !user || !id) return;
+
+    const allowedRoles = ['SUPERADMIN', 'GERENTE', 'OPERADOR'];
+    if (!allowedRoles.includes(user.role)) {
+      router.push('/login');
+      return;
+    }
 
     const fetchDelivery = async () => {
       setLoading(true);
+      setError(null);
       try {
-        // ✅ LLAMADA REAL AL BACKEND
         const response = await deliveryService.getById(id);
-        
-        // Mapear los datos del backend al formato esperado por la UI
-        const mappedData: Delivery = {
-          id: response.id,
-          order_id: response.order_id,
-          rider_name: response.rider?.first_name && response.rider?.last_name 
-            ? `${response.rider.first_name} ${response.rider.last_name}` 
-            : 'No asignado',
-          rider_phone: '', // El backend no devuelve phone del rider en este endpoint, se puede agregar si es necesario
-          customer_name: response.customer_name || 'Cliente',
-          customer_phone: '', // El backend no devuelve phone del cliente directamente
-          pickup_address: '', // Se debe obtener de la orden asociada si es necesario
-          delivery_address: '', // Se debe obtener de la orden asociada si es necesario
-          status: response.status as Delivery['status'],
-          total_amount: 0, // Se debe obtener de la orden asociada
-          payment_method: '', // Se debe obtener de la orden asociada
-          notes: '', // Se puede agregar en el backend si existe
-          estimated_delivery_time: '' // Se puede calcular o agregar en el backend
-        };
-        
-        setDelivery(mappedData);
-      } catch (err) {
+        setDelivery(response);
+      } catch (err: any) {
         console.error('Error fetching delivery:', err);
-        // Opcional: Mostrar toast de error
+        setError(err?.message || 'No se pudo cargar la entrega.');
+        setDelivery(null);
       } finally {
         setLoading(false);
       }
     };
 
     fetchDelivery();
-  }, [id]);
-
-  const handleStatusChange = async (newStatus: Delivery['status']) => {
-    if (!delivery) return;
-    setActionLoading(true);
-    try {
-      // ✅ LLAMADA REAL AL BACKEND - Actualizar estado de entrega
-      await deliveryService.updateLocation(delivery.id, 0, 0); // Placeholder hasta tener endpoint específico de status
-      setDelivery({ ...delivery, status: newStatus });
-      alert(`Estado actualizado a: ${newStatus}`);
-    } catch (error) {
-      console.error('Error al actualizar estado:', error);
-      alert('Error al actualizar estado');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  if (loading) return (
-    <div className="p-6 flex justify-center items-center h-screen">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-    </div>
-  );
-
-  if (!delivery) return (
-    <div className="p-6 text-center">
-      <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-      <h2 className="text-xl font-bold">Entrega no encontrada</h2>
-      <Button onClick={() => router.back()} className="mt-4">Volver</Button>
-    </div>
-  );
+  }, [id, isAuthenticated, isMounted, router, user]);
 
   const getStatusColor = (status: string) => {
-    switch(status) {
-      case 'COMPLETED': return 'bg-green-100 text-green-800 border-green-200';
-      case 'CANCELLED': return 'bg-red-100 text-red-800 border-red-200';
-      case 'DELIVERING': return 'bg-blue-100 text-blue-800 border-blue-200';
-      default: return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+    switch (status) {
+      case 'COMPLETADA': return 'bg-green-100 text-green-800 border-green-200';
+      case 'FALLIDA': return 'bg-red-100 text-red-800 border-red-200';
+      case 'EN_ROUTE':
+      case 'EN_DESTINO': return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'EN_PICKUP':
+      case 'INICIADA': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
+
+  if (!isMounted || !isAuthenticated || !user || loading) {
+    return (
+      <div className="p-6 flex justify-center items-center h-screen">
+        <Loader2 className="animate-spin h-12 w-12 text-blue-600" />
+      </div>
+    );
+  }
+
+  if (error || !delivery) {
+    return (
+      <div className="p-6 text-center">
+        <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+        <h2 className="text-xl font-bold">Entrega no encontrada</h2>
+        <p className="mt-2 text-sm text-gray-500">{error || 'No existe una entrega con ese identificador.'}</p>
+        <Button onClick={() => router.back()} className="mt-4">Volver</Button>
+      </div>
+    );
+  }
+
+  const riderName = delivery.rider
+    ? `${delivery.rider.first_name || ''} ${delivery.rider.last_name || ''}`.trim()
+    : delivery.rider_name || 'No asignado';
+  const customerName = delivery.customer_name || delivery.order?.customer_name || 'Cliente no disponible';
+  const customerPhone = delivery.customer_phone || delivery.order?.customer_phone || '';
+  const deliveryAddress = delivery.delivery_address || delivery.order?.delivery_address || 'Dirección no disponible';
+  const totalAmount = Number(delivery.total_amount ?? delivery.order?.total_amount ?? 0);
+  const hasCoordinates = delivery.current_latitude !== null && delivery.current_latitude !== undefined && delivery.current_longitude !== null && delivery.current_longitude !== undefined;
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
@@ -116,10 +101,10 @@ export default function DeliveryDetailPage() {
           <ArrowLeft className="mr-2 h-4 w-4" /> Volver al listado
         </Button>
         
-        <div className="flex justify-between items-start mb-6">
+        <div className="flex justify-between items-start mb-6 gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Detalle de Entrega</h1>
-            <p className="text-gray-500">Orden #{delivery.order_id} • ID: {delivery.id}</p>
+            <p className="text-gray-500">Orden #{delivery.external_id || delivery.order_id} • ID: {delivery.id}</p>
           </div>
           <Badge className={`px-3 py-1 text-sm font-semibold border ${getStatusColor(delivery.status)}`}>
             {delivery.status}
@@ -127,127 +112,86 @@ export default function DeliveryDetailPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Columna Izquierda */}
           <div className="lg:col-span-2 space-y-6">
             <Card>
               <CardHeader><CardTitle className="flex items-center gap-2"><User className="w-5 h-5"/> Cliente</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex justify-between items-center">
                   <div>
-                    <p className="font-bold text-lg">{delivery.customer_name}</p>
-                    <p className="text-sm text-gray-500">{delivery.payment_method}</p>
+                    <p className="font-bold text-lg">{customerName}</p>
+                    <p className="text-sm text-gray-500">{delivery.payment_method || 'Método de pago no disponible'}</p>
                   </div>
-                  <Button variant="outline" size="sm" className="gap-2">
-                    <Phone className="w-4 h-4" /> Llamar
-                  </Button>
-                </div>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Dirección de Entrega</p>
-                  <p className="font-medium text-gray-900">{delivery.delivery_address}</p>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader><CardTitle className="flex items-center gap-2"><Package className="w-5 h-5"/> Repartidor</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="font-bold text-lg">{delivery.rider_name}</p>
-                    <p className="text-sm text-gray-500">En ruta actualmente</p>
-                  </div>
-                  <Button variant="outline" size="sm" className="gap-2">
-                    <MessageSquare className="w-4 h-4" /> Chat
-                  </Button>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1 gap-2">
-                    <Navigation className="w-4 h-4" /> Ver Ubicación
-                  </Button>
-                  <Button variant="outline" className="flex-1 gap-2">
-                    <Phone className="w-4 h-4" /> Llamar
-                  </Button>
+                  {customerPhone && (
+                    <Button variant="outline" size="sm" className="gap-2" asChild>
+                      <a href={`tel:${customerPhone}`}><Phone className="w-4 h-4" /> Llamar</a>
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader><CardTitle className="flex items-center gap-2"><MapPin className="w-5 h-5"/> Ruta</CardTitle></CardHeader>
-              <CardContent className="space-y-6 relative">
-                <div className="pl-4 border-l-2 border-blue-200 space-y-6">
+              <CardContent>
+                <div className="relative pl-6 border-l-2 border-dashed border-gray-300 space-y-8">
                   <div className="relative">
                     <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-blue-500 ring-4 ring-blue-100"></div>
                     <p className="text-xs text-gray-500 font-semibold">Origen</p>
-                    <p className="text-sm font-medium">{delivery.pickup_address}</p>
+                    <p className="text-sm font-medium">{delivery.pickup_address || 'Origen no disponible'}</p>
                   </div>
                   <div className="relative">
                     <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-green-500 ring-4 ring-green-100"></div>
                     <p className="text-xs text-gray-500 font-semibold">Destino</p>
-                    <p className="text-sm font-medium">{delivery.delivery_address}</p>
+                    <p className="text-sm font-medium">{deliveryAddress}</p>
                   </div>
                 </div>
-                <Button variant="outline" className="w-full gap-2 mt-2">
-                  <Navigation className="w-4 h-4" /> Abrir en Google Maps
-                </Button>
+                {hasCoordinates && (
+                  <Button variant="outline" className="w-full gap-2 mt-4" asChild>
+                    <a href={`https://www.google.com/maps?q=${delivery.current_latitude},${delivery.current_longitude}`} target="_blank" rel="noreferrer">
+                      <Navigation className="w-4 h-4" /> Abrir ubicación actual
+                    </a>
+                  </Button>
+                )}
               </CardContent>
             </Card>
           </div>
 
-          {/* Columna Derecha */}
           <div className="space-y-6">
             <Card>
               <CardHeader><CardTitle>Detalles</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Total</span>
-                  <span className="font-bold">${delivery.total_amount.toLocaleString()}</span>
+                  <span className="text-gray-500">Repartidor</span>
+                  <span className="font-medium text-right">{riderName}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Estimado</span>
-                  <span className="font-medium">{delivery.estimated_delivery_time}</span>
+                  <span className="text-gray-500">Total</span>
+                  <span className="font-bold">{formatCurrency(totalAmount)}</span>
                 </div>
-                {delivery.notes && (
-                  <div className="pt-4 border-t">
-                    <p className="text-xs text-gray-500 font-semibold mb-1">Notas</p>
-                    <p className="text-sm bg-yellow-50 p-2 rounded text-yellow-800 border border-yellow-100">{delivery.notes}</p>
-                  </div>
-                )}
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Inicio</span>
+                  <span className="font-medium">{delivery.started_at ? new Date(delivery.started_at).toLocaleString() : '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Duración</span>
+                  <span className="font-medium">{delivery.total_time ? `${Math.round(delivery.total_time)} min` : '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">SLA</span>
+                  <span className={delivery.sla_compliant === false ? 'font-medium text-red-600' : 'font-medium text-green-600'}>
+                    {delivery.sla_compliant === null || delivery.sla_compliant === undefined ? 'Pendiente' : delivery.sla_compliant ? 'Cumple' : 'Incumplido'}
+                  </span>
+                </div>
               </CardContent>
             </Card>
 
             <Card className="border-blue-200 bg-blue-50/30">
-              <CardHeader><CardTitle className="text-blue-900">Gestión de Estado</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                {delivery.status !== 'COMPLETED' && delivery.status !== 'CANCELLED' && (
-                  <>
-                    <Button 
-                      className="w-full bg-blue-600 hover:bg-blue-700" 
-                      onClick={() => handleStatusChange('DELIVERING')}
-                      disabled={actionLoading || delivery.status === 'DELIVERING'}
-                    >
-                      Marcar en Camino
-                    </Button>
-                    <Button 
-                      className="w-full bg-green-600 hover:bg-green-700" 
-                      onClick={() => handleStatusChange('COMPLETED')}
-                      disabled={actionLoading}
-                    >
-                      <CheckCircle className="w-4 h-4 mr-2" /> Completar Entrega
-                    </Button>
-                    <Button 
-                      variant="destructive" 
-                      className="w-full" 
-                      onClick={() => handleStatusChange('CANCELLED')}
-                      disabled={actionLoading}
-                    >
-                      <AlertTriangle className="w-4 h-4 mr-2" /> Cancelar
-                    </Button>
-                  </>
-                )}
-                {(delivery.status === 'COMPLETED' || delivery.status === 'CANCELLED') && (
-                  <div className="text-center p-4 text-sm text-gray-500">
-                    Esta entrega ya ha sido finalizada.
-                  </div>
+              <CardHeader><CardTitle className="text-blue-900 flex items-center gap-2"><Clock className="w-5 h-5" /> Seguimiento</CardTitle></CardHeader>
+              <CardContent className="space-y-3 text-sm text-blue-900">
+                {ACTIVE_STATUSES.includes(delivery.status) ? (
+                  <p>Entrega activa. El operador puede monitorear la ruta y coordinar incidencias; los cambios de estado operativo los ejecuta el rider desde su flujo.</p>
+                ) : (
+                  <p>Entrega sin acciones operativas pendientes para el operador.</p>
                 )}
               </CardContent>
             </Card>
