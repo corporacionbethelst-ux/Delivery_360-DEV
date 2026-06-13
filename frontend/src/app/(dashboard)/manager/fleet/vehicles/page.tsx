@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -53,8 +53,9 @@ export default function VehiclesPage() {
   const [error, setError] = useState<string | null>(null);
   
   // Filtros
+  const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<string>('ALL');
+  const [filterType, setFilterType] = useState<VehicleType | 'ALL'>('ALL');
   
   // Acciones
   const [vehicleToDeactivate, setVehicleToDeactivate] = useState<Vehicle | null>(null);
@@ -65,7 +66,11 @@ export default function VehiclesPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await vehicleService.getAll();
+      const data = await vehicleService.getAll({
+        type: filterType,
+        search: searchTerm,
+        limit: 500,
+      });
       setVehicles(data);
     } catch (err: any) {
       console.error('Error loading vehicles:', err);
@@ -75,23 +80,22 @@ export default function VehiclesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filterType, searchTerm]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setSearchTerm(searchInput.trim());
+    }, 350);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [searchInput]);
 
   useEffect(() => {
     loadVehicles();
   }, [loadVehicles]);
 
-  // Filtrado en cliente (Memoizable si la lista es muy grande)
-  const filteredVehicles = vehicles.filter(v => {
-    const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = 
-      v.plate.toLowerCase().includes(searchLower) || 
-      v.model.toLowerCase().includes(searchLower) ||
-      (v.rider_name || '').toLowerCase().includes(searchLower);
-    
-    const matchesType = filterType === 'ALL' || v.type === filterType;
-    return matchesSearch && matchesType;
-  });
+  // El backend ya aplica búsqueda y filtro por tipo con parámetros normalizados.
+  const filteredVehicles = useMemo(() => vehicles, [vehicles]);
 
   // Ejecutar Baja
   const confirmDeactivate = async () => {
@@ -155,8 +159,8 @@ export default function VehiclesPage() {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
             <Input
               placeholder="Buscar por placa, modelo o repartidor..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="pl-9 h-10 bg-white focus-visible:ring-blue-500"
               disabled={loading}
             />
@@ -167,7 +171,7 @@ export default function VehiclesPage() {
             </div>
             <select
               value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
+              onChange={(e) => setFilterType(e.target.value as VehicleType | 'ALL')}
               className="h-10 px-4 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white outline-none cursor-pointer hover:border-slate-400 transition-colors text-sm font-medium text-slate-700 w-full md:w-auto"
               disabled={loading}
             >
