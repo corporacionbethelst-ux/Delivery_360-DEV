@@ -1,6 +1,6 @@
 import asyncio
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time
 from typing import List, Optional, Tuple
 import random
 import uuid
@@ -30,6 +30,7 @@ from app.services.financial_service import FinancialService, money
 from app.models.productivity import ProductivityRecord, MetricType
 from app.models.notification import Notification, NotificationType, NotificationPriority 
 from app.models.route import Route, RoutePoint, RouteStatus
+from app.models.shift import Shift, ShiftStatus, CheckInOut
 
 # Configuración DB
 DATABASE_URL = str(settings.DATABASE_URL).replace("postgresql://", "postgresql+asyncpg://")
@@ -764,6 +765,109 @@ async def seed_live_map_demo_data(db: AsyncSession, riders: List[Rider], target_
     return created_or_updated
 
 
+async def seed_shifts(db: AsyncSession, riders: List[Rider], target_count: int = 12) -> List[Shift]:
+    """Seed operational shifts for the operator dashboard.
+
+    The operator UI consumes /shifts and expects PLANIFICADO/ACTIVO/FINALIZADO/CANCELADO
+    status labels plus rider names and time windows. This creates deterministic shifts
+    over today/yesterday/tomorrow so the module has visible data after seeding.
+    """
+    print("🕒 Sembrando turnos demo para el módulo operador...")
+
+    active_riders = [r for r in riders if (r.status == RiderStatus.ACTIVO or str(r.status) == RiderStatus.ACTIVO.value)]
+    if not active_riders:
+        result = await db.execute(select(Rider).where(Rider.status == RiderStatus.ACTIVO).limit(target_count))
+        active_riders = list(result.scalars().all())
+
+    if not active_riders:
+        print("   ⚠️ No hay riders activos para crear turnos demo.")
+        return []
+
+    now = utc_now_naive()
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    shift_templates = [
+        {"day": 0, "start": time(7, 0), "end": time(15, 0), "status": ShiftStatus.EN_CURSO, "check_in_offset": 125},
+        {"day": 0, "start": time(8, 0), "end": time(16, 0), "status": ShiftStatus.EN_CURSO, "check_in_offset": 90},
+        {"day": 0, "start": time(9, 0), "end": time(17, 0), "status": ShiftStatus.PROGRAMADO, "check_in_offset": None},
+        {"day": 0, "start": time(12, 0), "end": time(20, 0), "status": ShiftStatus.PROGRAMADO, "check_in_offset": None},
+        {"day": 0, "start": time(14, 0), "end": time(22, 0), "status": ShiftStatus.PROGRAMADO, "check_in_offset": None},
+        {"day": -1, "start": time(7, 0), "end": time(15, 0), "status": ShiftStatus.COMPLETADO, "check_in_offset": 480},
+        {"day": -1, "start": time(10, 0), "end": time(18, 0), "status": ShiftStatus.COMPLETADO, "check_in_offset": 480},
+        {"day": -1, "start": time(14, 0), "end": time(22, 0), "status": ShiftStatus.CANCELADO, "check_in_offset": None},
+        {"day": 1, "start": time(7, 0), "end": time(15, 0), "status": ShiftStatus.PROGRAMADO, "check_in_offset": None},
+        {"day": 1, "start": time(15, 0), "end": time(23, 0), "status": ShiftStatus.PROGRAMADO, "check_in_offset": None},
+        {"day": 2, "start": time(8, 0), "end": time(16, 0), "status": ShiftStatus.PROGRAMADO, "check_in_offset": None},
+        {"day": 2, "start": time(16, 0), "end": time(23, 59), "status": ShiftStatus.PROGRAMADO, "check_in_offset": None},
+    ][:target_count]
+
+    seeded: List[Shift] = []
+    for index, template in enumerate(shift_templates):
+        rider = active_riders[index % len(active_riders)]
+        shift_date = today + timedelta(days=template["day"])
+        existing_result = await db.execute(
+            select(Shift).where(
+                Shift.rider_id == rider.id,
+                Shift.shift_date == shift_date,
+                Shift.start_time == template["start"],
+            )
+        )
+        shift = existing_result.scalar_one_or_none()
+
+        if not shift:
+            shift = Shift(
+                rider_id=rider.id,
+                shift_date=shift_date,
+                start_time=template["start"],
+                end_time=template["end"],
+                status=template["status"],
+                total_deliveries=random.randint(2, 9) if template["status"] == ShiftStatus.COMPLETADO else random.randint(0, 4),
+                completed_deliveries=random.randint(2, 8) if template["status"] == ShiftStatus.COMPLETADO else random.randint(0, 3),
+                total_earnings=round(random.uniform(25000, 120000), 2) if template["status"] == ShiftStatus.COMPLETADO else round(random.uniform(0, 45000), 2),
+                notes="Turno demo generado para tablero operador",
+            )
+            db.add(shift)
+            await db.flush()
+        else:
+            shift.end_time = template["end"]
+            shift.status = template["status"]
+            shift.notes = shift.notes or "Turno demo generado para tablero operador"
+
+        if template["status"] == ShiftStatus.EN_CURSO:
+            check_in_at = now - timedelta(minutes=template["check_in_offset"] or 60)
+            shift.check_in_at = check_in_at
+            shift.check_out_at = None
+            if rider.last_lat is not None and rider.last_lng is not None:
+                shift.check_in_latitude = rider.last_lat
+                shift.check_in_longitude = rider.last_lng
+            existing_check = await db.execute(
+                select(CheckInOut).where(
+                    CheckInOut.shift_id == shift.id,
+                    CheckInOut.check_type == "IN",
+                )
+            )
+            if not existing_check.scalar_one_or_none():
+                db.add(CheckInOut(
+                    rider_id=rider.id,
+                    shift_id=shift.id,
+                    check_type="IN",
+                    timestamp=check_in_at,
+                    latitude=rider.last_lat,
+                    longitude=rider.last_lng,
+                    notes="Check-in demo",
+                ))
+        elif template["status"] == ShiftStatus.COMPLETADO:
+            shift.check_in_at = datetime.combine(shift_date.date(), template["start"])
+            shift.check_out_at = datetime.combine(shift_date.date(), template["end"])
+        elif template["status"] == ShiftStatus.CANCELADO:
+            shift.cancellation_reason = shift.cancellation_reason or "Cancelado por baja demanda demo"
+
+        seeded.append(shift)
+
+    await db.commit()
+    print(f"   ✅ {len(seeded)} turnos demo listos para /operator/shifts.")
+    return seeded
+
+
 async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
     """Seed payout requests with status history for manager/rider finance demos."""
     print("💸 Sembrando retiros demo con historial...")
@@ -940,25 +1044,31 @@ async def seed_audit_logs(db: AsyncSession):
 
 async def seed_alerts(db: AsyncSession, orders: List[Order], riders: List[Rider]):
     print(f"🔔 Generando alertas operacionales basadas en datos reales...")
-    
-    result = await db.execute(select(User).where(User.is_superuser == True))
-    admins = result.scalars().all()
-    
-    if not admins:
-        print("   ⚠️ No hay administradores para asignar alertas.")
+
+    result = await db.execute(
+        select(User).where(
+            User.role.in_([UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR]),
+            User.is_active == True,
+        )
+    )
+    target_users = list(result.scalars().all())
+
+    if not target_users:
+        print("   ⚠️ No hay usuarios operativos para asignar alertas.")
         return
 
-    target_user = admins[0]
     now = utc_now_naive()
     alerts_to_create = []
 
-    cancelled_orders = [o for o in orders if o.status == "CANCELADO"]
+    def enum_value(value):
+        return value.value if hasattr(value, "value") else str(value)
+
+    cancelled_orders = [o for o in orders if enum_value(o.status) == OrderStatus.CANCELADO.value]
     for order in cancelled_orders[:3]:
         alerts_to_create.append({
-            "type": "ALERTA_OPERACIONAL",
-            "priority": "ALTA",
+            "priority": NotificationPriority.ALTA,
             "title": f"Orden Cancelada: {order.external_id}",
-            "message": f"La orden de {order.customer_name} fue cancelada. Razón: {order.cancellation_reason}",
+            "message": f"La orden de {order.customer_name} fue cancelada. Razón: {order.cancellation_reason or 'No especificada'}",
             "data": {"alert_type": "FAILURE", "severity": "high", "related_order_id": order.external_id},
             "is_read": False,
             "created_at": now - timedelta(minutes=random.randint(10, 60))
@@ -967,8 +1077,7 @@ async def seed_alerts(db: AsyncSession, orders: List[Order], riders: List[Rider]
     late_deliveries = [o for o in orders if o.delivered_at and o.sla_deadline and o.delivered_at > o.sla_deadline]
     for order in late_deliveries[:3]:
         alerts_to_create.append({
-            "type": "ALERTA_OPERACIONAL",
-            "priority": "CRITICA",
+            "priority": NotificationPriority.CRITICA,
             "title": f"Retraso SLA Detectado: {order.external_id}",
             "message": f"La entrega superó el tiempo estimado en {int((order.delivered_at - order.sla_deadline).total_seconds()/60)} minutos.",
             "data": {"alert_type": "DELAY", "severity": "critical", "related_order_id": order.external_id},
@@ -976,11 +1085,10 @@ async def seed_alerts(db: AsyncSession, orders: List[Order], riders: List[Rider]
             "created_at": now - timedelta(minutes=random.randint(5, 30))
         })
 
-    inactive_riders = [r for r in riders if r.status == "INACTIVO"]
+    inactive_riders = [r for r in riders if enum_value(r.status) == RiderStatus.INACTIVO.value]
     if inactive_riders:
         alerts_to_create.append({
-            "type": "ALERTA_OPERACIONAL",
-            "priority": "NORMAL",
+            "priority": NotificationPriority.NORMAL,
             "title": "Riders Inactivos",
             "message": f"Hay {len(inactive_riders)} repartidores inactivos en este momento.",
             "data": {"alert_type": "RIDER", "severity": "medium"},
@@ -988,9 +1096,19 @@ async def seed_alerts(db: AsyncSession, orders: List[Order], riders: List[Rider]
             "created_at": now - timedelta(hours=2)
         })
 
+    active_order = next((o for o in orders if enum_value(o.status) == OrderStatus.EN_RUTA.value), orders[0] if orders else None)
+    if active_order:
+        alerts_to_create.append({
+            "priority": NotificationPriority.ALTA,
+            "title": f"Seguimiento requerido: {active_order.external_id}",
+            "message": f"La orden {active_order.external_id} está activa y requiere monitoreo desde operaciones.",
+            "data": {"alert_type": "SLA_WARNING", "severity": "high", "related_order_id": active_order.external_id},
+            "is_read": False,
+            "created_at": now - timedelta(minutes=8)
+        })
+
     alerts_to_create.append({
-        "type": "ALERTA_OPERACIONAL",
-        "priority": "BAJA",
+        "priority": NotificationPriority.BAJA,
         "title": "Mantenimiento Programado",
         "message": "Se realizará mantenimiento en los servidores este domingo a las 3 AM.",
         "data": {"alert_type": "SYSTEM", "severity": "low"},
@@ -998,23 +1116,39 @@ async def seed_alerts(db: AsyncSession, orders: List[Order], riders: List[Rider]
         "created_at": now - timedelta(hours=24)
     })
 
-    notifications = []
-    for alert_data in alerts_to_create:
-        n = Notification(
-            user_id=target_user.id,
-            notification_type=alert_data["type"],
-            priority=alert_data["priority"],
-            title=alert_data["title"],
-            message=alert_data["message"],
-            data=alert_data["data"],
-            is_read=alert_data["is_read"],
-            created_at=alert_data["created_at"]
-        )
-        notifications.append(n)
-        db.add(n)
+    created = 0
+    for target_user in target_users:
+        for alert_data in alerts_to_create:
+            existing = await db.execute(
+                select(Notification).where(
+                    Notification.user_id == target_user.id,
+                    Notification.notification_type == NotificationType.ALERTA_OPERACIONAL,
+                    Notification.title == alert_data["title"],
+                )
+            )
+            notification = existing.scalar_one_or_none()
+            if notification:
+                notification.priority = alert_data["priority"]
+                notification.message = alert_data["message"]
+                notification.data = alert_data["data"]
+                notification.is_read = alert_data["is_read"]
+                notification.created_at = alert_data["created_at"]
+                continue
+
+            db.add(Notification(
+                user_id=target_user.id,
+                notification_type=NotificationType.ALERTA_OPERACIONAL,
+                priority=alert_data["priority"],
+                title=alert_data["title"],
+                message=alert_data["message"],
+                data=alert_data["data"],
+                is_read=alert_data["is_read"],
+                created_at=alert_data["created_at"],
+            ))
+            created += 1
 
     await db.commit()
-    print(f"   ✅ {len(notifications)} alertas generadas y vinculadas a eventos reales.")
+    print(f"   ✅ {created} alertas nuevas/actualizadas para {len(target_users)} usuarios operativos.")
 
 # ==========================================
 # MAIN
@@ -1031,6 +1165,7 @@ async def main():
             
             # NUEVO: Sembrar vehículos después de tener usuarios y riders
             await seed_vehicles(db, users, riders, count=25)
+            await seed_shifts(db, riders)
             
             orders = await seed_orders_and_complex_data(db, riders, count=60)
             live_map_orders = await seed_live_map_demo_data(db, riders)
@@ -1046,7 +1181,8 @@ async def main():
             print("   - Usuarios, Zonas, Riders, Vehículos (Flota)")
             print("   - Órdenes, Entregas, Finanzas, Productividad")
             print("   - Entregas activas con GPS para /operator/live-map")
-            print("   - Alertas Operacionales Reales")
+            print("   - Turnos demo para /operator/shifts")
+            print("   - Alertas Operacionales Reales para usuarios operativos")
             print("   - Configuración global, retiros e historial/auditoría demo")
             
         except Exception as e:
