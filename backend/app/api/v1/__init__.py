@@ -11,10 +11,10 @@ from app.api.v1 import alerts as alerts_module
 from app.api.v1 import vehicles as vehicles_module # Importar el nuevo módulo correctamente
 from app.api.v1 import zones as zones_module
 from app.api.v1 import financial as financial_module
+from app.api.v1 import shifts as shifts_module
 
 # 2. Importar solo lo necesario de routers_combined para los otros módulos
 from app.api.v1.routers_combined import (
-    shifts_router,
     productivity_router, 
     routes_router,
     dashboard_router,
@@ -45,7 +45,10 @@ vehicles = vehicles_module # <--- ASIGNAR EL MÓDULO REAL DE VEHÍCULOS AQUÍ
 zones = zones_module
 
 # Los demás siguen siendo wrappers hacia routers_combined
-shifts       = _make_module(shifts_router,        "shifts")
+# Shifts uses the real module because main.py mounts it at /api/v1/shifts.
+# Using routers_combined.shifts_router here would double-prefix the route
+# as /api/v1/shifts/shifts and make /api/v1/shifts return 404.
+shifts       = shifts_module
 financial    = financial_module
 productivity = _make_module(productivity_router,  "productivity")
 routes       = _make_module(routes_router,        "routes")
