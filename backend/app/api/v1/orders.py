@@ -426,19 +426,22 @@ async def assign_order_auto(
     
     # 6. Registrar en Auditoría
     try:
-        from app.models.audit_log import AuditLog, AuditAction
+        from app.models.audit_log import ActionType, AuditLog
         audit = AuditLog(
             id=uuid.uuid4(),
             user_id=current_user.id,
-            action=AuditAction.ASSIGN,
+            user_email=current_user.email,
+            user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
+            action_type=ActionType.ASSIGN,
             resource_type="Order",
             resource_id=str(order.id),
             description=f"Asignación automática al rider {best_rider.id} (Distancia: {distance_km:.2f}km)",
-            created_at=utc_now_naive()
+            success=True,
+            created_at=utc_now_naive(),
         )
         db.add(audit)
-    except ImportError:
-        logger.warning("Modelo de AuditLog no encontrado, saltando auditoría.")
+    except Exception as exc:
+        logger.warning("No se pudo crear auditoría de asignación: %s", exc)
 
     await db.commit()
     await db.refresh(order)
