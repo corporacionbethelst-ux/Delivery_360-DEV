@@ -122,8 +122,10 @@ export const deliveryService = {
       // Asumiendo que el endpoint es /{id}/location. 
       // Si tu backend usa otro path, ajústalo aquí.
       await api.patch(`/deliveries/${id}/location`, { 
-        latitude: lat, 
-        longitude: lng 
+        lat,
+        lng,
+        latitude: lat,
+        longitude: lng,
       });
     } catch (error: any) {
       console.error('[DeliveryService] Error updating location:', error);
