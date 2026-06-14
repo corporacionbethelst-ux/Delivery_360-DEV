@@ -5,9 +5,16 @@ export interface Shift {
   rider_id: string;
   start_time: string;
   end_time?: string | null;
-  status: 'PLANIFICADO' | 'ACTIVO' | 'FINALIZADO' | 'CANCELADO';
+  status: 'PLANIFICADO' | 'ACTIVO' | 'FINALIZADO' | 'CANCELADO' | 'INCOMPLETO';
   zone?: string | null;
   created_at: string;
+  updated_at?: string | null;
+  check_in_at?: string | null;
+  check_out_at?: string | null;
+  total_deliveries?: number;
+  completed_deliveries?: number;
+  total_earnings?: number;
+  notes?: string | null;
   rider_name?: string; // Join opcional desde el backend
 }
 

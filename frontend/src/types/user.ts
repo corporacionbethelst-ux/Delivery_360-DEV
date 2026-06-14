@@ -14,6 +14,7 @@ export interface User {
   role: UserRole;
   is_active: boolean;
   is_superuser?: boolean;
+  full_name?: string;
   phone?: string | null;
   avatar_url?: string | null;
   

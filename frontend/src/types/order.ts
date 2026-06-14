@@ -47,7 +47,9 @@ export interface Order {
   
   // Cliente
   customerId: string;
+  customer_id?: string;
   customerName: string;
+  customer_name?: string;
   customerPhone: string;
   customerEmail?: string;
   
@@ -106,6 +108,7 @@ export interface OrderFilters {
 
 export interface OrderCreateInput {
   customerName: string;
+  customer_name?: string;
   customerPhone: string;
   customerEmail?: string;
   pickupAddress: OrderAddress;
