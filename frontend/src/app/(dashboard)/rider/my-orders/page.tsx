@@ -37,9 +37,9 @@ export default function MyOrdersPage() {
     const loadOrders = async () => {
       setLoading(true);
       try {
-        // Filtramos por el rider logueado
-        // Nota: Asegúrate de que el backend acepte el parámetro rider_id o usa un endpoint específico /riders/me/orders
-        const data = await orderService.getAll({ rider_id: user.id, limit: 20 });
+        // El backend filtra automáticamente por el rider autenticado.
+        // No enviamos user.id como rider_id porque son identificadores distintos.
+        const data = await orderService.getAll({ limit: 20 });
         setOrders(data);
       } catch (error) {
         console.error('Error loading orders:', error);

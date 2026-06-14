@@ -187,7 +187,7 @@ export default function OperatorOrdersPage() {
                           variant="ghost" 
                           size="sm" 
                           className="text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                          onClick={() => router.push(`/manager/orders/${order.id}`)}
+                          onClick={() => router.push(`/operator/orders/${order.id}`)}
                         >
                           Ver Detalle
                         </Button>

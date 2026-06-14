@@ -65,12 +65,26 @@ export default function RiderNotificationsPage() {
     }
   };
 
-  const handleMarkAsRead = (id: string) => {
+  const handleMarkAsRead = async (id: string) => {
+    const previous = notifications;
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, status: 'LEIDO' } : n));
+    try {
+      await notificationService.markAsRead(id);
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+      setNotifications(previous);
+    }
   };
 
-  const handleMarkAllAsRead = () => {
+  const handleMarkAllAsRead = async () => {
+    const previous = notifications;
     setNotifications(prev => prev.map(n => ({ ...n, status: 'LEIDO' })));
+    try {
+      await notificationService.markAllAsRead();
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+      setNotifications(previous);
+    }
   };
 
   const getTypeIcon = (type: string) => {
@@ -109,7 +123,7 @@ export default function RiderNotificationsPage() {
             </p>
           </div>
           {unreadCount > 0 && (
-            <Button variant="outline" size="sm" onClick={handleMarkAllAsRead} className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => void handleMarkAllAsRead()} className="gap-2">
               <CheckCheck className="w-4 h-4" /> Marcar todas como leídas
             </Button>
           )}
@@ -156,7 +170,7 @@ export default function RiderNotificationsPage() {
                     
                     {notif.status === 'NO_LEIDO' && (
                       <button 
-                        onClick={() => handleMarkAsRead(notif.id)}
+                        onClick={() => void handleMarkAsRead(notif.id)}
                         className="text-xs text-blue-600 font-medium mt-3 hover:underline inline-flex items-center gap-1"
                       >
                         <CheckCheck className="w-3 h-3" /> Marcar como leída
