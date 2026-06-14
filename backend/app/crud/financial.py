@@ -8,6 +8,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from app.models.financial import Financial, TransactionType, PaymentStatus
+from app.services.financial_service import FinancialService
 
 
 class CRUDFinancial:
@@ -31,19 +32,25 @@ class CRUDFinancial:
     async def create_transaction(
         self, db: AsyncSession, rider_id: uuid.UUID, amount: Decimal,
         transaction_type: TransactionType, order_id: Optional[uuid.UUID] = None,
-        description: Optional[str] = None, reference_id: Optional[str] = None
+        description: Optional[str] = None, reference_id: Optional[str] = None,
+        status: PaymentStatus = PaymentStatus.PENDIENTE,
+        idempotency_key: Optional[str] = None,
+        source_type: Optional[str] = None,
+        source_id: Optional[str] = None,
+        created_by_user_id: Optional[uuid.UUID] = None,
     ) -> Financial:
-        db_obj = Financial(
+        return await FinancialService(db).create_ledger_entry(
             rider_id=rider_id,
             amount=amount,
             transaction_type=transaction_type,
             description=description,
-            reference_id=reference_id
+            reference_id=reference_id or (str(order_id) if order_id else None),
+            status=status,
+            idempotency_key=idempotency_key,
+            source_type=source_type or ("ORDER" if order_id else None),
+            source_id=source_id or (str(order_id) if order_id else None),
+            created_by_user_id=created_by_user_id,
         )
-        db.add(db_obj)
-        await db.commit()
-        await db.refresh(db_obj)
-        return db_obj
 
     async def get_consolidated(
         self, db: AsyncSession, rider_id: Optional[uuid.UUID] = None,

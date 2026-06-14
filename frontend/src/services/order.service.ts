@@ -22,6 +22,20 @@ export interface OrderItem {
   subtotal?: number;
 }
 
+export interface OrderRiderSummary {
+  id: string;
+  first_name?: string;
+  last_name?: string;
+  full_name?: string;
+  email?: string | null;
+  phone?: string | null;
+  vehicle_type?: string | null;
+  vehicle_plate?: string | null;
+  status?: string | null;
+  is_online?: boolean;
+  last_location_at?: string | null;
+}
+
 export interface Order {
   id: string;
   external_id: string;
@@ -86,7 +100,7 @@ export interface Order {
   
   // Relaciones
   customer?: User;
-  rider?: User;
+  rider?: OrderRiderSummary | User | null;
   
   // Auditoría
   created_at: string;
