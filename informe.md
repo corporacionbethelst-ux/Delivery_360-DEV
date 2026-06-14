@@ -4,6 +4,30 @@
 **Estado revisado:** monorepo FastAPI + Next.js, migraciones Alembic, seed de datos demo y servicios frontend/backend
 **Nivel estimado actual:** **78/100 — pre-producción avanzada con preparación de release candidate**
 
+### ✅ Actualización crítica incorporada — 04/06/2026
+
+Se corrigió un problema real de backend que impedía visualizar el módulo de vehículos. El error observado era:
+
+```json
+{
+  "field": "path.item_id",
+  "message": "Input should be a valid integer, unable to parse string as an integer",
+  "status_code": 422
+}
+```
+
+**Causa raíz:** varios routers placeholder sin prefijo interno estaban montados directamente en `/api/v1`. Sus rutas dinámicas `/{item_id}` capturaban rutas literales como `/api/v1/vehicles`, por lo que FastAPI intentaba convertir `vehicles` a entero antes de llegar al router real de vehículos.
+
+**Solución aplicada:**
+
+- `vehicles.router` queda montado correctamente en `/api/v1/vehicles`.
+- Routers sin prefijo interno ahora se montan bajo rutas explícitas: `/api/v1/users`, `/api/v1/shifts`, `/api/v1/productivity`, `/api/v1/dashboard`, `/api/v1/routes`, `/api/v1/integrations`, `/api/v1/audit`.
+- Se corrigió el montaje de `payouts` para evitar duplicación de ruta (`/api/v1/payouts/payouts`).
+- Se endureció el módulo de vehículos con normalización de filtros, enums, fechas y serialización estable de respuesta.
+- El frontend de vehículos ahora omite sentinels como `ALL`, usa búsqueda con debounce y envía filtros por `params` de Axios.
+
+**Impacto:** el módulo Fleet/Vehicles pasa de estar “implementado pero frágil” a “operativo y robustecido” para listado, búsqueda, filtros y operaciones CRUD.
+
 ---
 
 ## 0. Veredicto ejecutivo
