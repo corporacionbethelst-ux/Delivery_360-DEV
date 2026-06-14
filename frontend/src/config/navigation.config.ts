@@ -36,6 +36,7 @@ export const NAVIGATION_CONFIG: NavItem[] = [
     children: [
       { label: 'Órdenes', href: '/manager/operations/orders', icon: Package, roles: ['SUPERADMIN', 'GERENTE'] },
       { label: 'Entregas', href: '/manager/operations/deliveries', icon: ClipboardList, roles: ['SUPERADMIN', 'GERENTE'] },
+      { label: 'Auditoría Riders', href: '/manager/operations/rider-audit', icon: Activity, roles: ['SUPERADMIN', 'GERENTE'] },
       { label: 'Mapa en Vivo', href: '/manager/operations/live-map', icon: MapPin, roles: ['SUPERADMIN', 'GERENTE'] },
       { label: 'Alertas', href: '/manager/operations/alerts', icon: AlertTriangle, roles: ['SUPERADMIN', 'GERENTE'] },
     ]

@@ -69,10 +69,36 @@ def _haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> f
 
     return R * c
 
-def _order_to_dict(o: Order) -> dict:
+def _serialize_order_rider(rider: Optional[Rider]) -> Optional[dict]:
+    """Serializa el repartidor asignado sin disparar lazy-loads async."""
+    if not rider:
+        return None
+
+    user = rider.__dict__.get("user")
+    first_name = user.first_name if user else ""
+    last_name = user.last_name if user else ""
+    full_name = f"{first_name} {last_name}".strip() or "Repartidor asignado"
+
+    return {
+        "id": str(rider.id),
+        "first_name": first_name,
+        "last_name": last_name,
+        "full_name": full_name,
+        "email": user.email if user else None,
+        "phone": user.phone if user else None,
+        "vehicle_type": rider.vehicle_type.value if hasattr(rider.vehicle_type, "value") else str(rider.vehicle_type) if rider.vehicle_type else None,
+        "vehicle_plate": rider.vehicle_plate,
+        "status": rider.status.value if hasattr(rider.status, "value") else str(rider.status) if rider.status else None,
+        "is_online": bool(rider.is_online),
+        "last_location_at": rider.last_location_at.isoformat() if rider.last_location_at else None,
+    }
+
+
+def _order_to_dict(o: Order, rider: Optional[Rider] = None) -> dict:
     status_value = o.status.value if hasattr(o.status, "value") else str(o.status)
     priority_value = o.priority.value if hasattr(o.priority, "value") else str(o.priority)
     sla_breached = bool(o.sla_deadline and o.delivered_at and o.delivered_at > o.sla_deadline)
+    assigned_rider = rider if rider is not None else o.__dict__.get("assigned_rider")
     
     # Manejo seguro de atributos que quizás aún no existen en la BD
     return {
@@ -103,6 +129,8 @@ def _order_to_dict(o: Order) -> dict:
         "sla_deadline": o.sla_deadline.isoformat() if o.sla_deadline else None,
         "sla_breached": sla_breached,
         "rider_id": str(o.assigned_rider_id) if o.assigned_rider_id else None,
+        "assigned_rider_id": str(o.assigned_rider_id) if o.assigned_rider_id else None,
+        "rider": _serialize_order_rider(assigned_rider),
         "source": getattr(o, 'source', 'MANUAL'),
         "created_at": o.created_at.isoformat() if o.created_at else None,
         "accepted_at": o.accepted_at.isoformat() if o.accepted_at else None,
@@ -137,7 +165,7 @@ async def list_orders(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    q = select(Order)
+    q = select(Order).options(joinedload(Order.assigned_rider).joinedload(Rider.user))
 
     if current_user.role == UserRole.REPARTIDOR:
         rider = await _get_rider_for_user(db, current_user.id)
@@ -209,8 +237,12 @@ async def create_order(
 
     db.add(order)
     await db.commit()
-    await db.refresh(order)
-    return _order_to_dict(order)
+    refreshed = await db.execute(
+        select(Order)
+        .options(joinedload(Order.assigned_rider).joinedload(Rider.user))
+        .where(Order.id == order.id)
+    )
+    return _order_to_dict(refreshed.scalar_one())
 
 @router.get("/stats/summary")
 async def orders_summary(
@@ -235,7 +267,11 @@ async def get_order(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Order).where(Order.id == _parse_uuid(order_id, "order_id")))
+    result = await db.execute(
+        select(Order)
+        .options(joinedload(Order.assigned_rider).joinedload(Rider.user))
+        .where(Order.id == _parse_uuid(order_id, "order_id"))
+    )
     order = result.scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
@@ -265,7 +301,12 @@ async def assign_rider(
     order.status = OrderStatus.ASIGNADO
     order.accepted_at = datetime.now(timezone.utc).replace(tzinfo=None)  # type: ignore[assignment]
     await db.commit()
-    return _order_to_dict(order)
+    refreshed = await db.execute(
+        select(Order)
+        .options(joinedload(Order.assigned_rider).joinedload(Rider.user))
+        .where(Order.id == order.id)
+    )
+    return _order_to_dict(refreshed.scalar_one())
 
 @router.patch("/{order_id}/status")
 async def update_status(

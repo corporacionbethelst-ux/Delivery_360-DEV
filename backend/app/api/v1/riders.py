@@ -15,6 +15,10 @@ from app.core.config import settings
 from app.models.rider import Rider, RiderStatus, VehicleType, utc_now_naive
 from app.models.user import User, UserRole
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
+from app.models.order import Order, OrderStatus
+from app.models.delivery import Delivery, DeliveryStatus
+from app.models.financial import Financial, TransactionType, PaymentStatus
+from app.models.payout import Payout, PayoutStatus
 from app.api.v1.auth import get_current_user, require_role
 
 logger = logging.getLogger(__name__)
@@ -699,6 +703,188 @@ async def get_pending_documents(
     )
     riders = result.scalars().all()
     return [_rider_to_dict(r) for r in riders]
+
+
+@router.get("/audit/summary")
+async def get_riders_audit_summary(
+    status_filter: Optional[str] = Query(None, description="Filtro opcional por estado del rider"),
+    is_online: Optional[bool] = Query(None, description="Filtro opcional por disponibilidad online"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+):
+    """
+    Vista agregada para managers: órdenes, entregas, SLA, ganancias y retiros
+    agrupados por repartidor sin multiplicar totales por JOINs cruzados.
+    """
+    if status_filter:
+        try:
+            rider_status = RiderStatus(status_filter)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Estado inválido: {status_filter}")
+    else:
+        rider_status = None
+
+    orders_assigned = (
+        select(func.count(Order.id))
+        .where(Order.assigned_rider_id == Rider.id)
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    orders_delivered = (
+        select(func.count(Order.id))
+        .where(Order.assigned_rider_id == Rider.id, Order.status == OrderStatus.ENTREGADO)
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    orders_active = (
+        select(func.count(Order.id))
+        .where(
+            Order.assigned_rider_id == Rider.id,
+            Order.status.in_([OrderStatus.ASIGNADO, OrderStatus.EN_RECOLECCION, OrderStatus.RECOLECTADO, OrderStatus.EN_RUTA]),
+        )
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    deliveries_total = (
+        select(func.count(Delivery.id))
+        .where(Delivery.rider_id == Rider.id)
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    deliveries_completed = (
+        select(func.count(Delivery.id))
+        .where(Delivery.rider_id == Rider.id, Delivery.status == DeliveryStatus.COMPLETADA)
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    deliveries_failed = (
+        select(func.count(Delivery.id))
+        .where(Delivery.rider_id == Rider.id, Delivery.status == DeliveryStatus.FALLIDA)
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    deliveries_in_progress = (
+        select(func.count(Delivery.id))
+        .where(
+            Delivery.rider_id == Rider.id,
+            Delivery.status.in_([
+                DeliveryStatus.INICIADA,
+                DeliveryStatus.EN_PICKUP,
+                DeliveryStatus.EN_ROUTE,
+                DeliveryStatus.EN_DESTINO,
+            ]),
+        )
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    sla_compliant = (
+        select(func.count(Delivery.id))
+        .where(Delivery.rider_id == Rider.id, Delivery.sla_compliant.is_(True))
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    total_earned = (
+        select(func.coalesce(func.sum(Financial.amount), 0))
+        .where(
+            Financial.rider_id == Rider.id,
+            Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+            Financial.status == PaymentStatus.PROCESADO,
+        )
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    pending_payouts = (
+        select(func.coalesce(func.sum(Payout.amount), 0))
+        .where(Payout.rider_id == Rider.id, Payout.status == PayoutStatus.PENDIENTE)
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+
+    stmt = (
+        select(
+            Rider,
+            User,
+            orders_assigned.label("orders_assigned"),
+            orders_delivered.label("orders_delivered"),
+            orders_active.label("orders_active"),
+            deliveries_total.label("deliveries_total"),
+            deliveries_completed.label("deliveries_completed"),
+            deliveries_failed.label("deliveries_failed"),
+            deliveries_in_progress.label("deliveries_in_progress"),
+            sla_compliant.label("sla_compliant"),
+            total_earned.label("total_earned"),
+            pending_payouts.label("pending_payouts"),
+        )
+        .join(User, Rider.user_id == User.id)
+        .order_by(Rider.is_online.desc(), User.first_name.asc(), User.last_name.asc())
+        .limit(limit)
+        .offset(offset)
+    )
+
+    if rider_status:
+        stmt = stmt.where(Rider.status == rider_status)
+    if is_online is not None:
+        stmt = stmt.where(Rider.is_online.is_(is_online))
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    items = []
+    for (
+        rider,
+        user,
+        assigned,
+        delivered,
+        active,
+        total_deliveries,
+        completed,
+        failed,
+        in_progress,
+        sla_ok,
+        earned,
+        pending,
+    ) in rows:
+        total_deliveries_int = int(total_deliveries or 0)
+        sla_ok_int = int(sla_ok or 0)
+        sla_rate = round((sla_ok_int / total_deliveries_int) * 100, 2) if total_deliveries_int else 0.0
+        first_name = user.first_name or ""
+        last_name = user.last_name or ""
+
+        items.append({
+            "rider_id": str(rider.id),
+            "user_id": str(user.id),
+            "email": user.email,
+            "first_name": first_name,
+            "last_name": last_name,
+            "full_name": f"{first_name} {last_name}".strip() or user.email,
+            "phone": user.phone,
+            "status": rider.status.value if hasattr(rider.status, "value") else str(rider.status),
+            "is_online": bool(rider.is_online),
+            "vehicle_type": rider.vehicle_type.value if hasattr(rider.vehicle_type, "value") else str(rider.vehicle_type) if rider.vehicle_type else None,
+            "vehicle_plate": rider.vehicle_plate,
+            "operating_zone": rider.operating_zone,
+            "zone_id": str(rider.zone_id) if rider.zone_id else None,
+            "current_order_id": str(rider.current_order_id) if rider.current_order_id else None,
+            "last_lat": rider.last_lat,
+            "last_lng": rider.last_lng,
+            "last_location_at": rider.last_location_at.isoformat() if rider.last_location_at else None,
+            "orders_assigned": int(assigned or 0),
+            "orders_delivered": int(delivered or 0),
+            "orders_active": int(active or 0),
+            "deliveries_total": total_deliveries_int,
+            "deliveries_completed": int(completed or 0),
+            "deliveries_failed": int(failed or 0),
+            "deliveries_in_progress": int(in_progress or 0),
+            "sla_compliant": sla_ok_int,
+            "sla_compliance_rate": sla_rate,
+            "total_earned": float(earned or 0),
+            "pending_payouts": float(pending or 0),
+            "available_to_payout": max(float(earned or 0) - float(pending or 0), 0.0),
+        })
+
+    return {"items": items, "total": len(items), "limit": limit, "offset": offset}
 
 # ------------------------------------------------------------------------------
 # ENDPOINTS GENÉRICOS POR ID ({rider_id})
