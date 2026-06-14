@@ -201,7 +201,9 @@ async def get_my_documents(
     if current_user.role != UserRole.REPARTIDOR:
         raise HTTPException(status_code=403, detail="Solo repartidores pueden acceder a sus documentos")
     
-    result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
+    result = await db.execute(
+        select(Rider).options(joinedload(Rider.user)).where(Rider.user_id == current_user.id)
+    )
     rider = result.scalar_one_or_none()
     
     if not rider:
@@ -247,7 +249,9 @@ async def upload_my_document(
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Tipo inválido. Opciones: {[t.value for t in DocumentType]}")
     
-    result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
+    result = await db.execute(
+        select(Rider).options(joinedload(Rider.user)).where(Rider.user_id == current_user.id)
+    )
     rider = result.scalar_one_or_none()
     
     if not rider:
@@ -551,7 +555,7 @@ async def get_my_rider_profile(
     [REPARTIDOR] Obtiene el perfil completo del usuario autenticado.
     """
     stmt = select(Rider).options(joinedload(Rider.user)).where(Rider.user_id == current_user.id)
-    result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
+    result = await db.execute(stmt)
     rider = result.scalar_one_or_none()
     if not rider:
         raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
@@ -570,7 +574,9 @@ async def update_my_rider_profile(
     MEJORA LOTE 12.1.2: Si cambia el vehículo, invalida documentos, bloquea la cuenta 
     y notifica a administración mediante Audit Log y Alertas en consola.
     """
-    result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
+    result = await db.execute(
+        select(Rider).options(joinedload(Rider.user)).where(Rider.user_id == current_user.id)
+    )
     rider = result.scalar_one_or_none()
     
     if not rider:
@@ -663,8 +669,10 @@ async def update_my_rider_profile(
 
     await db.commit()
     
-    await db.refresh(rider)
-    await db.refresh(current_user)
+    refreshed = await db.execute(
+        select(Rider).options(joinedload(Rider.user)).where(Rider.id == rider.id)
+    )
+    rider = refreshed.scalar_one()
     
     response_data = _rider_to_dict(rider)
     
@@ -742,7 +750,9 @@ async def update_rider(
     Actualiza datos de un repartidor específico.
     Usado por admins para corregir datos o por el propio rider (vía scope check).
     """
-    result = await db.execute(select(Rider).where(Rider.id == _parse_uuid(rider_id, "rider_id")))
+    result = await db.execute(
+        select(Rider).options(joinedload(Rider.user)).where(Rider.id == _parse_uuid(rider_id, "rider_id"))
+    )
     rider = result.scalar_one_or_none()
     if not rider:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")

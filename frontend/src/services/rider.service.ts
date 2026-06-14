@@ -477,8 +477,9 @@ export const riderService = {
 
     try {
       const response = await api.patch<OnlineStatusResponse>(
-        `/riders/${riderId}/online`, 
-        { online: isOnline }
+        `/riders/${riderId}/online`,
+        undefined,
+        { params: { online: isOnline } }
       );
       return extractData<OnlineStatusResponse>(response);
     } catch (error) {
