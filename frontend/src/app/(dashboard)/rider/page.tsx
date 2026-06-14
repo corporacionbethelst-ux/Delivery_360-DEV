@@ -1,49 +1,63 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore'; // ✅ CORRECCIÓN: Usar Zustand
+import { useAuthStore } from '@/stores/authStore';
 import { DollarSign, Package, MapPin, TrendingUp, Clock, Bike, AlertCircle, Wifi, WifiOff, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/formatters';
 import { riderService } from '@/services/rider.service';
+import { financialService } from '@/services/financial.service';
+import { payoutService } from '@/services/payout.service';
+import { orderService, Order } from '@/services/order.service';
 
-interface Order {
-  id: string;
-  status: string;
-  delivery_address: string;
-  total_amount: number;
-  created_at: string;
-}
+const ACTIVE_DELIVERY_STATUSES = ['ASIGNADO', 'EN_RECOLECCION', 'RECOLECTADO', 'EN_RUTA'];
+
+const getOrderAmount = (order: Order): number => Number(order.total_amount ?? order.total ?? 0);
+
+const isToday = (value?: string): boolean => {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const now = new Date();
+  return date.toDateString() === now.toDateString();
+};
+
+const isWithinLastDays = (value: string | undefined, days: number): boolean => {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - (days - 1));
+  return date >= start;
+};
 
 export default function RiderDashboard() {
   const router = useRouter();
-  // ✅ CORRECCIÓN: Obtener datos del store
   const { user, isAuthenticated } = useAuthStore();
-  
+
   const [earnings, setEarnings] = useState({ today: 0, week: 0, pending: 0 });
   const [nextDelivery, setNextDelivery] = useState<Order | null>(null);
+  const [completedToday, setCompletedToday] = useState(0);
   const [loadingData, setLoadingData] = useState(true);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
-  
-  // Estados para geolocalización
+
   const [riderId, setRiderId] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [sendingLocation, setSendingLocation] = useState(false);
-  
-  // Usamos ref para el watchId para evitar problemas de cierre en efectos
+
   const watchIdRef = useRef<number | null>(null);
 
-  // Efecto para evitar hidratación incorrecta
   useEffect(() => {
     setIsMounted(true);
   }, []);
 
   useEffect(() => {
-    // ✅ Seguridad: Verificar montaje, autenticación y rol
     if (!isMounted || !isAuthenticated || !user) return;
 
     if (user.role !== 'REPARTIDOR') {
@@ -53,48 +67,53 @@ export default function RiderDashboard() {
       return;
     }
 
-    // Cargar perfil del rider para obtener su ID
-    const initRiderData = async () => {
+    const loadDashboard = async () => {
+      setLoadingData(true);
+      setDashboardError(null);
+
       try {
-        const profile = await riderService.getProfile(); // Usamos getProfile que es estándar
+        const [profile, earningsData, balanceData, orders] = await Promise.all([
+          riderService.getProfile(),
+          financialService.getMyEarnings(),
+          payoutService.getAvailableBalance(),
+          orderService.getAll({ limit: 100 }),
+        ]);
+
         setRiderId(profile.id);
-        
-        // Si ya estaba "online" en la sesión anterior (opcional), reconectar
-        // Por ahora empezamos offline por defecto al cargar la página
-      } catch (error) {
-        console.error('Error cargando perfil de repartidor:', error);
-        setLocationError('No se pudo cargar el perfil de repartidor');
-      }
-    };
+        setIsOnline(Boolean(profile.is_online));
 
-    initRiderData();
-
-    // Cargar datos iniciales del dashboard
-    const loadData = async () => {
-      try {
-        // Simulación de carga (Reemplazar con llamadas reales a servicios si existen)
-        // const stats = await financialService.getRiderEarnings(); 
-        await new Promise(r => setTimeout(r, 800));
+        const completedOrders = orders.filter((order) => order.status === 'ENTREGADO');
+        const todayTotal = completedOrders
+          .filter((order) => isToday(order.delivered_at ?? order.updated_at ?? order.created_at))
+          .reduce((sum, order) => sum + getOrderAmount(order), 0);
+        const weekTotal = completedOrders
+          .filter((order) => isWithinLastDays(order.delivered_at ?? order.updated_at ?? order.created_at, 7))
+          .reduce((sum, order) => sum + getOrderAmount(order), 0);
 
         setEarnings({
-          today: 45000,
-          week: 280000,
-          pending: 120000
+          today: todayTotal,
+          week: weekTotal || Number(earningsData.total_earned ?? 0),
+          pending: Number(balanceData.available ?? earningsData.pending_payout ?? 0),
         });
+        setCompletedToday(completedOrders.filter((order) => isToday(order.delivered_at ?? order.updated_at ?? order.created_at)).length);
 
-        // Simular próxima entrega (Reemplazar con orderService.getNextActive())
-        setNextDelivery(null); // Inicialmente null, o datos reales si los hay
-        
+        const activeOrders = orders
+          .filter((order) => ACTIVE_DELIVERY_STATUSES.includes(order.status))
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        setNextDelivery(activeOrders[0] ?? null);
       } catch (error) {
-        console.error('Error cargando datos del dashboard:', error);
+        console.error('Error cargando datos del dashboard rider:', error);
+        setDashboardError('No se pudieron cargar tus datos reales. Revisa tu conexión o intenta nuevamente.');
+        setEarnings({ today: 0, week: 0, pending: 0 });
+        setCompletedToday(0);
+        setNextDelivery(null);
       } finally {
         setLoadingData(false);
       }
     };
 
-    loadData();
-    
-    // Limpieza al desmontar: detener geolocalización si está activa
+    void loadDashboard();
+
     return () => {
       if (watchIdRef.current !== null && navigator.geolocation) {
         navigator.geolocation.clearWatch(watchIdRef.current);
@@ -102,10 +121,9 @@ export default function RiderDashboard() {
     };
   }, [user, isAuthenticated, router, isMounted]);
 
-  // Función para enviar ubicación al backend
   const sendLocation = async (lat: number, lng: number) => {
     if (!riderId) return;
-    
+
     try {
       setSendingLocation(true);
       await riderService.sendHeartbeat(riderId, lat, lng);
@@ -119,23 +137,20 @@ export default function RiderDashboard() {
     }
   };
 
-  // Activar/Desactivar modo en línea
   const toggleOnlineMode = () => {
     if (isOnline) {
-      // Desconectar
       if (watchIdRef.current !== null && navigator.geolocation) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
       }
       setIsOnline(false);
-      
+
       if (riderId) {
         riderService.toggleOnline(riderId, false).catch(console.error);
       }
       return;
     }
 
-    // Conectar
     if (!navigator.geolocation) {
       setLocationError('La geolocalización no es soportada por este navegador');
       return;
@@ -147,19 +162,17 @@ export default function RiderDashboard() {
     }
 
     setLocationError(null);
-    
-    // Obtener posición inicial
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
-        sendLocation(latitude, longitude);
+        void sendLocation(latitude, longitude);
         setIsOnline(true);
 
-        // Vigilar cambios de posición
         const id = navigator.geolocation.watchPosition(
           (pos) => {
             const { latitude, longitude } = pos.coords;
-            sendLocation(latitude, longitude);
+            void sendLocation(latitude, longitude);
           },
           (err) => {
             console.error('Error de geolocalización:', err);
@@ -169,7 +182,7 @@ export default function RiderDashboard() {
           {
             enableHighAccuracy: true,
             timeout: 10000,
-            maximumAge: 5000
+            maximumAge: 5000,
           }
         );
         watchIdRef.current = id;
@@ -181,7 +194,11 @@ export default function RiderDashboard() {
     );
   };
 
-  // ✅ Seguridad: Mostrar carga mientras se verifica autenticación
+  const nextDeliveryCode = useMemo(() => {
+    if (!nextDelivery) return '';
+    return nextDelivery.external_id || nextDelivery.id.slice(0, 8);
+  }, [nextDelivery]);
+
   if (!isMounted || !isAuthenticated || !user || loadingData) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
@@ -196,7 +213,6 @@ export default function RiderDashboard() {
   return (
     <div className="p-6 bg-gray-50 min-h-screen pb-20">
       <div className="max-w-5xl mx-auto">
-        {/* Header con Estado de Conexión */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Hola, {user.first_name} {user.last_name}</h1>
@@ -217,13 +233,13 @@ export default function RiderDashboard() {
               )}
             </p>
           </div>
-          
+
           <div className="flex gap-2">
-            <Button 
+            <Button
               onClick={toggleOnlineMode}
-              variant={isOnline ? "destructive" : "default"}
-              disabled={sendingLocation && isOnline || !riderId}
-              className={isOnline ? "bg-red-600 hover:bg-red-700" : "bg-green-600 hover:bg-green-700"}
+              variant={isOnline ? 'destructive' : 'default'}
+              disabled={(sendingLocation && isOnline) || !riderId}
+              className={isOnline ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}
             >
               {sendingLocation && isOnline ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -234,24 +250,23 @@ export default function RiderDashboard() {
               )}
               {isOnline ? 'Desconectarse' : 'Conectarse'}
             </Button>
-            
+
             <Button onClick={() => router.push('/rider/my-orders')} variant="outline">
               <Package className="w-4 h-4 mr-2" /> Mis Entregas
             </Button>
           </div>
         </div>
 
-        {locationError && (
+        {(locationError || dashboardError) && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
             <div>
-              <h3 className="font-semibold text-red-800">Error de Ubicación</h3>
-              <p className="text-sm text-red-700">{locationError}</p>
+              <h3 className="font-semibold text-red-800">Atención</h3>
+              <p className="text-sm text-red-700">{locationError || dashboardError}</p>
             </div>
           </div>
         )}
 
-        {/* Resumen Financiero */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card className="bg-gradient-to-br from-green-50 to-white border-green-200 shadow-sm">
             <CardHeader className="pb-2">
@@ -265,7 +280,7 @@ export default function RiderDashboard() {
             </CardHeader>
             <CardContent>
               <p className="text-xs text-green-700 flex items-center">
-                <TrendingUp className="w-3 h-3 mr-1" /> +12% vs ayer
+                <TrendingUp className="w-3 h-3 mr-1" /> {completedToday} entregas completadas hoy
               </p>
             </CardContent>
           </Card>
@@ -281,7 +296,7 @@ export default function RiderDashboard() {
               </div>
             </CardHeader>
             <CardContent>
-              <p className="text-xs text-gray-500">Total acumulado</p>
+              <p className="text-xs text-gray-500">Calculado desde tus entregas reales</p>
             </CardContent>
           </Card>
 
@@ -289,7 +304,7 @@ export default function RiderDashboard() {
             <CardHeader className="pb-2">
               <div className="flex justify-between items-start">
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Por Cobrar</p>
+                  <p className="text-sm font-medium text-gray-500">Disponible para Retiro</p>
                   <h3 className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(earnings.pending)}</h3>
                 </div>
                 <Clock className="w-6 h-6 text-purple-600" />
@@ -297,14 +312,13 @@ export default function RiderDashboard() {
             </CardHeader>
             <CardContent>
               <Button variant="link" className="p-0 h-auto text-xs text-purple-600 font-semibold" onClick={() => router.push('/rider/earnings')}>
-                Solicitar retiro →
+                Ver ganancias →
               </Button>
             </CardContent>
           </Card>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Próxima Entrega */}
           <Card className="shadow-md border-l-4 border-l-blue-600">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -317,14 +331,14 @@ export default function RiderDashboard() {
                   <div className="flex justify-between items-start">
                     <div>
                       <Badge className="mb-2 bg-blue-100 text-blue-800 border-blue-200">{nextDelivery.status}</Badge>
-                      <h3 className="font-bold text-lg text-gray-900">Orden #{nextDelivery.id}</h3>
+                      <h3 className="font-bold text-lg text-gray-900">Orden #{nextDeliveryCode}</h3>
                     </div>
                     <div className="text-right">
                       <p className="text-sm text-gray-500">Valor</p>
-                      <p className="font-bold text-green-600">{formatCurrency(nextDelivery.total_amount)}</p>
+                      <p className="font-bold text-green-600">{formatCurrency(getOrderAmount(nextDelivery))}</p>
                     </div>
                   </div>
-                  
+
                   <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
                     <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Dirección</p>
                     <p className="text-sm font-medium text-gray-900">{nextDelivery.delivery_address}</p>
@@ -332,11 +346,11 @@ export default function RiderDashboard() {
 
                   <div className="flex gap-2">
                     <Button className="flex-1 bg-blue-600 hover:bg-blue-700" onClick={() => router.push(`/rider/my-orders/${nextDelivery.id}`)}>
-                      Iniciar Ruta
+                      Ver Ruta
                     </Button>
-                    <Button 
-                      variant="outline" 
-                      size="icon" 
+                    <Button
+                      variant="outline"
+                      size="icon"
                       onClick={() => {
                         const address = encodeURIComponent(nextDelivery.delivery_address);
                         window.open(`https://www.google.com/maps/search/?api=1&query=${address}`, '_blank');
@@ -356,7 +370,6 @@ export default function RiderDashboard() {
             </CardContent>
           </Card>
 
-          {/* Accesos Rápidos */}
           <Card className="shadow-sm">
             <CardHeader>
               <CardTitle>Gestión Rápida</CardTitle>
