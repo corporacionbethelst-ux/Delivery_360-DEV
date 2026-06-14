@@ -49,15 +49,33 @@ export default function RiderEarningsPage() {
       setLoadingData(true);
       setError(null);
       try {
-        const [earningsData, balanceData, breakdownData] = await Promise.all([
+        const [earningsResult, balanceResult, breakdownResult] = await Promise.allSettled([
           financialService.getMyEarnings(),
           payoutService.getAvailableBalance(),
           financialService.getMyEarningsBreakdown({ limit: 5 }),
         ]);
 
+        if (earningsResult.status === 'rejected') {
+          throw earningsResult.reason;
+        }
+
+        const earningsData = earningsResult.value;
         setEarnings(earningsData);
-        setBalance(balanceData);
-        setRecentMovements(breakdownData.items);
+
+        if (balanceResult.status === 'fulfilled') {
+          setBalance(balanceResult.value);
+        } else {
+          console.warn('No se pudo cargar el balance de payout; usando resumen de ganancias.', balanceResult.reason);
+          setBalance({
+            available: Number(earningsData.pending_payout ?? 0),
+            pending: 0,
+            processed: Math.max(Number(earningsData.total_earned ?? 0) - Number(earningsData.pending_payout ?? 0), 0),
+            total_earned: Number(earningsData.total_earned ?? 0),
+            currency: 'COP',
+          });
+        }
+
+        setRecentMovements(breakdownResult.status === 'fulfilled' ? breakdownResult.value.items : []);
       } catch (err) {
         console.error('Error loading rider earnings:', err);
         setError(getErrorMessage(err, 'No se pudieron cargar tus ganancias reales.'));

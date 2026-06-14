@@ -72,12 +72,33 @@ export default function RiderDashboard() {
       setDashboardError(null);
 
       try {
-        const [profile, earningsData, balanceData, orders] = await Promise.all([
+        const [profileResult, earningsResult, balanceResult, ordersResult] = await Promise.allSettled([
           riderService.getProfile(),
           financialService.getMyEarnings(),
           payoutService.getAvailableBalance(),
           orderService.getAll({ limit: 100 }),
         ]);
+
+        if (profileResult.status === 'rejected') throw profileResult.reason;
+        if (earningsResult.status === 'rejected') throw earningsResult.reason;
+        if (ordersResult.status === 'rejected') throw ordersResult.reason;
+
+        const profile = profileResult.value;
+        const earningsData = earningsResult.value;
+        const balanceData = balanceResult.status === 'fulfilled'
+          ? balanceResult.value
+          : {
+              available: Number(earningsData.pending_payout ?? 0),
+              pending: 0,
+              processed: Math.max(Number(earningsData.total_earned ?? 0) - Number(earningsData.pending_payout ?? 0), 0),
+              total_earned: Number(earningsData.total_earned ?? 0),
+              currency: 'COP',
+            };
+        const orders = ordersResult.value;
+
+        if (balanceResult.status === 'rejected') {
+          console.warn('No se pudo cargar el balance de payout del dashboard; usando resumen financiero.', balanceResult.reason);
+        }
 
         setRiderId(profile.id);
         setIsOnline(Boolean(profile.is_online));

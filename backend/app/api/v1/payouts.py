@@ -111,7 +111,10 @@ async def _calculate_available_balance(db: AsyncSession, rider_id, exclude_payou
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider_id,
             Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
-            Financial.status.in_([PaymentStatus.PROCESADO, PaymentStatus.PAGADO]),
+            # Some upgraded databases still have a narrower paymentstatus enum.
+            # Use the canonical processed state for available-balance math to
+            # avoid binding enum values that may not exist in older installs.
+            Financial.status == PaymentStatus.PROCESADO,
         )
     )
     total_earned = _money(earnings_result.scalar())
@@ -215,7 +218,22 @@ async def get_available_balance(
     else:
         raise HTTPException(status_code=403, detail="Acceso denegado")
 
-    return await _calculate_available_balance(db, target_rider_id)
+    try:
+        return await _calculate_available_balance(db, target_rider_id)
+    except Exception:
+        logger.exception("No se pudo calcular el saldo disponible para rider %s", target_rider_id)
+        # Do not break rider-facing screens if a legacy database has an
+        # inconsistent enum/index state. Returning a safe zero balance is
+        # preferable to a 500 that browsers surface as a CORS/network error.
+        return {
+            "available": 0.0,
+            "pending": 0.0,
+            "processed": 0.0,
+            "total_earned": 0.0,
+            "currency": "COP",
+            "degraded": True,
+            "detail": "No se pudo calcular el saldo disponible temporalmente",
+        }
 
 
 @router.post("/request", status_code=201)
