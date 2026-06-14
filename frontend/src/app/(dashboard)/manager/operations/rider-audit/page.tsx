@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, AlertTriangle, Bike, CheckCircle, Download, MapPin, RefreshCw, Search, Truck, Wallet } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Activity, AlertTriangle, Bike, CheckCircle, Download, Eye, MapPin, RefreshCw, Search, Truck, Wallet } from 'lucide-react';
 import { riderService, RiderAuditSummary } from '@/services/rider.service';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,6 +22,7 @@ const ONLINE_OPTIONS = [
 const numberFormatter = new Intl.NumberFormat('es-CO');
 
 export default function ManagerRiderAuditPage() {
+  const router = useRouter();
   const [items, setItems] = useState<RiderAuditSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -234,6 +236,16 @@ export default function ManagerRiderAuditPage() {
                     <span className="inline-flex items-center gap-1"><Truck className="w-3 h-3" /> {[item.vehicle_type, item.vehicle_plate].filter(Boolean).join(' ') || 'Vehículo no especificado'}</span>
                     <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" /> {item.operating_zone || 'Zona no especificada'}</span>
                     {item.current_order_id && <span className="inline-flex items-center gap-1"><CheckCircle className="w-3 h-3" /> Orden activa</span>}
+                  </div>
+
+                  <div className="border-t pt-3 flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => router.push(`/manager/operations/rider-audit/${item.rider_id}`)}
+                    >
+                      <Eye className="w-4 h-4 mr-2" /> Ver detalle
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
