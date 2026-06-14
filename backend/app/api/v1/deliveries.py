@@ -28,6 +28,8 @@ class DeliveryAssign(BaseModel):
 class DeliveryStart(BaseModel):
     lat: Optional[float] = None
     lng: Optional[float] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 class DeliveryComplete(BaseModel):
     otp_code: Optional[str] = None
@@ -88,7 +90,16 @@ def _serialize_delivery(delivery: Delivery, rider: Optional[Rider], user: Option
         "status": delivery.status.value if hasattr(delivery.status, "value") else str(delivery.status),
         "started_at": delivery.started_at.isoformat() if delivery.started_at else None,
         "completed_at": delivery.completed_at.isoformat() if delivery.completed_at else None,
+        "current_latitude": delivery.current_latitude,
+        "current_longitude": delivery.current_longitude,
+        "last_location_update": delivery.last_location_update.isoformat() if delivery.last_location_update else None,
+        "pickup_address": order.pickup_address if order else None,
+        "delivery_address": order.delivery_address if order else None,
+        "estimated_delivery_time": order.estimated_delivery_time.isoformat() if order and order.estimated_delivery_time else None,
+        "total_amount": order.total if order else None,
+        "payment_method": order.payment_method if order else None,
         "total_time": delivery.total_time,
+        "distance_total": delivery.distance_total,
         "sla_compliant": delivery.sla_compliant,
         "sla_actual_minutes": delivery.sla_actual_minutes,
         "created_at": delivery.created_at.isoformat() if delivery.created_at else None,
@@ -467,9 +478,12 @@ async def update_location(
         pass 
 
     # 4. Actualizar coordenadas y timestamp
-    if body.lat is not None and body.lng is not None:
-        delivery.current_latitude = body.lat
-        delivery.current_longitude = body.lng
+    lat = body.lat if body.lat is not None else body.latitude
+    lng = body.lng if body.lng is not None else body.longitude
+
+    if lat is not None and lng is not None:
+        delivery.current_latitude = lat
+        delivery.current_longitude = lng
         delivery.last_location_update = datetime.now(timezone.utc)
         
         # Actualizar también en el Rider por redundancia
@@ -478,13 +492,13 @@ async def update_location(
             rider_res = await db.execute(rider_stmt)
             rider = rider_res.scalar_one_or_none()
             if rider:
-                rider.last_lat = body.lat
-                rider.last_lng = body.lng
+                rider.last_lat = lat
+                rider.last_lng = lng
                 rider.last_location_at = datetime.now(timezone.utc)
 
         await db.commit()
         
-        return {"status": "success", "message": "Ubicación actualizada", "lat": body.lat, "lng": body.lng}
+        return {"status": "success", "message": "Ubicación actualizada", "lat": lat, "lng": lng}
     
     raise HTTPException(status_code=400, detail="Latitud y longitud son requeridas")
 
