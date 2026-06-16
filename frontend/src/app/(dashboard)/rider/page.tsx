@@ -142,17 +142,34 @@ export default function RiderDashboard() {
     };
   }, [user, isAuthenticated, router, isMounted]);
 
-  const sendLocation = async (lat: number, lng: number) => {
-    if (!riderId) return;
+  const forceOffline = async () => {
+    setIsOnline(false);
+    if (watchIdRef.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    if (riderId) {
+      try {
+        await riderService.toggleOnline(riderId, false);
+      } catch (error) {
+        console.error('Error forzando desconexión del rider:', error);
+      }
+    }
+  };
+
+  const sendLocation = async (lat: number, lng: number): Promise<boolean> => {
+    if (!riderId) return false;
 
     try {
       setSendingLocation(true);
       await riderService.sendHeartbeat(riderId, lat, lng);
       setLocationError(null);
+      return true;
     } catch (error: any) {
       console.error('Error enviando ubicación:', error);
       setLocationError(error.response?.data?.detail || 'No se pudo actualizar la ubicación');
-      setIsOnline(false);
+      await forceOffline();
+      return false;
     } finally {
       setSendingLocation(false);
     }
@@ -174,6 +191,7 @@ export default function RiderDashboard() {
 
     if (!navigator.geolocation) {
       setLocationError('La geolocalización no es soportada por este navegador');
+      void forceOffline();
       return;
     }
 
@@ -185,9 +203,10 @@ export default function RiderDashboard() {
     setLocationError(null);
 
     navigator.geolocation.getCurrentPosition(
-      (position) => {
+      async (position) => {
         const { latitude, longitude } = position.coords;
-        void sendLocation(latitude, longitude);
+        const canGoOnline = await sendLocation(latitude, longitude);
+        if (!canGoOnline) return;
         setIsOnline(true);
 
         const id = navigator.geolocation.watchPosition(
@@ -198,7 +217,7 @@ export default function RiderDashboard() {
           (err) => {
             console.error('Error de geolocalización:', err);
             setLocationError('Error al obtener ubicación. Verifica los permisos.');
-            setIsOnline(false);
+            void forceOffline();
           },
           {
             enableHighAccuracy: true,
@@ -211,6 +230,7 @@ export default function RiderDashboard() {
       (err) => {
         console.error('Error obteniendo posición inicial:', err);
         setLocationError('Permiso de ubicación denegado. Actívalo para recibir pedidos.');
+        void forceOffline();
       }
     );
   };
