@@ -4,6 +4,7 @@ import { AxiosError } from 'axios';
 
 // URL base del API (debe coincidir con tu .env.local)
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const STATIC_BASE_URL = API_BASE_URL.replace(/\/api\/v\d+\/?$/, '').replace(/\/$/, '');
 
 // --- Tipos e Interfaces Estrictas ---
 
@@ -49,6 +50,45 @@ export interface UpdateProfilePayload {
 
 export interface OnlineStatusResponse {
   is_online: boolean;
+}
+
+export interface RiderAuditSummary {
+  rider_id: string;
+  user_id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  phone?: string | null;
+  status: RiderStatusType | string;
+  is_online: boolean;
+  vehicle_type?: string | null;
+  vehicle_plate?: string | null;
+  operating_zone?: string | null;
+  zone_id?: string | null;
+  current_order_id?: string | null;
+  last_lat?: number | null;
+  last_lng?: number | null;
+  last_location_at?: string | null;
+  orders_assigned: number;
+  orders_delivered: number;
+  orders_active: number;
+  deliveries_total: number;
+  deliveries_completed: number;
+  deliveries_failed: number;
+  deliveries_in_progress: number;
+  sla_compliant: number;
+  sla_compliance_rate: number;
+  total_earned: number;
+  pending_payouts: number;
+  available_to_payout: number;
+}
+
+export interface RiderAuditSummaryResponse {
+  items: RiderAuditSummary[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 // --- Clases de Error Personalizadas ---
@@ -121,9 +161,11 @@ export const riderService = {
       return fileUrl;
     }
     
-    const cleanPath = fileUrl.startsWith('/') ? fileUrl.substring(1) : fileUrl;
+    const cleanPath = fileUrl
+      .replace(/^\/+/, '')
+      .replace(/^api\/v\d+\//, '');
     // Evitar dobles slashes
-    return `${API_BASE_URL.replace(/\/$/, '')}/${cleanPath}`;
+    return `${STATIC_BASE_URL}/${cleanPath}`;
   },
 
   /**
@@ -163,6 +205,39 @@ export const riderService = {
       return extractData<Rider[]>(response);
     } catch (error) {
       throw handleApiError(error, 'Error listing riders with filters');
+    }
+  },
+
+  /**
+   * Obtiene auditoría operativa agrupada por repartidor para managers.
+   * GET /riders/audit/summary
+   */
+  getAuditSummary: async (params?: {
+    status_filter?: string;
+    is_online?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<RiderAuditSummaryResponse> => {
+    try {
+      const queryParams = new URLSearchParams();
+      if (params?.status_filter) {
+        queryParams.append('status_filter', params.status_filter);
+      }
+      if (params?.is_online !== undefined) {
+        queryParams.append('is_online', String(params.is_online));
+      }
+      if (params?.limit) {
+        queryParams.append('limit', String(params.limit));
+      }
+      if (params?.offset) {
+        queryParams.append('offset', String(params.offset));
+      }
+
+      const queryString = queryParams.toString();
+      const response = await api.get<RiderAuditSummaryResponse>(`/riders/audit/summary${queryString ? `?${queryString}` : ''}`);
+      return extractData<RiderAuditSummaryResponse>(response);
+    } catch (error) {
+      throw handleApiError(error, 'Error fetching rider audit summary');
     }
   },
 
@@ -477,8 +552,9 @@ export const riderService = {
 
     try {
       const response = await api.patch<OnlineStatusResponse>(
-        `/riders/${riderId}/online`, 
-        { online: isOnline }
+        `/riders/${riderId}/online`,
+        undefined,
+        { params: { online: isOnline } }
       );
       return extractData<OnlineStatusResponse>(response);
     } catch (error) {

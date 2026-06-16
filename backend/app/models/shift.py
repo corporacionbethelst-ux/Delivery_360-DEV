@@ -8,6 +8,10 @@ from sqlalchemy.dialects.postgresql import UUID
 import enum
 from app.core.database import Base
 
+def utc_now_naive():
+    """Devuelve la hora actual en UTC sin zona horaria para columnas TIMESTAMP WITHOUT TIME ZONE."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 class ShiftStatus(str, enum.Enum):
     PROGRAMADO = "PROGRAMADO"
     EN_CURSO = "EN_CURSO"
@@ -51,8 +55,8 @@ class Shift(Base):
     notes = Column(String(500))
     cancellation_reason = Column(String(255))
     
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
     
     rider = relationship("Rider")
     check_ins = relationship("CheckInOut", back_populates="shift", cascade="all, delete-orphan")
@@ -72,13 +76,13 @@ class CheckInOut(Base):
     rider_id = Column(UUID(as_uuid=True), ForeignKey("riders.id", ondelete="CASCADE"), nullable=False, index=True)
     shift_id = Column(UUID(as_uuid=True), ForeignKey("shifts.id", ondelete="CASCADE"), nullable=True, index=True)
     check_type = Column(String(10), nullable=False)
-    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    timestamp = Column(DateTime, default=utc_now_naive, nullable=False)
     latitude = Column(Float)
     longitude = Column(Float)
     device_id = Column(String(255))
     ip_address = Column(String(45))
     notes = Column(String(500))
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
     
     rider = relationship("Rider")
     shift = relationship("Shift", back_populates="check_ins")
