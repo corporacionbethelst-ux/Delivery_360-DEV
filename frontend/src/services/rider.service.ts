@@ -4,6 +4,7 @@ import { AxiosError } from 'axios';
 
 // URL base del API (debe coincidir con tu .env.local)
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const STATIC_BASE_URL = API_BASE_URL.replace(/\/api\/v\d+\/?$/, '').replace(/\/$/, '');
 
 // --- Tipos e Interfaces Estrictas ---
 
@@ -160,9 +161,11 @@ export const riderService = {
       return fileUrl;
     }
     
-    const cleanPath = fileUrl.startsWith('/') ? fileUrl.substring(1) : fileUrl;
+    const cleanPath = fileUrl
+      .replace(/^\/+/, '')
+      .replace(/^api\/v\d+\//, '');
     // Evitar dobles slashes
-    return `${API_BASE_URL.replace(/\/$/, '')}/${cleanPath}`;
+    return `${STATIC_BASE_URL}/${cleanPath}`;
   },
 
   /**
