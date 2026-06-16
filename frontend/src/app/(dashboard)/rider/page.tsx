@@ -15,6 +15,7 @@ import { orderService, Order } from '@/services/order.service';
 import { resolveOrderCollectAmount } from '@/lib/order-amount';
 
 const ACTIVE_DELIVERY_STATUSES = ['ASIGNADO', 'EN_RECOLECCION', 'RECOLECTADO', 'EN_RUTA'];
+const HEARTBEAT_INTERVAL_MS = 15000;
 
 const getOrderAmount = (order: Order): number => resolveOrderCollectAmount(order);
 
@@ -89,6 +90,7 @@ export default function RiderDashboard() {
   const [sendingLocation, setSendingLocation] = useState(false);
 
   const watchIdRef = useRef<number | null>(null);
+  const lastHeartbeatSentAtRef = useRef(0);
 
   useEffect(() => {
     setIsMounted(true);
@@ -117,11 +119,21 @@ export default function RiderDashboard() {
         ]);
 
         if (profileResult.status === 'rejected') throw profileResult.reason;
-        if (earningsResult.status === 'rejected') throw earningsResult.reason;
-        if (ordersResult.status === 'rejected') throw ordersResult.reason;
 
         const profile = profileResult.value;
-        const earningsData = earningsResult.value;
+        const earningsData = earningsResult.status === 'fulfilled'
+          ? earningsResult.value
+          : {
+              total_earned: 0,
+              completed_orders: 0,
+              gross_order_value: 0,
+              delivery_fees: 0,
+              bonuses: 0,
+              penalties: 0,
+              pending_payout: 0,
+              currency: 'COP',
+              breakdown: [],
+            };
         const balanceData = balanceResult.status === 'fulfilled'
           ? balanceResult.value
           : {
@@ -131,10 +143,16 @@ export default function RiderDashboard() {
               total_earned: Number(earningsData.total_earned ?? 0),
               currency: 'COP',
             };
-        const orders = ordersResult.value;
+        const orders = ordersResult.status === 'fulfilled' ? ordersResult.value : [];
 
+        if (earningsResult.status === 'rejected') {
+          console.warn('No se pudieron cargar ganancias del rider; usando valores seguros.', earningsResult.reason);
+        }
         if (balanceResult.status === 'rejected') {
           console.warn('No se pudo cargar el balance de payout del dashboard; usando resumen financiero.', balanceResult.reason);
+        }
+        if (ordersResult.status === 'rejected') {
+          console.warn('No se pudieron cargar órdenes del rider; se mostrará el panel sin próxima entrega.', ordersResult.reason);
         }
 
         setRiderId(profile.id);
@@ -194,21 +212,35 @@ export default function RiderDashboard() {
     }
   };
 
-  const sendLocation = async (lat: number, lng: number): Promise<boolean> => {
+  const sendLocation = async (
+    lat: number,
+    lng: number,
+    options: { force?: boolean; showLoading?: boolean } = {}
+  ): Promise<boolean> => {
     if (!riderId) return false;
 
+    const now = Date.now();
+    if (!options.force && now - lastHeartbeatSentAtRef.current < HEARTBEAT_INTERVAL_MS) {
+      return true;
+    }
+
     try {
-      setSendingLocation(true);
+      if (options.showLoading) setSendingLocation(true);
       await riderService.sendHeartbeat(riderId, lat, lng);
+      lastHeartbeatSentAtRef.current = now;
       setLocationError(null);
       return true;
     } catch (error: any) {
       console.error('Error enviando ubicación:', error);
-      setLocationError(error.response?.data?.detail || 'No se pudo actualizar la ubicación');
-      await forceOffline();
+      const status = error?.response?.status;
+      const detail = error?.response?.data?.detail || error?.response?.data?.error?.message || 'No se pudo actualizar la ubicación';
+      setLocationError(status === 429 ? 'Actualizando ubicación muy rápido. Espera unos segundos e intenta nuevamente.' : detail);
+      if (status !== 429) {
+        await forceOffline();
+      }
       return false;
     } finally {
-      setSendingLocation(false);
+      if (options.showLoading) setSendingLocation(false);
     }
   };
 
@@ -254,7 +286,7 @@ export default function RiderDashboard() {
       }
 
       const { latitude, longitude } = position.coords;
-      const canGoOnline = await sendLocation(latitude, longitude);
+      const canGoOnline = await sendLocation(latitude, longitude, { force: true, showLoading: true });
       if (!canGoOnline) return;
       setIsOnline(true);
 
