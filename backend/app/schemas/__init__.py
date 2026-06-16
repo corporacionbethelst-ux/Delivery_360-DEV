@@ -57,7 +57,15 @@ from app.schemas.shift import (
 from app.schemas.financial import (
     FinancialTransactionBase,
     FinancialTransactionCreate,
+    FinancialTransactionUpdate,
     FinancialTransactionResponse,
+    RiderEarningsResponse,
+    RiderEarningsBreakdownResponse,
+    FinancialSummaryResponse,
+    FinancialOrderReportRow,
+    FinancialOrdersReportResponse,
+    FinancialReconciliationResponse,
+    FinancialConsolidated,
     PaymentRuleBase,
     PaymentRuleCreate,
     PaymentRuleResponse,
@@ -75,6 +83,12 @@ from app.schemas.dashboard import (
     OrderMetrics,
     RiderMetrics,
     FinancialMetrics,
+)
+
+from app.schemas.zone import (
+    ZoneCreate,
+    ZoneUpdate,
+    ZoneResponse,
 )
 
 __all__ = [
@@ -126,7 +140,15 @@ __all__ = [
     # Financial
     "FinancialTransactionBase",
     "FinancialTransactionCreate",
+    "FinancialTransactionUpdate",
     "FinancialTransactionResponse",
+    "RiderEarningsResponse",
+    "RiderEarningsBreakdownResponse",
+    "FinancialSummaryResponse",
+    "FinancialOrderReportRow",
+    "FinancialOrdersReportResponse",
+    "FinancialReconciliationResponse",
+    "FinancialConsolidated",
     "PaymentRuleBase",
     "PaymentRuleCreate",
     "PaymentRuleResponse",
@@ -142,4 +164,9 @@ __all__ = [
     "OrderMetrics",
     "RiderMetrics",
     "FinancialMetrics",
+
+    # Zones
+    "ZoneCreate",
+    "ZoneUpdate",
+    "ZoneResponse",
 ]

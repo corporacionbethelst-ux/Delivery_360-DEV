@@ -9,18 +9,91 @@ import uuid
 import logging
 import os
 import inspect
+import shutil
+from pathlib import Path
  
 from app.core.database import get_db
 from app.core.config import settings
 from app.models.rider import Rider, RiderStatus, VehicleType, utc_now_naive
 from app.models.user import User, UserRole
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
+from app.models.order import Order, OrderStatus
+from app.models.delivery import Delivery, DeliveryStatus
+from app.models.financial import Financial, TransactionType, PaymentStatus
+from app.models.payout import Payout, PayoutStatus
 from app.api.v1.auth import get_current_user, require_role
 
 logger = logging.getLogger(__name__)
 
 # El prefijo debe ser exactamente este para que coincida con lo que espera el frontend
 router = APIRouter(prefix="/riders")
+
+REQUIRED_DOCUMENT_TYPES = {
+    DocumentType.LICENCIA,
+    DocumentType.DOCUMENTO_IDENTIDAD,
+    DocumentType.REGISTRO_VEHICULO,
+    DocumentType.SEGURO,
+}
+
+
+def _safe_extension(filename: Optional[str]) -> str:
+    if not filename or "." not in filename:
+        return "pdf"
+    return filename.rsplit(".", 1)[-1].lower().replace("/", "").replace("\\", "") or "pdf"
+
+
+def _store_document_file(file: UploadFile, rider_id: uuid.UUID, doc_type: DocumentType) -> str:
+    upload_dir = Path("uploads/documents") / str(rider_id)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = f"{doc_type.value.lower()}_{uuid.uuid4()}.{_safe_extension(file.filename)}"
+    file_path = upload_dir / filename
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    return f"/uploads/documents/{rider_id}/{filename}"
+
+
+def _required_document_error(documents: List[RiderDocument]) -> Optional[str]:
+    docs_by_type = {doc.type: doc for doc in documents}
+    missing = [doc_type.value for doc_type in REQUIRED_DOCUMENT_TYPES if doc_type not in docs_by_type]
+    if missing:
+        return f"Documentos requeridos faltantes: {', '.join(sorted(missing))}."
+
+    invalid = [
+        doc_type.value
+        for doc_type, doc in docs_by_type.items()
+        if doc_type in REQUIRED_DOCUMENT_TYPES and doc.status != DocumentStatus.APROBADO
+    ]
+    if invalid:
+        return f"Documentos pendientes de aprobación: {', '.join(sorted(invalid))}."
+
+    return None
+
+
+async def _get_rider_documents(db: AsyncSession, rider_id: uuid.UUID) -> List[RiderDocument]:
+    result = await db.execute(select(RiderDocument).where(RiderDocument.rider_id == rider_id))
+    return list(result.scalars().all())
+
+
+async def _ensure_rider_can_go_online(db: AsyncSession, rider: Rider) -> None:
+    if rider.status != RiderStatus.ACTIVO:
+        rider.is_online = False
+        await db.commit()
+        raise HTTPException(
+            status_code=403,
+            detail="No puedes conectarte hasta que un gerente active tu cuenta."
+        )
+
+    documents = await _get_rider_documents(db, rider.id)
+    docs_error = _required_document_error(documents)
+    if docs_error:
+        rider.is_online = False
+        await db.commit()
+        raise HTTPException(
+            status_code=403,
+            detail=f"No puedes conectarte hasta que todos tus documentos requeridos estén aprobados. {docs_error}"
+        )
 
 # ==============================================================================
 # SCHEMAS (Modelos de datos para validación)
@@ -201,7 +274,9 @@ async def get_my_documents(
     if current_user.role != UserRole.REPARTIDOR:
         raise HTTPException(status_code=403, detail="Solo repartidores pueden acceder a sus documentos")
     
-    result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
+    result = await db.execute(
+        select(Rider).options(joinedload(Rider.user)).where(Rider.user_id == current_user.id)
+    )
     rider = result.scalar_one_or_none()
     
     if not rider:
@@ -247,7 +322,9 @@ async def upload_my_document(
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Tipo inválido. Opciones: {[t.value for t in DocumentType]}")
     
-    result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
+    result = await db.execute(
+        select(Rider).options(joinedload(Rider.user)).where(Rider.user_id == current_user.id)
+    )
     rider = result.scalar_one_or_none()
     
     if not rider:
@@ -267,9 +344,10 @@ async def upload_my_document(
     if existing_doc and existing_doc.status == DocumentStatus.PENDIENTE:
         raise HTTPException(status_code=400, detail="Documento en revisión. Espera la validación.")
     
-    file_extension = file.filename.split(".")[-1] if "." in file.filename else "pdf"
-    safe_filename = f"{uuid.uuid4()}.{file_extension}"
-    file_url = f"/uploads/documents/{rider.id}/{safe_filename}"
+    try:
+        file_url = _store_document_file(file, rider.id, doc_type)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error guardando documento: {str(exc)}")
     
     if existing_doc:
         existing_doc.file_url = file_url
@@ -342,9 +420,15 @@ async def update_document_status(
                 select(RiderDocument).where(RiderDocument.rider_id == rider.id)
             )
             all_docs = all_docs_result.scalars().all()
-            if all(d.status == DocumentStatus.APROBADO for d in all_docs):
+            if _required_document_error(list(all_docs)) is None:
                 rider.status = RiderStatus.ACTIVO
                 rider.approved_at = utc_now_naive()
+    elif new_status == "RECHAZADO":
+        rider_result = await db.execute(select(Rider).where(Rider.id == doc.rider_id))
+        rider = rider_result.scalar_one_or_none()
+        if rider:
+            rider.status = RiderStatus.PENDIENTE
+            rider.is_online = False
 
     await db.commit()
 
@@ -395,10 +479,10 @@ async def upload_document_for_rider(
     if existing_doc and existing_doc.status == DocumentStatus.APROBADO:
         raise HTTPException(status_code=400, detail="Ya existe un documento aprobado de este tipo. Si necesita actualizarlo, rechace el anterior primero o contacte a superadmin.")
     
-    # Generar ruta segura
-    file_extension = file.filename.split(".")[-1] if "." in file.filename else "pdf"
-    safe_filename = f"{uuid.uuid4()}.{file_extension}"
-    file_url = f"/uploads/documents/{rider.id}/{safe_filename}"
+    try:
+        file_url = _store_document_file(file, rider.id, doc_type)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error guardando documento: {str(exc)}")
     
     if existing_doc:
         # Actualizar existente (ej. estaba rechazado o incompleto)
@@ -551,7 +635,7 @@ async def get_my_rider_profile(
     [REPARTIDOR] Obtiene el perfil completo del usuario autenticado.
     """
     stmt = select(Rider).options(joinedload(Rider.user)).where(Rider.user_id == current_user.id)
-    result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
+    result = await db.execute(stmt)
     rider = result.scalar_one_or_none()
     if not rider:
         raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
@@ -570,7 +654,9 @@ async def update_my_rider_profile(
     MEJORA LOTE 12.1.2: Si cambia el vehículo, invalida documentos, bloquea la cuenta 
     y notifica a administración mediante Audit Log y Alertas en consola.
     """
-    result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
+    result = await db.execute(
+        select(Rider).options(joinedload(Rider.user)).where(Rider.user_id == current_user.id)
+    )
     rider = result.scalar_one_or_none()
     
     if not rider:
@@ -614,26 +700,28 @@ async def update_my_rider_profile(
             print(f"   🚫 Estado del repartidor cambiado a PENDIENTE. Acceso a pedidos bloqueado.")
 
         try:
-            from app.models.audit_log import AuditLog, AuditAction
+            from app.models.audit_log import ActionType, AuditLog
             audit_entry = AuditLog(
                 id=uuid.uuid4(),
                 user_id=current_user.id,
-                action=AuditAction.UPDATE,
-                entity_type="Rider",
-                entity_id=rider.id,
-                changes={
-                    "reason": "Solicitud de cambio de vehículo desde perfil",
-                    "old_vehicle": old_vehicle_info,
-                    "new_vehicle": new_vehicle_info,
+                user_email=current_user.email,
+                user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
+                action_type=ActionType.UPDATE,
+                resource_type="Rider",
+                resource_id=str(rider.id),
+                description="Solicitud de cambio de vehículo desde perfil",
+                old_values={"vehicle": old_vehicle_info},
+                new_values={
+                    "vehicle": new_vehicle_info,
                     "documents_invalidated": len(documents),
-                    "status_changed_to": "PENDIENTE"
+                    "status_changed_to": "PENDIENTE",
                 },
-                created_at=utc_now_naive()
+                changes_summary="Cambio de vehículo; documentos invalidados y rider pendiente",
+                success=True,
+                created_at=utc_now_naive(),
             )
             db.add(audit_entry)
             print(f"   📝 Registro de auditoría creado exitosamente.")
-        except ImportError:
-            print(f"   ⚠️ Modelo AuditLog no encontrado. Se omite el registro en BD.")
         except Exception as e:
             print(f"   ❌ Error al crear registro de auditoría: {str(e)}")
 
@@ -661,8 +749,10 @@ async def update_my_rider_profile(
 
     await db.commit()
     
-    await db.refresh(rider)
-    await db.refresh(current_user)
+    refreshed = await db.execute(
+        select(Rider).options(joinedload(Rider.user)).where(Rider.id == rider.id)
+    )
+    rider = refreshed.scalar_one()
     
     response_data = _rider_to_dict(rider)
     
@@ -689,6 +779,188 @@ async def get_pending_documents(
     )
     riders = result.scalars().all()
     return [_rider_to_dict(r) for r in riders]
+
+
+@router.get("/audit/summary")
+async def get_riders_audit_summary(
+    status_filter: Optional[str] = Query(None, description="Filtro opcional por estado del rider"),
+    is_online: Optional[bool] = Query(None, description="Filtro opcional por disponibilidad online"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+):
+    """
+    Vista agregada para managers: órdenes, entregas, SLA, ganancias y retiros
+    agrupados por repartidor sin multiplicar totales por JOINs cruzados.
+    """
+    if status_filter:
+        try:
+            rider_status = RiderStatus(status_filter)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Estado inválido: {status_filter}")
+    else:
+        rider_status = None
+
+    orders_assigned = (
+        select(func.count(Order.id))
+        .where(Order.assigned_rider_id == Rider.id)
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    orders_delivered = (
+        select(func.count(Order.id))
+        .where(Order.assigned_rider_id == Rider.id, Order.status == OrderStatus.ENTREGADO)
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    orders_active = (
+        select(func.count(Order.id))
+        .where(
+            Order.assigned_rider_id == Rider.id,
+            Order.status.in_([OrderStatus.ASIGNADO, OrderStatus.EN_RECOLECCION, OrderStatus.RECOLECTADO, OrderStatus.EN_RUTA]),
+        )
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    deliveries_total = (
+        select(func.count(Delivery.id))
+        .where(Delivery.rider_id == Rider.id)
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    deliveries_completed = (
+        select(func.count(Delivery.id))
+        .where(Delivery.rider_id == Rider.id, Delivery.status == DeliveryStatus.COMPLETADA)
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    deliveries_failed = (
+        select(func.count(Delivery.id))
+        .where(Delivery.rider_id == Rider.id, Delivery.status == DeliveryStatus.FALLIDA)
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    deliveries_in_progress = (
+        select(func.count(Delivery.id))
+        .where(
+            Delivery.rider_id == Rider.id,
+            Delivery.status.in_([
+                DeliveryStatus.INICIADA,
+                DeliveryStatus.EN_PICKUP,
+                DeliveryStatus.EN_ROUTE,
+                DeliveryStatus.EN_DESTINO,
+            ]),
+        )
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    sla_compliant = (
+        select(func.count(Delivery.id))
+        .where(Delivery.rider_id == Rider.id, Delivery.sla_compliant.is_(True))
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    total_earned = (
+        select(func.coalesce(func.sum(Financial.amount), 0))
+        .where(
+            Financial.rider_id == Rider.id,
+            Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+            Financial.status == PaymentStatus.PROCESADO,
+        )
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+    pending_payouts = (
+        select(func.coalesce(func.sum(Payout.amount), 0))
+        .where(Payout.rider_id == Rider.id, Payout.status == PayoutStatus.PENDIENTE)
+        .correlate(Rider)
+        .scalar_subquery()
+    )
+
+    stmt = (
+        select(
+            Rider,
+            User,
+            orders_assigned.label("orders_assigned"),
+            orders_delivered.label("orders_delivered"),
+            orders_active.label("orders_active"),
+            deliveries_total.label("deliveries_total"),
+            deliveries_completed.label("deliveries_completed"),
+            deliveries_failed.label("deliveries_failed"),
+            deliveries_in_progress.label("deliveries_in_progress"),
+            sla_compliant.label("sla_compliant"),
+            total_earned.label("total_earned"),
+            pending_payouts.label("pending_payouts"),
+        )
+        .join(User, Rider.user_id == User.id)
+        .order_by(Rider.is_online.desc(), User.first_name.asc(), User.last_name.asc())
+        .limit(limit)
+        .offset(offset)
+    )
+
+    if rider_status:
+        stmt = stmt.where(Rider.status == rider_status)
+    if is_online is not None:
+        stmt = stmt.where(Rider.is_online.is_(is_online))
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    items = []
+    for (
+        rider,
+        user,
+        assigned,
+        delivered,
+        active,
+        total_deliveries,
+        completed,
+        failed,
+        in_progress,
+        sla_ok,
+        earned,
+        pending,
+    ) in rows:
+        total_deliveries_int = int(total_deliveries or 0)
+        sla_ok_int = int(sla_ok or 0)
+        sla_rate = round((sla_ok_int / total_deliveries_int) * 100, 2) if total_deliveries_int else 0.0
+        first_name = user.first_name or ""
+        last_name = user.last_name or ""
+
+        items.append({
+            "rider_id": str(rider.id),
+            "user_id": str(user.id),
+            "email": user.email,
+            "first_name": first_name,
+            "last_name": last_name,
+            "full_name": f"{first_name} {last_name}".strip() or user.email,
+            "phone": user.phone,
+            "status": rider.status.value if hasattr(rider.status, "value") else str(rider.status),
+            "is_online": bool(rider.is_online),
+            "vehicle_type": rider.vehicle_type.value if hasattr(rider.vehicle_type, "value") else str(rider.vehicle_type) if rider.vehicle_type else None,
+            "vehicle_plate": rider.vehicle_plate,
+            "operating_zone": rider.operating_zone,
+            "zone_id": str(rider.zone_id) if rider.zone_id else None,
+            "current_order_id": str(rider.current_order_id) if rider.current_order_id else None,
+            "last_lat": rider.last_lat,
+            "last_lng": rider.last_lng,
+            "last_location_at": rider.last_location_at.isoformat() if rider.last_location_at else None,
+            "orders_assigned": int(assigned or 0),
+            "orders_delivered": int(delivered or 0),
+            "orders_active": int(active or 0),
+            "deliveries_total": total_deliveries_int,
+            "deliveries_completed": int(completed or 0),
+            "deliveries_failed": int(failed or 0),
+            "deliveries_in_progress": int(in_progress or 0),
+            "sla_compliant": sla_ok_int,
+            "sla_compliance_rate": sla_rate,
+            "total_earned": float(earned or 0),
+            "pending_payouts": float(pending or 0),
+            "available_to_payout": max(float(earned or 0) - float(pending or 0), 0.0),
+        })
+
+    return {"items": items, "total": len(items), "limit": limit, "offset": offset}
 
 # ------------------------------------------------------------------------------
 # ENDPOINTS GENÉRICOS POR ID ({rider_id})
@@ -740,7 +1012,9 @@ async def update_rider(
     Actualiza datos de un repartidor específico.
     Usado por admins para corregir datos o por el propio rider (vía scope check).
     """
-    result = await db.execute(select(Rider).where(Rider.id == _parse_uuid(rider_id, "rider_id")))
+    result = await db.execute(
+        select(Rider).options(joinedload(Rider.user)).where(Rider.id == _parse_uuid(rider_id, "rider_id"))
+    )
     rider = result.scalar_one_or_none()
     if not rider:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
@@ -770,6 +1044,17 @@ async def approve_rider(
     rider = result.scalar_one_or_none()
     if not rider:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
+
+    documents = await _get_rider_documents(db, rider.id)
+    docs_error = _required_document_error(documents)
+    if docs_error:
+        rider.status = RiderStatus.PENDIENTE
+        rider.is_online = False
+        await db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede aprobar el repartidor hasta completar la documentación requerida. {docs_error}"
+        )
 
     rider.status = RiderStatus.ACTIVO
     rider.approved_at = utc_now_naive()
@@ -837,6 +1122,7 @@ async def update_heartbeat(
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
     
     await _ensure_rider_self_scope(db, current_user, rider)
+    await _ensure_rider_can_go_online(db, rider)
 
     rider.last_lat = body.lat
     rider.last_lng = body.lng
@@ -894,6 +1180,8 @@ async def toggle_online(
     if not rider:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
     await _ensure_rider_self_scope(db, current_user, rider)
+    if online:
+        await _ensure_rider_can_go_online(db, rider)
     rider.is_online = online
     await db.commit()
     return {"is_online": rider.is_online}

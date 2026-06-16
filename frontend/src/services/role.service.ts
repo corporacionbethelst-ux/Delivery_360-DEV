@@ -1,22 +1,21 @@
 import { api } from '@/lib/api';
-import { UserRole } from '@/types/user';
 
 export interface Permission {
   id: string;
   name: string;
-  module: 'orders' | 'riders' | 'financial' | 'users' | 'admin';
-  description?: string;
+  module: string;
+  description?: string | null;
 }
 
 export interface Role {
   id: string;
-  name: string; // Ej: "Gerente Regional"
-  slug: string; // Ej: "regional_manager" (para código)
+  name: string;
+  slug: string;
   description?: string | null;
-  permissions: string[]; // Array de IDs de permisos
+  permissions: string[];
   users_count: number;
-  is_system: boolean; // True si es rol por defecto (no borable)
-  created_at: string;
+  is_system: boolean;
+  created_at?: string | null;
 }
 
 export interface RoleCreateInput {
@@ -26,22 +25,38 @@ export interface RoleCreateInput {
   permissions: string[];
 }
 
+type ApiRole = Partial<Role> & {
+  id: string;
+  slug?: string | null;
+  permissions?: string[] | null;
+  users_count?: number | null;
+  is_system?: boolean | null;
+};
+
+const normalizeRole = (role: ApiRole): Role => ({
+  id: role.id,
+  name: role.name || role.id,
+  slug: role.slug || role.id,
+  description: role.description ?? null,
+  permissions: Array.isArray(role.permissions) ? role.permissions : [],
+  users_count: Number(role.users_count ?? 0),
+  is_system: role.is_system ?? true,
+  created_at: role.created_at ?? null,
+});
+
 export const roleService = {
-  /**
-   * Listar todos los roles.
-   */
+  /** Listar todos los roles de sistema con conteo real de usuarios. */
   getAll: async (): Promise<Role[]> => {
     try {
-      return await api.get<Role[]>('/roles');
+      const roles = await api.get<ApiRole[]>('/roles');
+      return roles.map(normalizeRole);
     } catch (error) {
       console.error('[RoleService] Error fetching roles:', error);
       throw error;
     }
   },
 
-  /**
-   * Obtener permisos disponibles del sistema.
-   */
+  /** Obtener permisos disponibles del sistema. */
   getPermissions: async (): Promise<Permission[]> => {
     try {
       return await api.get<Permission[]>('/roles/permissions');
@@ -51,37 +66,31 @@ export const roleService = {
     }
   },
 
-  /**
-   * Crear nuevo rol personalizado.
-   */
+  /** Crear nuevo rol personalizado. Actualmente el backend maneja roles de sistema solamente. */
   create: async (data: RoleCreateInput): Promise<Role> => {
     try {
       if (!data.name || !data.slug) {
-        throw new Error('[RoleService] Nombre y Slug son requeridos.');
+        throw new Error('[RoleService] Nombre y slug son requeridos.');
       }
-      return await api.post<Role>('/roles', data);
+      return normalizeRole(await api.post<ApiRole>('/roles', data));
     } catch (error) {
       console.error('[RoleService] Error creating role:', error);
       throw error;
     }
   },
 
-  /**
-   * Actualizar rol (Permisos y descripción).
-   */
+  /** Actualizar rol. Actualmente los roles del sistema son solo lectura. */
   update: async (id: string, data: Partial<RoleCreateInput>): Promise<Role> => {
     if (!id) throw new Error('[RoleService] ID requerido');
     try {
-      return await api.patch<Role>(`/roles/${id}`, data);
+      return normalizeRole(await api.patch<ApiRole>(`/roles/${id}`, data));
     } catch (error) {
       console.error(`[RoleService] Error updating role ${id}:`, error);
       throw error;
     }
   },
 
-  /**
-   * Eliminar rol (Solo si no es sistema y no tiene usuarios).
-   */
+  /** Eliminar rol. Actualmente los roles del sistema son solo lectura. */
   delete: async (id: string): Promise<void> => {
     if (!id) throw new Error('[RoleService] ID requerido');
     try {
@@ -90,5 +99,5 @@ export const roleService = {
       console.error(`[RoleService] Error deleting role ${id}:`, error);
       throw error;
     }
-  }
+  },
 };
