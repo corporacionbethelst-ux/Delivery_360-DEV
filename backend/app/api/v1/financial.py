@@ -16,6 +16,15 @@ from app.api.v1.auth import get_current_user, require_role
 
 router = APIRouter(prefix="/financial", tags=["Financial"])
 
+
+def _order_earning_amount_expr():
+    """Monto devengado por entrega cuando aún no existe asiento financiero."""
+    return case(
+        (Order.delivery_fee > 0, Order.delivery_fee),
+        (Order.total > 0, Order.total),
+        else_=Order.subtotal,
+    )
+
 @router.get("/riders/me")
 async def get_my_earnings(
     db: AsyncSession = Depends(get_db),
@@ -35,7 +44,8 @@ async def get_my_earnings(
     if not rider:
         raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
 
-    # 1. Calcular Total Ganado (Suma de entregas y bonos procesados)
+    # 1. Calcular Total Ganado desde ledger y, si aún no hay asientos,
+    # usar órdenes entregadas como fallback para demos/instalaciones migradas.
     earnings_result = await db.execute(
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider.id,
@@ -43,7 +53,21 @@ async def get_my_earnings(
             Financial.status == PaymentStatus.PROCESADO
         )
     )
-    total_earned = float(earnings_result.scalar() or 0)
+    ledger_total_earned = float(earnings_result.scalar() or 0)
+
+    orders_earnings_result = await db.execute(
+        select(
+            func.coalesce(func.sum(_order_earning_amount_expr()), 0),
+            func.count(Order.id),
+        ).where(
+            Order.assigned_rider_id == rider.id,
+            Order.status == OrderStatus.ENTREGADO,
+        )
+    )
+    orders_total_earned, orders_completed_count = orders_earnings_result.one()
+    orders_total_earned = float(orders_total_earned or 0)
+    orders_completed_count = int(orders_completed_count or 0)
+    total_earned = ledger_total_earned if ledger_total_earned > 0 else orders_total_earned
 
     # 2. Calcular Total Retirado (Suma de retiros PROCESADOS)
     # Nota: No restamos los PENDIENTE aquí para que el frontend calcule el "pending_payout" correctamente
@@ -56,14 +80,15 @@ async def get_my_earnings(
     )
     total_withdrawn = float(withdrawn_result.scalar() or 0)
     
-    # Contar entregas completadas (transacciones de tipo PAGO_ENTREGA)
+    # Contar entregas completadas desde ledger y fallback a órdenes entregadas.
     deliveries_count_result = await db.execute(
         select(func.count(Financial.id)).where(
             Financial.rider_id == rider.id,
             Financial.transaction_type == TransactionType.PAGO_ENTREGA
         )
     )
-    completed_deliveries = deliveries_count_result.scalar() or 0
+    ledger_completed_deliveries = int(deliveries_count_result.scalar() or 0)
+    completed_deliveries = max(ledger_completed_deliveries, orders_completed_count)
 
     # El saldo pendiente es lo ganado menos lo que ya se ha retirado (procesado)
     pending_payout = total_earned - total_withdrawn
@@ -107,10 +132,44 @@ async def get_my_earnings_breakdown(
 
     stmt = stmt.order_by(Financial.created_at.desc()).offset(offset).limit(limit)
     result = await db.execute(stmt)
+    items = [_serialize_transaction(transaction) for transaction in result.scalars().all()]
+
+    if not items and transaction_type in (None, TransactionType.PAGO_ENTREGA):
+        fallback_orders_result = await db.execute(
+            select(Order)
+            .where(
+                Order.assigned_rider_id == rider.id,
+                Order.status == OrderStatus.ENTREGADO,
+            )
+            .order_by(func.coalesce(Order.delivered_at, Order.updated_at, Order.created_at).desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        for order in fallback_orders_result.scalars().all():
+            amount = float(order.delivery_fee or order.total or order.subtotal or 0)
+            created_at = order.delivered_at or order.updated_at or order.created_at
+            items.append({
+                "id": str(order.id),
+                "rider_id": str(rider.id),
+                "amount": amount,
+                "balance_before": None,
+                "balance_after": None,
+                "transaction_type": TransactionType.PAGO_ENTREGA.value,
+                "type": TransactionType.PAGO_ENTREGA.value,
+                "description": f"Entrega completada · Orden {order.external_id or str(order.id)[:8]}",
+                "reference_id": str(order.id),
+                "source_type": "order",
+                "source_id": str(order.id),
+                "idempotency_key": None,
+                "created_by_user_id": None,
+                "status": PaymentStatus.PROCESADO.value,
+                "created_at": created_at,
+                "updated_at": order.updated_at,
+            })
 
     return {
         "rider_id": str(rider.id),
-        "items": [_serialize_transaction(transaction) for transaction in result.scalars().all()],
+        "items": items,
     }
 
 @router.get("/summary")
