@@ -1,8 +1,8 @@
 import { UserRole } from '@/types/user';
-import { 
-  LayoutDashboard, Package, Users, MapPin, DollarSign, FileText, Settings, 
-  Bike, ClipboardList, AlertTriangle, Truck, Shield, Wallet, PieChart, 
-  Bell, History, CreditCard, Globe, Activity
+import {
+  LayoutDashboard, Package, Users, MapPin, DollarSign, Settings,
+  Bike, ClipboardList, AlertTriangle, Truck, Shield, Wallet, PieChart,
+  History, CreditCard, Globe, Activity, Clock
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -20,27 +20,48 @@ export const NAVIGATION_CONFIG: NavItem[] = [
     label: 'Dashboard',
     href: '/manager',
     icon: LayoutDashboard,
-    roles: ['SUPERADMIN', 'GERENTE', 'OPERADOR', 'REPARTIDOR'],
+    roles: ['SUPERADMIN', 'GERENTE'],
+  },
+  {
+    label: 'Dashboard Operador',
+    href: '/operator',
+    icon: Activity,
+    roles: ['OPERADOR'],
   },
   {
     label: 'Operaciones',
     href: '/manager/operations',
     icon: Truck,
-    roles: ['SUPERADMIN', 'GERENTE', 'OPERADOR'],
+    roles: ['SUPERADMIN', 'GERENTE'],
     children: [
-      { label: 'Órdenes', href: '/manager/operations/orders', icon: Package, roles: ['SUPERADMIN', 'GERENTE', 'OPERADOR'] },
-      { label: 'Entregas', href: '/manager/operations/deliveries', icon: ClipboardList, roles: ['SUPERADMIN', 'GERENTE', 'OPERADOR'] },
-      { label: 'Mapa en Vivo', href: '/manager/operations/live-map', icon: MapPin, roles: ['SUPERADMIN', 'GERENTE', 'OPERADOR'] },
-      { label: 'Alertas', href: '/manager/operations/alerts', icon: AlertTriangle, roles: ['SUPERADMIN', 'GERENTE', 'OPERADOR'] },
+      { label: 'Órdenes', href: '/manager/operations/orders', icon: Package, roles: ['SUPERADMIN', 'GERENTE'] },
+      { label: 'Entregas', href: '/manager/operations/deliveries', icon: ClipboardList, roles: ['SUPERADMIN', 'GERENTE'] },
+      { label: 'Auditoría Riders', href: '/manager/operations/rider-audit', icon: Activity, roles: ['SUPERADMIN', 'GERENTE'] },
+      { label: 'Mapa en Vivo', href: '/manager/operations/live-map', icon: MapPin, roles: ['SUPERADMIN', 'GERENTE'] },
+      { label: 'Alertas', href: '/manager/operations/alerts', icon: AlertTriangle, roles: ['SUPERADMIN', 'GERENTE'] },
+    ]
+  },
+  {
+    label: 'Operación',
+    href: '/operator/orders',
+    icon: Truck,
+    roles: ['OPERADOR'],
+    children: [
+      { label: 'Órdenes', href: '/operator/orders', icon: Package, roles: ['OPERADOR'] },
+      { label: 'Entregas', href: '/operator/deliveries', icon: ClipboardList, roles: ['OPERADOR'] },
+      { label: 'Mapa en Vivo', href: '/operator/live-map', icon: MapPin, roles: ['OPERADOR'] },
+      { label: 'Alertas', href: '/operator/alerts', icon: AlertTriangle, roles: ['OPERADOR'] },
+      { label: 'Turnos', href: '/operator/shifts', icon: Clock, roles: ['OPERADOR'] },
+      { label: 'Preferencias', href: '/operator/settings', icon: Settings, roles: ['OPERADOR'] },
     ]
   },
   {
     label: 'Flota',
     href: '/manager/fleet',
     icon: Bike,
-    roles: ['SUPERADMIN', 'GERENTE', 'OPERADOR'],
+    roles: ['SUPERADMIN', 'GERENTE'],
     children: [
-      { label: 'Repartidores', href: '/manager/fleet/riders', icon: Users, roles: ['SUPERADMIN', 'GERENTE', 'OPERADOR'] },
+      { label: 'Repartidores', href: '/manager/fleet/riders', icon: Users, roles: ['SUPERADMIN', 'GERENTE'] },
       { label: 'Vehículos', href: '/manager/fleet/vehicles', icon: Truck, roles: ['SUPERADMIN', 'GERENTE'] },
       { label: 'Zonas', href: '/manager/fleet/zones', icon: Globe, roles: ['SUPERADMIN', 'GERENTE'] },
     ]
@@ -68,6 +89,12 @@ export const NAVIGATION_CONFIG: NavItem[] = [
       { label: 'Auditoría', href: '/manager/admin/audit', icon: History, roles: ['SUPERADMIN'] },
       { label: 'Configuración', href: '/manager/admin/settings', icon: Settings, roles: ['SUPERADMIN'] },
     ]
+  },
+  {
+    label: 'Dashboard Rider',
+    href: '/rider',
+    icon: LayoutDashboard,
+    roles: ['REPARTIDOR'],
   },
   {
     label: 'Mis Entregas',

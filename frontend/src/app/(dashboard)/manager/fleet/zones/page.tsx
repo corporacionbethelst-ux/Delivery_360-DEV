@@ -28,7 +28,6 @@ interface ZoneDisplay extends ZoneType {
   // Mapeamos campos snake_case a camelCase si es necesario para la UI local
   deliveryFee?: number; 
   ridersCount?: number;
-  activeOrders?: number;
   colorClass?: string; // Para mantener la lógica de colores visuales
 }
 
@@ -92,9 +91,7 @@ export default function ZonesPage() {
         ...z,
         deliveryFee: z.delivery_fee_base,
         ridersCount: z.riders_count || 0,
-        activeOrders: 0, // Este dato usualmente viene de un endpoint de stats separado
-        colorClass: z.color_hex ? (COLOR_MAP[z.color_hex] || DEFAULT_COLOR) : DEFAULT_COLOR,
-        isActive: z.is_active
+        colorClass: z.color_hex ? (COLOR_MAP[z.color_hex] || DEFAULT_COLOR) : DEFAULT_COLOR
       }));
       setZones(mappedZones);
     } catch (err: any) {
@@ -217,7 +214,7 @@ export default function ZonesPage() {
           </CardContent>
         </Card>
 
-        {/* Mapa Visual Simulado */}
+        {/* Vista visual operativa basada en zonas reales */}
         <Card className="overflow-hidden border-0 shadow-lg ring-1 ring-black/5">
           <div className="relative h-64 bg-slate-100 flex items-center justify-center overflow-hidden group">
             <div className="absolute inset-0 opacity-10 transition-opacity group-hover:opacity-20" 
@@ -304,7 +301,7 @@ export default function ZonesPage() {
                       <div className="text-xs text-gray-500 flex items-center gap-1">
                         <Clock className="w-3 h-3" /> Pedidos Activos
                       </div>
-                      <div className="font-bold text-lg text-gray-900">{zone.activeOrders || 0}</div>
+                      <div className="font-bold text-lg text-gray-900">{zone.active_orders_count || 0}</div>
                     </div>
                   </div>
                   
@@ -440,7 +437,7 @@ export default function ZonesPage() {
               ¿Estás seguro de eliminar la zona <strong>{zoneToDelete?.name}</strong>?
               <br/><br/>
               <span className="text-orange-600 font-medium text-sm">
-                Esta acción no se puede deshacer. Si hay repartidores asignados, quedarán sin zona.
+                Esta acción no se puede deshacer. Si hay repartidores asignados, el backend los liberará de esta zona.
               </span>
             </DialogDescription>
           </DialogHeader>

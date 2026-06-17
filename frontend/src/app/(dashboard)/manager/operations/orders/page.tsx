@@ -41,6 +41,7 @@ export default function OrdersPage() {
   const [riders, setRiders] = useState<Rider[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
+  const [filterRider, setFilterRider] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState<string | null>(null);
   
@@ -65,7 +66,7 @@ export default function OrdersPage() {
     try {
       const [ordersData, ridersData] = await Promise.all([
         orderService.getAll({ limit: 100 }),
-        riderService.listRiders({ is_online: true, status_filter: 'ACTIVO' })
+        riderService.listRiders({ status_filter: 'ACTIVO' })
       ]);
       setOrders(ordersData);
       setRiders(ridersData);
@@ -160,6 +161,8 @@ export default function OrdersPage() {
       ID: o.external_id,
       Estado: o.status,
       Cliente: o.customer_name || 'N/A',
+      Rider: getRiderName(o),
+      Vehiculo: getRiderVehicle(o),
       Total: o.total_amount || o.total || 0,
       Fecha: new Date(o.created_at).toLocaleDateString()
     }));
@@ -168,13 +171,36 @@ export default function OrdersPage() {
 
   const filteredOrders = orders.filter(order => {
     const matchesStatus = filterStatus === 'ALL' || order.status === filterStatus;
+    const matchesRider = filterRider === 'ALL' || (filterRider === 'UNASSIGNED' ? !order.assigned_rider_id : order.assigned_rider_id === filterRider);
     const customerName = order.customer_name || 'Cliente General';
+    const riderName = getRiderName(order);
     const matchesSearch = 
       order.external_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
       customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.delivery_address.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesStatus && matchesSearch;
+      order.delivery_address.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      riderName.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesStatus && matchesRider && matchesSearch;
   });
+
+  function getRiderName(order: Order): string {
+    const rider = order.rider as any;
+    if (rider?.full_name) return rider.full_name;
+    const fullName = `${rider?.first_name || ''} ${rider?.last_name || ''}`.trim();
+    return fullName || (order.assigned_rider_id ? 'Repartidor asignado' : 'Sin asignar');
+  }
+
+  function getRiderVehicle(order: Order): string {
+    const rider = order.rider as any;
+    const vehicle = [rider?.vehicle_type, rider?.vehicle_plate].filter(Boolean).join(' ');
+    return vehicle || (order.assigned_rider_id ? 'Vehículo no especificado' : 'Sin vehículo');
+  }
+
+  function getRiderBadgeClass(order: Order): string {
+    const rider = order.rider as any;
+    if (!order.assigned_rider_id) return 'bg-gray-100 text-gray-600 border-gray-200';
+    if (rider?.is_online) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    return 'bg-blue-50 text-blue-700 border-blue-200';
+  }
 
   const getStatusColor = (status: OrderStatus) => {
     switch (status) {
@@ -235,7 +261,7 @@ export default function OrdersPage() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
               <input
                 type="text"
-                placeholder="Buscar por ID, cliente o dirección..."
+                  placeholder="Buscar por ID, cliente, dirección o rider..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
@@ -254,6 +280,19 @@ export default function OrdersPage() {
                 <option value="EN_RUTA">En Ruta</option>
                 <option value="ENTREGADO">Entregados</option>
                 <option value="CANCELADO">Cancelados</option>
+              </select>
+              <select
+                value={filterRider}
+                onChange={(e) => setFilterRider(e.target.value)}
+                className="w-full md:w-auto px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none whitespace-nowrap"
+              >
+                <option value="ALL">Todos los riders</option>
+                <option value="UNASSIGNED">Sin asignar</option>
+                {riders.map((rider) => (
+                  <option key={rider.id} value={rider.id}>
+                    {rider.first_name} {rider.last_name}
+                  </option>
+                ))}
               </select>
             </div>
           </CardContent>
@@ -321,11 +360,13 @@ export default function OrdersPage() {
                       <span className="line-clamp-2">{order.delivery_address}</span>
                     </div>
                     
-                    {hasRider && (
-                      <div className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded flex items-center gap-1">
-                        <Truck className="w-3 h-3" /> Rider Asignado
+                    <div className={`text-xs px-2 py-2 rounded border flex items-start gap-2 ${getRiderBadgeClass(order)}`}>
+                      <Truck className="w-3 h-3 mt-0.5 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-semibold truncate">{getRiderName(order)}</p>
+                        <p className="opacity-80 truncate">{getRiderVehicle(order)}</p>
                       </div>
-                    )}
+                    </div>
 
                     <div className="pt-3 border-t flex justify-between items-center">
                       <span className="text-xs text-gray-500">Total</span>

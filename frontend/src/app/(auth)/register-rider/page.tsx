@@ -12,6 +12,19 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
+type DocumentFileKey = 'license' | 'idCard' | 'vehicleRegistration' | 'insurance';
+
+const REQUIRED_DOCUMENTS: Array<{
+  key: DocumentFileKey;
+  fieldName: string;
+  label: string;
+}> = [
+  { key: 'license', fieldName: 'license_file', label: 'Licencia de Conducción' },
+  { key: 'idCard', fieldName: 'id_card_file', label: 'Documento de Identidad' },
+  { key: 'vehicleRegistration', fieldName: 'vehicle_registration_file', label: 'Registro del Vehículo' },
+  { key: 'insurance', fieldName: 'insurance_file', label: 'Seguro / SOAT' },
+];
+
 export default function RegisterRiderPage() {
   const router = useRouter();
   // ✅ CORRECCIÓN: Obtener solo lo necesario del store (para verificar si ya está logueado)
@@ -33,14 +46,14 @@ export default function RegisterRiderPage() {
   });
 
   // Estado para los archivos
-  const [files, setFiles] = useState<{ license?: File; idCard?: File }>({});
+  const [files, setFiles] = useState<Partial<Record<DocumentFileKey, File>>>({});
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'license' | 'idCard') => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: DocumentFileKey) => {
     if (e.target.files && e.target.files[0]) {
       setFiles(prev => ({ ...prev, [type]: e.target.files![0] }));
     }
@@ -59,8 +72,9 @@ export default function RegisterRiderPage() {
       setError('La contraseña debe tener al menos 6 caracteres');
       return;
     }
-    if (!files.license || !files.idCard) {
-      setError('Debes subir tu Licencia de Conducción y Documento de Identidad.');
+    const missingDocument = REQUIRED_DOCUMENTS.find((doc) => !files[doc.key]);
+    if (missingDocument) {
+      setError(`Debes subir el documento requerido: ${missingDocument.label}.`);
       return;
     }
 
@@ -76,9 +90,11 @@ export default function RegisterRiderPage() {
       dataToSend.append('vehicle_type', formData.vehicle_type);
       if (formData.vehicle_plate) dataToSend.append('vehicle_plate', formData.vehicle_plate);
       
-      // Adjuntar archivos
-      dataToSend.append('license_file', files.license);
-      dataToSend.append('id_card_file', files.idCard);
+      // Adjuntar todos los documentos requeridos
+      REQUIRED_DOCUMENTS.forEach((doc) => {
+        const file = files[doc.key];
+        if (file) dataToSend.append(doc.fieldName, file);
+      });
 
       // ✅ CORRECCIÓN: Llamar directamente al servicio de autenticación
       await authService.register(dataToSend);
@@ -208,56 +224,36 @@ export default function RegisterRiderPage() {
               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
                 <UploadCloud className="w-4 h-4" /> Documentación Requerida
               </h3>
+              <p className="text-xs text-gray-500 mb-3">
+                Debes cargar los cuatro documentos para que un gerente pueda aprobar tu cuenta.
+              </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="license_file">Licencia de Conducción *</Label>
-                  <div className="mt-1 flex justify-center px-4 pt-4 pb-4 border-2 border-gray-300 border-dashed rounded-md hover:bg-gray-50 transition cursor-pointer relative">
-                    <div className="space-y-1 text-center">
-                      <UploadCloud className="mx-auto h-8 w-8 text-gray-400" />
-                      <div className="flex text-xs text-gray-600 justify-center">
-                        <span className="font-medium text-blue-600 hover:text-blue-500 cursor-pointer">
-                          Subir archivo
-                        </span>
-                        <input 
-                          id="license_file" 
-                          name="license_file" 
-                          type="file" 
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
-                          accept="image/*,.pdf" 
-                          onChange={(e) => handleFileChange(e, 'license')} 
-                        />
+                {REQUIRED_DOCUMENTS.map((doc) => (
+                  <div key={doc.key}>
+                    <Label htmlFor={doc.fieldName}>{doc.label} *</Label>
+                    <div className="mt-1 flex justify-center px-4 pt-4 pb-4 border-2 border-gray-300 border-dashed rounded-md hover:bg-gray-50 transition cursor-pointer relative">
+                      <div className="space-y-1 text-center">
+                        <UploadCloud className="mx-auto h-8 w-8 text-gray-400" />
+                        <div className="flex text-xs text-gray-600 justify-center">
+                          <span className="font-medium text-blue-600 hover:text-blue-500 cursor-pointer">
+                            Subir archivo
+                          </span>
+                          <input
+                            id={doc.fieldName}
+                            name={doc.fieldName}
+                            type="file"
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            accept="image/*,.pdf"
+                            onChange={(e) => handleFileChange(e, doc.key)}
+                          />
+                        </div>
+                        <p className="text-xs text-gray-500 truncate max-w-[150px] mx-auto">
+                          {files[doc.key] ? files[doc.key]?.name : 'PNG, JPG, PDF'}
+                        </p>
                       </div>
-                      <p className="text-xs text-gray-500 truncate max-w-[150px] mx-auto">
-                        {files.license ? files.license.name : 'PNG, JPG, PDF'}
-                      </p>
                     </div>
                   </div>
-                </div>
-
-                <div>
-                  <Label htmlFor="id_card_file">Documento de Identidad *</Label>
-                  <div className="mt-1 flex justify-center px-4 pt-4 pb-4 border-2 border-gray-300 border-dashed rounded-md hover:bg-gray-50 transition cursor-pointer relative">
-                    <div className="space-y-1 text-center">
-                      <UploadCloud className="mx-auto h-8 w-8 text-gray-400" />
-                      <div className="flex text-xs text-gray-600 justify-center">
-                        <span className="font-medium text-blue-600 hover:text-blue-500 cursor-pointer">
-                          Subir archivo
-                        </span>
-                        <input 
-                          id="id_card_file" 
-                          name="id_card_file" 
-                          type="file" 
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
-                          accept="image/*,.pdf" 
-                          onChange={(e) => handleFileChange(e, 'idCard')}
-                        />
-                      </div>
-                      <p className="text-xs text-gray-500 truncate max-w-[150px] mx-auto">
-                        {files.idCard ? files.idCard.name : 'PNG, JPG, PDF'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
 

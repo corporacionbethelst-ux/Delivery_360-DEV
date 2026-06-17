@@ -17,6 +17,7 @@ export default function LiveMapPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'ONLINE' | 'BUSY'>('ALL');
+  const [onlineWithoutLocation, setOnlineWithoutLocation] = useState(0);
   
   // Estado para controlar la simulación
   const [isSimulationActive, setIsSimulationActive] = useState(false);
@@ -32,12 +33,16 @@ export default function LiveMapPage() {
       // 1. Cargar Repartidores
       const ridersData = await riderService.getAll();
       
+      const hasValidLocation = (r: any): boolean => {
+        const lat = Number(r.last_lat);
+        const lng = Number(r.last_lng);
+        return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0;
+      };
+
+      setOnlineWithoutLocation(ridersData.filter(r => r.is_online === true && !hasValidLocation(r)).length);
+
       let mappedRiders: MapRider[] = ridersData
-        .filter(r => {
-          const lat = Number(r.last_lat);
-          const lng = Number(r.last_lng);
-          return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
-        })
+        .filter(hasValidLocation)
         .map(r => {
           const isOnline = r.is_online === true;
           const riderAny = r as any; 
@@ -183,6 +188,11 @@ export default function LiveMapPage() {
           <p className="text-sm text-gray-500 mt-1">
             {riders.length} repartidores • {orders.length} órdenes activas
             {isSimulationActive && <span className="ml-2 text-red-500 font-bold animate-pulse">(SIMULACIÓN ACTIVA)</span>}
+            {onlineWithoutLocation > 0 && (
+              <span className="ml-2 text-amber-600 font-semibold">
+                • {onlineWithoutLocation} online sin ubicación válida
+              </span>
+            )}
           </p>
         </div>
         
@@ -244,6 +254,11 @@ export default function LiveMapPage() {
               <div className="flex flex-col items-center justify-center h-48 text-gray-400">
                 <Truck className="w-12 h-12 mb-2 opacity-20" />
                 <p className="text-sm">No hay repartidores coincidentes</p>
+                {onlineWithoutLocation > 0 && (
+                  <p className="text-xs text-amber-600 text-center mt-2 px-4">
+                    {onlineWithoutLocation} online sin coordenadas válidas. Pídeles reconectar ubicación.
+                  </p>
+                )}
               </div>
             ) : (
               filteredRiders.map((rider) => (
