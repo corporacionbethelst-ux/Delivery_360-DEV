@@ -176,7 +176,7 @@ export default function ManagerDeliveriesPage() {
   useEffect(() => {
     const loadRiders = async () => {
       try {
-        const data = await riderService.listRiders({ status_filter: 'ACTIVO' });
+        const data = await riderService.getAll();
         setRiders(data);
       } catch (err) {
         console.warn('No se pudieron cargar riders para filtros de entregas:', err);
@@ -351,7 +351,7 @@ export default function ManagerDeliveriesPage() {
                     <SelectItem value="UNASSIGNED">Sin asignar</SelectItem>
                     {riders.map((rider) => (
                       <SelectItem key={rider.id} value={rider.id}>
-                        {rider.first_name} {rider.last_name}
+                        {rider.first_name} {rider.last_name} {rider.status ? `· ${rider.status}` : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>
