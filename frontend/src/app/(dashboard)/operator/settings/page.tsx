@@ -16,6 +16,7 @@ export default function OperatorSettingsPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
   
   // Estado local de preferencias
   const [prefs, setPrefs] = useState({
@@ -41,17 +42,34 @@ export default function OperatorSettingsPage() {
       setTimeout(() => router.push('/operator'), 1000);
       return;
     }
+
+    const storageKey = `operator_preferences_${user.id}`;
+    const storedPrefs = window.localStorage.getItem(storageKey);
+    if (storedPrefs) {
+      try {
+        setPrefs(prev => ({ ...prev, ...JSON.parse(storedPrefs) }));
+      } catch (error) {
+        console.error('Error parsing operator preferences:', error);
+      }
+    }
   }, [isAuthenticated, user, router, isMounted]);
 
   const handleSave = async () => {
+    if (!user) return;
     setIsLoading(true);
+    setSaveMessage(null);
     try {
-      // Aquí iría la llamada real a la API para guardar preferencias
-      await new Promise(r => setTimeout(r, 1000));
-      alert('✅ Preferencias guardadas correctamente');
+      const storageKey = `operator_preferences_${user.id}`;
+      window.localStorage.setItem(storageKey, JSON.stringify(prefs));
+
+      if (prefs.desktopNotifications && 'Notification' in window && Notification.permission === 'default') {
+        await Notification.requestPermission();
+      }
+
+      setSaveMessage('Preferencias guardadas localmente para este operador.');
     } catch (error) {
       console.error('Error saving preferences:', error);
-      alert('Error al guardar preferencias');
+      setSaveMessage('No se pudieron guardar las preferencias en este navegador.');
     } finally {
       setIsLoading(false);
     }
@@ -88,8 +106,14 @@ export default function OperatorSettingsPage() {
       <div className="max-w-3xl mx-auto">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Configuración de Operador</h1>
-          <p className="text-gray-500">Personaliza tu entorno de trabajo y notificaciones.</p>
+          <p className="text-gray-500">Personaliza tu entorno de trabajo y notificaciones en este navegador.</p>
         </div>
+
+        {saveMessage && (
+          <Alert className="mb-4 border-blue-200 bg-blue-50">
+            <AlertDescription className="text-blue-800">{saveMessage}</AlertDescription>
+          </Alert>
+        )}
 
         <div className="space-y-6">
           {/* Notificaciones */}

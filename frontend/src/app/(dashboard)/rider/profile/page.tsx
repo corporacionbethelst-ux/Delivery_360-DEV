@@ -52,7 +52,6 @@ export default function RiderProfilePage() {
 
   const loadProfileData = async () => {
     try {
-      console.log("🔄 Cargando perfil desde API /riders/me...");
       // ✅ CORRECCIÓN: El servicio ya devuelve el objeto directo, no hay .data
       const data = await riderService.getProfile();
       
@@ -60,7 +59,6 @@ export default function RiderProfilePage() {
         throw new Error("La respuesta de la API está vacía");
       }
 
-      console.log("✅ Datos recibidos del backend:", data);
 
       setFormData({
         first_name: data.first_name || '',

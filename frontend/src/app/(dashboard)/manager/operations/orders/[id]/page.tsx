@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, UserCheck, AlertCircle, Wand2, MapPin, CheckCircle2, Package, Truck, Phone, Mail, UserRound } from 'lucide-react';
+import { ArrowLeft, UserCheck, AlertCircle, Wand2, MapPin, CheckCircle2, Package, Truck, Phone, Mail, UserRound, Edit } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/formatters';
@@ -179,6 +179,7 @@ export default function OrderDetailManagerPage() {
   
   // Lógica estricta: Solo permitir asignación si es PENDIENTE o ASIGNADO
   const canAssign = order.status === 'PENDIENTE' || order.status === 'ASIGNADO';
+  const canEdit = order.status === 'PENDIENTE' || order.status === 'ASIGNADO';
   const isBlocked = BLOCKED_STATUSES.includes(order.status);
   
   const canAutoAssign = 
@@ -206,6 +207,15 @@ export default function OrderDetailManagerPage() {
             <ArrowLeft className="mr-2 h-4 w-4" /> Volver al listado
           </Button>
           <div className="flex gap-2 items-center">
+            {canEdit && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => router.push(`/manager/operations/orders/${order.id}/edit`)}
+              >
+                <Edit className="w-4 h-4 mr-2" /> Editar Orden
+              </Button>
+            )}
             <Badge variant={order.status === 'ENTREGADO' ? 'default' : 'secondary'} className="px-3 py-1 text-sm font-semibold">
               {order.status}
             </Badge>
