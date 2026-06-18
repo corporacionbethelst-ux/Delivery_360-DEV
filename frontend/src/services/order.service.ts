@@ -22,6 +22,20 @@ export interface OrderItem {
   subtotal?: number;
 }
 
+export interface OrderRiderSummary {
+  id: string;
+  first_name?: string;
+  last_name?: string;
+  full_name?: string;
+  email?: string | null;
+  phone?: string | null;
+  vehicle_type?: string | null;
+  vehicle_plate?: string | null;
+  status?: string | null;
+  is_online?: boolean;
+  last_location_at?: string | null;
+}
+
 export interface Order {
   id: string;
   external_id: string;
@@ -86,7 +100,7 @@ export interface Order {
   
   // Relaciones
   customer?: User;
-  rider?: User;
+  rider?: OrderRiderSummary | User | null;
   
   // Auditoría
   created_at: string;
@@ -103,6 +117,7 @@ export interface OrderCreateInput {
   
   pickup_address: string;
   pickup_name?: string;
+  pickup_contact?: string;
   pickup_phone?: string;
   
   delivery_address: string;
@@ -132,6 +147,8 @@ export interface OrderCreateInput {
   status?: OrderStatus;
   notes?: string;
 }
+
+export type OrderUpdateInput = Partial<OrderCreateInput>;
 
 export interface OrderListParams {
   status?: OrderStatus;
@@ -209,6 +226,21 @@ export const orderService = {
       return extractData<Order>(response);
     } catch (error) {
       console.error('[OrderService] Error creating order:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Actualizar datos editables de una orden.
+   */
+  update: async (id: string, data: OrderUpdateInput): Promise<Order> => {
+    if (!id) throw new Error('[OrderService] ID de orden requerido para actualizar');
+
+    try {
+      const response = await api.patch<Order>(`/orders/${id}`, data);
+      return extractData<Order>(response);
+    } catch (error) {
+      console.error(`[OrderService] Error updating order ${id}:`, error);
       throw error;
     }
   },

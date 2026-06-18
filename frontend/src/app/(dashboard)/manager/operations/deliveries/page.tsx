@@ -3,10 +3,12 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { deliveryService, Delivery } from '@/services/delivery.service';
+import { riderService } from '@/services/rider.service';
+import { Rider } from '@/types/user';
 import { 
   Package, Clock, CheckCircle, AlertCircle, MapPin, User, Truck, 
   RefreshCw, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  Filter, Inbox, ArrowLeft
+  Filter, Inbox, ArrowLeft, Search
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -82,11 +84,14 @@ export default function ManagerDeliveriesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [riders, setRiders] = useState<Rider[]>([]);
 
   // Paginación y Filtros
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [riderFilter, setRiderFilter] = useState<string>('ALL');
+  const [searchTerm, setSearchTerm] = useState('');
   
   // Cálculos derivados (Memoizados)
   const totalPages = useMemo(() => Math.ceil(totalItems / pageSize), [totalItems, pageSize]);
@@ -104,7 +109,8 @@ export default function ManagerDeliveriesPage() {
       const response = await deliveryService.getAll({
         limit: pageSize,
         offset: (page - 1) * pageSize,
-        status: statusFilter !== 'ALL' ? statusFilter : undefined
+        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        rider_id: riderFilter !== 'ALL' && riderFilter !== 'UNASSIGNED' ? riderFilter : undefined,
       });
 
       let items: any[] = [];
@@ -161,11 +167,46 @@ export default function ManagerDeliveriesPage() {
       setIsLoading(false);
       setIsRetrying(false);
     }
-  }, [page, pageSize, statusFilter, router]);
+  }, [page, pageSize, statusFilter, riderFilter, router]);
 
   useEffect(() => {
     loadDeliveries();
   }, [loadDeliveries]);
+
+  useEffect(() => {
+    const loadRiders = async () => {
+      try {
+        const data = await riderService.getAll();
+        setRiders(data);
+      } catch (err) {
+        console.warn('No se pudieron cargar riders para filtros de entregas:', err);
+      }
+    };
+
+    loadRiders();
+  }, []);
+
+  const filteredDeliveries = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    return deliveries.filter((delivery) => {
+      const matchesRider = riderFilter !== 'UNASSIGNED' || !delivery.rider_id;
+      if (!matchesRider) return false;
+      if (!term) return true;
+
+      const riderName = delivery.rider_details
+        ? `${delivery.rider_details.first_name} ${delivery.rider_details.last_name}`.trim()
+        : '';
+
+      return [
+        delivery.external_id,
+        delivery.id,
+        delivery.order_id,
+        delivery.customer_name,
+        riderName,
+        delivery.status,
+      ].some((value) => String(value || '').toLowerCase().includes(term));
+    });
+  }, [deliveries, riderFilter, searchTerm]);
 
   // --- Handlers ---
   const handlePageChange = (newPage: number) => {
@@ -182,6 +223,20 @@ export default function ManagerDeliveriesPage() {
 
   const handleStatusChange = (val: string) => {
     setStatusFilter(val);
+    setPage(1);
+  };
+
+  const handleRiderChange = (val: string) => {
+    setRiderFilter(val);
+    setPage(1);
+  };
+
+  const hasActiveFilters = statusFilter !== 'ALL' || riderFilter !== 'ALL' || searchTerm.trim().length > 0;
+
+  const clearFilters = () => {
+    setStatusFilter('ALL');
+    setRiderFilter('ALL');
+    setSearchTerm('');
     setPage(1);
   };
 
@@ -252,9 +307,22 @@ export default function ManagerDeliveriesPage() {
       {/* Panel de Control y Filtros */}
       <Card className="border-slate-200 shadow-sm bg-white">
         <CardContent className="p-4">
-          <div className="flex flex-col md:flex-row gap-4 justify-between items-end md:items-center">
+          <div className="flex flex-col xl:flex-row gap-4 justify-between items-end xl:items-center">
             
-            <div className="flex flex-wrap gap-3 w-full md:w-auto">
+            <div className="flex flex-wrap gap-3 w-full xl:w-auto">
+              <div className="w-full sm:w-72 space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">Búsqueda</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                  <input
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                    placeholder="Orden, cliente, rider o estado..."
+                    className="w-full h-9 pl-9 pr-3 border border-slate-300 rounded-md bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                  />
+                </div>
+              </div>
+
               <div className="w-full sm:w-48 space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">Estado</label>
                 <Select value={statusFilter} onValueChange={handleStatusChange}>
@@ -268,6 +336,24 @@ export default function ManagerDeliveriesPage() {
                     <SelectItem value="EN_ROUTE">En Ruta</SelectItem>
                     <SelectItem value="COMPLETADA">Completada</SelectItem>
                     <SelectItem value="FALLIDA">Fallida</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="w-full sm:w-56 space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">Repartidor</label>
+                <Select value={riderFilter} onValueChange={handleRiderChange}>
+                  <SelectTrigger className="h-9 bg-white shadow-none">
+                    <SelectValue placeholder="Todos los riders" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">Todos los riders</SelectItem>
+                    <SelectItem value="UNASSIGNED">Sin asignar</SelectItem>
+                    {riders.map((rider) => (
+                      <SelectItem key={rider.id} value={rider.id}>
+                        {rider.first_name} {rider.last_name} {rider.status ? `· ${rider.status}` : ''}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -289,6 +375,7 @@ export default function ManagerDeliveriesPage() {
 
             <div className="text-xs font-medium text-slate-500 bg-slate-50 px-3 py-2 rounded-md border border-slate-200 whitespace-nowrap">
               Mostrando <span className="text-slate-900 font-bold">{startIndex}-{endIndex}</span> de <span className="text-slate-900 font-bold">{totalItems}</span> registros
+              {searchTerm && <span> · {filteredDeliveries.length} coincidencias en página</span>}
             </div>
           </div>
         </CardContent>
@@ -335,8 +422,8 @@ export default function ManagerDeliveriesPage() {
                     <td className="px-6 py-4"><Skeleton className="h-6 w-16 mx-auto" /></td>
                   </tr>
                 ))
-              ) : deliveries.length > 0 ? (
-                deliveries.map((d) => {
+              ) : filteredDeliveries.length > 0 ? (
+                filteredDeliveries.map((d) => {
                   const config = getStatusConfig(d.status);
                   const StatusIcon = config.icon;
                   
@@ -441,9 +528,9 @@ export default function ManagerDeliveriesPage() {
                         <p className="text-sm mt-1 text-slate-500 text-center">
                           No existen registros con los filtros actuales.
                         </p>
-                        {statusFilter !== 'ALL' && (
-                          <Button variant="link" onClick={() => handleStatusChange('ALL')} className="mt-4 text-blue-600 font-medium">
-                            Limpiar filtros de estado
+                        {hasActiveFilters && (
+                          <Button variant="link" onClick={clearFilters} className="mt-4 text-blue-600 font-medium">
+                            Limpiar filtros
                           </Button>
                         )}
                       </div>
