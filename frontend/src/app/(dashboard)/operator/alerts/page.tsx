@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation'; // <--- 1. Importar Router
+import { useAuthStore } from '@/stores/authStore';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { 
   Bell, CheckCircle, XCircle, Clock, 
   RefreshCw, Archive, Eye, Info, Truck, Zap, ShieldAlert, AlertTriangle,
-  ArrowLeft // <--- 2. Importar Icono Flecha
+  ArrowLeft, Loader2 // <--- 2. Importar Icono Flecha
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -73,11 +74,17 @@ const formatTimeAgo = (dateString: string) => {
 
 export default function AlertsPage() {
   const router = useRouter(); // <--- 3. Inicializar Router
+  const { user, isAuthenticated } = useAuthStore();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [activeTab, setActiveTab] = useState<'ALL' | 'UNREAD'>('ALL');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Carga de datos optimizada
   const loadAlerts = useCallback(async () => {
@@ -99,8 +106,16 @@ export default function AlertsPage() {
   }, [activeTab]);
 
   useEffect(() => {
+    if (!isMounted || !isAuthenticated || !user) return;
+
+    const allowedRoles = ['SUPERADMIN', 'GERENTE', 'OPERADOR'];
+    if (!allowedRoles.includes(user.role)) {
+      router.push('/login');
+      return;
+    }
+
     loadAlerts();
-  }, [loadAlerts]);
+  }, [isMounted, isAuthenticated, user, router, loadAlerts]);
 
   // Handlers con actualización optimista
   const handleMarkAsRead = async (id: string) => {
@@ -137,13 +152,21 @@ export default function AlertsPage() {
     loadAlerts();
   };
 
+  if (!isMounted || !isAuthenticated || !user) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-50">
+        <Loader2 className="animate-spin h-12 w-12 text-blue-600" />
+      </div>
+    );
+  }
+
   // <--- 4. Lógica Inteligente de "Volver"
   const handleBack = () => {
     if (window.history.length > 1) {
       router.back();
     } else {
       // Si no hay historial (ej. recarga directa), ir al Dashboard
-      router.push('/manager/dashboard');
+      router.push('/operator');
     }
   };
 

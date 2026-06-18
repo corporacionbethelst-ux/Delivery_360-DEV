@@ -19,6 +19,8 @@ export interface RegisterRiderData {
 export interface RegisterRiderWithFilesData extends RegisterRiderData {
   license_file: File;
   id_card_file: File;
+  vehicle_registration_file: File;
+  insurance_file: File;
 }
 
 export const authService = {
@@ -75,6 +77,14 @@ export const authService = {
       if ('id_card_file' in data && data.id_card_file) {
          // @ts-ignore
          payload.append('id_card_file', data.id_card_file);
+      }
+      if ('vehicle_registration_file' in data && data.vehicle_registration_file) {
+         // @ts-ignore
+         payload.append('vehicle_registration_file', data.vehicle_registration_file);
+      }
+      if ('insurance_file' in data && data.insurance_file) {
+         // @ts-ignore
+         payload.append('insurance_file', data.insurance_file);
       }
     }
 
