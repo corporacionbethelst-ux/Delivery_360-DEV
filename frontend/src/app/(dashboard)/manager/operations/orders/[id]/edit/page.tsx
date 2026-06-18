@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, AlertCircle, Loader2, Package, PlusCircle, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, AlertCircle, DollarSign, Loader2, MapPin, Package, PlusCircle, Save, Trash2, UserRound } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -125,8 +125,8 @@ export default function EditOrderPage() {
     if (!orderId) return;
 
     const validItems = items.filter((item) => item.product_name.trim() && item.quantity > 0);
-    if (!customerName.trim() || !pickupAddress.trim() || !deliveryAddress.trim() || validItems.length === 0) {
-      setError('Completa cliente, dirección de recogida, dirección de entrega y al menos un producto válido.');
+    if (!pickupAddress.trim() || !deliveryAddress.trim() || validItems.length === 0) {
+      setError('Completa dirección de recogida, dirección de entrega y al menos un producto válido.');
       return;
     }
 
@@ -135,9 +135,6 @@ export default function EditOrderPage() {
 
     try {
       const updated = await orderService.update(orderId, {
-        customer_name: customerName.trim(),
-        customer_phone: customerPhone.trim(),
-        customer_email: customerEmail.trim() || undefined,
         pickup_address: pickupAddress.trim(),
         pickup_contact: pickupName.trim() || undefined,
         pickup_phone: pickupPhone.trim() || undefined,
@@ -182,8 +179,11 @@ export default function EditOrderPage() {
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Editar Orden #{externalId}</h1>
-            <p className="text-sm text-gray-500">Solo se pueden editar órdenes pendientes o asignadas.</p>
+            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <Package className="w-6 h-6 text-blue-600" />
+              Editar Orden #{externalId}
+            </h1>
+            <p className="text-sm text-gray-500">Reutiliza el flujo visual de nueva orden; los datos del cliente quedan bloqueados.</p>
           </div>
         </div>
 
@@ -205,29 +205,34 @@ export default function EditOrderPage() {
 
         <form onSubmit={handleSave} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            <Card>
+            <Card className="border-gray-200 bg-gray-50/60">
               <CardHeader>
-                <CardTitle>Cliente</CardTitle>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <UserRound className="w-5 h-5 text-blue-600" /> Cliente
+                  <span className="text-xs font-normal text-gray-500">(bloqueado)</span>
+                </CardTitle>
               </CardHeader>
               <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Nombre *</Label>
-                  <Input value={customerName} onChange={(event) => setCustomerName(event.target.value)} disabled={!isEditable} />
+                  <Input value={customerName} readOnly disabled className="bg-gray-100 text-gray-500 cursor-not-allowed" />
                 </div>
                 <div className="space-y-2">
                   <Label>Teléfono</Label>
-                  <Input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} disabled={!isEditable} />
+                  <Input value={customerPhone} readOnly disabled className="bg-gray-100 text-gray-500 cursor-not-allowed" />
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label>Email</Label>
-                  <Input type="email" value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} disabled={!isEditable} />
+                  <Input type="email" value={customerEmail} readOnly disabled className="bg-gray-100 text-gray-500 cursor-not-allowed" />
                 </div>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle>Direcciones</CardTitle>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <MapPin className="w-5 h-5 text-indigo-600" /> Direcciones
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
@@ -291,13 +296,13 @@ export default function EditOrderPage() {
           </div>
 
           <div>
-            <Card className="sticky top-6">
-              <CardHeader>
-                <CardTitle>Resumen</CardTitle>
+            <Card className="sticky top-6 shadow-lg border-blue-200 bg-white">
+              <CardHeader className="bg-blue-50 border-b border-blue-100">
+                <CardTitle className="text-lg text-blue-900">Resumen Financiero</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Costo de envío</Label>
+                  <Label className="flex items-center gap-2"><DollarSign className="w-4 h-4 text-gray-500" /> Costo de envío</Label>
                   <Input type="number" min="0" step="0.01" value={deliveryFee} onChange={(event) => setDeliveryFee(Number.parseFloat(event.target.value) || 0)} disabled={!isEditable} />
                 </div>
                 <div className="space-y-2">
@@ -329,7 +334,7 @@ export default function EditOrderPage() {
                 </div>
               </CardContent>
               <CardFooter>
-                <Button type="submit" className="w-full" disabled={!isEditable || saving}>
+                <Button type="submit" className="w-full h-12 text-base font-bold bg-blue-600 hover:bg-blue-700" disabled={!isEditable || saving}>
                   {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                   Guardar Cambios
                 </Button>

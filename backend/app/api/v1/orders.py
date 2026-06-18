@@ -359,9 +359,6 @@ async def update_order(
     update_data = body.model_dump(exclude_unset=True)
 
     direct_field_map = {
-        "customer_name": "customer_name",
-        "customer_phone": "customer_phone",
-        "customer_email": "customer_email",
         "pickup_address": "pickup_address",
         "pickup_contact": "pickup_name",
         "pickup_phone": "pickup_phone",
