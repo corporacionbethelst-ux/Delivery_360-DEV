@@ -28,6 +28,8 @@ class DeliveryAssign(BaseModel):
 class DeliveryStart(BaseModel):
     lat: Optional[float] = None
     lng: Optional[float] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 class DeliveryComplete(BaseModel):
     otp_code: Optional[str] = None
@@ -88,11 +90,74 @@ def _serialize_delivery(delivery: Delivery, rider: Optional[Rider], user: Option
         "status": delivery.status.value if hasattr(delivery.status, "value") else str(delivery.status),
         "started_at": delivery.started_at.isoformat() if delivery.started_at else None,
         "completed_at": delivery.completed_at.isoformat() if delivery.completed_at else None,
+        "current_latitude": delivery.current_latitude,
+        "current_longitude": delivery.current_longitude,
+        "last_location_update": delivery.last_location_update.isoformat() if delivery.last_location_update else None,
+        "pickup_address": order.pickup_address if order else None,
+        "delivery_address": order.delivery_address if order else None,
+        "estimated_delivery_time": order.estimated_delivery_time.isoformat() if order and order.estimated_delivery_time else None,
+        "total_amount": order.total if order else None,
+        "payment_method": order.payment_method if order else None,
         "total_time": delivery.total_time,
+        "distance_total": delivery.distance_total,
         "sla_compliant": delivery.sla_compliant,
         "sla_actual_minutes": delivery.sla_actual_minutes,
         "created_at": delivery.created_at.isoformat() if delivery.created_at else None,
         "updated_at": delivery.updated_at.isoformat() if delivery.updated_at else None,
+    }
+
+
+def _order_status_to_delivery_status(order_status) -> str:
+    status_value = order_status.value if hasattr(order_status, "value") else str(order_status)
+    if status_value == OrderStatus.ENTREGADO.value:
+        return DeliveryStatus.COMPLETADA.value
+    if status_value == OrderStatus.FALLIDO.value:
+        return DeliveryStatus.FALLIDA.value
+    if status_value in (OrderStatus.RECOLECTADO.value, OrderStatus.EN_RUTA.value):
+        return DeliveryStatus.EN_ROUTE.value
+    if status_value == OrderStatus.ASIGNADO.value:
+        return DeliveryStatus.INICIADA.value
+    return DeliveryStatus.PENDIENTE.value
+
+
+def _serialize_order_as_delivery(order: Order, rider: Optional[Rider], user: Optional[User]) -> Dict[str, Any]:
+    """Fallback para órdenes asignadas que aún no tienen fila en deliveries."""
+    rider_data = None
+    if rider:
+        rider_data = {
+            "id": str(rider.id),
+            "first_name": user.first_name if user else "Sin Nombre",
+            "last_name": user.last_name or "",
+            "vehicle_type": rider.vehicle_type.value if rider.vehicle_type else None,
+            "status": rider.status.value if rider.status else None,
+            "is_online": getattr(rider, 'is_online', False),
+        }
+
+    status = _order_status_to_delivery_status(order.status)
+    return {
+        "id": f"order-{order.id}",
+        "order_id": str(order.id),
+        "external_id": order.external_id,
+        "customer_name": order.customer_name or "Desconocido",
+        "rider_id": str(order.assigned_rider_id) if order.assigned_rider_id else None,
+        "rider": rider_data,
+        "status": status,
+        "started_at": order.accepted_at.isoformat() if order.accepted_at else None,
+        "completed_at": order.delivered_at.isoformat() if order.delivered_at else None,
+        "current_latitude": getattr(rider, "last_lat", None) if rider else None,
+        "current_longitude": getattr(rider, "last_lng", None) if rider else None,
+        "last_location_update": rider.last_location_at.isoformat() if rider and rider.last_location_at else None,
+        "pickup_address": order.pickup_address,
+        "delivery_address": order.delivery_address,
+        "estimated_delivery_time": order.estimated_delivery_time.isoformat() if order.estimated_delivery_time else None,
+        "total_amount": order.total,
+        "payment_method": order.payment_method,
+        "total_time": None,
+        "distance_total": None,
+        "sla_compliant": None,
+        "sla_actual_minutes": None,
+        "created_at": order.created_at.isoformat() if order.created_at else None,
+        "updated_at": order.updated_at.isoformat() if order.updated_at else None,
     }
 
 # --- Endpoints Principales ---
@@ -156,6 +221,41 @@ async def list_deliveries(
     for row in rows:
         delivery, rider, user, order = row
         items.append(_serialize_delivery(delivery, rider, user, order))
+
+    # 7. Fallback: órdenes asignadas que todavía no tienen registro en deliveries.
+    # Esto cubre órdenes creadas/asignadas desde manager y datos migrados/legacy.
+    missing_delivery_alias = aliased(Delivery)
+    fallback_rider = aliased(Rider)
+    fallback_user = aliased(User)
+    fallback_stmt = (
+        select(o_alias, fallback_rider, fallback_user)
+        .outerjoin(missing_delivery_alias, missing_delivery_alias.order_id == o_alias.id)
+        .outerjoin(fallback_rider, o_alias.assigned_rider_id == fallback_rider.id)
+        .outerjoin(fallback_user, fallback_rider.user_id == fallback_user.id)
+        .where(
+            o_alias.assigned_rider_id.isnot(None),
+            missing_delivery_alias.id.is_(None),
+        )
+        .order_by(o_alias.created_at.desc())
+        .limit(limit)
+    )
+
+    if current_user.role == UserRole.REPARTIDOR:
+        rider_profile = await _get_rider_for_user(db, current_user.id)
+        if rider_profile:
+            fallback_stmt = fallback_stmt.where(o_alias.assigned_rider_id == rider_profile.id)
+
+    if rider_id:
+        fallback_stmt = fallback_stmt.where(o_alias.assigned_rider_id == _parse_uuid(rider_id, "rider_id"))
+    if order_id:
+        fallback_stmt = fallback_stmt.where(o_alias.id == _parse_uuid(order_id, "order_id"))
+
+    fallback_result = await db.execute(fallback_stmt)
+    for order, rider, user in fallback_result.all():
+        fallback_item = _serialize_order_as_delivery(order, rider, user)
+        if status and fallback_item["status"] != status:
+            continue
+        items.append(fallback_item)
 
     return items
 
@@ -467,9 +567,12 @@ async def update_location(
         pass 
 
     # 4. Actualizar coordenadas y timestamp
-    if body.lat is not None and body.lng is not None:
-        delivery.current_latitude = body.lat
-        delivery.current_longitude = body.lng
+    lat = body.lat if body.lat is not None else body.latitude
+    lng = body.lng if body.lng is not None else body.longitude
+
+    if lat is not None and lng is not None:
+        delivery.current_latitude = lat
+        delivery.current_longitude = lng
         delivery.last_location_update = datetime.now(timezone.utc)
         
         # Actualizar también en el Rider por redundancia
@@ -478,13 +581,13 @@ async def update_location(
             rider_res = await db.execute(rider_stmt)
             rider = rider_res.scalar_one_or_none()
             if rider:
-                rider.last_lat = body.lat
-                rider.last_lng = body.lng
+                rider.last_lat = lat
+                rider.last_lng = lng
                 rider.last_location_at = datetime.now(timezone.utc)
 
         await db.commit()
         
-        return {"status": "success", "message": "Ubicación actualizada", "lat": body.lat, "lng": body.lng}
+        return {"status": "success", "message": "Ubicación actualizada", "lat": lat, "lng": lng}
     
     raise HTTPException(status_code=400, detail="Latitud y longitud son requeridas")
 

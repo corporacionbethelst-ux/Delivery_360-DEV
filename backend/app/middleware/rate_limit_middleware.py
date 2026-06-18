@@ -24,6 +24,7 @@ class RateLimitMiddleware:
             "/api/v1/auth/register": (3, 300),  # 3 registros por 5 minutos
             "/api/v1/auth/password-reset": (2, 300),  # 2 reseteos por 5 minutos
             "/api/v1/riders/approval": (10, 60),  # Aprobaciones de riders
+            "/api/v1/telemetry/riders": (240, 60),  # Telemetría en vivo
             "/api/v1/orders": (30, 60),  # Órdenes
             "/api/v1/deliveries": (30, 60),  # Entregas
         }
@@ -130,6 +131,9 @@ class RateLimitMiddleware:
     
     def _get_limits_for_path(self, path: str) -> tuple:
         """Obtener límites específicos para una ruta"""
+        if path.startswith("/api/v1/riders/") and (path.endswith("/heartbeat") or path.endswith("/location")):
+            return (240, 60)
+
         # Buscar el prefijo más específico que coincida
         best_match = None
         best_length = 0
