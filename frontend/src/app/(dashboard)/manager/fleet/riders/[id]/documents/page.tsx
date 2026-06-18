@@ -296,6 +296,7 @@ export default function ManagerRiderDocumentsPage() {
               const statusConfig = STATUS_CONFIG[doc.status as DocumentStatus] || STATUS_CONFIG.PENDIENTE;
               const StatusIcon = statusConfig.icon;
               const hasUrl = doc.file_url && doc.file_url !== '#' && doc.file_url !== '';
+              const documentUrl = riderService.getDocumentUrl(doc.file_url);
 
               return (
                 <Card key={doc.id} className={`flex flex-col overflow-hidden transition-all duration-200 hover:shadow-md border-t-4 relative group ${
@@ -334,7 +335,7 @@ export default function ManagerRiderDocumentsPage() {
                         <>
                           <div className="absolute inset-0 bg-black/0 group-hover/view:bg-black/5 transition-colors" />
                           <a 
-                            href={doc.file_url} 
+                            href={documentUrl}
                             target="_blank" 
                             rel="noopener noreferrer" 
                             className="z-10 flex flex-col items-center p-4 rounded-lg hover:bg-white/80 backdrop-blur-sm transition-all transform hover:scale-105"

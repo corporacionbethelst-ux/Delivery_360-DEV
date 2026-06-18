@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/formatters';
+import { resolveOrderCollectAmount } from '@/lib/order-amount';
 
 export default function OrderDetailPage() {
   const router = useRouter();
@@ -150,7 +151,7 @@ export default function OrderDetailPage() {
                     <tr>
                       <td colSpan={2} className="px-4 py-3 text-right">TOTAL A PAGAR</td>
                       <td className="px-4 py-3 text-right text-blue-700 text-base">
-                        {formatCurrency(order.total_amount || 0)}
+                        {formatCurrency(resolveOrderCollectAmount(order))}
                       </td>
                     </tr>
                   </tfoot>
@@ -165,8 +166,8 @@ export default function OrderDetailPage() {
                   <DollarSign className="w-5 h-5 text-green-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 font-semibold uppercase">Total Cobrar</p>
-                  <p className="font-bold text-lg text-gray-900">{formatCurrency(order.total_amount || 0)}</p>
+                  <p className="text-xs text-gray-500 font-semibold uppercase">Total a cobrar</p>
+                  <p className="font-bold text-lg text-gray-900">{formatCurrency(resolveOrderCollectAmount(order))}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 p-3 bg-white rounded-lg border shadow-sm">

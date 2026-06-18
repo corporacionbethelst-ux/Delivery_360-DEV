@@ -5,7 +5,7 @@ from sqlalchemy import select
 from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel, EmailStr
 from typing import Optional
-import shutil, logging, secrets
+import shutil, logging, secrets, uuid
 from pathlib import Path
 from app.core.config import settings
 
@@ -21,6 +21,27 @@ router = APIRouter(prefix="/auth")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_extension(filename: Optional[str]) -> str:
+    """Devuelve una extensión simple y segura para archivos subidos."""
+    if not filename or "." not in filename:
+        return "pdf"
+    return filename.rsplit(".", 1)[-1].lower().replace("/", "").replace("\\", "") or "pdf"
+
+
+def _save_rider_document_file(file: UploadFile, rider_id, doc_type: DocumentType) -> str:
+    """Guarda físicamente el archivo del documento y devuelve la URL pública."""
+    upload_dir = Path("uploads/documents") / str(rider_id)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = f"{doc_type.value.lower()}_{uuid.uuid4()}.{_safe_extension(file.filename)}"
+    file_path = upload_dir / filename
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    return f"/uploads/documents/{rider_id}/{filename}"
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 class TokenResponse(BaseModel):
@@ -191,6 +212,8 @@ async def register_rider(
     # Archivos
     license_file: UploadFile = File(...),
     id_card_file: UploadFile = File(...),
+    vehicle_registration_file: UploadFile = File(...),
+    insurance_file: UploadFile = File(...),
     
     db: AsyncSession = Depends(get_db),
 ):
@@ -227,45 +250,35 @@ async def register_rider(
     db.add(rider)
     await db.flush() # Obtener rider.id
 
-    # 4. Guardar Archivos y Crear Registros de Documentos
-    upload_dir = Path("uploads/documents")
-    upload_dir.mkdir(parents=True, exist_ok=True)
-
-    documents_to_create = []
-
-    # Procesar Licencia
-    license_filename = f"{user.id}_license_{license_file.filename.replace(' ', '_')}"
-    license_path = upload_dir / license_filename
-    
     try:
-        with open(license_path, "wb") as buffer:
-            shutil.copyfileobj(license_file.file, buffer)
-        
-        documents_to_create.append(RiderDocument(
-            rider_id=rider.id,
-            type=DocumentType.LICENCIA,
-            status=DocumentStatus.PENDIENTE,
-            file_url=str(license_path)
-        ))
+        documents_to_create = [
+            RiderDocument(
+                rider_id=rider.id,
+                type=DocumentType.LICENCIA,
+                status=DocumentStatus.PENDIENTE,
+                file_url=_save_rider_document_file(license_file, rider.id, DocumentType.LICENCIA)
+            ),
+            RiderDocument(
+                rider_id=rider.id,
+                type=DocumentType.DOCUMENTO_IDENTIDAD,
+                status=DocumentStatus.PENDIENTE,
+                file_url=_save_rider_document_file(id_card_file, rider.id, DocumentType.DOCUMENTO_IDENTIDAD)
+            ),
+            RiderDocument(
+                rider_id=rider.id,
+                type=DocumentType.REGISTRO_VEHICULO,
+                status=DocumentStatus.PENDIENTE,
+                file_url=_save_rider_document_file(vehicle_registration_file, rider.id, DocumentType.REGISTRO_VEHICULO)
+            ),
+            RiderDocument(
+                rider_id=rider.id,
+                type=DocumentType.SEGURO,
+                status=DocumentStatus.PENDIENTE,
+                file_url=_save_rider_document_file(insurance_file, rider.id, DocumentType.SEGURO)
+            ),
+        ]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error guardando licencia: {str(e)}")
-
-    # Procesar DNI
-    id_filename = f"{user.id}_idcard_{id_card_file.filename.replace(' ', '_')}"
-    id_path = upload_dir / id_filename
-    
-    try:
-        with open(id_path, "wb") as buffer:
-            shutil.copyfileobj(id_card_file.file, buffer)
-
-        documents_to_create.append(RiderDocument(
-            rider_id=rider.id,
-            type=DocumentType.DOCUMENTO_IDENTIDAD,
-            status=DocumentStatus.PENDIENTE,
-            file_url=str(id_path)
-        ))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error guardando documento de identidad: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error guardando documentos: {str(e)}")
 
     # Agregar documentos a la sesión
     for doc in documents_to_create:

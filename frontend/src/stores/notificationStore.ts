@@ -11,7 +11,7 @@ import { api } from '@/lib/api';
 // TIPOS
 // ==============================================================================
 
-export type NotificationType = 'ORDER' | 'PAYMENT' | 'ALERT' | 'SYSTEM' | 'USER';
+export type NotificationType = 'ORDER' | 'PAYMENT' | 'ALERT' | 'SYSTEM' | 'USER' | 'OPERATIONAL';
 
 export interface Notification {
   id: string;
@@ -61,15 +61,38 @@ export const useNotificationStore = create<NotificationState>()(
       fetchNotifications: async () => {
         set({ isLoading: true });
         try {
-          // ✅ LLAMADA REAL AL BACKEND
-          const response = await api.get<Notification[]>('/notifications?limit=50');
-          const data = response;
+          // El backend expone notificaciones operativas como /alerts.
+          const alerts = await api.get<Array<{
+            id: string;
+            type: string;
+            title: string;
+            description: string;
+            createdAt: string;
+            isRead: boolean;
+            orderId?: string | null;
+            riderId?: string | null;
+          }>>('/alerts?limit=50');
 
-          set({ 
-            notifications: data.slice(0, MAX_NOTIFICATIONS), 
+          const data: Notification[] = alerts.map((alert) => ({
+            id: alert.id,
+            type: 'OPERATIONAL',
+            title: alert.title,
+            message: alert.description,
+            read: alert.isRead,
+            createdAt: alert.createdAt,
+            actionUrl: alert.orderId ? `/operator/orders/${alert.orderId}` : undefined,
+            metadata: {
+              alertType: alert.type,
+              orderId: alert.orderId ?? undefined,
+              riderId: alert.riderId ?? undefined,
+            },
+          }));
+
+          set({
+            notifications: data.slice(0, MAX_NOTIFICATIONS),
             unreadCount: data.filter(n => !n.read).length,
             lastFetched: Date.now(),
-            isLoading: false 
+            isLoading: false,
           });
 
         } catch (error) {
@@ -90,7 +113,7 @@ export const useNotificationStore = create<NotificationState>()(
         });
 
         // Opcional: Llamar al backend para sincronizar
-        // api.patch(`/notifications/${id}/read`).catch(console.error);
+        api.patch(`/alerts/${id}/read`).catch(console.error);
       },
 
       markAllAsRead: () => {
@@ -101,7 +124,7 @@ export const useNotificationStore = create<NotificationState>()(
         });
 
         // Opcional: Llamar al backend
-        // api.post('/notifications/mark-all-read').catch(console.error);
+        api.post('/alerts/read-all').catch(console.error);
       },
 
       deleteNotification: (id) => {

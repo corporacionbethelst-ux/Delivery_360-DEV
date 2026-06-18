@@ -39,11 +39,43 @@ class OrderCreate(BaseModel):
     delivery_lng: Optional[float] = None
     delivery_contact: str
     delivery_phone: Optional[str] = None
+    delivery_reference: Optional[str] = None
+    delivery_instructions: Optional[str] = None
     description: Optional[str] = None
+    items: Optional[List[dict]] = None
+    subtotal: Optional[float] = None
+    delivery_fee: Optional[float] = None
+    total: Optional[float] = None
+    payment_method: Optional[str] = None
     declared_value: float = 0.0
     priority: OrderPriority = OrderPriority.NORMAL
     sla_minutes: int = 60
     rider_id: Optional[str] = None
+
+class OrderUpdate(BaseModel):
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+    customer_email: Optional[str] = None
+    pickup_address: Optional[str] = None
+    pickup_lat: Optional[float] = None
+    pickup_lng: Optional[float] = None
+    pickup_contact: Optional[str] = None
+    pickup_phone: Optional[str] = None
+    delivery_address: Optional[str] = None
+    delivery_lat: Optional[float] = None
+    delivery_lng: Optional[float] = None
+    delivery_contact: Optional[str] = None
+    delivery_phone: Optional[str] = None
+    delivery_reference: Optional[str] = None
+    delivery_instructions: Optional[str] = None
+    description: Optional[str] = None
+    items: Optional[List[dict]] = None
+    subtotal: Optional[float] = None
+    delivery_fee: Optional[float] = None
+    total: Optional[float] = None
+    payment_method: Optional[str] = None
+    priority: Optional[OrderPriority] = None
+    sla_minutes: Optional[int] = None
 
 class AssignRider(BaseModel):
     rider_id: str
@@ -69,10 +101,36 @@ def _haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> f
 
     return R * c
 
-def _order_to_dict(o: Order) -> dict:
+def _serialize_order_rider(rider: Optional[Rider]) -> Optional[dict]:
+    """Serializa el repartidor asignado sin disparar lazy-loads async."""
+    if not rider:
+        return None
+
+    user = rider.__dict__.get("user")
+    first_name = user.first_name if user else ""
+    last_name = user.last_name if user else ""
+    full_name = f"{first_name} {last_name}".strip() or "Repartidor asignado"
+
+    return {
+        "id": str(rider.id),
+        "first_name": first_name,
+        "last_name": last_name,
+        "full_name": full_name,
+        "email": user.email if user else None,
+        "phone": user.phone if user else None,
+        "vehicle_type": rider.vehicle_type.value if hasattr(rider.vehicle_type, "value") else str(rider.vehicle_type) if rider.vehicle_type else None,
+        "vehicle_plate": rider.vehicle_plate,
+        "status": rider.status.value if hasattr(rider.status, "value") else str(rider.status) if rider.status else None,
+        "is_online": bool(rider.is_online),
+        "last_location_at": rider.last_location_at.isoformat() if rider.last_location_at else None,
+    }
+
+
+def _order_to_dict(o: Order, rider: Optional[Rider] = None) -> dict:
     status_value = o.status.value if hasattr(o.status, "value") else str(o.status)
     priority_value = o.priority.value if hasattr(o.priority, "value") else str(o.priority)
     sla_breached = bool(o.sla_deadline and o.delivered_at and o.delivered_at > o.sla_deadline)
+    assigned_rider = rider if rider is not None else o.__dict__.get("assigned_rider")
     
     # Manejo seguro de atributos que quizás aún no existen en la BD
     return {
@@ -103,6 +161,8 @@ def _order_to_dict(o: Order) -> dict:
         "sla_deadline": o.sla_deadline.isoformat() if o.sla_deadline else None,
         "sla_breached": sla_breached,
         "rider_id": str(o.assigned_rider_id) if o.assigned_rider_id else None,
+        "assigned_rider_id": str(o.assigned_rider_id) if o.assigned_rider_id else None,
+        "rider": _serialize_order_rider(assigned_rider),
         "source": getattr(o, 'source', 'MANUAL'),
         "created_at": o.created_at.isoformat() if o.created_at else None,
         "accepted_at": o.accepted_at.isoformat() if o.accepted_at else None,
@@ -115,6 +175,22 @@ def _order_to_dict(o: Order) -> dict:
 def _generate_order_number() -> str:
     suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
     return f"LR-{suffix}"
+
+def _calculate_order_amounts(items: List[dict], subtotal: Optional[float], delivery_fee: Optional[float], total: Optional[float], declared_value: float = 0.0) -> tuple[float, float, float]:
+    calculated_subtotal = subtotal
+    if calculated_subtotal is None:
+        calculated_subtotal = sum(
+            float(item.get("subtotal") or (float(item.get("quantity") or 0) * float(item.get("unit_price") or 0)))
+            for item in items
+            if isinstance(item, dict)
+        )
+
+    normalized_delivery_fee = float(delivery_fee or 0)
+    normalized_total = total if total is not None else float(declared_value or 0)
+    if not normalized_total:
+        normalized_total = float(calculated_subtotal or 0) + normalized_delivery_fee
+
+    return float(calculated_subtotal or 0), normalized_delivery_fee, float(normalized_total or 0)
 
 async def _get_rider_for_user(db: AsyncSession, user_id) -> Optional[Rider]:
     rider_result = await db.execute(select(Rider).where(Rider.user_id == user_id))
@@ -137,7 +213,7 @@ async def list_orders(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    q = select(Order)
+    q = select(Order).options(joinedload(Order.assigned_rider).joinedload(Rider.user))
 
     if current_user.role == UserRole.REPARTIDOR:
         rider = await _get_rider_for_user(db, current_user.id)
@@ -170,6 +246,14 @@ async def create_order(
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)),
 ):
     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    order_items = body.items or []
+    subtotal, delivery_fee, total = _calculate_order_amounts(
+        order_items,
+        body.subtotal,
+        body.delivery_fee,
+        body.total,
+        body.declared_value,
+    )
     
     # SOLUCIÓN PROFESIONAL: Construir kwargs dinámicamente
     order_kwargs = {
@@ -181,24 +265,27 @@ async def create_order(
         "pickup_name": body.pickup_contact,
         "pickup_phone": body.pickup_phone,
         "delivery_address": body.delivery_address,
-        "delivery_reference": body.delivery_contact,
-        "delivery_instructions": body.description,
-        "subtotal": body.declared_value,
-        "total": body.declared_value,
+        "delivery_reference": body.delivery_reference or body.delivery_contact,
+        "delivery_instructions": body.delivery_instructions or body.description,
+        "items": order_items,
+        "subtotal": subtotal,
+        "delivery_fee": delivery_fee,
+        "total": total,
+        "payment_method": body.payment_method,
         "priority": body.priority.value,
         "estimated_delivery_time": now_naive + timedelta(minutes=body.sla_minutes),
         "sla_deadline": now_naive + timedelta(minutes=body.sla_minutes),
     }
 
     # Asignación segura de coordenadas (evita error si la columna no existe aún en la BD)
-    if body.pickup_lat is not None and hasattr(Order, 'pickup_lat'):
-        order_kwargs['pickup_lat'] = body.pickup_lat
-    if body.pickup_lng is not None and hasattr(Order, 'pickup_lng'):
-        order_kwargs['pickup_lng'] = body.pickup_lng
-    if body.delivery_lat is not None and hasattr(Order, 'delivery_lat'):
-        order_kwargs['delivery_lat'] = body.delivery_lat
-    if body.delivery_lng is not None and hasattr(Order, 'delivery_lng'):
-        order_kwargs['delivery_lng'] = body.delivery_lng
+    if body.pickup_lat is not None and hasattr(Order, 'pickup_latitude'):
+        order_kwargs['pickup_latitude'] = body.pickup_lat
+    if body.pickup_lng is not None and hasattr(Order, 'pickup_longitude'):
+        order_kwargs['pickup_longitude'] = body.pickup_lng
+    if body.delivery_lat is not None and hasattr(Order, 'delivery_latitude'):
+        order_kwargs['delivery_latitude'] = body.delivery_lat
+    if body.delivery_lng is not None and hasattr(Order, 'delivery_longitude'):
+        order_kwargs['delivery_longitude'] = body.delivery_lng
 
     order = Order(**order_kwargs)
 
@@ -209,8 +296,12 @@ async def create_order(
 
     db.add(order)
     await db.commit()
-    await db.refresh(order)
-    return _order_to_dict(order)
+    refreshed = await db.execute(
+        select(Order)
+        .options(joinedload(Order.assigned_rider).joinedload(Rider.user))
+        .where(Order.id == order.id)
+    )
+    return _order_to_dict(refreshed.scalar_one())
 
 @router.get("/stats/summary")
 async def orders_summary(
@@ -235,12 +326,97 @@ async def get_order(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Order).where(Order.id == _parse_uuid(order_id, "order_id")))
+    result = await db.execute(
+        select(Order)
+        .options(joinedload(Order.assigned_rider).joinedload(Rider.user))
+        .where(Order.id == _parse_uuid(order_id, "order_id"))
+    )
     order = result.scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
     await _ensure_rider_order_access(db, current_user, order)
     return _order_to_dict(order)
+
+@router.patch("/{order_id}")
+async def update_order(
+    order_id: str,
+    body: OrderUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)),
+):
+    result = await db.execute(select(Order).where(Order.id == _parse_uuid(order_id, "order_id")))
+    order = result.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+
+    current_status = cast(OrderStatus, order.status)
+    if current_status not in (OrderStatus.PENDIENTE, OrderStatus.ASIGNADO):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Solo se pueden editar pedidos PENDIENTE o ASIGNADO. Estado actual: {current_status.value}",
+        )
+
+    update_data = body.model_dump(exclude_unset=True)
+
+    direct_field_map = {
+        "customer_name": "customer_name",
+        "customer_phone": "customer_phone",
+        "customer_email": "customer_email",
+        "pickup_address": "pickup_address",
+        "pickup_contact": "pickup_name",
+        "pickup_phone": "pickup_phone",
+        "delivery_address": "delivery_address",
+        "delivery_reference": "delivery_reference",
+        "delivery_instructions": "delivery_instructions",
+        "payment_method": "payment_method",
+    }
+    for payload_field, model_field in direct_field_map.items():
+        if payload_field in update_data:
+            setattr(order, model_field, update_data[payload_field])
+
+    if "description" in update_data and "delivery_instructions" not in update_data:
+        order.delivery_instructions = update_data["description"]
+    if "delivery_contact" in update_data and "delivery_reference" not in update_data:
+        order.delivery_reference = update_data["delivery_contact"]
+
+    if "priority" in update_data and body.priority is not None:
+        order.priority = body.priority.value
+
+    if "items" in update_data or any(field in update_data for field in ("subtotal", "delivery_fee", "total")):
+        order_items = body.items if "items" in update_data else (order.items or [])
+        subtotal, delivery_fee, total = _calculate_order_amounts(
+            order_items or [],
+            body.subtotal if "subtotal" in update_data else getattr(order, "subtotal", None),
+            body.delivery_fee if "delivery_fee" in update_data else getattr(order, "delivery_fee", None),
+            body.total if "total" in update_data else None,
+        )
+        order.items = order_items
+        order.subtotal = subtotal
+        order.delivery_fee = delivery_fee
+        order.total = total
+
+    coordinate_field_map = {
+        "pickup_lat": "pickup_latitude",
+        "pickup_lng": "pickup_longitude",
+        "delivery_lat": "delivery_latitude",
+        "delivery_lng": "delivery_longitude",
+    }
+    for payload_field, model_field in coordinate_field_map.items():
+        if payload_field in update_data:
+            setattr(order, model_field, update_data[payload_field])
+
+    if body.sla_minutes is not None:
+        now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+        order.estimated_delivery_time = now_naive + timedelta(minutes=body.sla_minutes)
+        order.sla_deadline = now_naive + timedelta(minutes=body.sla_minutes)
+
+    await db.commit()
+    refreshed = await db.execute(
+        select(Order)
+        .options(joinedload(Order.assigned_rider).joinedload(Rider.user))
+        .where(Order.id == order.id)
+    )
+    return _order_to_dict(refreshed.scalar_one())
 
 @router.patch("/{order_id}/assign")
 async def assign_rider(
@@ -265,7 +441,12 @@ async def assign_rider(
     order.status = OrderStatus.ASIGNADO
     order.accepted_at = datetime.now(timezone.utc).replace(tzinfo=None)  # type: ignore[assignment]
     await db.commit()
-    return _order_to_dict(order)
+    refreshed = await db.execute(
+        select(Order)
+        .options(joinedload(Order.assigned_rider).joinedload(Rider.user))
+        .where(Order.id == order.id)
+    )
+    return _order_to_dict(refreshed.scalar_one())
 
 @router.patch("/{order_id}/status")
 async def update_status(
@@ -398,8 +579,10 @@ async def assign_order_auto(
     # Calcular distancia real en KM usando Haversine (Python) para la respuesta
     # Asumimos que last_lat/last_lng existen porque last_location no es None
     distance_km = _haversine_distance(
-        order.pickup_lat, order.pickup_lng,
-        best_rider.last_lat, best_rider.last_lng
+        order.pickup_latitude,
+        order.pickup_longitude,
+        best_rider.last_lat,
+        best_rider.last_lng,
     )
     
     # 4. Asignar el pedido
@@ -426,19 +609,22 @@ async def assign_order_auto(
     
     # 6. Registrar en Auditoría
     try:
-        from app.models.audit_log import AuditLog, AuditAction
+        from app.models.audit_log import ActionType, AuditLog
         audit = AuditLog(
             id=uuid.uuid4(),
             user_id=current_user.id,
-            action=AuditAction.ASSIGN,
+            user_email=current_user.email,
+            user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
+            action_type=ActionType.ASSIGN,
             resource_type="Order",
             resource_id=str(order.id),
             description=f"Asignación automática al rider {best_rider.id} (Distancia: {distance_km:.2f}km)",
-            created_at=utc_now_naive()
+            success=True,
+            created_at=utc_now_naive(),
         )
         db.add(audit)
-    except ImportError:
-        logger.warning("Modelo de AuditLog no encontrado, saltando auditoría.")
+    except Exception as exc:
+        logger.warning("No se pudo crear auditoría de asignación: %s", exc)
 
     await db.commit()
     await db.refresh(order)
