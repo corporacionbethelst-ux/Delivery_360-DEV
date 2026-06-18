@@ -39,7 +39,14 @@ class OrderCreate(BaseModel):
     delivery_lng: Optional[float] = None
     delivery_contact: str
     delivery_phone: Optional[str] = None
+    delivery_reference: Optional[str] = None
+    delivery_instructions: Optional[str] = None
     description: Optional[str] = None
+    items: Optional[List[dict]] = None
+    subtotal: Optional[float] = None
+    delivery_fee: Optional[float] = None
+    total: Optional[float] = None
+    payment_method: Optional[str] = None
     declared_value: float = 0.0
     priority: OrderPriority = OrderPriority.NORMAL
     sla_minutes: int = 60
@@ -198,6 +205,18 @@ async def create_order(
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)),
 ):
     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    order_items = body.items or []
+    subtotal = body.subtotal
+    if subtotal is None:
+        subtotal = sum(
+            float(item.get("subtotal") or (float(item.get("quantity") or 0) * float(item.get("unit_price") or 0)))
+            for item in order_items
+            if isinstance(item, dict)
+        )
+    delivery_fee = float(body.delivery_fee or 0)
+    total = body.total if body.total is not None else float(body.declared_value or 0)
+    if not total:
+        total = float(subtotal or 0) + delivery_fee
     
     # SOLUCIÓN PROFESIONAL: Construir kwargs dinámicamente
     order_kwargs = {
@@ -209,24 +228,27 @@ async def create_order(
         "pickup_name": body.pickup_contact,
         "pickup_phone": body.pickup_phone,
         "delivery_address": body.delivery_address,
-        "delivery_reference": body.delivery_contact,
-        "delivery_instructions": body.description,
-        "subtotal": body.declared_value,
-        "total": body.declared_value,
+        "delivery_reference": body.delivery_reference or body.delivery_contact,
+        "delivery_instructions": body.delivery_instructions or body.description,
+        "items": order_items,
+        "subtotal": subtotal,
+        "delivery_fee": delivery_fee,
+        "total": total,
+        "payment_method": body.payment_method,
         "priority": body.priority.value,
         "estimated_delivery_time": now_naive + timedelta(minutes=body.sla_minutes),
         "sla_deadline": now_naive + timedelta(minutes=body.sla_minutes),
     }
 
     # Asignación segura de coordenadas (evita error si la columna no existe aún en la BD)
-    if body.pickup_lat is not None and hasattr(Order, 'pickup_lat'):
-        order_kwargs['pickup_lat'] = body.pickup_lat
-    if body.pickup_lng is not None and hasattr(Order, 'pickup_lng'):
-        order_kwargs['pickup_lng'] = body.pickup_lng
-    if body.delivery_lat is not None and hasattr(Order, 'delivery_lat'):
-        order_kwargs['delivery_lat'] = body.delivery_lat
-    if body.delivery_lng is not None and hasattr(Order, 'delivery_lng'):
-        order_kwargs['delivery_lng'] = body.delivery_lng
+    if body.pickup_lat is not None and hasattr(Order, 'pickup_latitude'):
+        order_kwargs['pickup_latitude'] = body.pickup_lat
+    if body.pickup_lng is not None and hasattr(Order, 'pickup_longitude'):
+        order_kwargs['pickup_longitude'] = body.pickup_lng
+    if body.delivery_lat is not None and hasattr(Order, 'delivery_latitude'):
+        order_kwargs['delivery_latitude'] = body.delivery_lat
+    if body.delivery_lng is not None and hasattr(Order, 'delivery_longitude'):
+        order_kwargs['delivery_longitude'] = body.delivery_lng
 
     order = Order(**order_kwargs)
 

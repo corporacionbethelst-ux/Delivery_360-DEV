@@ -177,6 +177,9 @@ export default function NewOrderPage() {
           unit_price: item.unit_price,
           subtotal: item.quantity * item.unit_price
         })),
+        subtotal,
+        delivery_fee: deliveryFee,
+        total,
         declared_value: total,
         priority: priority,
         sla_minutes: 60,
