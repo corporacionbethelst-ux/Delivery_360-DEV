@@ -39,11 +39,43 @@ class OrderCreate(BaseModel):
     delivery_lng: Optional[float] = None
     delivery_contact: str
     delivery_phone: Optional[str] = None
+    delivery_reference: Optional[str] = None
+    delivery_instructions: Optional[str] = None
     description: Optional[str] = None
+    items: Optional[List[dict]] = None
+    subtotal: Optional[float] = None
+    delivery_fee: Optional[float] = None
+    total: Optional[float] = None
+    payment_method: Optional[str] = None
     declared_value: float = 0.0
     priority: OrderPriority = OrderPriority.NORMAL
     sla_minutes: int = 60
     rider_id: Optional[str] = None
+
+class OrderUpdate(BaseModel):
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+    customer_email: Optional[str] = None
+    pickup_address: Optional[str] = None
+    pickup_lat: Optional[float] = None
+    pickup_lng: Optional[float] = None
+    pickup_contact: Optional[str] = None
+    pickup_phone: Optional[str] = None
+    delivery_address: Optional[str] = None
+    delivery_lat: Optional[float] = None
+    delivery_lng: Optional[float] = None
+    delivery_contact: Optional[str] = None
+    delivery_phone: Optional[str] = None
+    delivery_reference: Optional[str] = None
+    delivery_instructions: Optional[str] = None
+    description: Optional[str] = None
+    items: Optional[List[dict]] = None
+    subtotal: Optional[float] = None
+    delivery_fee: Optional[float] = None
+    total: Optional[float] = None
+    payment_method: Optional[str] = None
+    priority: Optional[OrderPriority] = None
+    sla_minutes: Optional[int] = None
 
 class AssignRider(BaseModel):
     rider_id: str
@@ -144,6 +176,22 @@ def _generate_order_number() -> str:
     suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
     return f"LR-{suffix}"
 
+def _calculate_order_amounts(items: List[dict], subtotal: Optional[float], delivery_fee: Optional[float], total: Optional[float], declared_value: float = 0.0) -> tuple[float, float, float]:
+    calculated_subtotal = subtotal
+    if calculated_subtotal is None:
+        calculated_subtotal = sum(
+            float(item.get("subtotal") or (float(item.get("quantity") or 0) * float(item.get("unit_price") or 0)))
+            for item in items
+            if isinstance(item, dict)
+        )
+
+    normalized_delivery_fee = float(delivery_fee or 0)
+    normalized_total = total if total is not None else float(declared_value or 0)
+    if not normalized_total:
+        normalized_total = float(calculated_subtotal or 0) + normalized_delivery_fee
+
+    return float(calculated_subtotal or 0), normalized_delivery_fee, float(normalized_total or 0)
+
 async def _get_rider_for_user(db: AsyncSession, user_id) -> Optional[Rider]:
     rider_result = await db.execute(select(Rider).where(Rider.user_id == user_id))
     return rider_result.scalar_one_or_none()
@@ -198,6 +246,14 @@ async def create_order(
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)),
 ):
     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    order_items = body.items or []
+    subtotal, delivery_fee, total = _calculate_order_amounts(
+        order_items,
+        body.subtotal,
+        body.delivery_fee,
+        body.total,
+        body.declared_value,
+    )
     
     # SOLUCIÓN PROFESIONAL: Construir kwargs dinámicamente
     order_kwargs = {
@@ -209,24 +265,27 @@ async def create_order(
         "pickup_name": body.pickup_contact,
         "pickup_phone": body.pickup_phone,
         "delivery_address": body.delivery_address,
-        "delivery_reference": body.delivery_contact,
-        "delivery_instructions": body.description,
-        "subtotal": body.declared_value,
-        "total": body.declared_value,
+        "delivery_reference": body.delivery_reference or body.delivery_contact,
+        "delivery_instructions": body.delivery_instructions or body.description,
+        "items": order_items,
+        "subtotal": subtotal,
+        "delivery_fee": delivery_fee,
+        "total": total,
+        "payment_method": body.payment_method,
         "priority": body.priority.value,
         "estimated_delivery_time": now_naive + timedelta(minutes=body.sla_minutes),
         "sla_deadline": now_naive + timedelta(minutes=body.sla_minutes),
     }
 
     # Asignación segura de coordenadas (evita error si la columna no existe aún en la BD)
-    if body.pickup_lat is not None and hasattr(Order, 'pickup_lat'):
-        order_kwargs['pickup_lat'] = body.pickup_lat
-    if body.pickup_lng is not None and hasattr(Order, 'pickup_lng'):
-        order_kwargs['pickup_lng'] = body.pickup_lng
-    if body.delivery_lat is not None and hasattr(Order, 'delivery_lat'):
-        order_kwargs['delivery_lat'] = body.delivery_lat
-    if body.delivery_lng is not None and hasattr(Order, 'delivery_lng'):
-        order_kwargs['delivery_lng'] = body.delivery_lng
+    if body.pickup_lat is not None and hasattr(Order, 'pickup_latitude'):
+        order_kwargs['pickup_latitude'] = body.pickup_lat
+    if body.pickup_lng is not None and hasattr(Order, 'pickup_longitude'):
+        order_kwargs['pickup_longitude'] = body.pickup_lng
+    if body.delivery_lat is not None and hasattr(Order, 'delivery_latitude'):
+        order_kwargs['delivery_latitude'] = body.delivery_lat
+    if body.delivery_lng is not None and hasattr(Order, 'delivery_longitude'):
+        order_kwargs['delivery_longitude'] = body.delivery_lng
 
     order = Order(**order_kwargs)
 
@@ -277,6 +336,84 @@ async def get_order(
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
     await _ensure_rider_order_access(db, current_user, order)
     return _order_to_dict(order)
+
+@router.patch("/{order_id}")
+async def update_order(
+    order_id: str,
+    body: OrderUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)),
+):
+    result = await db.execute(select(Order).where(Order.id == _parse_uuid(order_id, "order_id")))
+    order = result.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+
+    current_status = cast(OrderStatus, order.status)
+    if current_status not in (OrderStatus.PENDIENTE, OrderStatus.ASIGNADO):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Solo se pueden editar pedidos PENDIENTE o ASIGNADO. Estado actual: {current_status.value}",
+        )
+
+    update_data = body.model_dump(exclude_unset=True)
+
+    direct_field_map = {
+        "pickup_address": "pickup_address",
+        "pickup_contact": "pickup_name",
+        "pickup_phone": "pickup_phone",
+        "delivery_address": "delivery_address",
+        "delivery_reference": "delivery_reference",
+        "delivery_instructions": "delivery_instructions",
+        "payment_method": "payment_method",
+    }
+    for payload_field, model_field in direct_field_map.items():
+        if payload_field in update_data:
+            setattr(order, model_field, update_data[payload_field])
+
+    if "description" in update_data and "delivery_instructions" not in update_data:
+        order.delivery_instructions = update_data["description"]
+    if "delivery_contact" in update_data and "delivery_reference" not in update_data:
+        order.delivery_reference = update_data["delivery_contact"]
+
+    if "priority" in update_data and body.priority is not None:
+        order.priority = body.priority.value
+
+    if "items" in update_data or any(field in update_data for field in ("subtotal", "delivery_fee", "total")):
+        order_items = body.items if "items" in update_data else (order.items or [])
+        subtotal, delivery_fee, total = _calculate_order_amounts(
+            order_items or [],
+            body.subtotal if "subtotal" in update_data else getattr(order, "subtotal", None),
+            body.delivery_fee if "delivery_fee" in update_data else getattr(order, "delivery_fee", None),
+            body.total if "total" in update_data else None,
+        )
+        order.items = order_items
+        order.subtotal = subtotal
+        order.delivery_fee = delivery_fee
+        order.total = total
+
+    coordinate_field_map = {
+        "pickup_lat": "pickup_latitude",
+        "pickup_lng": "pickup_longitude",
+        "delivery_lat": "delivery_latitude",
+        "delivery_lng": "delivery_longitude",
+    }
+    for payload_field, model_field in coordinate_field_map.items():
+        if payload_field in update_data:
+            setattr(order, model_field, update_data[payload_field])
+
+    if body.sla_minutes is not None:
+        now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+        order.estimated_delivery_time = now_naive + timedelta(minutes=body.sla_minutes)
+        order.sla_deadline = now_naive + timedelta(minutes=body.sla_minutes)
+
+    await db.commit()
+    refreshed = await db.execute(
+        select(Order)
+        .options(joinedload(Order.assigned_rider).joinedload(Rider.user))
+        .where(Order.id == order.id)
+    )
+    return _order_to_dict(refreshed.scalar_one())
 
 @router.patch("/{order_id}/assign")
 async def assign_rider(
@@ -439,8 +576,10 @@ async def assign_order_auto(
     # Calcular distancia real en KM usando Haversine (Python) para la respuesta
     # Asumimos que last_lat/last_lng existen porque last_location no es None
     distance_km = _haversine_distance(
-        order.pickup_lat, order.pickup_lng,
-        best_rider.last_lat, best_rider.last_lng
+        order.pickup_latitude,
+        order.pickup_longitude,
+        best_rider.last_lat,
+        best_rider.last_lng,
     )
     
     # 4. Asignar el pedido

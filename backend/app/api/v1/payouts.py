@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, case
 from typing import Optional
 from decimal import Decimal
 import uuid
@@ -9,15 +9,24 @@ import logging
 
 from app.core.database import get_db
 from app.models.payout import Payout, PayoutStatus, PayoutMethod, PayoutStatusHistory
-from app.models.financial import TransactionType, PaymentStatus
+from app.models.financial import Financial, TransactionType, PaymentStatus
 from app.services.financial_service import FinancialService
 from app.models.rider import Rider
 from app.models.user import User, UserRole
+from app.models.order import Order, OrderStatus
 from app.api.v1.auth import get_current_user, require_role
 from app.models.rider import utc_now_naive
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/payouts", tags=["Payouts"])
+
+
+def _order_earning_amount_expr():
+    return case(
+        (Order.delivery_fee > 0, Order.delivery_fee),
+        (Order.total > 0, Order.total),
+        else_=Order.subtotal,
+    )
 
 
 class PayoutRequestBody(BaseModel):
@@ -118,6 +127,15 @@ async def _calculate_available_balance(db: AsyncSession, rider_id, exclude_payou
         )
     )
     total_earned = _money(earnings_result.scalar())
+
+    if total_earned <= 0:
+        orders_earnings_result = await db.execute(
+            select(func.coalesce(func.sum(_order_earning_amount_expr()), 0)).where(
+                Order.assigned_rider_id == rider_id,
+                Order.status == OrderStatus.ENTREGADO,
+            )
+        )
+        total_earned = _money(orders_earnings_result.scalar())
 
     pending_stmt = select(func.sum(Payout.amount)).where(
         Payout.rider_id == rider_id,

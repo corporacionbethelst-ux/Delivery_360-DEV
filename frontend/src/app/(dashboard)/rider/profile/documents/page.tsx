@@ -195,7 +195,7 @@ export default function RiderDocumentsPage() {
         {documents.length === 0 && (
           <div className="text-center py-12 text-gray-500 bg-white rounded-lg border border-dashed">
             <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p>No has subido ningún documento aún. Comienza por tu Licencia y DNI.</p>
+            <p>No has subido ningún documento aún. Comienza por los cuatro documentos requeridos.</p>
           </div>
         )}
       </div>

@@ -8,7 +8,7 @@ import { Rider } from '@/types/user';
 import { 
   Package, Clock, CheckCircle, AlertCircle, MapPin, User, Truck, 
   RefreshCw, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  Filter, Inbox, ArrowLeft, Search
+  Filter, Inbox, ArrowLeft, Search, Eye
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -183,7 +183,7 @@ export default function ManagerDeliveriesPage() {
   useEffect(() => {
     const loadRiders = async () => {
       try {
-        const data = await riderService.listRiders({ status_filter: 'ACTIVO' });
+        const data = await riderService.getAll();
         setRiders(data);
       } catch (err) {
         console.warn('No se pudieron cargar riders para filtros de entregas:', err);
@@ -358,7 +358,7 @@ export default function ManagerDeliveriesPage() {
                     <SelectItem value="UNASSIGNED">Sin asignar</SelectItem>
                     {riders.map((rider) => (
                       <SelectItem key={rider.id} value={rider.id}>
-                        {rider.first_name} {rider.last_name}
+                        {rider.first_name} {rider.last_name} {rider.status ? `· ${rider.status}` : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -414,6 +414,7 @@ export default function ManagerDeliveriesPage() {
                 <th className="px-6 py-3 font-semibold text-slate-600 uppercase tracking-wider">Inicio</th>
                 <th className="px-6 py-3 font-semibold text-slate-600 uppercase tracking-wider">Duración</th>
                 <th className="px-6 py-3 font-semibold text-slate-600 uppercase tracking-wider text-center">SLA</th>
+                <th className="px-6 py-3 font-semibold text-slate-600 uppercase tracking-wider text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -520,13 +521,26 @@ export default function ManagerDeliveriesPage() {
                           <span className="text-slate-300">-</span>
                         )}
                       </td>
+
+                      <td className="px-6 py-4 text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs"
+                          title="Ver detalle"
+                          onClick={() => router.push(`/manager/operations/orders/${d.order_id}`)}
+                        >
+                          <Eye className="w-3.5 h-3.5 mr-1" />
+                          Ver
+                        </Button>
+                      </td>
                     </tr>
                   );
                 })
               ) : (
                 !error && (
                   <tr>
-                    <td colSpan={7} className="px-6 py-20 text-center">
+                    <td colSpan={8} className="px-6 py-20 text-center">
                       <div className="flex flex-col items-center justify-center text-slate-400 max-w-sm mx-auto">
                         <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-4 border border-slate-100">
                           <Filter className="w-10 h-10 opacity-20" />

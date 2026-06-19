@@ -9,6 +9,8 @@ import uuid
 import logging
 import os
 import inspect
+import shutil
+from pathlib import Path
  
 from app.core.database import get_db
 from app.core.config import settings
@@ -25,6 +27,73 @@ logger = logging.getLogger(__name__)
 
 # El prefijo debe ser exactamente este para que coincida con lo que espera el frontend
 router = APIRouter(prefix="/riders")
+
+REQUIRED_DOCUMENT_TYPES = {
+    DocumentType.LICENCIA,
+    DocumentType.DOCUMENTO_IDENTIDAD,
+    DocumentType.REGISTRO_VEHICULO,
+    DocumentType.SEGURO,
+}
+
+
+def _safe_extension(filename: Optional[str]) -> str:
+    if not filename or "." not in filename:
+        return "pdf"
+    return filename.rsplit(".", 1)[-1].lower().replace("/", "").replace("\\", "") or "pdf"
+
+
+def _store_document_file(file: UploadFile, rider_id: uuid.UUID, doc_type: DocumentType) -> str:
+    upload_dir = Path("uploads/documents") / str(rider_id)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = f"{doc_type.value.lower()}_{uuid.uuid4()}.{_safe_extension(file.filename)}"
+    file_path = upload_dir / filename
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    return f"/uploads/documents/{rider_id}/{filename}"
+
+
+def _required_document_error(documents: List[RiderDocument]) -> Optional[str]:
+    docs_by_type = {doc.type: doc for doc in documents}
+    missing = [doc_type.value for doc_type in REQUIRED_DOCUMENT_TYPES if doc_type not in docs_by_type]
+    if missing:
+        return f"Documentos requeridos faltantes: {', '.join(sorted(missing))}."
+
+    invalid = [
+        doc_type.value
+        for doc_type, doc in docs_by_type.items()
+        if doc_type in REQUIRED_DOCUMENT_TYPES and doc.status != DocumentStatus.APROBADO
+    ]
+    if invalid:
+        return f"Documentos pendientes de aprobación: {', '.join(sorted(invalid))}."
+
+    return None
+
+
+async def _get_rider_documents(db: AsyncSession, rider_id: uuid.UUID) -> List[RiderDocument]:
+    result = await db.execute(select(RiderDocument).where(RiderDocument.rider_id == rider_id))
+    return list(result.scalars().all())
+
+
+async def _ensure_rider_can_go_online(db: AsyncSession, rider: Rider) -> None:
+    if rider.status != RiderStatus.ACTIVO:
+        rider.is_online = False
+        await db.commit()
+        raise HTTPException(
+            status_code=403,
+            detail="No puedes conectarte hasta que un gerente active tu cuenta."
+        )
+
+    documents = await _get_rider_documents(db, rider.id)
+    docs_error = _required_document_error(documents)
+    if docs_error:
+        rider.is_online = False
+        await db.commit()
+        raise HTTPException(
+            status_code=403,
+            detail=f"No puedes conectarte hasta que todos tus documentos requeridos estén aprobados. {docs_error}"
+        )
 
 # ==============================================================================
 # SCHEMAS (Modelos de datos para validación)
@@ -275,9 +344,10 @@ async def upload_my_document(
     if existing_doc and existing_doc.status == DocumentStatus.PENDIENTE:
         raise HTTPException(status_code=400, detail="Documento en revisión. Espera la validación.")
     
-    file_extension = file.filename.split(".")[-1] if "." in file.filename else "pdf"
-    safe_filename = f"{uuid.uuid4()}.{file_extension}"
-    file_url = f"/uploads/documents/{rider.id}/{safe_filename}"
+    try:
+        file_url = _store_document_file(file, rider.id, doc_type)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error guardando documento: {str(exc)}")
     
     if existing_doc:
         existing_doc.file_url = file_url
@@ -350,9 +420,15 @@ async def update_document_status(
                 select(RiderDocument).where(RiderDocument.rider_id == rider.id)
             )
             all_docs = all_docs_result.scalars().all()
-            if all(d.status == DocumentStatus.APROBADO for d in all_docs):
+            if _required_document_error(list(all_docs)) is None:
                 rider.status = RiderStatus.ACTIVO
                 rider.approved_at = utc_now_naive()
+    elif new_status == "RECHAZADO":
+        rider_result = await db.execute(select(Rider).where(Rider.id == doc.rider_id))
+        rider = rider_result.scalar_one_or_none()
+        if rider:
+            rider.status = RiderStatus.PENDIENTE
+            rider.is_online = False
 
     await db.commit()
 
@@ -403,10 +479,10 @@ async def upload_document_for_rider(
     if existing_doc and existing_doc.status == DocumentStatus.APROBADO:
         raise HTTPException(status_code=400, detail="Ya existe un documento aprobado de este tipo. Si necesita actualizarlo, rechace el anterior primero o contacte a superadmin.")
     
-    # Generar ruta segura
-    file_extension = file.filename.split(".")[-1] if "." in file.filename else "pdf"
-    safe_filename = f"{uuid.uuid4()}.{file_extension}"
-    file_url = f"/uploads/documents/{rider.id}/{safe_filename}"
+    try:
+        file_url = _store_document_file(file, rider.id, doc_type)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error guardando documento: {str(exc)}")
     
     if existing_doc:
         # Actualizar existente (ej. estaba rechazado o incompleto)
@@ -969,6 +1045,17 @@ async def approve_rider(
     if not rider:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
 
+    documents = await _get_rider_documents(db, rider.id)
+    docs_error = _required_document_error(documents)
+    if docs_error:
+        rider.status = RiderStatus.PENDIENTE
+        rider.is_online = False
+        await db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede aprobar el repartidor hasta completar la documentación requerida. {docs_error}"
+        )
+
     rider.status = RiderStatus.ACTIVO
     rider.approved_at = utc_now_naive()
     if body and body.observations:
@@ -1035,6 +1122,7 @@ async def update_heartbeat(
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
     
     await _ensure_rider_self_scope(db, current_user, rider)
+    await _ensure_rider_can_go_online(db, rider)
 
     rider.last_lat = body.lat
     rider.last_lng = body.lng
@@ -1092,6 +1180,8 @@ async def toggle_online(
     if not rider:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
     await _ensure_rider_self_scope(db, current_user, rider)
+    if online:
+        await _ensure_rider_can_go_online(db, rider)
     rider.is_online = online
     await db.commit()
     return {"is_online": rider.is_online}

@@ -117,6 +117,7 @@ export interface OrderCreateInput {
   
   pickup_address: string;
   pickup_name?: string;
+  pickup_contact?: string;
   pickup_phone?: string;
   
   delivery_address: string;
@@ -146,6 +147,8 @@ export interface OrderCreateInput {
   status?: OrderStatus;
   notes?: string;
 }
+
+export type OrderUpdateInput = Partial<OrderCreateInput>;
 
 export interface OrderListParams {
   status?: OrderStatus;
@@ -223,6 +226,21 @@ export const orderService = {
       return extractData<Order>(response);
     } catch (error) {
       console.error('[OrderService] Error creating order:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Actualizar datos editables de una orden.
+   */
+  update: async (id: string, data: OrderUpdateInput): Promise<Order> => {
+    if (!id) throw new Error('[OrderService] ID de orden requerido para actualizar');
+
+    try {
+      const response = await api.patch<Order>(`/orders/${id}`, data);
+      return extractData<Order>(response);
+    } catch (error) {
+      console.error(`[OrderService] Error updating order ${id}:`, error);
       throw error;
     }
   },

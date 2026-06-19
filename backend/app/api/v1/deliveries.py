@@ -106,6 +106,60 @@ def _serialize_delivery(delivery: Delivery, rider: Optional[Rider], user: Option
         "updated_at": delivery.updated_at.isoformat() if delivery.updated_at else None,
     }
 
+
+def _order_status_to_delivery_status(order_status) -> str:
+    status_value = order_status.value if hasattr(order_status, "value") else str(order_status)
+    if status_value == OrderStatus.ENTREGADO.value:
+        return DeliveryStatus.COMPLETADA.value
+    if status_value == OrderStatus.FALLIDO.value:
+        return DeliveryStatus.FALLIDA.value
+    if status_value in (OrderStatus.RECOLECTADO.value, OrderStatus.EN_RUTA.value):
+        return DeliveryStatus.EN_ROUTE.value
+    if status_value == OrderStatus.ASIGNADO.value:
+        return DeliveryStatus.INICIADA.value
+    return DeliveryStatus.PENDIENTE.value
+
+
+def _serialize_order_as_delivery(order: Order, rider: Optional[Rider], user: Optional[User]) -> Dict[str, Any]:
+    """Fallback para órdenes asignadas que aún no tienen fila en deliveries."""
+    rider_data = None
+    if rider:
+        rider_data = {
+            "id": str(rider.id),
+            "first_name": user.first_name if user else "Sin Nombre",
+            "last_name": user.last_name or "",
+            "vehicle_type": rider.vehicle_type.value if rider.vehicle_type else None,
+            "status": rider.status.value if rider.status else None,
+            "is_online": getattr(rider, 'is_online', False),
+        }
+
+    status = _order_status_to_delivery_status(order.status)
+    return {
+        "id": f"order-{order.id}",
+        "order_id": str(order.id),
+        "external_id": order.external_id,
+        "customer_name": order.customer_name or "Desconocido",
+        "rider_id": str(order.assigned_rider_id) if order.assigned_rider_id else None,
+        "rider": rider_data,
+        "status": status,
+        "started_at": order.accepted_at.isoformat() if order.accepted_at else None,
+        "completed_at": order.delivered_at.isoformat() if order.delivered_at else None,
+        "current_latitude": getattr(rider, "last_lat", None) if rider else None,
+        "current_longitude": getattr(rider, "last_lng", None) if rider else None,
+        "last_location_update": rider.last_location_at.isoformat() if rider and rider.last_location_at else None,
+        "pickup_address": order.pickup_address,
+        "delivery_address": order.delivery_address,
+        "estimated_delivery_time": order.estimated_delivery_time.isoformat() if order.estimated_delivery_time else None,
+        "total_amount": order.total,
+        "payment_method": order.payment_method,
+        "total_time": None,
+        "distance_total": None,
+        "sla_compliant": None,
+        "sla_actual_minutes": None,
+        "created_at": order.created_at.isoformat() if order.created_at else None,
+        "updated_at": order.updated_at.isoformat() if order.updated_at else None,
+    }
+
 # --- Endpoints Principales ---
 
 @router.get("")

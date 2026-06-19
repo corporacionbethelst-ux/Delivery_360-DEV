@@ -12,10 +12,48 @@ import { riderService } from '@/services/rider.service';
 import { financialService } from '@/services/financial.service';
 import { payoutService } from '@/services/payout.service';
 import { orderService, Order } from '@/services/order.service';
+import { resolveOrderCollectAmount } from '@/lib/order-amount';
 
 const ACTIVE_DELIVERY_STATUSES = ['ASIGNADO', 'EN_RECOLECCION', 'RECOLECTADO', 'EN_RUTA'];
+const HEARTBEAT_INTERVAL_MS = 15000;
 
-const getOrderAmount = (order: Order): number => Number(order.total_amount ?? order.total ?? 0);
+const getOrderAmount = (order: Order): number => resolveOrderCollectAmount(order);
+
+const INITIAL_GEOLOCATION_OPTIONS: PositionOptions = {
+  enableHighAccuracy: true,
+  timeout: 20000,
+  maximumAge: 30000,
+};
+
+const FALLBACK_GEOLOCATION_OPTIONS: PositionOptions = {
+  enableHighAccuracy: false,
+  timeout: 15000,
+  maximumAge: 120000,
+};
+
+const WATCH_GEOLOCATION_OPTIONS: PositionOptions = {
+  enableHighAccuracy: true,
+  timeout: 20000,
+  maximumAge: 30000,
+};
+
+const getGeolocationErrorMessage = (err: GeolocationPositionError): string => {
+  if (err.code === 1) {
+    return 'Permiso de ubicación denegado. Actívalo en el navegador para conectarte.';
+  }
+  if (err.code === 2) {
+    return 'No se pudo obtener una ubicación disponible. Verifica GPS, datos móviles o Wi-Fi.';
+  }
+  if (err.code === 3) {
+    return 'La ubicación tardó demasiado en responder. Activa el GPS, acércate a una zona con señal e intenta nuevamente.';
+  }
+  return 'Error al obtener ubicación. Verifica los permisos.';
+};
+
+const requestPosition = (options: PositionOptions): Promise<GeolocationPosition> =>
+  new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, options);
+  });
 
 const isToday = (value?: string): boolean => {
   if (!value) return false;
@@ -52,6 +90,7 @@ export default function RiderDashboard() {
   const [sendingLocation, setSendingLocation] = useState(false);
 
   const watchIdRef = useRef<number | null>(null);
+  const lastHeartbeatSentAtRef = useRef(0);
 
   useEffect(() => {
     setIsMounted(true);
@@ -80,11 +119,21 @@ export default function RiderDashboard() {
         ]);
 
         if (profileResult.status === 'rejected') throw profileResult.reason;
-        if (earningsResult.status === 'rejected') throw earningsResult.reason;
-        if (ordersResult.status === 'rejected') throw ordersResult.reason;
 
         const profile = profileResult.value;
-        const earningsData = earningsResult.value;
+        const earningsData = earningsResult.status === 'fulfilled'
+          ? earningsResult.value
+          : {
+              total_earned: 0,
+              completed_orders: 0,
+              gross_order_value: 0,
+              delivery_fees: 0,
+              bonuses: 0,
+              penalties: 0,
+              pending_payout: 0,
+              currency: 'COP',
+              breakdown: [],
+            };
         const balanceData = balanceResult.status === 'fulfilled'
           ? balanceResult.value
           : {
@@ -94,10 +143,16 @@ export default function RiderDashboard() {
               total_earned: Number(earningsData.total_earned ?? 0),
               currency: 'COP',
             };
-        const orders = ordersResult.value;
+        const orders = ordersResult.status === 'fulfilled' ? ordersResult.value : [];
 
+        if (earningsResult.status === 'rejected') {
+          console.warn('No se pudieron cargar ganancias del rider; usando valores seguros.', earningsResult.reason);
+        }
         if (balanceResult.status === 'rejected') {
           console.warn('No se pudo cargar el balance de payout del dashboard; usando resumen financiero.', balanceResult.reason);
+        }
+        if (ordersResult.status === 'rejected') {
+          console.warn('No se pudieron cargar órdenes del rider; se mostrará el panel sin próxima entrega.', ordersResult.reason);
         }
 
         setRiderId(profile.id);
@@ -142,23 +197,54 @@ export default function RiderDashboard() {
     };
   }, [user, isAuthenticated, router, isMounted]);
 
-  const sendLocation = async (lat: number, lng: number) => {
-    if (!riderId) return;
-
-    try {
-      setSendingLocation(true);
-      await riderService.sendHeartbeat(riderId, lat, lng);
-      setLocationError(null);
-    } catch (error: any) {
-      console.error('Error enviando ubicación:', error);
-      setLocationError(error.response?.data?.detail || 'No se pudo actualizar la ubicación');
-      setIsOnline(false);
-    } finally {
-      setSendingLocation(false);
+  const forceOffline = async () => {
+    setIsOnline(false);
+    if (watchIdRef.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    if (riderId) {
+      try {
+        await riderService.toggleOnline(riderId, false);
+      } catch (error) {
+        console.error('Error forzando desconexión del rider:', error);
+      }
     }
   };
 
-  const toggleOnlineMode = () => {
+  const sendLocation = async (
+    lat: number,
+    lng: number,
+    options: { force?: boolean; showLoading?: boolean } = {}
+  ): Promise<boolean> => {
+    if (!riderId) return false;
+
+    const now = Date.now();
+    if (!options.force && now - lastHeartbeatSentAtRef.current < HEARTBEAT_INTERVAL_MS) {
+      return true;
+    }
+
+    try {
+      if (options.showLoading) setSendingLocation(true);
+      await riderService.sendHeartbeat(riderId, lat, lng);
+      lastHeartbeatSentAtRef.current = now;
+      setLocationError(null);
+      return true;
+    } catch (error: any) {
+      console.error('Error enviando ubicación:', error);
+      const status = error?.response?.status;
+      const detail = error?.response?.data?.detail || error?.response?.data?.error?.message || 'No se pudo actualizar la ubicación';
+      setLocationError(status === 429 ? 'Actualizando ubicación muy rápido. Espera unos segundos e intenta nuevamente.' : detail);
+      if (status !== 429) {
+        await forceOffline();
+      }
+      return false;
+    } finally {
+      if (options.showLoading) setSendingLocation(false);
+    }
+  };
+
+  const toggleOnlineMode = async () => {
     if (isOnline) {
       if (watchIdRef.current !== null && navigator.geolocation) {
         navigator.geolocation.clearWatch(watchIdRef.current);
@@ -174,6 +260,7 @@ export default function RiderDashboard() {
 
     if (!navigator.geolocation) {
       setLocationError('La geolocalización no es soportada por este navegador');
+      void forceOffline();
       return;
     }
 
@@ -183,36 +270,47 @@ export default function RiderDashboard() {
     }
 
     setLocationError(null);
+    setSendingLocation(true);
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        void sendLocation(latitude, longitude);
-        setIsOnline(true);
-
-        const id = navigator.geolocation.watchPosition(
-          (pos) => {
-            const { latitude, longitude } = pos.coords;
-            void sendLocation(latitude, longitude);
-          },
-          (err) => {
-            console.error('Error de geolocalización:', err);
-            setLocationError('Error al obtener ubicación. Verifica los permisos.');
-            setIsOnline(false);
-          },
-          {
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 5000,
-          }
-        );
-        watchIdRef.current = id;
-      },
-      (err) => {
-        console.error('Error obteniendo posición inicial:', err);
-        setLocationError('Permiso de ubicación denegado. Actívalo para recibir pedidos.');
+    try {
+      let position: GeolocationPosition;
+      try {
+        position = await requestPosition(INITIAL_GEOLOCATION_OPTIONS);
+      } catch (firstError) {
+        const geolocationError = firstError as GeolocationPositionError;
+        if (geolocationError.code !== 3) {
+          throw geolocationError;
+        }
+        console.warn('Timeout obteniendo posición inicial, reintentando con menor precisión:', geolocationError);
+        position = await requestPosition(FALLBACK_GEOLOCATION_OPTIONS);
       }
-    );
+
+      const { latitude, longitude } = position.coords;
+      const canGoOnline = await sendLocation(latitude, longitude, { force: true, showLoading: true });
+      if (!canGoOnline) return;
+      setIsOnline(true);
+
+      const id = navigator.geolocation.watchPosition(
+        (pos) => {
+          const { latitude: watchLat, longitude: watchLng } = pos.coords;
+          void sendLocation(watchLat, watchLng);
+        },
+        (err) => {
+          console.error('Error de geolocalización:', err);
+          setLocationError(getGeolocationErrorMessage(err));
+          void forceOffline();
+        },
+        WATCH_GEOLOCATION_OPTIONS
+      );
+      watchIdRef.current = id;
+    } catch (error) {
+      const geolocationError = error as GeolocationPositionError;
+      console.error('Error obteniendo posición inicial:', geolocationError);
+      setLocationError(getGeolocationErrorMessage(geolocationError));
+      await forceOffline();
+    } finally {
+      setSendingLocation(false);
+    }
   };
 
   const nextDeliveryCode = useMemo(() => {
@@ -259,17 +357,17 @@ export default function RiderDashboard() {
             <Button
               onClick={toggleOnlineMode}
               variant={isOnline ? 'destructive' : 'default'}
-              disabled={(sendingLocation && isOnline) || !riderId}
+              disabled={sendingLocation || !riderId}
               className={isOnline ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}
             >
-              {sendingLocation && isOnline ? (
+              {sendingLocation ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
               ) : isOnline ? (
                 <WifiOff className="w-4 h-4 mr-2" />
               ) : (
                 <Wifi className="w-4 h-4 mr-2" />
               )}
-              {isOnline ? 'Desconectarse' : 'Conectarse'}
+              {sendingLocation ? 'Obteniendo ubicación...' : isOnline ? 'Desconectarse' : 'Conectarse'}
             </Button>
 
             <Button onClick={() => router.push('/rider/my-orders')} variant="outline">
@@ -355,7 +453,7 @@ export default function RiderDashboard() {
                       <h3 className="font-bold text-lg text-gray-900">Orden #{nextDeliveryCode}</h3>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm text-gray-500">Valor</p>
+                      <p className="text-sm text-gray-500">Monto a cobrar</p>
                       <p className="font-bold text-green-600">{formatCurrency(getOrderAmount(nextDelivery))}</p>
                     </div>
                   </div>

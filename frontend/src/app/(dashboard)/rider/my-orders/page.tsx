@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { OrderSkeleton } from '@/components/loaders/OrderSkeleton';
 import { formatCurrency } from '@/lib/formatters';
+import { resolveOrderCollectAmount } from '@/lib/order-amount';
 
 export default function MyOrdersPage() {
   const router = useRouter();
@@ -108,7 +109,7 @@ export default function MyOrdersPage() {
                       <span className="text-xs text-gray-500">Total a cobrar</span>
                       {/* ✅ CORRECCIÓN: Manejo seguro de undefined */}
                       <span className="font-bold text-lg text-green-600">
-                        {formatCurrency(order.total_amount || 0)}
+                        {formatCurrency(resolveOrderCollectAmount(order))}
                       </span>
                     </div>
                   </CardContent>
