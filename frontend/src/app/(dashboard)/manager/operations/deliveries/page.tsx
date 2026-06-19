@@ -106,33 +106,15 @@ export default function ManagerDeliveriesPage() {
     setError(null);
 
     try {
-      const response = await deliveryService.getAll({
+      const response = await deliveryService.getPage({
         limit: pageSize,
         offset: (page - 1) * pageSize,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
         rider_id: riderFilter !== 'ALL' && riderFilter !== 'UNASSIGNED' ? riderFilter : undefined,
       });
 
-      let items: any[] = [];
-      let total: number = 0;
-      
-      // El backend ahora devuelve { items: [...], total: number }
-      if (response && typeof response === 'object' && 'items' in response && 'total' in response) {
-        items = response.items || [];
-        total = response.total || 0;
-      } else if (Array.isArray(response)) {
-        // Fallback por compatibilidad (puede pasar en desarrollo)
-        items = response;
-        const isFullPage = items.length === pageSize;
-        const calculatedTotal = isFullPage 
-          ? (page * pageSize) + 1 
-          : (page - 1) * pageSize + items.length;
-        total = calculatedTotal;
-      } else {
-        setTotalItems(0);
-        setDeliveries([]);
-        return;
-      }
+      const items: any[] = response.items;
+      setTotalItems(response.total);
 
       setTotalItems(total);
 

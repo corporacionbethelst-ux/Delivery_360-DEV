@@ -169,6 +169,7 @@ async def list_deliveries(
     order_id: Optional[str] = Query(None),
     limit: int = Query(50, le=200),
     offset: int = Query(0),
+    include_total: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -210,13 +211,10 @@ async def list_deliveries(
     if order_id:
         base_stmt = base_stmt.where(d_alias.order_id == _parse_uuid(order_id, "order_id"))
 
-    # 4. Conteo TOTAL antes de aplicar paginación
-    count_stmt = select(func.count()).select_from(base_stmt.subquery())
-    total_result = await db.execute(count_stmt)
-    total = total_result.scalar() or 0
-
-    # 5. Ordenamiento y Paginación
-    stmt = base_stmt.order_by(d_alias.created_at.desc()).limit(limit).offset(offset)
+    # 4. Ordenamiento. La paginación se aplica después de unir
+    # entregas reales + fallback de órdenes asignadas para que el total
+    # y los rangos de página sean estables.
+    stmt = stmt.order_by(d_alias.created_at.desc())
     
     # 6. Ejecución
     result = await db.execute(stmt)
@@ -228,7 +226,48 @@ async def list_deliveries(
         delivery, rider, user, order = row
         items.append(_serialize_delivery(delivery, rider, user, order))
 
-    return {"items": items, "total": total}
+    # 7. Fallback: órdenes asignadas que todavía no tienen registro en deliveries.
+    # Esto cubre órdenes creadas/asignadas desde manager y datos migrados/legacy.
+    missing_delivery_alias = aliased(Delivery)
+    fallback_rider = aliased(Rider)
+    fallback_user = aliased(User)
+    fallback_stmt = (
+        select(o_alias, fallback_rider, fallback_user)
+        .outerjoin(missing_delivery_alias, missing_delivery_alias.order_id == o_alias.id)
+        .outerjoin(fallback_rider, o_alias.assigned_rider_id == fallback_rider.id)
+        .outerjoin(fallback_user, fallback_rider.user_id == fallback_user.id)
+        .where(
+            o_alias.assigned_rider_id.isnot(None),
+            missing_delivery_alias.id.is_(None),
+        )
+        .order_by(o_alias.created_at.desc())
+    )
+
+    if current_user.role == UserRole.REPARTIDOR:
+        rider_profile = await _get_rider_for_user(db, current_user.id)
+        if rider_profile:
+            fallback_stmt = fallback_stmt.where(o_alias.assigned_rider_id == rider_profile.id)
+
+    if rider_id:
+        fallback_stmt = fallback_stmt.where(o_alias.assigned_rider_id == _parse_uuid(rider_id, "rider_id"))
+    if order_id:
+        fallback_stmt = fallback_stmt.where(o_alias.id == _parse_uuid(order_id, "order_id"))
+
+    fallback_result = await db.execute(fallback_stmt)
+    for order, rider, user in fallback_result.all():
+        fallback_item = _serialize_order_as_delivery(order, rider, user)
+        if status and fallback_item["status"] != status:
+            continue
+        items.append(fallback_item)
+
+    items.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+    total = len(items)
+    paginated_items = items[offset:offset + limit]
+
+    if include_total:
+        return {"items": paginated_items, "total": total, "limit": limit, "offset": offset}
+
+    return paginated_items
 
 @router.get("/{delivery_id}")
 async def get_delivery(

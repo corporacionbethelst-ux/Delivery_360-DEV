@@ -61,6 +61,14 @@ export interface DeliveryFilters {
   status?: string; // CAMBIO CRÍTICO: Permitir string genérico
   limit?: number;
   offset?: number; // CAMBIO CRÍTICO: Agregar offset explícito
+  include_total?: boolean;
+}
+
+export interface DeliveryListResponse {
+  items: Delivery[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface DeliveryListResponse {
@@ -81,6 +89,7 @@ export const deliveryService = {
       if (params?.status) queryParams.append('status', params.status);
       if (params?.limit) queryParams.append('limit', String(params.limit));
       if (params?.offset) queryParams.append('offset', String(params.offset));
+      if (params?.include_total) queryParams.append('include_total', 'true');
 
       const query = queryParams.toString() ? `?${queryParams}` : '';
       const response = await api.get<DeliveryListResponse>(`/deliveries${query}`);
@@ -88,6 +97,38 @@ export const deliveryService = {
       return response;
     } catch (error) {
       console.error('[DeliveryService] Error fetching deliveries:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Listar entregas con total real del backend para paginación estable.
+   */
+  getPage: async (params?: Readonly<DeliveryFilters>): Promise<DeliveryListResponse> => {
+    try {
+      const queryParams = new URLSearchParams();
+
+      if (params?.rider_id) queryParams.append('rider_id', params.rider_id);
+      if (params?.status) queryParams.append('status', params.status);
+      if (params?.limit) queryParams.append('limit', String(params.limit));
+      if (params?.offset) queryParams.append('offset', String(params.offset));
+      queryParams.append('include_total', 'true');
+
+      const query = queryParams.toString() ? `?${queryParams}` : '';
+      const response = await api.get<Delivery[] | DeliveryListResponse>(`/deliveries${query}`);
+
+      if (Array.isArray(response)) {
+        return {
+          items: response,
+          total: response.length,
+          limit: params?.limit ?? response.length,
+          offset: params?.offset ?? 0,
+        };
+      }
+
+      return response;
+    } catch (error) {
+      console.error('[DeliveryService] Error fetching paginated deliveries:', error);
       throw error;
     }
   },
