@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -121,6 +121,7 @@ async def list_deliveries(
     """
     Lista entregas con JOINs explícitos para obtener datos de Riders, Users y Orders.
     Soporta paginación y filtros por estado, rider u orden.
+    Devuelve: { "items": [...], "total": <count_real> }
     """
     # 1. Definición de Alias para evitar ambigüedades en JOINs
     d_alias = aliased(Delivery)
@@ -128,8 +129,8 @@ async def list_deliveries(
     u_alias = aliased(User)
     o_alias = aliased(Order)
 
-    # 2. Construcción de consulta con JOINs explícitos
-    stmt = (
+    # 2. Construcción de consulta base SIN paginación (para contar)
+    base_stmt = (
         select(d_alias, r_alias, u_alias, o_alias)
         .outerjoin(r_alias, d_alias.rider_id == r_alias.id)
         .outerjoin(u_alias, r_alias.user_id == u_alias.id)
@@ -141,34 +142,39 @@ async def list_deliveries(
         rider_profile = await _get_rider_for_user(db, current_user.id)
         if not rider_profile:
             raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
-        stmt = stmt.where(d_alias.rider_id == rider_profile.id)
+        base_stmt = base_stmt.where(d_alias.rider_id == rider_profile.id)
 
     if status:
         try:
-            stmt = stmt.where(d_alias.status == DeliveryStatus(status))
+            base_stmt = base_stmt.where(d_alias.status == DeliveryStatus(status))
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Estado inválido: {status}")
     
     if rider_id:
-        stmt = stmt.where(d_alias.rider_id == _parse_uuid(rider_id, "rider_id"))
+        base_stmt = base_stmt.where(d_alias.rider_id == _parse_uuid(rider_id, "rider_id"))
         
     if order_id:
-        stmt = stmt.where(d_alias.order_id == _parse_uuid(order_id, "order_id"))
+        base_stmt = base_stmt.where(d_alias.order_id == _parse_uuid(order_id, "order_id"))
 
-    # 4. Ordenamiento y Paginación
-    stmt = stmt.order_by(d_alias.created_at.desc()).limit(limit).offset(offset)
+    # 4. Conteo TOTAL antes de aplicar paginación
+    count_stmt = select(func.count()).select_from(base_stmt.subquery())
+    total_result = await db.execute(count_stmt)
+    total = total_result.scalar() or 0
+
+    # 5. Ordenamiento y Paginación
+    stmt = base_stmt.order_by(d_alias.created_at.desc()).limit(limit).offset(offset)
     
-    # 5. Ejecución
+    # 6. Ejecución
     result = await db.execute(stmt)
     rows = result.all()
 
-    # 6. Serialización
+    # 7. Serialización
     items = []
     for row in rows:
         delivery, rider, user, order = row
         items.append(_serialize_delivery(delivery, rider, user, order))
 
-    return items
+    return {"items": items, "total": total}
 
 @router.get("/{delivery_id}")
 async def get_delivery(
