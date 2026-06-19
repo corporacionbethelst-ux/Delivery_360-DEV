@@ -114,20 +114,27 @@ export default function ManagerDeliveriesPage() {
       });
 
       let items: any[] = [];
+      let total: number = 0;
       
-      if (Array.isArray(response)) {
+      // El backend ahora devuelve { items: [...], total: number }
+      if (response && typeof response === 'object' && 'items' in response && 'total' in response) {
+        items = response.items || [];
+        total = response.total || 0;
+      } else if (Array.isArray(response)) {
+        // Fallback por compatibilidad (puede pasar en desarrollo)
         items = response;
         const isFullPage = items.length === pageSize;
         const calculatedTotal = isFullPage 
           ? (page * pageSize) + 1 
           : (page - 1) * pageSize + items.length;
-        
-        setTotalItems(calculatedTotal);
+        total = calculatedTotal;
       } else {
         setTotalItems(0);
         setDeliveries([]);
         return;
       }
+
+      setTotalItems(total);
 
       const enrichedData: DeliveryRow[] = items.map((item: any) => {
         const rider = item.rider;

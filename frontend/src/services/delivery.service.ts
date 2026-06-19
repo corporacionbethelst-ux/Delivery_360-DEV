@@ -63,11 +63,17 @@ export interface DeliveryFilters {
   offset?: number; // CAMBIO CRÍTICO: Agregar offset explícito
 }
 
+export interface DeliveryListResponse {
+  items: Delivery[];
+  total: number;
+}
+
 export const deliveryService = {
   /**
    * Listar entregas con filtros, paginación y offset.
+   * Devuelve: { items: [...], total: number }
    */
-  getAll: async (params?: Readonly<DeliveryFilters>): Promise<Delivery[]> => {
+  getAll: async (params?: Readonly<DeliveryFilters>): Promise<DeliveryListResponse> => {
     try {
       const queryParams = new URLSearchParams();
       
@@ -77,7 +83,7 @@ export const deliveryService = {
       if (params?.offset) queryParams.append('offset', String(params.offset));
 
       const query = queryParams.toString() ? `?${queryParams}` : '';
-      const response = await api.get<Delivery[]>(`/deliveries${query}`);
+      const response = await api.get<DeliveryListResponse>(`/deliveries${query}`);
       
       return response;
     } catch (error) {
