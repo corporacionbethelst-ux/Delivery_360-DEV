@@ -116,6 +116,8 @@ export default function ManagerDeliveriesPage() {
       const items: any[] = response.items;
       setTotalItems(response.total);
 
+      setTotalItems(total);
+
       const enrichedData: DeliveryRow[] = items.map((item: any) => {
         const rider = item.rider;
         const hasRider = !!rider && typeof rider === 'object';
