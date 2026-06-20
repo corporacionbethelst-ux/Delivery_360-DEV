@@ -67,13 +67,8 @@ export interface DeliveryFilters {
 export interface DeliveryListResponse {
   items: Delivery[];
   total: number;
-  limit: number;
-  offset: number;
-}
-
-export interface DeliveryListResponse {
-  items: Delivery[];
-  total: number;
+  limit?: number;
+  offset?: number;
 }
 
 export const deliveryService = {
@@ -103,6 +98,7 @@ export const deliveryService = {
 
   /**
    * Listar entregas con total real del backend para paginación estable.
+   * Maneja fallback si el backend devuelve array directo.
    */
   getPage: async (params?: Readonly<DeliveryFilters>): Promise<DeliveryListResponse> => {
     try {
@@ -117,6 +113,7 @@ export const deliveryService = {
       const query = queryParams.toString() ? `?${queryParams}` : '';
       const response = await api.get<Delivery[] | DeliveryListResponse>(`/deliveries${query}`);
 
+      // Fallback de seguridad si el backend devuelve array directo
       if (Array.isArray(response)) {
         return {
           items: response,
@@ -166,8 +163,6 @@ export const deliveryService = {
   updateLocation: async (id: string, lat: number, lng: number): Promise<void> => {
     if (!id) throw new Error('[DeliveryService] ID requerido');
     try {
-      // Asumiendo que el endpoint es /{id}/location. 
-      // Si tu backend usa otro path, ajústalo aquí.
       await api.patch(`/deliveries/${id}/location`, { 
         lat,
         lng,
@@ -182,9 +177,10 @@ export const deliveryService = {
 
   GetActiveTracking: async (): Promise<Delivery[]> => {
      try {
-       // Obtenemos solo las que están en ruta para no cargar todo el historial
-       const response = await api.get<Delivery[]>('/deliveries?status=EN_ROUTE&limit=100');
-       return response;
+       const response = await api.get<Delivery[] | DeliveryListResponse>('/deliveries?status=EN_ROUTE&limit=100&include_total=true');
+       
+       if (Array.isArray(response)) return response;
+       return response.items || [];
      } catch (error) {
        console.error('[DeliveryService] Error fetching active tracking:', error);
        throw error;
@@ -193,8 +189,7 @@ export const deliveryService = {
   
   getLiveTracking: async (): Promise<Delivery[]> => {
     try {
-      // Pedimos un límite mayor para el mapa
-      const response = await api.get<Delivery[]>('/deliveries?limit=100&status=EN_ROUTE');
+      const response = await api.get<Delivery[] | DeliveryListResponse>('/deliveries?limit=100&status=EN_ROUTE&include_total=true');
 
       const isValidCoordinate = (value: number | string | null | undefined, min: number, max: number): boolean => {
         if (value === null || value === undefined || value === '') return false;
@@ -202,8 +197,10 @@ export const deliveryService = {
         return Number.isFinite(coordinate) && coordinate >= min && coordinate <= max;
       };
       
+      const items = Array.isArray(response) ? response : (response.items || []);
+
       // Filtramos cliente-side para asegurarnos que tengan coordenadas válidas
-      return response.filter(d => 
+      return items.filter(d => 
         isValidCoordinate(d.current_latitude, -90, 90) &&
         isValidCoordinate(d.current_longitude, -180, 180) &&
         [ 'INICIADA', 'EN_PICKUP', 'EN_ROUTE', 'EN_DESTINO' ].includes(d.status)

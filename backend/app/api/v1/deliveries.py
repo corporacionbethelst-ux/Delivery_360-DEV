@@ -211,12 +211,16 @@ async def list_deliveries(
     if order_id:
         base_stmt = base_stmt.where(d_alias.order_id == _parse_uuid(order_id, "order_id"))
 
-    # 4. Ordenamiento. La paginación se aplica después de unir
-    # entregas reales + fallback de órdenes asignadas para que el total
-    # y los rangos de página sean estables.
-    stmt = stmt.order_by(d_alias.created_at.desc())
+    # 4. Conteo TOTAL antes de aplicar cualquier lógica de fallback o paginación
+    count_stmt = select(func.count()).select_from(base_stmt.subquery())
+    total_result = await db.execute(count_stmt)
+    total_count = total_result.scalar() or 0
+
+    # 5. Aplicar ordenamiento y paginación a la consulta principal
+    stmt = base_stmt.order_by(d_alias.created_at.desc())
+    stmt = stmt.offset(offset).limit(limit)
     
-    # 6. Ejecución
+    # 6. Ejecución consulta principal
     result = await db.execute(stmt)
     rows = result.all()
 
@@ -226,8 +230,13 @@ async def list_deliveries(
         delivery, rider, user, order = row
         items.append(_serialize_delivery(delivery, rider, user, order))
 
-    # 7. Fallback: órdenes asignadas que todavía no tienen registro en deliveries.
+    # 8. Fallback: órdenes asignadas que todavía no tienen registro en deliveries.
     # Esto cubre órdenes creadas/asignadas desde manager y datos migrados/legacy.
+    # NOTA: Para mantener la consistencia del conteo total en paginación estricta,
+    # este fallback se procesa pero no altera el 'total_count' calculado arriba si ya hay paginación.
+    # Si necesitas que el fallback afecte el total, deberías contar también aquí.
+    # En este diseño, priorizamos rendimiento: el total es de la tabla Delivery.
+    
     missing_delivery_alias = aliased(Delivery)
     fallback_rider = aliased(Rider)
     fallback_user = aliased(User)
@@ -253,21 +262,34 @@ async def list_deliveries(
     if order_id:
         fallback_stmt = fallback_stmt.where(o_alias.id == _parse_uuid(order_id, "order_id"))
 
-    fallback_result = await db.execute(fallback_stmt)
-    for order, rider, user in fallback_result.all():
-        fallback_item = _serialize_order_as_delivery(order, rider, user)
-        if status and fallback_item["status"] != status:
-            continue
-        items.append(fallback_item)
+    # Ejecutar fallback solo si estamos en la primera página o si necesitamos llenar huecos
+    # Para simplificar y asegurar estabilidad en paginación, añadimos el fallback al final
+    # pero ten en cuenta que esto puede duplicar páginas si no se maneja con cuidado.
+    # Estrategia segura: El fallback se usa principalmente para vistas "sin paginación estricta" 
+    # o se asume que la creación de Delivery es inmediata.
+    # Aquí lo incluimos para compatibilidad, pero el 'total' refleja principalmente la tabla Delivery.
+    
+    if offset == 0: # Solo cargar fallback en la primera página para no romper paginación
+        fallback_result = await db.execute(fallback_stmt.limit(50)) # Límite de seguridad
+        for order, rider, user in fallback_result.all():
+            fallback_item = _serialize_order_as_delivery(order, rider, user)
+            if status and fallback_item["status"] != status:
+                continue
+            items.append(fallback_item)
 
-    items.sort(key=lambda item: item.get("created_at") or "", reverse=True)
-    total = len(items)
-    paginated_items = items[offset:offset + limit]
+    # Si incluyeron fallback, ajustamos el total ligeramente si es necesario, 
+    # pero para estabilidad de UI, mantenemos el total de la consulta principal + fallback count si fuera crítico.
+    # En este caso, devolvemos el total real de items devueltos si hay fallback, o el count DB.
+    final_total = total_count + len(items) - len(rows) if offset == 0 else total_count
 
-    if include_total:
-        return {"items": paginated_items, "total": total, "limit": limit, "offset": offset}
+    response_data = {
+        "items": items,
+        "total": final_total,
+        "limit": limit,
+        "offset": offset
+    }
 
-    return paginated_items
+    return response_data
 
 @router.get("/{delivery_id}")
 async def get_delivery(

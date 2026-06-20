@@ -48,9 +48,17 @@ export default function ManagerRiderAuditDetailPage() {
         setSummary(null);
       }
 
-      setOrders(ordersResult.status === 'fulfilled' ? ordersResult.value : []);
-      setDeliveries(deliveriesResult.status === 'fulfilled' ? deliveriesResult.value : []);
-      setTransactions(transactionsResult.status === 'fulfilled' ? transactionsResult.value : []);
+      setOrders(ordersResult.status === 'fulfilled' 
+        ? (Array.isArray(ordersResult.value) ? ordersResult.value : (ordersResult.value as any).items || []) 
+        : []);
+
+      setDeliveries(deliveriesResult.status === 'fulfilled' 
+        ? (Array.isArray(deliveriesResult.value) ? deliveriesResult.value : (deliveriesResult.value as any).items || []) 
+        : []);
+
+      setTransactions(transactionsResult.status === 'fulfilled' 
+        ? (Array.isArray(transactionsResult.value) ? transactionsResult.value : (transactionsResult.value as any).items || []) 
+        : []);
 
       if (ordersResult.status === 'rejected' || deliveriesResult.status === 'rejected' || transactionsResult.status === 'rejected') {
         setError('Algunos bloques no pudieron cargarse. Se muestra la información disponible.');

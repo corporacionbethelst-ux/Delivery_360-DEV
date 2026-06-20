@@ -39,8 +39,9 @@ interface DeliveryRow {
   customer_name: string;
 }
 
-const ROWS_PER_PAGE_OPTIONS = [20, 30, 40, 50];
-const DEFAULT_PAGE_SIZE = 20;
+// Opciones estrictas para filas por página
+const ROWS_PER_PAGE_OPTIONS = [20, 25, 50, 100];
+const DEFAULT_PAGE_SIZE = 20; // Valor inicial seguro que existe en las opciones
 
 // --- Helpers de Utilidad (Pure Functions) ---
 
@@ -88,15 +89,26 @@ export default function ManagerDeliveriesPage() {
 
   // Paginación y Filtros
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [riderFilter, setRiderFilter] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Cálculos derivados (Memoizados)
-  const totalPages = useMemo(() => Math.ceil(totalItems / pageSize), [totalItems, pageSize]);
-  const startIndex = useMemo(() => (totalItems === 0 ? 0 : (page - 1) * pageSize + 1), [totalItems, page, pageSize]);
-  const endIndex = useMemo(() => Math.min(page * pageSize, totalItems), [page, pageSize, totalItems]);
+  // Cálculos derivados (Memoizados y Blindados)
+  const totalPages = useMemo(() => {
+    if (totalItems === 0) return 1;
+    return Math.max(1, Math.ceil(totalItems / pageSize));
+  }, [totalItems, pageSize]);
+
+  const startIndex = useMemo(() => {
+    if (totalItems === 0) return 0;
+    return (page - 1) * pageSize + 1;
+  }, [totalItems, page, pageSize]);
+
+  const endIndex = useMemo(() => {
+    if (totalItems === 0) return 0;
+    return Math.min(page * pageSize, totalItems);
+  }, [page, pageSize, totalItems]);
 
   // --- Lógica de Carga Robusta ---
   const loadDeliveries = useCallback(async (isRetry = false) => {
@@ -106,17 +118,24 @@ export default function ManagerDeliveriesPage() {
     setError(null);
 
     try {
+      // Validación de seguridad: Si la página actual excede el total posible, resetear a 1
+      // Esto previene el bug de "página en blanco" al cambiar tamaño de página
+      const maxPossiblePages = Math.max(1, Math.ceil(totalItems / pageSize));
+      const safePage = page > maxPossiblePages ? 1 : page;
+      if (safePage !== page) setPage(safePage);
+
       const response = await deliveryService.getPage({
         limit: pageSize,
-        offset: (page - 1) * pageSize,
+        offset: (safePage - 1) * pageSize,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
         rider_id: riderFilter !== 'ALL' && riderFilter !== 'UNASSIGNED' ? riderFilter : undefined,
+        include_total: true,
       });
 
-      const items: any[] = response.items;
-      setTotalItems(response.total);
-
-      setTotalItems(total);
+      const items: any[] = response.items || [];
+      
+      // Actualizar total primero para recalcular páginas
+      setTotalItems(response.total || 0);
 
       const enrichedData: DeliveryRow[] = items.map((item: any) => {
         const rider = item.rider;
@@ -156,7 +175,7 @@ export default function ManagerDeliveriesPage() {
       setIsLoading(false);
       setIsRetrying(false);
     }
-  }, [page, pageSize, statusFilter, riderFilter, router]);
+  }, [page, pageSize, statusFilter, riderFilter, router, totalItems]);
 
   useEffect(() => {
     loadDeliveries();
@@ -197,17 +216,22 @@ export default function ManagerDeliveriesPage() {
     });
   }, [deliveries, riderFilter, searchTerm]);
 
-  // --- Handlers ---
+  // --- Handlers Blindados ---
   const handlePageChange = (newPage: number) => {
-    if (newPage >= 1 && newPage <= totalPages) {
-      setPage(newPage);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+    // Validación estricta de rangos
+    const safePage = Math.max(1, Math.min(newPage, totalPages));
+    if (safePage === page) return; // Evitar recarga innecesaria
+    
+    setPage(safePage);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handlePageSizeChange = (newSize: string) => {
-    setPageSize(Number(newSize));
-    setPage(1);
+  const handlePageSizeChange = (newSizeStr: string) => {
+    const newSize = Number(newSizeStr);
+    if (!ROWS_PER_PAGE_OPTIONS.includes(newSize)) return;
+
+    setPageSize(newSize);
+    setPage(1); // Siempre volver a la página 1 al cambiar tamaño
   };
 
   const handleStatusChange = (val: string) => {
@@ -349,7 +373,10 @@ export default function ManagerDeliveriesPage() {
               
               <div className="w-full sm:w-32 space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">Filas por página</label>
-                <Select value={String(pageSize)} onValueChange={handlePageSizeChange}>
+                <Select 
+                  value={String(pageSize)} 
+                  onValueChange={handlePageSizeChange}
+                >
                   <SelectTrigger className="h-9 bg-white shadow-none">
                     <SelectValue />
                   </SelectTrigger>
@@ -548,7 +575,7 @@ export default function ManagerDeliveriesPage() {
         {!isLoading && deliveries.length > 0 && (
           <div className="border-t border-slate-200 bg-slate-50 px-6 py-4 flex items-center justify-between">
             <div className="text-xs text-slate-500 hidden md:block">
-              Página <span className="font-medium text-slate-900">{page}</span> de <span className="font-medium text-slate-900">{totalPages || 1}</span>
+              Página <span className="font-medium text-slate-900">{page}</span> de <span className="font-medium text-slate-900">{totalPages}</span>
             </div>
             
             <div className="flex items-center gap-2 w-full md:w-auto justify-end">
