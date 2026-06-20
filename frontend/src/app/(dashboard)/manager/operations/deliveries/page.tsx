@@ -39,9 +39,9 @@ interface DeliveryRow {
   customer_name: string;
 }
 
-// Opciones estrictas para filas por página
-const ROWS_PER_PAGE_OPTIONS = [20, 25, 50, 100];
-const DEFAULT_PAGE_SIZE = 20; // Valor inicial seguro que existe en las opciones
+// CRÍTICO: Alinear opciones con el valor por defecto
+const ROWS_PER_PAGE_OPTIONS = [20, 30, 40, 50];
+const DEFAULT_PAGE_SIZE = 20; // Debe coincidir con la primera opción
 
 // --- Helpers de Utilidad (Pure Functions) ---
 
@@ -89,12 +89,13 @@ export default function ManagerDeliveriesPage() {
 
   // Paginación y Filtros
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [riderFilter, setRiderFilter] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Cálculos derivados (Memoizados y Blindados)
+  // Cálculos derivados (Memoizados)
+  // Calculamos totalPages máximo posible, pero validamos en la carga real
   const totalPages = useMemo(() => {
     if (totalItems === 0) return 1;
     return Math.max(1, Math.ceil(totalItems / pageSize));
@@ -106,36 +107,51 @@ export default function ManagerDeliveriesPage() {
   }, [totalItems, page, pageSize]);
 
   const endIndex = useMemo(() => {
-    if (totalItems === 0) return 0;
     return Math.min(page * pageSize, totalItems);
   }, [page, pageSize, totalItems]);
 
   // --- Lógica de Carga Robusta ---
-  const loadDeliveries = useCallback(async (isRetry = false) => {
+  const loadDeliveries = useCallback(async (isRetry = false, requestedPage: number = page) => {
     if (isRetry) setIsRetrying(true);
     else setIsLoading(true);
     
     setError(null);
 
     try {
-      // Validación de seguridad: Si la página actual excede el total posible, resetear a 1
-      // Esto previene el bug de "página en blanco" al cambiar tamaño de página
-      const maxPossiblePages = Math.max(1, Math.ceil(totalItems / pageSize));
-      const safePage = page > maxPossiblePages ? 1 : page;
-      if (safePage !== page) setPage(safePage);
+      // Calcular offset basado en la página solicitada
+      const currentOffset = (requestedPage - 1) * pageSize;
 
       const response = await deliveryService.getPage({
         limit: pageSize,
-        offset: (safePage - 1) * pageSize,
+        offset: currentOffset,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
         rider_id: riderFilter !== 'ALL' && riderFilter !== 'UNASSIGNED' ? riderFilter : undefined,
         include_total: true,
       });
 
       const items: any[] = response.items || [];
-      
-      // Actualizar total primero para recalcular páginas
-      setTotalItems(response.total || 0);
+      const newTotal = response.total || 0;
+
+      // CORRECCIÓN CRÍTICA DE PAGINACIÓN:
+      // Si pedimos una página y viene vacía, pero el total dice que hay datos,
+      // significa que el total cambió (borraron datos) o nos pasamos del límite.
+      // En lugar de mostrar vacío o saltar a la pág 1 bruscamente, ajustamos la página.
+      if (items.length === 0 && newTotal > 0 && requestedPage > 1) {
+        const lastValidPage = Math.max(1, Math.ceil(newTotal / pageSize));
+        if (lastValidPage < requestedPage) {
+          // Recursivamente cargamos la última página válida sin marcar como error
+          setPage(lastValidPage);
+          // No retornamos aquí, dejamos que el useEffect dispare la carga nuevamente con la nueva página
+          // O forzamos la carga inmediata con la página corregida:
+          return loadDeliveries(false, lastValidPage);
+        }
+      }
+
+      setTotalItems(newTotal);
+      // Solo actualizamos la página del estado si fue corregida arriba, sino mantenemos la solicitada
+      if (requestedPage !== page) {
+         setPage(requestedPage);
+      }
 
       const enrichedData: DeliveryRow[] = items.map((item: any) => {
         const rider = item.rider;
@@ -175,11 +191,11 @@ export default function ManagerDeliveriesPage() {
       setIsLoading(false);
       setIsRetrying(false);
     }
-  }, [page, pageSize, statusFilter, riderFilter, router, totalItems]);
+  }, [pageSize, statusFilter, riderFilter, router, page]); // 'page' se usa solo como fallback, la lógica usa requestedPage
 
   useEffect(() => {
     loadDeliveries();
-  }, [loadDeliveries]);
+  }, [loadDeliveries, page]); // Dependencia de page activa la carga cuando cambia
 
   useEffect(() => {
     const loadRiders = async () => {
@@ -194,12 +210,14 @@ export default function ManagerDeliveriesPage() {
     loadRiders();
   }, []);
 
+  // Filtrado local solo para búsqueda de texto (no afecta paginación del servidor)
   const filteredDeliveries = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
+    if (!term) return deliveries; // Si no hay búsqueda, mostramos lo que vino del server
+    
     return deliveries.filter((delivery) => {
       const matchesRider = riderFilter !== 'UNASSIGNED' || !delivery.rider_id;
       if (!matchesRider) return false;
-      if (!term) return true;
 
       const riderName = delivery.rider_details
         ? `${delivery.rider_details.first_name} ${delivery.rider_details.last_name}`.trim()
@@ -216,22 +234,18 @@ export default function ManagerDeliveriesPage() {
     });
   }, [deliveries, riderFilter, searchTerm]);
 
-  // --- Handlers Blindados ---
+  // --- Handlers ---
   const handlePageChange = (newPage: number) => {
-    // Validación estricta de rangos
-    const safePage = Math.max(1, Math.min(newPage, totalPages));
-    if (safePage === page) return; // Evitar recarga innecesaria
-    
-    setPage(safePage);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (newPage >= 1 && newPage <= totalPages) {
+      setPage(newPage);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
-  const handlePageSizeChange = (newSizeStr: string) => {
-    const newSize = Number(newSizeStr);
-    if (!ROWS_PER_PAGE_OPTIONS.includes(newSize)) return;
-
-    setPageSize(newSize);
-    setPage(1); // Siempre volver a la página 1 al cambiar tamaño
+  const handlePageSizeChange = (newSize: string) => {
+    const sizeNum = Number(newSize);
+    setPageSize(sizeNum);
+    setPage(1); // Reset a página 1 al cambiar tamaño
   };
 
   const handleStatusChange = (val: string) => {
@@ -373,10 +387,7 @@ export default function ManagerDeliveriesPage() {
               
               <div className="w-full sm:w-32 space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">Filas por página</label>
-                <Select 
-                  value={String(pageSize)} 
-                  onValueChange={handlePageSizeChange}
-                >
+                <Select value={String(pageSize)} onValueChange={handlePageSizeChange}>
                   <SelectTrigger className="h-9 bg-white shadow-none">
                     <SelectValue />
                   </SelectTrigger>
@@ -390,8 +401,12 @@ export default function ManagerDeliveriesPage() {
             </div>
 
             <div className="text-xs font-medium text-slate-500 bg-slate-50 px-3 py-2 rounded-md border border-slate-200 whitespace-nowrap">
-              Mostrando <span className="text-slate-900 font-bold">{startIndex}-{endIndex}</span> de <span className="text-slate-900 font-bold">{totalItems}</span> registros
-              {searchTerm && <span> · {filteredDeliveries.length} coincidencias en página</span>}
+              {totalItems > 0 ? (
+                <>Mostrando <span className="text-slate-900 font-bold">{startIndex}-{endIndex}</span> de <span className="text-slate-900 font-bold">{totalItems}</span> registros</>
+              ) : (
+                <>Sin registros</>
+              )}
+              {searchTerm && <span className="ml-2">· {filteredDeliveries.length} coincidencias en vista</span>}
             </div>
           </div>
         </CardContent>
@@ -547,7 +562,7 @@ export default function ManagerDeliveriesPage() {
                   );
                 })
               ) : (
-                !error && (
+                !error && !isLoading && (
                   <tr>
                     <td colSpan={8} className="px-6 py-20 text-center">
                       <div className="flex flex-col items-center justify-center text-slate-400 max-w-sm mx-auto">
@@ -556,7 +571,7 @@ export default function ManagerDeliveriesPage() {
                         </div>
                         <p className="text-lg font-semibold text-slate-900">No hay entregas encontradas</p>
                         <p className="text-sm mt-1 text-slate-500 text-center">
-                          No existen registros con los filtros actuales.
+                          {hasActiveFilters ? 'No existen registros con los filtros actuales.' : 'No hay registros en el sistema.'}
                         </p>
                         {hasActiveFilters && (
                           <Button variant="link" onClick={clearFilters} className="mt-4 text-blue-600 font-medium">
@@ -572,7 +587,7 @@ export default function ManagerDeliveriesPage() {
           </table>
         </div>
         
-        {!isLoading && deliveries.length > 0 && (
+        {!isLoading && totalItems > 0 && (
           <div className="border-t border-slate-200 bg-slate-50 px-6 py-4 flex items-center justify-between">
             <div className="text-xs text-slate-500 hidden md:block">
               Página <span className="font-medium text-slate-900">{page}</span> de <span className="font-medium text-slate-900">{totalPages}</span>
