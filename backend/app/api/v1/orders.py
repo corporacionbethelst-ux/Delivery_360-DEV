@@ -5,6 +5,7 @@ from sqlalchemy.orm import joinedload
 from pydantic import BaseModel
 from typing import Optional, List, cast
 from datetime import datetime, timezone, timedelta
+from decimal import Decimal
 import uuid
 import random
 import string
@@ -15,6 +16,8 @@ from app.core.database import get_db
 from app.models.order import Order, OrderStatus, OrderPriority
 from app.models.rider import Rider, RiderStatus, utc_now_naive
 from app.models.user import User, UserRole
+from app.models.delivery import Delivery, DeliveryStatus
+from app.models.financial import Financial, TransactionType, PaymentStatus
 from app.api.v1.auth import get_current_user, require_role
 
 router = APIRouter(prefix="/orders")
@@ -485,11 +488,107 @@ async def update_status(
         order.picked_up_at = now_naive  # type: ignore[assignment]
     elif target == OrderStatus.ENTREGADO:
         order.delivered_at = now_naive  # type: ignore[assignment]
+        
+        # CRITICAL FIX: Ensure delivery and financial records are created when order is marked as delivered
+        await _ensure_delivery_and_financial_records(db, order, now_naive)
+        
     elif target == OrderStatus.FALLIDO:
         order.failure_reason = "delivery_failed"  # type: ignore[assignment]
 
     await db.commit()
     return _order_to_dict(order)
+
+
+async def _ensure_delivery_and_financial_records(db: AsyncSession, order: Order, now: datetime) -> None:
+    """
+    Asegura que cuando una orden se marca como ENTREGADO, existan los registros 
+    correspondientes en las tablas deliveries y financials.
+    
+    Esto soluciona el problema donde órdenes completadas desde el panel de operador
+    o rider no aparecían en la auditoría del manager.
+    """
+    if not order.assigned_rider_id:
+        logger.warning(f"Orden {order.id} marcada como entregada sin rider asignado")
+        return
+    
+    rider_id = order.assigned_rider_id
+    
+    # 1. Verificar/Crear registro en deliveries
+    delivery_result = await db.execute(select(Delivery).where(Delivery.order_id == order.id))
+    delivery = delivery_result.scalar_one_or_none()
+    
+    if not delivery:
+        # Calcular SLA si es posible
+        sla_actual_minutes = None
+        sla_compliant = None
+        total_time = None
+        
+        if order.accepted_at and order.delivered_at:
+            total_time = int((order.delivered_at - order.accepted_at).total_seconds())
+            sla_actual_minutes = int(total_time / 60)
+            
+            if order.sla_deadline:
+                sla_compliant = order.delivered_at <= order.sla_deadline
+        
+        # Crear registro de entrega
+        delivery = Delivery(
+            order_id=order.id,
+            rider_id=rider_id,
+            status=DeliveryStatus.COMPLETADA,
+            started_at=order.accepted_at,
+            completed_at=order.delivered_at,
+            total_time=total_time,
+            sla_expected_minutes=getattr(order, 'sla_minutes', 60),
+            sla_actual_minutes=sla_actual_minutes,
+            sla_compliant=sla_compliant,
+        )
+        db.add(delivery)
+        await db.flush()  # Obtener ID generado
+        logger.info(f"Registro de entrega creado automáticamente para orden {order.id}")
+    else:
+        # Actualizar entrega existente si está en estado adecuado
+        if delivery.status not in [DeliveryStatus.COMPLETADA, DeliveryStatus.FALLIDA]:
+            delivery.status = DeliveryStatus.COMPLETADA
+            delivery.completed_at = now
+            
+            # Recalcular SLA
+            if delivery.started_at:
+                elapsed_minutes = int((now - delivery.started_at).total_seconds() / 60)
+                delivery.sla_actual_minutes = elapsed_minutes
+                if delivery.sla_expected_minutes:
+                    delivery.sla_compliant = elapsed_minutes <= delivery.sla_expected_minutes
+            
+            await db.flush()
+            logger.info(f"Registro de entrega actualizado para orden {order.id}")
+    
+    # 2. Verificar/Crear registro en financials (pago al repartidor)
+    # Usamos idempotency_key para evitar duplicados
+    idempotency_key = f"pago_entrega_{order.id}"
+    
+    financial_result = await db.execute(
+        select(Financial).where(Financial.idempotency_key == idempotency_key)
+    )
+    existing_financial = financial_result.scalar_one_or_none()
+    
+    if not existing_financial:
+        # Calcular pago base por entrega (configurable, aquí usamos un valor base)
+        base_payment = Decimal("2.50")  # Pago base por entrega
+        
+        # Crear registro financiero
+        financial = Financial(
+            rider_id=rider_id,
+            amount=base_payment,
+            transaction_type=TransactionType.PAGO_ENTREGA,
+            description=f"Pago por entrega de orden {getattr(order, 'external_id', order.id)}",
+            reference_id=str(order.id),
+            source_type="order",
+            source_id=str(order.id),
+            idempotency_key=idempotency_key,
+            status=PaymentStatus.PROCESADO,
+        )
+        db.add(financial)
+        await db.flush()
+        logger.info(f"Registro financiero creado automáticamente para orden {order.id} - Rider {rider_id}")
 
 @router.patch("/{order_id}/cancel")
 async def cancel_order(
