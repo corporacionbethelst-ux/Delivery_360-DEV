@@ -16,13 +16,20 @@ def utc_now_naive():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 class NotificationType(str, enum.Enum):
+    """Tipos de notificaciones soportadas por Delivery360."""
     ALERTA_OPERACIONAL = "ALERTA_OPERACIONAL"
     ASIGNACION_PEDIDO = "ASIGNACION_PEDIDO"
+    ENTREGA_COMPLETADA = "ENTREGA_COMPLETADA"
     ESTADO_ENTREGA = "ESTADO_ENTREGA"
     RECORDATORIO = "RECORDATORIO"
     LOGRO = "LOGRO"
     SISTEMA = "SISTEMA"
     URGENTE = "URGENTE"
+    RETIRO_SOLICITADO = "RETIRO_SOLICITADO"
+    RETIRO_APROBADO = "RETIRO_APROBADO"
+    RETIRO_RECHAZADO = "RETIRO_RECHAZADO"
+    SLA_WARNING = "SLA_WARNING"
+    PAGO_RECIBIDO = "PAGO_RECIBIDO"
 
 class NotificationPriority(str, enum.Enum):
     BAJA = "BAJA"
