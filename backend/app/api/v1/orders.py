@@ -19,6 +19,10 @@ from app.models.user import User, UserRole
 from app.models.delivery import Delivery, DeliveryStatus
 from app.models.financial import Financial, TransactionType, PaymentStatus
 from app.api.v1.auth import get_current_user, require_role
+from app.services.notification_service import NotificationService
+from app.services.audit_service import AuditService, get_audit_service
+from app.services.redis_audit_service import get_redis_audit_logger
+from app.models.audit_log import ActionType
 
 router = APIRouter(prefix="/orders")
 logger = logging.getLogger(__name__)
@@ -444,6 +448,7 @@ async def assign_rider(
     if not rider or rider.status != RiderStatus.ACTIVO:
         raise HTTPException(status_code=400, detail="Repartidor no disponible")
 
+    old_rider_id = order.assigned_rider_id
     order.assigned_rider_id = rider.id  # type: ignore[assignment]
     order.status = OrderStatus.ASIGNADO
     order.accepted_at = datetime.now(timezone.utc).replace(tzinfo=None)  # type: ignore[assignment]
@@ -453,6 +458,52 @@ async def assign_rider(
     await _ensure_delivery_record_on_assignment(db, order, rider.id)
     
     await db.commit()
+    
+    # NOTIFICATION: Enviar notificación al rider sobre la nueva asignación
+    try:
+        rider_user = rider.__dict__.get("user")
+        if rider_user and hasattr(rider_user, 'id'):
+            notification_service = NotificationService(db)
+            await notification_service.create_notification(
+                user_id=rider_user.id,
+                notification_type="ASIGNACION_PEDIDO",
+                title="📦 Nuevo Pedido Asignado",
+                message=f"Se te ha asignado el pedido #{order.external_id or str(order.id)[:8]}",
+                data={"order_id": str(order.id), "external_id": order.external_id},
+                channel="push"
+            )
+            logger.info(f"Notificación de asignación enviada al rider {rider.id}")
+    except Exception as e:
+        logger.warning(f"No se pudo enviar notificación de asignación: {e}")
+    
+    # AUDIT LOG (PostgreSQL): Registrar la acción de asignación
+    try:
+        audit_service = get_audit_service(db)
+        action_type = ActionType.REASSIGN if old_rider_id else ActionType.ASSIGN
+        await audit_service.log_action_async(
+            user_id=current_user.id,
+            action=action_type,
+            resource_type="ORDER",
+            resource_id=str(order.id),
+            description=f"Pedido asignado al rider {rider.id}",
+            old_values={"rider_id": str(old_rider_id) if old_rider_id else None},
+            new_values={"rider_id": str(rider.id)},
+        )
+    except Exception as e:
+        logger.warning(f"No se pudo crear audit log en PostgreSQL: {e}")
+    
+    # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
+    try:
+        redis_logger = get_redis_audit_logger()
+        if redis_logger.connected:
+            await redis_logger.log_order_assigned(
+                order_id=str(order.id),
+                rider_id=str(rider.id),
+                assigned_by=str(current_user.id),
+            )
+    except Exception as e:
+        logger.warning(f"No se pudo escribir audit en Redis: {e}")
+    
     refreshed = await db.execute(
         select(Order)
         .options(joinedload(Order.assigned_rider).joinedload(Rider.user))
