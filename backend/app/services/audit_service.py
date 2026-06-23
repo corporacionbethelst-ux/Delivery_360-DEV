@@ -5,11 +5,15 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 import uuid
+import json
+import logging
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit_log import ActionType, AuditLog
+
+logger = logging.getLogger(__name__)
 
 
 class AuditService:
@@ -59,6 +63,47 @@ class AuditService:
         await self.db.commit()
         await self.db.refresh(audit_log)
         return audit_log
+
+    async def log_action_async(
+        self,
+        user_id: Optional[uuid.UUID],
+        action: ActionType,
+        resource_type: str,
+        resource_id: Optional[str] = None,
+        description: Optional[str] = None,
+        old_values: Optional[Dict[str, Any]] = None,
+        new_values: Optional[Dict[str, Any]] = None,
+        changes_summary: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        request_method: Optional[str] = None,
+        request_path: Optional[str] = None,
+        status_code: Optional[int] = None,
+        success: bool = True,
+        error_message: Optional[str] = None,
+    ) -> Optional[AuditLog]:
+        """Registrar una acción de auditoría sin bloquear el flujo principal si falla."""
+        try:
+            return await self.log_action(
+                user_id=user_id,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                description=description,
+                old_values=old_values,
+                new_values=new_values,
+                changes_summary=changes_summary,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                request_method=request_method,
+                request_path=request_path,
+                status_code=status_code,
+                success=success,
+                error_message=error_message,
+            )
+        except Exception as e:
+            logger.error(f"Error creando audit log: {e}")
+            return None
 
     async def get_user_actions(self, user_id: uuid.UUID, limit: int = 100, offset: int = 0) -> List[AuditLog]:
         """Obtener acciones de un usuario."""
