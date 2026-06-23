@@ -324,10 +324,11 @@ async def request_payout(
     
     # NOTIFICATION: Enviar notificación al rider sobre la solicitud de retiro
     try:
+        from app.models.notification import NotificationType
         notification_service = NotificationService(db)
         await notification_service.create_notification(
             user_id=current_user.id,
-            notification_type="RETIRO_SOLICITADO",
+            notification_type=NotificationType.RETIRO_SOLICITADO,
             title="💸 Solicitud de Retiro Creada",
             message=f"Se ha solicitado un retiro de ${requested_amount:.2f}",
             data={"payout_id": str(payout.id), "amount": float(requested_amount)},
