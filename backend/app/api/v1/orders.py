@@ -293,11 +293,18 @@ async def create_order(
     order = Order(**order_kwargs)
 
     if body.rider_id:
-        order.assigned_rider_id = _parse_uuid(body.rider_id, "rider_id")  # type: ignore[assignment]
+        rider_uuid = _parse_uuid(body.rider_id, "rider_id")
+        order.assigned_rider_id = rider_uuid  # type: ignore[assignment]
         order.status = OrderStatus.ASIGNADO
         order.accepted_at = now_naive  # type: ignore[assignment]
 
     db.add(order)
+    await db.flush()  # Obtener ID generado antes de crear delivery
+    
+    # CRITICAL: Si se asigna rider al crear la orden, crear registro en deliveries
+    if body.rider_id:
+        await _ensure_delivery_record_on_assignment(db, order, rider_uuid)
+    
     await db.commit()
     refreshed = await db.execute(
         select(Order)
@@ -440,6 +447,11 @@ async def assign_rider(
     order.assigned_rider_id = rider.id  # type: ignore[assignment]
     order.status = OrderStatus.ASIGNADO
     order.accepted_at = datetime.now(timezone.utc).replace(tzinfo=None)  # type: ignore[assignment]
+    
+    # CRITICAL: Crear registro en deliveries cuando se asigna el repartidor
+    # Esto asegura trazabilidad desde el momento de asignación
+    await _ensure_delivery_record_on_assignment(db, order, rider.id)
+    
     await db.commit()
     refreshed = await db.execute(
         select(Order)
@@ -590,6 +602,41 @@ async def _ensure_delivery_and_financial_records(db: AsyncSession, order: Order,
         await db.flush()
         logger.info(f"Registro financiero creado automáticamente para orden {order.id} - Rider {rider_id}")
 
+
+async def _ensure_delivery_record_on_assignment(db: AsyncSession, order: Order, rider_id: uuid.UUID) -> None:
+    """
+    Crea el registro en la tabla deliveries cuando se asigna un repartidor a una orden.
+    
+    Esto asegura que toda orden asignada tenga trazabilidad desde el inicio,
+    permitiendo que aparezca en la vista de auditoría del manager incluso antes
+    de ser completada.
+    """
+    # Verificar si ya existe un registro de entrega para esta orden
+    delivery_result = await db.execute(select(Delivery).where(Delivery.order_id == order.id))
+    delivery = delivery_result.scalar_one_or_none()
+    
+    if not delivery:
+        # Crear registro de entrega en estado INICIADA/PENDIENTE
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        delivery = Delivery(
+            order_id=order.id,
+            rider_id=rider_id,
+            status=DeliveryStatus.INICIADA,  # Estado inicial cuando se asigna
+            started_at=order.accepted_at or now,
+            sla_expected_minutes=getattr(order, 'sla_minutes', 60),
+        )
+        db.add(delivery)
+        await db.flush()
+        logger.info(f"Registro de entrega creado al asignar rider para orden {order.id} - Rider {rider_id}")
+    else:
+        # Si ya existe pero no tiene rider_id, actualizarlo
+        if not delivery.rider_id:
+            delivery.rider_id = rider_id
+            delivery.status = DeliveryStatus.INICIADA
+            delivery.started_at = order.accepted_at or datetime.now(timezone.utc).replace(tzinfo=None)
+            await db.flush()
+            logger.info(f"Registro de entrega actualizado con rider para orden {order.id}")
+
 @router.patch("/{order_id}/cancel")
 async def cancel_order(
     order_id: str,
@@ -685,6 +732,9 @@ async def assign_order_auto(
     order.assigned_rider_id = best_rider.id
     order.status = OrderStatus.ASIGNADO
     order.accepted_at = utc_now_naive()
+    
+    # CRITICAL: Crear registro en deliveries cuando se asigna el repartidor
+    await _ensure_delivery_record_on_assignment(db, order, best_rider.id)
     
     # 5. Crear notificación para el rider
     try:

@@ -516,7 +516,10 @@ async def complete_delivery(
         )
         db.add(financial)
         logger.info(f"Registro financiero creado para entrega {delivery.id} - Rider {delivery.rider_id}")
-
+    
+    # Asegurar que se guarde cualquier cambio en la entidad delivery antes del commit
+    await db.flush()
+    
     await db.commit()
     
     await db.refresh(delivery, attribute_names=['rider', 'order'])
