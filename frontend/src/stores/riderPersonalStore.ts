@@ -105,7 +105,9 @@ export const useRiderPersonalStore = create<RiderPersonalState>((set, get) => ({
   finishDeliveryAction: async (deliveryId: string, proof: any) => {
     set({ isLoading: true, error: null });
     try {
-      await api.post(`/deliveries/${deliveryId}/finish`, proof);
+      // CORRECCIÓN CRÍTICA: Usar POST en /complete en lugar de /finish
+      // Esto asegura que se dispare la lógica de creación de registros financieros
+      await api.post(`/deliveries/${deliveryId}/complete`, proof);
       
       // Actualizar lista localmente
       set((state) => ({

@@ -4,6 +4,7 @@ Optimizado para rendimiento, sin logs de debug y con serialización robusta.
 """
 from datetime import datetime, timezone
 import uuid
+import logging
 from typing import Optional, Dict, Any, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -18,6 +19,9 @@ from app.models.delivery import Delivery, DeliveryStatus
 from app.models.order import Order, OrderStatus
 from app.models.rider import Rider, RiderStatus
 from app.models.user import User, UserRole
+from app.models.financial import Financial, TransactionType, PaymentStatus
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/deliveries")
 
@@ -445,7 +449,7 @@ async def complete_delivery(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Marca la entrega como completada exitosamente."""
+    """Marca la entrega como completada exitosamente y genera el registro financiero."""
     result = await db.execute(select(Delivery).where(Delivery.id == _parse_uuid(delivery_id, "delivery_id")))
     delivery = result.scalar_one_or_none()
     if not delivery:
@@ -485,6 +489,33 @@ async def complete_delivery(
     if order:
         order.status = OrderStatus.ENTREGADO
         order.delivered_at = now
+
+    # CRITICAL: Crear registro financiero para el pago al repartidor
+    # Usamos idempotency_key para evitar duplicados en caso de reintentos
+    idempotency_key = f"pago_entrega_{delivery.order_id}"
+    
+    financial_result = await db.execute(
+        select(Financial).where(Financial.idempotency_key == idempotency_key)
+    )
+    existing_financial = financial_result.scalar_one_or_none()
+    
+    if not existing_financial and delivery.rider_id:
+        from decimal import Decimal
+        base_payment = Decimal("2.50")  # Pago base por entrega (configurable)
+        
+        financial = Financial(
+            rider_id=delivery.rider_id,
+            amount=base_payment,
+            transaction_type=TransactionType.PAGO_ENTREGA,
+            description=f"Pago por entrega de orden {order.external_id if order else delivery.order_id}",
+            reference_id=str(order.id) if order else str(delivery.order_id),
+            source_type="delivery",
+            source_id=str(delivery.id),
+            idempotency_key=idempotency_key,
+            status=PaymentStatus.PROCESADO,
+        )
+        db.add(financial)
+        logger.info(f"Registro financiero creado para entrega {delivery.id} - Rider {delivery.rider_id}")
 
     await db.commit()
     

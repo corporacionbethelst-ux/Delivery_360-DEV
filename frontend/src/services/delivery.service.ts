@@ -154,7 +154,9 @@ export const deliveryService = {
   complete: async (id: string, proof: DeliveryProofInput): Promise<any> => {
     if (!id) throw new Error('[DeliveryService] ID requerido');
     try {
-      return await api.patch(`/deliveries/${id}/complete`, proof);
+      // CORRECCIÓN CRÍTICA: Usar POST en lugar de PATCH para el endpoint /complete
+      // Esto asegura que se dispare la lógica de creación de registros financieros
+      return await api.post(`/deliveries/${id}/complete`, proof);
     } catch (error: any) {
       throw new Error(error.response?.data?.detail || 'Error al completar');
     }

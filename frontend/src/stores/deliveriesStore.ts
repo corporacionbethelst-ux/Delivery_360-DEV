@@ -242,7 +242,9 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
   finishDelivery: async (deliveryId: string, proof: Omit<ProofOfDelivery, 'id' | 'deliveryId' | 'timestamp'>) => {
     set({ isLoading: true, error: null });
     try {
-      const response = await api.post<any>(`/deliveries/${deliveryId}/finish`, proof);
+      // CORRECCIÓN CRÍTICA: Usar POST en /complete en lugar de /finish
+      // Esto asegura que se dispare la lógica de creación de registros financieros en deliveries y financials
+      const response = await api.post<any>(`/deliveries/${deliveryId}/complete`, proof);
       const updated = get().normalizeDelivery(response.data);
       
       set((state) => ({
