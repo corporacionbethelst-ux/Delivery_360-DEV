@@ -11,11 +11,15 @@ from app.core.database import get_db
 from app.models.payout import Payout, PayoutStatus, PayoutMethod, PayoutStatusHistory
 from app.models.financial import Financial, TransactionType, PaymentStatus
 from app.services.financial_service import FinancialService
+from app.services.notification_service import NotificationService
+from app.services.redis_audit_service import get_redis_audit_logger
+from app.services.audit_service import get_audit_service
 from app.models.rider import Rider
 from app.models.user import User, UserRole
 from app.models.order import Order, OrderStatus
 from app.api.v1.auth import get_current_user, require_role
 from app.models.rider import utc_now_naive
+from app.models.audit_log import ActionType
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/payouts", tags=["Payouts"])
@@ -317,6 +321,35 @@ async def request_payout(
         balance_after,
     )
     await db.commit()
+    
+    # NOTIFICATION: Enviar notificación al rider sobre la solicitud de retiro
+    try:
+        notification_service = NotificationService(db)
+        await notification_service.create_notification(
+            user_id=current_user.id,
+            notification_type="RETIRO_SOLICITADO",
+            title="💸 Solicitud de Retiro Creada",
+            message=f"Se ha solicitado un retiro de ${requested_amount:.2f}",
+            data={"payout_id": str(payout.id), "amount": float(requested_amount)},
+            channel="push"
+        )
+        logger.info(f"Notificación de retiro enviada al rider {rider.id}")
+    except Exception as e:
+        logger.warning(f"No se pudo enviar notificación de retiro: {e}")
+    
+    # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
+    try:
+        redis_logger = get_redis_audit_logger()
+        if redis_logger.connected:
+            await redis_logger.log_withdrawal_requested(
+                payout_id=str(payout.id),
+                rider_id=str(rider.id),
+                amount=float(requested_amount),
+                requested_by=str(current_user.id),
+            )
+    except Exception as e:
+        logger.warning(f"No se pudo escribir audit en Redis: {e}")
+    
     await db.refresh(payout)
 
     logger.info("Retiro solicitado: %s por rider %s", payout.id, rider.id)
@@ -437,6 +470,34 @@ async def approve_payout(
         balance_before,
         balance_after,
     )
+    
+    # NOTIFICATION: Enviar notificación al rider sobre el retiro aprobado
+    try:
+        notification_service = NotificationService(db)
+        await notification_service.create_notification(
+            user_id=payout.rider_id,
+            notification_type="RETIRO_APROBADO",
+            title="✅ Retiro Aprobado",
+            message=f"Tu retiro de ${float(payout.amount):.2f} ha sido aprobado y procesado",
+            data={"payout_id": str(payout.id), "amount": float(payout.amount)},
+            channel="push"
+        )
+        logger.info(f"Notificación de aprobación de retiro enviada al rider {payout.rider_id}")
+    except Exception as e:
+        logger.warning(f"No se pudo enviar notificación de aprobación de retiro: {e}")
+    
+    # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
+    try:
+        redis_logger = get_redis_audit_logger()
+        if redis_logger.connected:
+            await redis_logger.log_withdrawal_approved(
+                payout_id=str(payout.id),
+                rider_id=str(payout.rider_id),
+                approved_by=str(current_user.id),
+            )
+    except Exception as e:
+        logger.warning(f"No se pudo escribir audit en Redis: {e}")
+    
     await db.commit()
     await db.refresh(payout)
 
@@ -487,6 +548,40 @@ async def reject_payout(
         balance_before,
         balance_after,
     )
+    
+    # NOTIFICATION: Enviar notificación al rider sobre el retiro rechazado
+    try:
+        notification_service = NotificationService(db)
+        await notification_service.create_notification(
+            user_id=payout.rider_id,
+            notification_type="RETIRO_RECHAZADO",
+            title="❌ Retiro Rechazado",
+            message=f"Tu solicitud de retiro ha sido rechazada: {reason}",
+            data={"payout_id": str(payout.id), "reason": reason},
+            channel="push"
+        )
+        logger.info(f"Notificación de rechazo de retiro enviada al rider {payout.rider_id}")
+    except Exception as e:
+        logger.warning(f"No se pudo enviar notificación de rechazo de retiro: {e}")
+    
+    # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
+    try:
+        redis_logger = get_redis_audit_logger()
+        if redis_logger.connected:
+            await redis_logger.log_event(
+                event_type="WITHDRAWAL_REJECTED",
+                resource_type="PAYOUT",
+                resource_id=str(payout.id),
+                user_id=str(current_user.id),
+                details={
+                    "rider_id": str(payout.rider_id),
+                    "reason": reason,
+                    "action": "reject",
+                },
+            )
+    except Exception as e:
+        logger.warning(f"No se pudo escribir audit en Redis: {e}")
+    
     await db.commit()
     await db.refresh(payout)
 
