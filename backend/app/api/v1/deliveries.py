@@ -20,6 +20,10 @@ from app.models.order import Order, OrderStatus
 from app.models.rider import Rider, RiderStatus
 from app.models.user import User, UserRole
 from app.models.financial import Financial, TransactionType, PaymentStatus
+from app.services.notification_service import NotificationService
+from app.services.redis_audit_service import get_redis_audit_logger
+from app.services.audit_service import get_audit_service
+from app.models.audit_log import ActionType
 
 logger = logging.getLogger(__name__)
 
@@ -521,6 +525,61 @@ async def complete_delivery(
     await db.flush()
     
     await db.commit()
+    
+    # NOTIFICATION: Enviar notificación al cliente sobre la entrega completada
+    try:
+        if order:
+            customer_result = await db.execute(
+                select(User).where(User.email == order.customer_email)
+            )
+            customer = customer_result.scalar_one_or_none()
+            if customer:
+                notification_service = NotificationService(db)
+                await notification_service.create_notification(
+                    user_id=customer.id,
+                    notification_type="ENTREGA_COMPLETADA",
+                    title="✅ Pedido Entregado",
+                    message=f"Tu pedido #{order.external_id or str(order.id)[:8]} ha sido entregado exitosamente",
+                    data={"order_id": str(order.id), "delivery_id": str(delivery.id)},
+                    channel="push"
+                )
+                logger.info(f"Notificación de entrega enviada al cliente {customer.id}")
+    except Exception as e:
+        logger.warning(f"No se pudo enviar notificación de entrega al cliente: {e}")
+    
+    # AUDIT LOG (PostgreSQL): Registrar la acción de completado
+    try:
+        audit_service = get_audit_service(db)
+        await audit_service.log_action_async(
+            user_id=current_user.id,
+            action=ActionType.COMPLETE,
+            resource_type="DELIVERY",
+            resource_id=str(delivery.id),
+            description=f"Entrega {delivery.id} completada para orden {order.external_id if order else delivery.order_id}",
+            old_values={"status": DeliveryStatus.EN_ROUTE.value},
+            new_values={
+                "status": DeliveryStatus.COMPLETADA.value,
+                "completed_at": now.isoformat(),
+                "sla_compliant": delivery.sla_compliant,
+                "total_time_minutes": delivery.sla_actual_minutes,
+            },
+        )
+    except Exception as e:
+        logger.warning(f"No se pudo crear audit log en PostgreSQL: {e}")
+    
+    # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
+    try:
+        redis_logger = get_redis_audit_logger()
+        if redis_logger.connected:
+            await redis_logger.log_order_completed(
+                order_id=str(delivery.order_id),
+                rider_id=str(delivery.rider_id),
+                completed_by=str(current_user.id),
+                delivery_time_minutes=delivery.sla_actual_minutes,
+                sla_compliant=delivery.sla_compliant,
+            )
+    except Exception as e:
+        logger.warning(f"No se pudo escribir audit en Redis: {e}")
     
     await db.refresh(delivery, attribute_names=['rider', 'order'])
     if delivery.rider:
