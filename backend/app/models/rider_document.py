@@ -25,8 +25,7 @@ class RiderDocument(Base):
         UUID(as_uuid=True), 
         primary_key=True, 
         index=True,
-        default=uuid.uuid4,
-        server_default=text("gen_random_uuid()")  # <-- Clave para que PG genere el ID
+        default=uuid.uuid4
     )
     rider_id = Column(UUID(as_uuid=True), ForeignKey("riders.id", ondelete="CASCADE"), nullable=False, index=True)
     type = Column(Enum(DocumentType), nullable=False)

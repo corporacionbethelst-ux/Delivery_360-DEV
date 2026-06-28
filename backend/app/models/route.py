@@ -24,8 +24,7 @@ class Route(Base):
         UUID(as_uuid=True), 
         primary_key=True, 
         default=uuid.uuid4, 
-        index=True,
-        server_default=text("gen_random_uuid()"))
+        index=True)
     
     delivery_id = Column(UUID(as_uuid=True), ForeignKey("deliveries.id"), unique=True, index=True)
     
@@ -71,8 +70,7 @@ class RoutePoint(Base):
         UUID(as_uuid=True), 
         primary_key=True, 
         default=uuid.uuid4, 
-        index=True,
-        server_default=text("gen_random_uuid()"))
+        index=True)
     route_id = Column(UUID(as_uuid=True), ForeignKey("routes.id"), index=True)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
@@ -97,8 +95,7 @@ class RouteDeviation(Base):
         UUID(as_uuid=True), 
         primary_key=True, 
         default=uuid.uuid4, 
-        index=True,
-        server_default=text("gen_random_uuid()"))
+        index=True)
     route_id = Column(UUID(as_uuid=True), ForeignKey("routes.id"), index=True)
     deviation_type = Column(String(50))
     severity = Column(String(20))

@@ -34,8 +34,7 @@ class Order(Base):
         UUID(as_uuid=True), 
         primary_key=True, 
         index=True,
-        default=uuid.uuid4,
-        server_default=text("gen_random_uuid()")  # <-- Clave para que PG genere el ID
+        default=uuid.uuid4
     )
     external_id = Column(String(100), unique=True, index=True)
     customer_name = Column(String(255), nullable=False)

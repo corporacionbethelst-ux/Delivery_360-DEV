@@ -30,8 +30,7 @@ class ProductivityMetrics(Base):
         UUID(as_uuid=True),
         primary_key=True,
         index=True,
-        default=uuid.uuid4,
-        server_default=text("gen_random_uuid()")
+        default=uuid.uuid4
     )
     
     rider_id = Column(UUID(as_uuid=True), ForeignKey("riders.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -79,8 +78,7 @@ class SLARecord(Base):
         UUID(as_uuid=True),
         primary_key=True,
         index=True,
-        default=uuid.uuid4,
-        server_default=text("gen_random_uuid()")
+        default=uuid.uuid4
     )
     
     rider_id = Column(UUID(as_uuid=True), ForeignKey("riders.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -122,8 +120,7 @@ class ProductivityRecord(Base):
         UUID(as_uuid=True), 
         primary_key=True, 
         index=True,
-        default=uuid.uuid4,
-        server_default=text("gen_random_uuid()")  # <-- Clave para que PG genere el ID
+        default=uuid.uuid4
     )
     rider_id = Column(UUID(as_uuid=True), ForeignKey("riders.id", ondelete="SET NULL"), nullable=False, index=True)
     shift_id = Column(UUID(as_uuid=True), ForeignKey("shifts.id", ondelete="CASCADE"), nullable=True, index=True)

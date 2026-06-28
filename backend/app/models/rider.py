@@ -40,8 +40,7 @@ class Rider(Base):
         UUID(as_uuid=True), 
         primary_key=True, 
         default=uuid.uuid4, 
-        index=True, 
-        server_default=text("gen_random_uuid()")
+        index=True
     )
 
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True, nullable=False)
