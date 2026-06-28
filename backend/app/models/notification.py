@@ -52,8 +52,7 @@ class Notification(Base):
         UUID(as_uuid=True), 
         primary_key=True, 
         index=True,
-        default=uuid.uuid4,
-        server_default=sa.text("gen_random_uuid()")
+        default=uuid.uuid4
     )
     
     # Destinatarios (puede ser usuario, rider o ambos)

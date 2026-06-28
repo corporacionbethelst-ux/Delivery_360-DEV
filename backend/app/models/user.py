@@ -31,8 +31,7 @@ class User(Base):
         UUID(as_uuid=True), 
         primary_key=True, 
         default=uuid.uuid4, 
-        index=True, 
-        server_default=text("gen_random_uuid()")
+        index=True
     )
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)

@@ -35,8 +35,7 @@ class Delivery(Base):
         UUID(as_uuid=True), 
         primary_key=True, 
         index=True,
-        default=uuid.uuid4,
-        server_default=text("gen_random_uuid()")  # <-- Clave para que PG genere el ID
+        default=uuid.uuid4
     )
     order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
     rider_id = Column(UUID(as_uuid=True), ForeignKey("riders.id", ondelete="SET NULL"), nullable=False, index=True)

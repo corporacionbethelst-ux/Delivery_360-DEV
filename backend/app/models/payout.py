@@ -32,8 +32,7 @@ class Payout(Base):
         UUID(as_uuid=True), 
         primary_key=True, 
         default=uuid.uuid4, 
-        index=True, 
-        server_default=text("gen_random_uuid()")
+        index=True
     )
 
     rider_id = Column(UUID(as_uuid=True), ForeignKey("riders.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -76,8 +75,7 @@ class PayoutStatusHistory(Base):
     id = Column(
         UUID(as_uuid=True),
         primary_key=True,
-        default=uuid.uuid4,
-        server_default=text("gen_random_uuid()"),
+        default=uuid.uuid4
     )
     payout_id = Column(UUID(as_uuid=True), ForeignKey("payouts.id", ondelete="CASCADE"), nullable=False, index=True)
     old_status = Column(String(30), nullable=True)
