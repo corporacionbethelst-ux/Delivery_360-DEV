@@ -1,54 +1,29 @@
-
-# Compiled and build artifacts
-*.pyc
+```
+# Python
 __pycache__/
-*.o
-*.obj
+*.pyc
+*.pyo
+*.pyd
 
 # Dependencies
 .venv/
 venv/
-node_modules/
-
-# Logs and temp files
-*.log
-*.tmp
-*.swp
-
-# Environment
+env/
 .env
 .env.local
-*.env.*
+.env.*
+
+# Logs
+*.log
 
 # Editors
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# Coverage reports
-.coverage
-coverage/
-htmlcov/
-
-# Python specific
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
+# Build artifacts
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Project specific
-backend/__pycache__/
+build/
+target/
+```
