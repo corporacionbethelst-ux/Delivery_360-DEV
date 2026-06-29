@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { 
   Truck, Search, Plus, Filter, MoreVertical, Edit, Trash2, 
-  AlertTriangle, CheckCircle, Calendar, ShieldAlert, Loader2, AlertCircle, Zap
+  AlertTriangle, CheckCircle, Calendar, ShieldAlert, Loader2, AlertCircle, Zap, RefreshCw // <--- MODIFICACIÓN: Agregado RefreshCw a los imports
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -50,6 +50,7 @@ export default function VehiclesPage() {
   // Estados
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false); // <--- MODIFICACIÓN: Estado para el botón de actualizar
   const [error, setError] = useState<string | null>(null);
   
   // Filtros
@@ -62,8 +63,12 @@ export default function VehiclesPage() {
   const [isDeactivating, setIsDeactivating] = useState(false);
 
   // Carga de datos
-  const loadVehicles = useCallback(async () => {
-    setLoading(true);
+  const loadVehicles = useCallback(async (isRefresh = false) => { // <--- MODIFICACIÓN: Parámetro isRefresh
+    if (isRefresh) {
+      setIsRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
       const data = await vehicleService.getAll({
@@ -79,6 +84,7 @@ export default function VehiclesPage() {
       toast.error(msg);
     } finally {
       setLoading(false);
+      setIsRefreshing(false); // <--- MODIFICACIÓN: Resetear estado de refresh
     }
   }, [filterType, searchTerm]);
 
@@ -93,6 +99,11 @@ export default function VehiclesPage() {
   useEffect(() => {
     loadVehicles();
   }, [loadVehicles]);
+
+  // <--- MODIFICACIÓN: Función handler para el botón Actualizar
+  const handleRefresh = () => {
+    loadVehicles(true);
+  };
 
   // El backend ya aplica búsqueda y filtro por tipo con parámetros normalizados.
   const filteredVehicles = useMemo(() => vehicles, [vehicles]);
@@ -129,13 +140,26 @@ export default function VehiclesPage() {
           </h1>
           <p className="text-slate-500 mt-2 ml-1">Gestiona el inventario, seguros y asignaciones de vehículos.</p>
         </div>
-        <Button 
-          onClick={() => router.push('/manager/fleet/vehicles/new')} 
-          className="bg-blue-600 hover:bg-blue-700 text-white shadow-md gap-2 w-full md:w-auto"
-          disabled={loading}
-        >
-          <Plus className="w-4 h-4" /> Registrar Vehículo
-        </Button>
+        <div className="flex gap-2 w-full md:w-auto"> {/* <--- MODIFICACIÓN: Contenedor flex para los botones */}
+          {/* <--- MODIFICACIÓN: Botón Actualizar */}
+          <Button 
+            variant="outline" 
+            onClick={handleRefresh} 
+            disabled={isRefreshing || loading}
+            className="gap-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            Actualizar
+          </Button>
+          
+          <Button 
+            onClick={() => router.push('/manager/fleet/vehicles/new')} 
+            className="bg-blue-600 hover:bg-blue-700 text-white shadow-md gap-2"
+            disabled={loading}
+          >
+            <Plus className="w-4 h-4" /> Registrar Vehículo
+          </Button>
+        </div>
       </div>
 
       {/* Alertas */}
@@ -145,7 +169,7 @@ export default function VehiclesPage() {
           <AlertTitle>Error</AlertTitle>
           <AlertDescription className="flex items-center justify-between">
             {error}
-            <Button variant="ghost" size="sm" onClick={loadVehicles} className="ml-auto text-red-700 hover:text-red-900 hover:bg-red-100">
+            <Button variant="ghost" size="sm" onClick={() => loadVehicles()} className="ml-auto text-red-700 hover:text-red-900 hover:bg-red-100">
               Reintentar
             </Button>
           </AlertDescription>

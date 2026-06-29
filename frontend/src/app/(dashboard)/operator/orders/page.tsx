@@ -2,9 +2,9 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore'; // ✅ CORRECCIÓN: Usar Zustand
+import { useAuthStore } from '@/stores/authStore';
 import { orderService, OrderStatus } from '@/services/order.service';
-import { Package, Clock, AlertCircle, Search, Filter } from 'lucide-react';
+import { Package, Clock, AlertCircle, Search, Filter, RefreshCw } from 'lucide-react'; // <-- MODIFICACIÓN: Agregado RefreshCw
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -16,21 +16,19 @@ const ALLOWED_ROLES = ['SUPERADMIN', 'GERENTE', 'OPERADOR'];
 
 export default function OperatorOrdersPage() {
   const router = useRouter();
-  // ✅ CORRECCIÓN: Obtener datos del store
   const { user, isAuthenticated } = useAuthStore();
   
   const [orders, setOrders] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false); // <-- MODIFICACIÓN: Estado para el botón de actualizar
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<OrderStatus | 'ALL'>('ALL');
   const [isMounted, setIsMounted] = useState(false);
 
-  // Efecto para evitar hidratación incorrecta
   useEffect(() => {
     setIsMounted(true);
   }, []);
 
-  // ✅ Seguridad: Redirigir si no está montado, no autenticado o rol no permitido
   useEffect(() => {
     if (!isMounted || !isAuthenticated || !user) return;
 
@@ -43,20 +41,25 @@ export default function OperatorOrdersPage() {
   }, [isAuthenticated, user, router, isMounted]);
 
   const loadOrders = async () => {
-    setIsLoading(true);
+    // No ponemos setIsLoading(true) aquí si viene del refresh para no parpadear toda la UI
+    if (!isRefreshing) setIsLoading(true); 
     try {
-      // Cargar órdenes recientes
       const data = await orderService.getAll({ limit: 100 });
       setOrders(data);
     } catch (error) {
       console.error('Error loading orders:', error);
-      // Podrías mostrar un toast de error aquí
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false); // <-- MODIFICACIÓN: Resetear estado de refresh
     }
   };
 
-  // Filtrado local
+  // <-- MODIFICACIÓN: Función handler para el botón de actualizar
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await loadOrders();
+  };
+
   const filteredOrders = orders.filter(order => {
     const matchesSearch = 
       (order.external_id && order.external_id.toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -98,11 +101,22 @@ export default function OperatorOrdersPage() {
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
+        {/* Header con Botón Actualizar */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Gestión de Órdenes</h1>
             <p className="text-gray-500">Monitoreo y control de pedidos en tiempo real</p>
           </div>
+          {/* <-- MODIFICACIÓN: Botón de actualizar agregado aquí */}
+          <Button 
+            variant="outline" 
+            onClick={handleRefresh} 
+            disabled={isRefreshing}
+            className="gap-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Actualizando...' : 'Actualizar'}
+          </Button>
         </div>
 
         {/* Filtros */}
@@ -116,6 +130,7 @@ export default function OperatorOrdersPage() {
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10 bg-white"
+                  disabled={isRefreshing} // Deshabilitar inputs mientras refresca
                 />
               </div>
               <div className="flex items-center gap-2 w-full md:w-auto">
@@ -124,6 +139,7 @@ export default function OperatorOrdersPage() {
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as any)}
                   className="flex-1 md:flex-none px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
+                  disabled={isRefreshing} // Deshabilitar selects mientras refresca
                 >
                   <option value="ALL">Todos los estados</option>
                   <option value="PENDIENTE">Pendientes</option>
@@ -188,6 +204,7 @@ export default function OperatorOrdersPage() {
                           size="sm" 
                           className="text-blue-600 hover:text-blue-800 hover:bg-blue-50"
                           onClick={() => router.push(`/operator/orders/${order.id}`)}
+                          disabled={isRefreshing}
                         >
                           Ver Detalle
                         </Button>

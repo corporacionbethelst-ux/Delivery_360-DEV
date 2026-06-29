@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { userService } from '@/services/user.service';
 import { User, UserRole } from '@/types/user';
-import { Users, Search, Filter, Plus, Mail, Shield, Edit, Trash2, AlertCircle, UserPlus, Loader2, AlertTriangle } from 'lucide-react';
+// MODIFICACIÓN: Se agregó RefreshCw a los imports
+import { Users, Search, Filter, Plus, Mail, Shield, Edit, Trash2, AlertCircle, UserPlus, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -35,6 +36,8 @@ export default function ManagerUsersPage() {
   
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // MODIFICACIÓN: Estado para controlar el spinner del botón de actualizar
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -58,7 +61,9 @@ export default function ManagerUsersPage() {
   }, [isAuthenticated, user, router]);
 
   const loadUsers = async () => {
-    setIsLoading(true);
+    // MODIFICACIÓN: Solo setIsLoading(true) si no es un refresh manual
+    if (!isRefreshing) setIsLoading(true);
+    
     setError(null);
     try {
       const data = await userService.getAll({ limit: 500 });
@@ -68,7 +73,15 @@ export default function ManagerUsersPage() {
       setError(err.message || 'No se pudieron cargar los usuarios');
     } finally {
       setIsLoading(false);
+      // MODIFICACIÓN: Asegurar que el estado de refresh se apague
+      setIsRefreshing(false);
     }
+  };
+
+  // MODIFICACIÓN: Función para manejar el click en Actualizar
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await loadUsers();
   };
 
   const filteredUsers = users.filter(u => {
@@ -127,12 +140,24 @@ export default function ManagerUsersPage() {
             <h1 className="text-2xl font-bold text-gray-900">Gestión de Usuarios</h1>
             <p className="text-gray-500 mt-1">Administra accesos de gerentes, operadores y administradores.</p>
           </div>
-          <Button 
-            className="bg-blue-600 hover:bg-blue-700 shadow-md" 
-            onClick={() => router.push('/manager/admin/users/new')}
-          >
-            <UserPlus className="w-4 h-4 mr-2" /> Nuevo Usuario
-          </Button>
+          <div className="flex gap-2">
+            {/* MODIFICACIÓN: Botón Actualizar agregado aquí */}
+            <Button 
+              variant="outline" 
+              onClick={handleRefresh} 
+              disabled={isRefreshing}
+              className="gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              Actualizar
+            </Button>
+            <Button 
+              className="bg-blue-600 hover:bg-blue-700 shadow-md" 
+              onClick={() => router.push('/manager/admin/users/new')}
+            >
+              <UserPlus className="w-4 h-4 mr-2" /> Nuevo Usuario
+            </Button>
+          </div>
         </div>
 
         {/* Alertas */}

@@ -29,11 +29,12 @@ import {
   CheckCircle,
   Clock,
   XCircle,
+  RefreshCw, // MODIFICACIÓN: Importar ícono de actualizar
 } from 'lucide-react';
 import { payoutService } from '@/services/payout.service';
 import { riderService } from '@/services/rider.service';
 import type { PayoutWithRider } from '@/types/payout';
-import type { Rider } from '@/types/user'; // ✅ Importar desde user.ts como definiste
+import type { Rider } from '@/types/user';
 import Link from 'next/link';
 
 // Tipos locales para estados derivados
@@ -48,6 +49,7 @@ export default function ManagerPayoutsPage() {
   const [payouts, setPayouts] = useState<PayoutWithRider[]>([]);
   const [ridersMap, setRidersMap] = useState<Record<string, Rider>>({});
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false); // MODIFICACIÓN: Estado para refresh manual
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [metrics, setMetrics] = useState<PayoutMetrics>({
@@ -62,9 +64,15 @@ export default function ManagerPayoutsPage() {
     loadPayouts();
   }, []);
 
-  const loadPayouts = async () => {
-    try {
+  // MODIFICACIÓN: Función de carga actualizada para soportar refresh manual
+  const loadPayouts = async (isRefresh: boolean = false) => {
+    if (isRefresh) {
+      setIsRefreshing(true);
+    } else {
       setLoading(true);
+    }
+    
+    try {
       const data = await payoutService.getAll();
       
       const riderIds = Array.from(new Set(data.map((p) => p.rider_id)));
@@ -89,7 +97,13 @@ export default function ManagerPayoutsPage() {
       console.error('Error loading payouts:', error);
     } finally {
       setLoading(false);
+      setIsRefreshing(false); // MODIFICACIÓN: Resetear estado de refresh
     }
+  };
+
+  // MODIFICACIÓN: Handler para el botón de actualizar
+  const handleRefresh = () => {
+    loadPayouts(true);
   };
 
   const calculateMetrics = (data: PayoutWithRider[]) => {
@@ -186,10 +200,22 @@ export default function ManagerPayoutsPage() {
           <h1 className="text-3xl font-bold">Gestión de Pagos a Repartidores</h1>
           <p className="text-muted-foreground">Administra retiros y liquidaciones</p>
         </div>
-        <Button variant="outline" onClick={() => window.print()}>
-          <Download className="w-4 h-4 mr-2" />
-          Exportar Reporte
-        </Button>
+        <div className="flex gap-2">
+          {/* MODIFICACIÓN: Botón Actualizar agregado */}
+          <Button 
+            variant="outline" 
+            onClick={handleRefresh} 
+            disabled={isRefreshing}
+            className="gap-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            Actualizar
+          </Button>
+          <Button variant="outline" onClick={() => window.print()}>
+            <Download className="w-4 h-4 mr-2" />
+            Exportar Reporte
+          </Button>
+        </div>
       </div>
 
       {/* Metrics Cards */}

@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
   Plus, Search, Filter, Download, Package, Clock, Trash2, Eye, AlertCircle, 
-  Truck, Zap, CheckCircle, MapPin 
+  Truck, Zap, CheckCircle, MapPin, RefreshCw // <--- MODIFICACIÓN: Agregado RefreshCw a los imports
 } from 'lucide-react';
 import { orderService, Order, OrderStatus } from '@/services/order.service';
 import { riderService } from '@/services/rider.service';
@@ -45,6 +45,9 @@ export default function OrdersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState<string | null>(null);
   
+  // <--- MODIFICACIÓN: Estado para controlar el spinner del botón de actualizar
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   // Estados para Cancelación
   const [orderToCancel, setOrderToCancel] = useState<{id: string, externalId: string} | null>(null);
   const [cancelReason, setCancelReason] = useState('');
@@ -75,7 +78,15 @@ export default function OrdersPage() {
       setError('No se pudieron cargar los datos.');
     } finally {
       setLoading(false);
+      // <--- MODIFICACIÓN: Asegurar que el spinner se detenga si termina la carga inicial
+      setIsRefreshing(false);
     }
+  };
+
+  // <--- MODIFICACIÓN: Nueva función para manejar el refresco manual
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await fetchInitialData();
   };
 
   // --- Lógica de Cancelación ---
@@ -234,6 +245,17 @@ export default function OrdersPage() {
             <p className="text-gray-500 mt-1">Administra, asigna y rastrea pedidos.</p>
           </div>
           <div className="flex gap-2">
+            {/* <--- MODIFICACIÓN: Botón Actualizar agregado aquí */}
+            <Button 
+              variant="outline" 
+              onClick={handleRefresh} 
+              disabled={isRefreshing}
+              className="gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              Actualizar
+            </Button>
+            
             <Button variant="outline" onClick={handleExport} disabled={loading || orders.length === 0}>
               <Download className="w-4 h-4 mr-2" /> Exportar
             </Button>

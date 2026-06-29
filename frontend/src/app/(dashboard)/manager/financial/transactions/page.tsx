@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   CreditCard, Search, Filter, Download, ArrowUpRight, ArrowDownLeft,
-  DollarSign, Calendar, MoreHorizontal, CheckCircle, Clock, XCircle, AlertCircle, Loader2
+  DollarSign, Calendar, MoreHorizontal, CheckCircle, Clock, XCircle, AlertCircle, Loader2, RefreshCw // <--- MODIFICACIÓN: Importar ícono RefreshCw
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -44,6 +44,9 @@ export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // <--- MODIFICACIÓN: Estado para controlar el spinner del botón de actualizar
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Estados de Filtros
   const [searchTerm, setSearchTerm] = useState('');
@@ -67,7 +70,15 @@ export default function TransactionsPage() {
       setError(err.message || 'No se pudieron cargar las transacciones.');
     } finally {
       setLoading(false);
+      // <--- MODIFICACIÓN: Asegurar que el spinner de refresh se detenga al finalizar la carga
+      setIsRefreshing(false);
     }
+  };
+
+  // <--- MODIFICACIÓN: Función handler para el botón de actualizar
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await loadTransactions();
   };
 
   // Filtrado en cliente (puede moverse al backend si hay muchos datos)
@@ -119,9 +130,21 @@ export default function TransactionsPage() {
             </h1>
             <p className="text-gray-500 mt-1">Historial detallado de movimientos financieros</p>
           </div>
-          <Button variant="outline" onClick={handleExport} className="gap-2" disabled={loading}>
-            <Download className="w-4 h-4" /> Exportar CSV
-          </Button>
+          <div className="flex gap-2"> {/* <--- MODIFICACIÓN: Contenedor flex para los botones */}
+            {/* <--- MODIFICACIÓN: Botón Actualizar agregado aquí */}
+            <Button 
+              variant="outline" 
+              onClick={handleRefresh} 
+              disabled={isRefreshing || loading}
+              className="gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              Actualizar
+            </Button>
+            <Button variant="outline" onClick={handleExport} className="gap-2" disabled={loading}>
+              <Download className="w-4 h-4" /> Exportar CSV
+            </Button>
+          </div>
         </div>
 
         {error && (

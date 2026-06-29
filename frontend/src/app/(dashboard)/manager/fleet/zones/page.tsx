@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { 
   MapPin, Plus, Search, Globe, Edit, Trash2, Users, DollarSign, 
-  Clock, AlertCircle, Layers, CheckCircle, Loader2, AlertTriangle 
+  Clock, AlertCircle, Layers, CheckCircle, Loader2, AlertTriangle, RefreshCw // MODIFICACIÓN: Agregado RefreshCw
 } from 'lucide-react';
 import {
   Dialog,
@@ -52,6 +52,9 @@ export default function ZonesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
+  // MODIFICACIÓN: Estado para el botón de actualizar
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  
   // Estados de UI
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -82,7 +85,10 @@ export default function ZonesPage() {
   }, []);
 
   const loadZones = async () => {
-    setLoading(true);
+    // MODIFICACIÓN: Solo mostrar spinner principal si no es un refresco manual
+    if (!isRefreshing) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const data = await zoneService.getAll();
@@ -99,7 +105,14 @@ export default function ZonesPage() {
       setError(err.message || 'No se pudieron cargar las zonas.');
     } finally {
       setLoading(false);
+      setIsRefreshing(false); // MODIFICACIÓN: Resetear estado de refresco
     }
+  };
+
+  // MODIFICACIÓN: Función para manejar el refresco manual
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await loadZones();
   };
 
   // Filtrado optimizado en cliente
@@ -178,13 +191,25 @@ export default function ZonesPage() {
             </h1>
             <p className="text-gray-500 mt-1">Configura áreas, tarifas y asignación de flota</p>
           </div>
-          <Button 
-            onClick={() => setIsCreateOpen(true)} 
-            className="bg-indigo-600 hover:bg-indigo-700 shadow-md"
-            disabled={loading}
-          >
-            <Plus className="w-4 h-4 mr-2" /> Nueva Zona
-          </Button>
+          <div className="flex gap-2">
+            {/* MODIFICACIÓN: Botón Actualizar agregado aquí */}
+            <Button 
+              variant="outline" 
+              onClick={handleRefresh} 
+              disabled={isRefreshing}
+              className="gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              Actualizar
+            </Button>
+            <Button 
+              onClick={() => setIsCreateOpen(true)} 
+              className="bg-indigo-600 hover:bg-indigo-700 shadow-md"
+              disabled={loading || isRefreshing}
+            >
+              <Plus className="w-4 h-4 mr-2" /> Nueva Zona
+            </Button>
+          </div>
         </div>
 
         {error && (
