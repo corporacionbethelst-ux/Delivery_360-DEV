@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore'; // ✅ CORRECCIÓN: Usar Zustand
+import { useAuthStore } from '@/stores/authStore';
 import { alertService, Alert } from '@/services/alert.service';
 import { deliveryService, Delivery } from '@/services/delivery.service';
 import { orderService, Order } from '@/services/order.service';
@@ -13,25 +13,40 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
+// Función auxiliar para extraer datos correctamente independientemente del formato de respuesta
+// Esto soluciona el error "Argument of type 'DeliveryListResponse' is not assignable..."
+const extractData = <T,>(result: PromiseSettledResult<any>): T[] => {
+  if (result.status === 'fulfilled') {
+    const value = result.value;
+    // Si la respuesta es un objeto con propiedad 'data' (común en Axios o clientes fetch envueltos)
+    if (value && typeof value === 'object' && Array.isArray(value.data)) {
+      return value.data;
+    }
+    // Si la respuesta es directamente el array
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+  return [];
+};
+
 export default function OperatorDashboard() {
   const router = useRouter();
-  // ✅ CORRECCIÓN: Obtener datos del store
   const { user, isAuthenticated } = useAuthStore();
   
   const [activeShift, setActiveShift] = useState<Shift | null>(null);
   const [recentAlerts, setRecentAlerts] = useState<Alert[]>([]);
   const [stats, setStats] = useState({ deliveriesToday: 0, pendingOrders: 0, activeRiders: 0 });
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false); // Estado para el botón de actualizar
   const [error, setError] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
 
-  // Efecto para evitar hidratación incorrecta
   useEffect(() => {
     setIsMounted(true);
   }, []);
 
   useEffect(() => {
-    // ✅ Seguridad: Verificar montaje, autenticación y rol
     if (!isMounted || !isAuthenticated || !user) return;
 
     const allowedRoles = ['OPERADOR', 'GERENTE', 'SUPERADMIN'];
@@ -51,7 +66,10 @@ export default function OperatorDashboard() {
   };
 
   const loadData = async () => {
-    setLoading(true);
+    // Si es un refresco manual, activamos el estado de carga específico, si es inicial usamos el general
+    if (!loading) setIsRefreshing(true);
+    else setLoading(true);
+    
     setError(null);
     try {
       const [ordersResult, deliveriesResult, shiftsResult, alertsResult, ridersResult] = await Promise.allSettled([
@@ -62,35 +80,49 @@ export default function OperatorDashboard() {
         riderService.listRiders({ is_online: true, status_filter: 'ACTIVO' }),
       ]);
 
-      const orders: Order[] = ordersResult.status === 'fulfilled' ? ordersResult.value : [];
-      const deliveries: Delivery[] = deliveriesResult.status === 'fulfilled' ? deliveriesResult.value : [];
-      const shifts: Shift[] = shiftsResult.status === 'fulfilled' ? shiftsResult.value : [];
-      const alerts: Alert[] = alertsResult.status === 'fulfilled' ? alertsResult.value : [];
-      const riders = ridersResult.status === 'fulfilled' ? ridersResult.value : [];
+      // Extraemos los datos de forma segura usando la función auxiliar
+      const orders: Order[] = extractData<Order>(ordersResult);
+      const deliveries: Delivery[] = extractData<Delivery>(deliveriesResult);
+      const shifts: Shift[] = extractData<Shift>(shiftsResult);
+      const alerts: Alert[] = extractData<Alert>(alertsResult);
+      const riders = extractData<any>(ridersResult);
 
-      if ([ordersResult, deliveriesResult, shiftsResult, alertsResult, ridersResult].some(result => result.status === 'rejected')) {
-        setError('Algunos datos no pudieron cargarse. Se muestran los módulos disponibles.');
+      // Verificamos si hubo errores críticos en alguna llamada
+      const results = [ordersResult, deliveriesResult, shiftsResult, alertsResult, ridersResult];
+      const hasErrors = results.some(result => result.status === 'rejected');
+
+      if (hasErrors) {
+        console.warn('Algunos módulos del dashboard no pudieron cargarse completamente.');
+        // No establecemos error bloqueante si tenemos al menos algunos datos, pero podrías mostrar un toast
       }
 
-      setActiveShift(shifts.find(shift => shift.status === 'ACTIVO') ?? shifts.find(shift => shift.status === 'PLANIFICADO') ?? null);
+      // Lógica de negocio segura (verificando que sean arrays antes de operar)
+      const active = shifts.find(s => s.status === 'ACTIVO') ?? shifts.find(s => s.status === 'PLANIFICADO') ?? null;
+      setActiveShift(active);
       setRecentAlerts(alerts);
+
       setStats({
-        deliveriesToday: deliveries.filter(delivery => isToday(delivery.completed_at ?? delivery.created_at)).length,
-        pendingOrders: orders.filter(order => order.status === 'PENDIENTE' || !order.assigned_rider_id).length,
-        activeRiders: riders.length,
+        deliveriesToday: Array.isArray(deliveries) ? deliveries.filter(d => isToday(d.completed_at ?? d.created_at)).length : 0,
+        pendingOrders: Array.isArray(orders) ? orders.filter(o => o.status === 'PENDIENTE' || !o.assigned_rider_id).length : 0,
+        activeRiders: Array.isArray(riders) ? riders.length : 0,
       });
-    } catch (error) {
-      console.error('Error loading dashboard data:', error);
-      setError('No se pudo cargar el panel operativo. Intenta nuevamente.');
+
+    } catch (err) {
+      console.error('Error crítico cargando dashboard:', err);
+      setError('No se pudo conectar con el servidor de operaciones.');
       setActiveShift(null);
       setRecentAlerts([]);
       setStats({ deliveriesToday: 0, pendingOrders: 0, activeRiders: 0 });
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
-  // ✅ Seguridad: Mostrar carga mientras se verifica autenticación
+  const handleRefresh = async () => {
+    await loadData();
+  };
+
   if (!isMounted || !isAuthenticated || !user || loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
@@ -107,14 +139,27 @@ export default function OperatorDashboard() {
             <h1 className="text-2xl font-bold text-gray-900">Panel de Operaciones</h1>
             <p className="text-gray-500">Supervisión en tiempo real de turnos e incidencias.</p>
           </div>
-          <Button onClick={() => router.push('/operator/live-map')} className="bg-blue-600 hover:bg-blue-700 shadow-sm">
-            <MapPin className="w-4 h-4 mr-2" /> Ver Mapa en Vivo
-          </Button>
+          <div className="flex gap-2">
+            {/* Botón Actualizar Agregado */}
+            <Button 
+              variant="outline" 
+              onClick={handleRefresh} 
+              disabled={isRefreshing}
+              className="gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? 'Actualizando...' : 'Actualizar'}
+            </Button>
+            <Button onClick={() => router.push('/operator/live-map')} className="bg-blue-600 hover:bg-blue-700 shadow-sm">
+              <MapPin className="w-4 h-4 mr-2" /> Ver Mapa en Vivo
+            </Button>
+          </div>
         </div>
 
         {error && (
-          <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
-            {error}
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 flex justify-between items-center">
+            <span>{error}</span>
+            <Button variant="ghost" size="sm" onClick={loadData} className="text-red-700 hover:bg-red-100">Reintentar</Button>
           </div>
         )}
 
@@ -128,7 +173,7 @@ export default function OperatorDashboard() {
             <CardContent>
               <div className="text-2xl font-bold">{stats.deliveriesToday}</div>
               <p className="text-xs text-green-600 flex items-center mt-1">
-                <RefreshCw className="w-3 h-3 mr-1" /> Datos en vivo del API
+                <RefreshCw className="w-3 h-3 mr-1" /> Datos en vivo
               </p>
             </CardContent>
           </Card>

@@ -2,9 +2,9 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore'; // ✅ CORRECCIÓN: Usar Zustand
+import { useAuthStore } from '@/stores/authStore';
 import { shiftService, Shift } from '@/services/shift.service';
-import { Clock, Calendar, Users, Search, Filter, Plus, MapPin, Loader2 } from 'lucide-react';
+import { Clock, Calendar, Users, Search, Filter, Plus, MapPin, Loader2, RefreshCw } from 'lucide-react'; // <-- MODIFICACIÓN: Agregado RefreshCw
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,11 +12,11 @@ import { Input } from '@/components/ui/input';
 
 export default function OperatorShiftsPage() {
   const router = useRouter();
-  // ✅ CORRECCIÓN: Obtener datos del store
   const { user, isAuthenticated } = useAuthStore(); 
   
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false); // <-- MODIFICACIÓN: Estado para el botón de actualizar
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [isMounted, setIsMounted] = useState(false);
@@ -27,7 +27,6 @@ export default function OperatorShiftsPage() {
   }, []);
 
   useEffect(() => {
-    // ✅ Seguridad: Verificar montaje, autenticación y rol
     if (!isMounted || !isAuthenticated || !user) return;
 
     const allowedRoles = ['SUPERADMIN', 'GERENTE', 'OPERADOR'];
@@ -40,15 +39,23 @@ export default function OperatorShiftsPage() {
   }, [isAuthenticated, user, router, isMounted]);
 
   const loadShifts = async () => {
-    setIsLoading(true);
+    // No ponemos setIsLoading(true) aquí si viene del refresh para no parpadear toda la UI
+    if (!isRefreshing) setIsLoading(true);
     try {
       const data = await shiftService.getAll({ limit: 100 });
       setShifts(data);
     } catch (error) { 
       console.error('Error loading shifts:', error); 
     } finally { 
-      setIsLoading(false); 
+      setIsLoading(false);
+      setIsRefreshing(false); // <-- MODIFICACIÓN: Resetear estado de refresh
     }
+  };
+
+  // <-- MODIFICACIÓN: Función handler para el botón de actualizar
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await loadShifts();
   };
 
   // Lógica de filtrado local
@@ -74,7 +81,19 @@ export default function OperatorShiftsPage() {
   };
 
   // ✅ Seguridad: Mostrar carga mientras se verifica autenticación
-  if (!isMounted || isLoading) {
+  if (!isMounted || !isAuthenticated || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="text-center">
+          <Loader2 className="animate-spin h-12 w-12 text-blue-600 mx-auto mb-4" />
+          <p className="text-gray-600">Cargando turnos...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Solo mostrar loader de pantalla completa si es la primera carga y no hay datos
+  if (isLoading && shifts.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
@@ -88,15 +107,27 @@ export default function OperatorShiftsPage() {
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
+        {/* Header con Botón Actualizar */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Gestión de Turnos</h1>
             <p className="text-gray-500 mt-1">Supervisa horarios, coberturas y estados en tiempo real</p>
           </div>
-          <Button onClick={() => router.push('/operator/shifts/new')} className="bg-blue-600 hover:bg-blue-700 shadow-sm">
-            <Plus className="w-4 h-4 mr-2" /> Nuevo Turno
-          </Button>
+          <div className="flex gap-2">
+            {/* <-- MODIFICACIÓN: Botón Actualizar agregado aquí */}
+            <Button 
+              variant="outline" 
+              onClick={handleRefresh} 
+              disabled={isRefreshing}
+              className="gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? 'Actualizando...' : 'Actualizar'}
+            </Button>
+            <Button onClick={() => router.push('/operator/shifts/new')} className="bg-blue-600 hover:bg-blue-700 shadow-sm">
+              <Plus className="w-4 h-4 mr-2" /> Nuevo Turno
+            </Button>
+          </div>
         </div>
 
         {/* Filtros y Búsqueda */}
@@ -110,6 +141,7 @@ export default function OperatorShiftsPage() {
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10 bg-white"
+                  disabled={isRefreshing} // Deshabilitar inputs mientras refresca
                 />
               </div>
               <div className="flex items-center gap-2 w-full md:w-auto">
@@ -118,6 +150,7 @@ export default function OperatorShiftsPage() {
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="flex-1 md:flex-none px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  disabled={isRefreshing} // Deshabilitar selects mientras refresca
                 >
                   <option value="ALL">Todos los estados</option>
                   <option value="PLANIFICADO">Planificados</option>
