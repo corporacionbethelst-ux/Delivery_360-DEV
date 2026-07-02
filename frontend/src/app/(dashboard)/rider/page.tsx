@@ -399,6 +399,7 @@ export default function RiderDashboard() {
             )}
             {sendingLocation ? 'Obteniendo ubicación...' : isOnline ? 'Desconectarse' : 'Conectarse'}
           </Button>
+          
         </div>
       </div>
 

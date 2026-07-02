@@ -2,9 +2,9 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore'; // ✅ Seguridad: Importar store
+import { useAuthStore } from '@/stores/authStore';
 import { orderService, Order } from '@/services/order.service';
-import { ArrowLeft, MapPin, Phone, Package, DollarSign, Clock, Loader2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, MapPin, Phone, Package, DollarSign, Clock, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -16,23 +16,19 @@ export default function OrderDetailPage() {
   const params = useParams();
   const orderId = (params?.id as string) || ''; 
 
-  // ✅ Seguridad: Obtener estado de autenticación
   const { user, isAuthenticated } = useAuthStore();
   
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
 
-  // Efecto para evitar hidratación incorrecta
   useEffect(() => {
     setIsMounted(true);
   }, []);
 
-  // ✅ Seguridad: Verificar autenticación y rol antes de cargar
   useEffect(() => {
     if (!isMounted || !isAuthenticated || !user) return;
 
-    // Opcional: Restringir solo a repartidores o permitir también a admins/operadores
     const allowedRoles = ['REPARTIDOR', 'SUPERADMIN', 'GERENTE', 'OPERADOR'];
     if (!allowedRoles.includes(user.role)) {
       router.push('/login');
@@ -55,7 +51,6 @@ export default function OrderDetailPage() {
     fetchOrder();
   }, [orderId, isMounted, isAuthenticated, user, router]);
 
-  // ✅ Seguridad: Mostrar carga mientras se verifica auth
   if (!isMounted || !isAuthenticated || !user || loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-gray-50">
@@ -76,6 +71,31 @@ export default function OrderDetailPage() {
       </div>
     );
   }
+
+  // Función para abrir mapa
+  const handleOpenMap = () => {
+    if (!order.delivery_address) return;
+    const address = encodeURIComponent(order.delivery_address);
+    // Abre Google Maps en una nueva pestaña
+    window.open(`https://www.google.com/maps/search/?api=1&query=${address}`, '_blank');
+  };
+
+  // Función para llamar al cliente
+  const handleCallCustomer = () => {
+    // Prioridad: Contacto de entrega -> Teléfono del cliente -> Teléfono del restaurante (fallback)
+    const phoneNumber = order.delivery_contact || order.customer_phone;
+    
+    if (!phoneNumber) {
+      alert('No hay número de teléfono disponible para esta orden.');
+      return;
+    }
+
+    // Eliminar caracteres no numéricos excepto '+' para formar un enlace tel: limpio
+    const cleanNumber = phoneNumber.replace(/[^\d+]/g, '');
+    
+    // Abrir marcador telefónico
+    window.location.href = `tel:${cleanNumber}`;
+  };
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
@@ -107,7 +127,7 @@ export default function OrderDetailPage() {
               <div className="p-2 bg-white rounded-full shadow-sm">
                 <MapPin className="w-6 h-6 text-blue-600 shrink-0" />
               </div>
-              <div>
+              <div className="flex-1">
                 <h3 className="font-semibold text-gray-900 text-sm uppercase tracking-wide mb-1">Dirección de Entrega</h3>
                 <p className="text-gray-700 font-medium">{order.delivery_address}</p>
                 {order.delivery_reference && (
@@ -181,13 +201,26 @@ export default function OrderDetailPage() {
               </div>
             </div>
 
-            {/* Acciones */}
+            {/* Acciones REALES */}
             <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t mt-6">
-              <Button className="flex-1 bg-green-600 hover:bg-green-700 text-white shadow-md h-12 text-base">
-                <Phone className="w-5 h-5 mr-2" /> Llamar al Cliente
+              <Button 
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white shadow-md h-12 text-base"
+                onClick={handleCallCustomer}
+                disabled={!order.delivery_contact && !order.customer_phone}
+              >
+                <Phone className="w-5 h-5 mr-2" /> 
+                {!order.delivery_contact && !order.customer_phone ? 'Sin Teléfono' : 'Llamar al Cliente'}
               </Button>
-              <Button variant="outline" className="flex-1 border-blue-200 text-blue-700 hover:bg-blue-50 h-12 text-base">
-                <MapPin className="w-5 h-5 mr-2" /> Ver en Mapa
+              
+              <Button 
+                variant="outline" 
+                className="flex-1 border-blue-200 text-blue-700 hover:bg-blue-50 h-12 text-base"
+                onClick={handleOpenMap}
+                disabled={!order.delivery_address}
+              >
+                <MapPin className="w-5 h-5 mr-2" /> 
+                Ver en Mapa
+                <ExternalLink className="w-4 h-4 ml-2 opacity-70" />
               </Button>
             </div>
           </CardContent>
