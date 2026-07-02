@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { useAuthStore } from "@/stores/authStore" // ✅ CORRECCIÓN: Usar Zustand
-import { LogOut, User as UserIcon, Menu, X } from "lucide-react"
+import { useAuthStore } from "@/stores/authStore"
+import { LogOut, User as UserIcon, Menu, X, Bike } from "lucide-react"
 import { authService } from "@/services/auth.service"
 import { Button } from "@/components/ui/button"
 
@@ -12,14 +12,12 @@ export default function RiderLayout({ children }: { children: React.ReactNode })
   const router = useRouter()
   const pathname = usePathname()
   
-  // ✅ CORRECCIÓN: Obtener datos del store
   const { user, isAuthenticated, logout: storeLogout } = useAuthStore()
   
   const [isMounted, setIsMounted] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
 
-  // Efecto para evitar hidratación incorrecta
   useEffect(() => {
     setIsMounted(true)
   }, [])
@@ -41,7 +39,6 @@ export default function RiderLayout({ children }: { children: React.ReactNode })
       window.location.href = "/login"
     } catch (error) {
       console.error("Error al cerrar sesión:", error)
-      // Forzar logout local en caso de error de red
       storeLogout()
       window.location.href = "/login"
     } finally {
@@ -49,7 +46,6 @@ export default function RiderLayout({ children }: { children: React.ReactNode })
     }
   }
 
-  // ✅ Seguridad: Mostrar nada o loader mientras se verifica auth/hidratación
   if (!isMounted || !isAuthenticated || !user) {
     return (
       <div className="flex h-screen items-center justify-center bg-gray-50">
@@ -58,31 +54,30 @@ export default function RiderLayout({ children }: { children: React.ReactNode })
     )
   }
 
-  // Verificación extra de rol (por seguridad)
   if (user.role !== 'REPARTIDOR') {
-    // Opcional: Redirigir si un no-repartidor intenta acceder a esta ruta
-    // router.push('/login') 
     return null
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b sticky top-0 z-50">
+    // Contenedor principal de altura completa sin scroll externo
+    <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
+      
+      {/* Header Fijo en la parte superior del flex container */}
+      <header className="bg-white shadow-sm border-b z-40 shrink-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-4">
+              <div className="flex items-center justify-center w-8 h-8 bg-blue-600 rounded-lg text-white">
+                <Bike className="w-5 h-5" />
+              </div>
               <h1 className="text-xl font-bold text-blue-900 hidden sm:block">Delivery360 Rider</h1>
-              <h1 className="text-xl font-bold text-blue-900 sm:hidden">D360</h1>
               
               {/* Info Usuario Desktop */}
               <div className="hidden md:flex items-center space-x-2 text-sm text-gray-600 bg-gray-100 px-3 py-1.5 rounded-full">
                 <UserIcon className="w-4 h-4 text-gray-500" />
-                <span className="font-medium capitalize">
+                <span className="font-medium capitalize truncate max-w-[200px]">
                   {user.first_name} {user.last_name}
                 </span>
-                <span className="text-gray-300">•</span>
-                <span className="text-xs text-gray-500 truncate max-w-[150px]">{user.email}</span>
               </div>
             </div>
             
@@ -176,8 +171,11 @@ export default function RiderLayout({ children }: { children: React.ReactNode })
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {children}
+      {/* Área de Contenido con Scroll Independiente */}
+      <main className="flex-1 overflow-y-auto w-full">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          {children}
+        </div>
       </main>
     </div>
   )
