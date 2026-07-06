@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
+import { Toaster } from 'sonner'; // Importar desde sonner
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -17,12 +18,21 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body className={inter.className}>
-        {/* 
-           ✅ CORRECCIÓN: 
-           Zustand no necesita Provider. El estado es global por defecto 
-           al importar useAuthStore desde cualquier componente.
-        */}
         {children}
+        
+        {/* 
+          ✅ SOLUCIÓN: Toaster Global con zIndex explícito mayor que el header (z-50 = 50).
+          position: top-right para mejor visibilidad en móviles y desktop.
+        */}
+        <Toaster 
+          richColors 
+          position="top-right" 
+          toastOptions={{
+            style: {
+              zIndex: 9999, // Fuerza que esté por encima de todo
+            },
+          }}
+        />
       </body>
     </html>
   );

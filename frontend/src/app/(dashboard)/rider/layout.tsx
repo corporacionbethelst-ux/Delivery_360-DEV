@@ -4,9 +4,11 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useAuthStore } from "@/stores/authStore"
-import { LogOut, User as UserIcon, Menu, X, Bike } from "lucide-react"
+import { LogOut, User as UserIcon, Menu, X, Bike, LayoutDashboard, Package, DollarSign, TrendingUp, UserCircle } from "lucide-react"
 import { authService } from "@/services/auth.service"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 export default function RiderLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -23,11 +25,11 @@ export default function RiderLayout({ children }: { children: React.ReactNode })
   }, [])
 
   const tabs = [
-    { id: "dashboard", name: "Dashboard", href: "/rider" },
-    { id: "orders", name: "Mis Órdenes", href: "/rider/my-orders" },
-    { id: "earnings", name: "Ganancias", href: "/rider/earnings" },
-    { id: "productivity", name: "Productividad", href: "/rider/productivity" },
-    { id: "profile", name: "Perfil", href: "/rider/profile" },
+    { id: "dashboard", name: "Dashboard", href: "/rider", icon: LayoutDashboard },
+    { id: "orders", name: "Órdenes", href: "/rider/my-orders", icon: Package },
+    { id: "earnings", name: "Ganancias", href: "/rider/earnings", icon: DollarSign },
+    { id: "productivity", name: "Productividad", href: "/rider/productivity", icon: TrendingUp },
+    { id: "profile", name: "Perfil", href: "/rider/profile", icon: UserCircle },
   ]
 
   const handleLogout = async () => {
@@ -59,121 +61,151 @@ export default function RiderLayout({ children }: { children: React.ReactNode })
   }
 
   return (
-    // Contenedor principal de altura completa sin scroll externo
     <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
       
-      {/* Header Fijo en la parte superior del flex container */}
-      <header className="bg-white shadow-sm border-b z-40 shrink-0">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center justify-center w-8 h-8 bg-blue-600 rounded-lg text-white">
-                <Bike className="w-5 h-5" />
-              </div>
-              <h1 className="text-xl font-bold text-blue-900 hidden sm:block">Delivery360 Rider</h1>
-              
-              {/* Info Usuario Desktop */}
-              <div className="hidden md:flex items-center space-x-2 text-sm text-gray-600 bg-gray-100 px-3 py-1.5 rounded-full">
-                <UserIcon className="w-4 h-4 text-gray-500" />
-                <span className="font-medium capitalize truncate max-w-[200px]">
-                  {user.first_name} {user.last_name}
-                </span>
-              </div>
-            </div>
+      {/* HEADER: z-40 es suficiente ya que el Toaster tiene z-9999 */}
+      <header className="bg-white border-b shadow-sm z-40 shrink-0 h-14 sm:h-16 relative">
+        <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 h-full">
+          <div className="flex items-center justify-between h-full gap-4">
             
-            <div className="flex items-center space-x-2 md:space-x-4">
-              {/* Navegación Desktop */}
-              <nav className="hidden md:flex space-x-1">
+            {/* IZQUIERDA: Logo + Navegación */}
+            <div className="flex items-center gap-2 sm:gap-4 lg:gap-6 overflow-hidden">
+              <Link href="/rider" className="flex items-center gap-2 shrink-0">
+                <div className="w-8 h-8 sm:w-9 sm:h-9 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-sm hover:bg-blue-700 transition-colors">
+                  <Bike className="w-5 h-5" />
+                </div>
+                <span className="font-bold text-blue-900 hidden md:block text-sm lg:text-base truncate">
+                  Delivery360
+                </span>
+              </Link>
+
+              <div className="hidden md:block w-px h-6 bg-gray-200"></div>
+
+              <nav className="hidden md:flex items-center gap-1">
                 {tabs.map((tab) => {
+                  const Icon = tab.icon
                   const isActive = pathname === tab.href || (tab.href !== "/rider" && pathname.startsWith(tab.href + "/"))
+                  
                   return (
-                    <Link
-                      key={tab.id}
-                      href={tab.href}
-                      className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                        isActive
-                          ? "bg-blue-100 text-blue-900"
-                          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                      }`}
-                    >
-                      {tab.name}
-                    </Link>
+                    <TooltipProvider key={tab.id}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Link
+                            href={tab.href}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 whitespace-nowrap ${
+                              isActive
+                                ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200 shadow-sm"
+                                : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                            }`}
+                          >
+                            <Icon className={`w-4 h-4 ${isActive ? 'text-blue-600' : 'text-gray-400'}`} />
+                            <span className="hidden lg:inline">{tab.name}</span>
+                          </Link>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="md:hidden lg:hidden">
+                          <p>{tab.name}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   )
                 })}
               </nav>
+            </div>
 
-              {/* Botón Menú Móvil */}
-              <button 
-                className="md:hidden p-2 text-gray-600 hover:bg-gray-100 rounded-md"
-                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              >
-                {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-              </button>
+            {/* DERECHA: Perfil + Logout + Menú Móvil */}
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              
+              <div className="hidden lg:flex items-center gap-2 pr-3 border-r border-gray-200">
+                <div className="text-right">
+                  <p className="text-xs font-bold text-gray-900 leading-none truncate max-w-[120px]">
+                    {user.first_name} {user.last_name}
+                  </p>
+                  <Badge variant="outline" className="text-[9px] h-4 px-1 mt-1 border-gray-200 text-gray-500 font-normal">
+                    Repartidor
+                  </Badge>
+                </div>
+                <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs border border-blue-200">
+                  {user.first_name.charAt(0)}{user.last_name.charAt(0)}
+                </div>
+              </div>
 
-              {/* Botón Logout Desktop */}
               <button
                 onClick={handleLogout}
                 disabled={isLoggingOut}
-                className="hidden md:flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
+                className="hidden lg:flex items-center justify-center w-9 h-9 text-red-500 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
+                title="Cerrar sesión"
               >
-                <LogOut className="w-4 h-4" />
-                {isLoggingOut ? "Saliendo..." : "Salir"}
+                <LogOut className="w-5 h-5" />
+              </button>
+
+              <button 
+                className="lg:hidden p-2 text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                aria-label="Toggle menu"
+              >
+                {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
               </button>
             </div>
           </div>
-          
-          {/* Menú Móvil Desplegable */}
-          {mobileMenuOpen && (
-            <div className="md:hidden border-t pt-4 pb-4 space-y-2 animate-in slide-in-from-top-2">
-              <div className="flex items-center gap-3 px-4 py-2 mb-4 bg-gray-50 rounded-md">
-                <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold">
+        </div>
+
+        {/* MENÚ MÓVIL */}
+        {mobileMenuOpen && (
+          <div className="lg:hidden absolute top-14 left-0 right-0 bg-white border-b shadow-xl animate-in slide-in-from-top-2 z-50">
+            <div className="p-4 space-y-2">
+              <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-lg border border-gray-100">
+                <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">
                   {user.first_name.charAt(0)}{user.last_name.charAt(0)}
                 </div>
-                <div className="overflow-hidden">
-                  <p className="font-bold text-gray-900 truncate">{user.first_name} {user.last_name}</p>
-                  <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                <div>
+                  <p className="font-bold text-gray-900 text-sm">{user.first_name} {user.last_name}</p>
+                  <p className="text-xs text-gray-500">{user.email}</p>
                 </div>
               </div>
               
-              <nav className="flex flex-col space-y-1 px-2">
+              <nav className="grid gap-1">
                 {tabs.map((tab) => {
+                  const Icon = tab.icon
                   const isActive = pathname === tab.href || (tab.href !== "/rider" && pathname.startsWith(tab.href + "/"))
                   return (
                     <Link
                       key={tab.id}
                       href={tab.href}
                       onClick={() => setMobileMenuOpen(false)}
-                      className={`px-3 py-3 rounded-md text-base font-medium transition-colors ${
+                      className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
                         isActive
-                          ? "bg-blue-100 text-blue-900"
-                          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                          ? "bg-blue-50 text-blue-700 border border-blue-100"
+                          : "text-gray-600 hover:bg-gray-50"
                       }`}
                     >
+                      <Icon className={`w-5 h-5 ${isActive ? 'text-blue-600' : 'text-gray-400'}`} />
                       {tab.name}
                     </Link>
                   )
                 })}
               </nav>
               
-              <div className="pt-4 mt-4 border-t px-2">
+              <div className="pt-4 mt-4 border-t border-gray-100">
                 <Button 
                   variant="outline" 
-                  onClick={handleLogout} 
+                  onClick={() => {
+                    setMobileMenuOpen(false)
+                    handleLogout()
+                  }} 
                   disabled={isLoggingOut}
-                  className="w-full justify-start text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                  className="w-full justify-start text-red-600 border-red-200 hover:bg-red-50 bg-white"
                 >
                   <LogOut className="w-4 h-4 mr-2" />
-                  {isLoggingOut ? "Cerrando sesión..." : "Cerrar sesión"}
+                  Cerrar sesión
                 </Button>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </header>
 
-      {/* Área de Contenido con Scroll Independiente */}
-      <main className="flex-1 overflow-y-auto w-full">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="flex-1 overflow-y-auto w-full scroll-smooth bg-gray-50 relative z-0">
+        <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 py-6">
           {children}
         </div>
       </main>

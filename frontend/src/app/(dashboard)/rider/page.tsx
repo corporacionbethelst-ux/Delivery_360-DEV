@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
-import { DollarSign, Package, MapPin, TrendingUp, Clock, Bike, AlertCircle, Wifi, WifiOff, Loader2, RefreshCw } from 'lucide-react';
+import { DollarSign, Package, MapPin, TrendingUp, Clock, Bike, AlertCircle, Wifi, WifiOff, Loader2, RefreshCw, Phone } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,7 +20,7 @@ const HEARTBEAT_INTERVAL_MS = 15000;
 
 const getOrderAmount = (order: Order): number => resolveOrderCollectAmount(order);
 
-// Opciones de Geolocalización (Restauradas)
+// Opciones de Geolocalización
 const INITIAL_GEOLOCATION_OPTIONS: PositionOptions = {
   enableHighAccuracy: true,
   timeout: 20000,
@@ -39,27 +39,18 @@ const WATCH_GEOLOCATION_OPTIONS: PositionOptions = {
   maximumAge: 30000,
 };
 
-// Helper de Mensajes de Error (Restaurado)
 const getGeolocationErrorMessage = (err: GeolocationPositionError): string => {
-  if (err.code === 1) {
-    return 'Permiso de ubicación denegado. Actívalo en el navegador para conectarte.';
-  }
-  if (err.code === 2) {
-    return 'No se pudo obtener una ubicación disponible. Verifica GPS, datos móviles o Wi-Fi.';
-  }
-  if (err.code === 3) {
-    return 'La ubicación tardó demasiado en responder. Activa el GPS, acércate a una zona con señal e intenta nuevamente.';
-  }
-  return 'Error al obtener ubicación. Verifica los permisos.';
+  if (err.code === 1) return 'Permiso de ubicación denegado. Actívalo para conectarte.';
+  if (err.code === 2) return 'No se pudo obtener ubicación. Verifica GPS o datos.';
+  if (err.code === 3) return 'La ubicación tardó demasiado. Intenta nuevamente.';
+  return 'Error al obtener ubicación.';
 };
 
-// Helpers de Fecha
 const isToday = (value?: string): boolean => {
   if (!value) return false;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return false;
-  const now = new Date();
-  return date.toDateString() === now.toDateString();
+  return date.toDateString() === new Date().toDateString();
 };
 
 const isWithinLastDays = (value: string | undefined, days: number): boolean => {
@@ -100,7 +91,7 @@ export default function RiderDashboard() {
     setIsMounted(true);
   }, []);
 
-  // Función de Carga de Datos (Refactorizada para ser reutilizable por el botón Actualizar)
+  // Función de Carga de Datos
   const loadDashboardData = async () => {
     setLoadingData(true);
     setDashboardError(null);
@@ -117,35 +108,19 @@ export default function RiderDashboard() {
 
       const profile = profileResult.value;
       
-      // Fallbacks seguros para servicios opcionales
       const earningsData = earningsResult.status === 'fulfilled'
         ? earningsResult.value
-        : {
-            total_earned: 0, completed_orders: 0, gross_order_value: 0, delivery_fees: 0,
-            bonuses: 0, penalties: 0, pending_payout: 0, currency: 'COP', breakdown: [],
-          };
+        : { total_earned: 0, pending_payout: 0, currency: 'COP' };
       
       const balanceData = balanceResult.status === 'fulfilled'
         ? balanceResult.value
-        : {
-            available: Number(earningsData.pending_payout ?? 0),
-            pending: 0,
-            processed: Math.max(Number(earningsData.total_earned ?? 0) - Number(earningsData.pending_payout ?? 0), 0),
-            total_earned: Number(earningsData.total_earned ?? 0),
-            currency: 'COP',
-          };
+        : { available: Number(earningsData.pending_payout ?? 0), currency: 'COP' };
       
       const orders = ordersResult.status === 'fulfilled' ? ordersResult.value : [];
-
-      // Logs de advertencia si fallan servicios secundarios
-      if (earningsResult.status === 'rejected') console.warn('Error cargando ganancias:', earningsResult.reason);
-      if (balanceResult.status === 'rejected') console.warn('Error cargando balance:', balanceResult.reason);
-      if (ordersResult.status === 'rejected') console.warn('Error cargando órdenes:', ordersResult.reason);
 
       setRiderId(profile.id);
       setIsOnline(Boolean(profile.is_online));
 
-      // Cálculos de Ganancias
       const completedOrders = orders.filter((order) => order.status === 'ENTREGADO');
       const todayTotal = completedOrders
         .filter((order) => isToday(order.delivered_at ?? order.updated_at ?? order.created_at))
@@ -163,15 +138,14 @@ export default function RiderDashboard() {
       
       setCompletedToday(completedOrders.filter((order) => isToday(order.delivered_at ?? order.updated_at ?? order.created_at)).length);
 
-      // Próxima Entrega
       const activeOrders = orders
         .filter((order) => ACTIVE_DELIVERY_STATUSES.includes(order.status))
         .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       setNextDelivery(activeOrders[0] ?? null);
 
     } catch (error) {
-      console.error('Error cargando datos del dashboard rider:', error);
-      setDashboardError('No se pudieron cargar tus datos reales. Revisa tu conexión o intenta nuevamente.');
+      console.error('Error cargando datos del dashboard:', error);
+      setDashboardError('No se pudieron cargar tus datos. Revisa tu conexión.');
       setEarnings({ today: 0, week: 0, pending: 0 });
       setCompletedToday(0);
       setNextDelivery(null);
@@ -180,21 +154,16 @@ export default function RiderDashboard() {
     }
   };
 
-  // Efecto Principal de Inicialización
   useEffect(() => {
     if (!isMounted || !isAuthenticated || !user) return;
 
-    // Redirección por roles incorrectos
     if (user.role !== 'REPARTIDOR') {
-      if (['SUPERADMIN', 'GERENTE'].includes(user.role)) router.push('/manager');
-      else if (user.role === 'OPERADOR') router.push('/operator');
-      else router.push('/login');
+      router.push('/login');
       return;
     }
 
     loadDashboardData();
 
-    // Limpieza al desmontar
     return () => {
       if (watchIdRef.current !== null && navigator.geolocation) {
         navigator.geolocation.clearWatch(watchIdRef.current);
@@ -202,14 +171,12 @@ export default function RiderDashboard() {
     };
   }, [user, isAuthenticated, router, isMounted]);
 
-  // Handler para el botón Actualizar
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await loadDashboardData();
     setIsRefreshing(false);
   };
 
-  // Funciones de Geolocalización (Restauradas completas)
   const forceOffline = async () => {
     setIsOnline(false);
     if (watchIdRef.current !== null && navigator.geolocation) {
@@ -217,25 +184,14 @@ export default function RiderDashboard() {
       watchIdRef.current = null;
     }
     if (riderId) {
-      try {
-        await riderService.toggleOnline(riderId, false);
-      } catch (error) {
-        console.error('Error forzando desconexión del rider:', error);
-      }
+      try { await riderService.toggleOnline(riderId, false); } catch (e) { console.error(e); }
     }
   };
 
-  const sendLocation = async (
-    lat: number,
-    lng: number,
-    options: { force?: boolean; showLoading?: boolean } = {}
-  ): Promise<boolean> => {
+  const sendLocation = async (lat: number, lng: number, options: { force?: boolean; showLoading?: boolean } = {}): Promise<boolean> => {
     if (!riderId) return false;
-
     const now = Date.now();
-    if (!options.force && now - lastHeartbeatSentAtRef.current < HEARTBEAT_INTERVAL_MS) {
-      return true;
-    }
+    if (!options.force && now - lastHeartbeatSentAtRef.current < HEARTBEAT_INTERVAL_MS) return true;
 
     try {
       if (options.showLoading) setSendingLocation(true);
@@ -244,13 +200,9 @@ export default function RiderDashboard() {
       setLocationError(null);
       return true;
     } catch (error: any) {
-      console.error('Error enviando ubicación:', error);
       const status = error?.response?.status;
-      const detail = error?.response?.data?.detail || error?.response?.data?.error?.message || 'No se pudo actualizar la ubicación';
-      setLocationError(status === 429 ? 'Actualizando ubicación muy rápido. Espera unos segundos.' : detail);
-      if (status !== 429) {
-        await forceOffline();
-      }
+      setLocationError(status === 429 ? 'Demasiadas solicitudes. Espera.' : 'Error al actualizar ubicación.');
+      if (status !== 429) await forceOffline();
       return false;
     } finally {
       if (options.showLoading) setSendingLocation(false);
@@ -259,27 +211,22 @@ export default function RiderDashboard() {
 
   const toggleOnlineMode = async () => {
     if (isOnline) {
-      // Desconectar
       if (watchIdRef.current !== null && navigator.geolocation) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
       }
       setIsOnline(false);
-      if (riderId) {
-        riderService.toggleOnline(riderId, false).catch(console.error);
-      }
+      if (riderId) riderService.toggleOnline(riderId, false).catch(console.error);
       return;
     }
 
-    // Conectar
     if (!navigator.geolocation) {
-      setLocationError('La geolocalización no es soportada por este navegador');
+      setLocationError('Geolocalización no soportada');
       void forceOffline();
       return;
     }
-
     if (!riderId) {
-      setLocationError('Cargando perfil de repartidor...');
+      setLocationError('Cargando perfil...');
       return;
     }
 
@@ -289,14 +236,15 @@ export default function RiderDashboard() {
     try {
       let position: GeolocationPosition;
       try {
-        position = await requestPosition(INITIAL_GEOLOCATION_OPTIONS);
+        position = await new Promise((resolve, reject) => 
+          navigator.geolocation.getCurrentPosition(resolve, reject, INITIAL_GEOLOCATION_OPTIONS)
+        );
       } catch (firstError) {
         const geolocationError = firstError as GeolocationPositionError;
-        if (geolocationError.code !== 3) {
-          throw geolocationError;
-        }
-        console.warn('Timeout obteniendo posición inicial, reintentando con menor precisión:', geolocationError);
-        position = await requestPosition(FALLBACK_GEOLOCATION_OPTIONS);
+        if (geolocationError.code !== 3) throw geolocationError;
+        position = await new Promise((resolve, reject) => 
+          navigator.geolocation.getCurrentPosition(resolve, reject, FALLBACK_GEOLOCATION_OPTIONS)
+        );
       }
 
       const { latitude, longitude } = position.coords;
@@ -304,14 +252,9 @@ export default function RiderDashboard() {
       if (!canGoOnline) return;
       
       setIsOnline(true);
-
       const id = navigator.geolocation.watchPosition(
-        (pos) => {
-          const { latitude: watchLat, longitude: watchLng } = pos.coords;
-          void sendLocation(watchLat, watchLng);
-        },
+        (pos) => sendLocation(pos.coords.latitude, pos.coords.longitude),
         (err) => {
-          console.error('Error de geolocalización:', err);
           setLocationError(getGeolocationErrorMessage(err));
           void forceOffline();
         },
@@ -319,20 +262,12 @@ export default function RiderDashboard() {
       );
       watchIdRef.current = id;
     } catch (error) {
-      const geolocationError = error as GeolocationPositionError;
-      console.error('Error obteniendo posición inicial:', geolocationError);
-      setLocationError(getGeolocationErrorMessage(geolocationError));
+      setLocationError(getGeolocationErrorMessage(error as GeolocationPositionError));
       await forceOffline();
     } finally {
       setSendingLocation(false);
     }
   };
-
-  // Helper local para requestPosition (necesario aquí)
-  const requestPosition = (options: PositionOptions): Promise<GeolocationPosition> =>
-    new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, options);
-    });
 
   const nextDeliveryCode = useMemo(() => {
     if (!nextDelivery) return '';
@@ -341,10 +276,10 @@ export default function RiderDashboard() {
 
   if (!isMounted || !isAuthenticated || !user || loadingData) {
     return (
-      <div className="flex items-center justify-center min-h-[80vh] bg-gray-50">
+      <div className="flex items-center justify-center min-h-[60vh] bg-gray-50">
         <div className="text-center">
           <Loader2 className="animate-spin h-12 w-12 text-blue-600 mx-auto mb-4" />
-          <p className="text-gray-600">Cargando panel de repartidor...</p>
+          <p className="text-gray-600">Cargando panel...</p>
         </div>
       </div>
     );
@@ -352,23 +287,23 @@ export default function RiderDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Header con Botón Actualizar */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      {/* Panel de Control Superior (Sin saludo repetido, enfocado en acción) */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-xl border shadow-sm">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Hola, {user.first_name} {user.last_name}</h1>
-          <p className="text-gray-500 flex items-center gap-2">
+          <h2 className="text-lg font-bold text-gray-900">Panel de Control</h2>
+          <p className="text-sm text-gray-500 flex items-center gap-2 mt-1">
             {isOnline ? (
               <>
-                <span className="relative flex h-3 w-3">
+                <span className="relative flex h-2.5 w-2.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
                 </span>
-                En línea - Recibiendo ubicaciones
+                <span className="text-green-700 font-medium">En línea - Recibiendo ubicaciones</span>
               </>
             ) : (
               <>
-                <span className="inline-block h-3 w-3 rounded-full bg-gray-400"></span>
-                Desconectado
+                <span className="inline-block h-2.5 w-2.5 rounded-full bg-gray-400"></span>
+                <span className="text-gray-500">Desconectado</span>
               </>
             )}
           </p>
@@ -399,13 +334,12 @@ export default function RiderDashboard() {
             )}
             {sendingLocation ? 'Obteniendo ubicación...' : isOnline ? 'Desconectarse' : 'Conectarse'}
           </Button>
-          
         </div>
       </div>
 
       {/* Alertas de Error */}
       {(locationError || dashboardError) && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
           <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
           <div>
             <h3 className="font-semibold text-red-800">Atención</h3>
@@ -416,7 +350,7 @@ export default function RiderDashboard() {
 
       {/* Tarjetas de Métricas */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="bg-gradient-to-br from-green-50 to-white border-green-200 shadow-sm">
+        <Card className="bg-gradient-to-br from-green-50 to-white border-green-200 shadow-sm hover:shadow-md transition-shadow">
           <CardHeader className="pb-2">
             <div className="flex justify-between items-start">
               <div>
@@ -433,7 +367,7 @@ export default function RiderDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="border-t-4 border-t-blue-500 shadow-sm">
+        <Card className="border-t-4 border-t-blue-500 shadow-sm hover:shadow-md transition-shadow">
           <CardHeader className="pb-2">
             <div className="flex justify-between items-start">
               <div>
@@ -444,11 +378,11 @@ export default function RiderDashboard() {
             </div>
           </CardHeader>
           <CardContent>
-            <p className="text-xs text-gray-500">Calculado desde tus entregas reales</p>
+            <p className="text-xs text-gray-500">Calculado desde entregas reales</p>
           </CardContent>
         </Card>
 
-        <Card className="border-t-4 border-t-purple-500 shadow-sm">
+        <Card className="border-t-4 border-t-purple-500 shadow-sm hover:shadow-md transition-shadow">
           <CardHeader className="pb-2">
             <div className="flex justify-between items-start">
               <div>

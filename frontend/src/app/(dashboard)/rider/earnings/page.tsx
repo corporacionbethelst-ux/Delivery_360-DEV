@@ -3,8 +3,19 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
-import { DollarSign, TrendingUp, AlertCircle, ArrowRight, Download, Loader2, Wallet } from 'lucide-react';
+import { DollarSign, 
+         TrendingUp,
+         Clock, 
+         CheckCircle, 
+         ShieldCheck,
+         AlertCircle, 
+         ArrowRight, 
+         Download, 
+         Loader2, 
+         Wallet, 
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge'; // <-- Agregado Badge
 import { Button } from '@/components/ui/button';
 import { SimpleBarChart } from '@/components/charts/SimpleBarChart';
 import { formatCurrency } from '@/lib/formatters';
@@ -240,26 +251,89 @@ export default function RiderEarningsPage() {
         </Card>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card className="bg-gradient-to-br from-indigo-50 to-white border-indigo-100">
-            <CardContent className="p-6">
-              <h3 className="font-bold text-indigo-900 mb-2">Retiros en proceso</h3>
-              <p className="text-sm text-indigo-700 mb-4">
-                Actualmente tienes {formatCurrency(pendingWithdrawals)} en solicitudes pendientes de aprobación o procesamiento.
-              </p>
-              <Button variant="link" className="p-0 h-auto text-indigo-600 font-semibold" onClick={() => router.push('/rider/earnings/payouts')}>
-                Ver historial de retiros <ArrowRight className="w-4 h-4 ml-1" />
+          {/* Tarjeta: Retiros en Proceso */}
+          <Card className="relative overflow-hidden border-l-4 border-l-indigo-500 shadow-sm hover:shadow-md transition-shadow duration-200">
+            <div className="absolute top-0 right-0 p-4 opacity-10">
+              <Clock className="w-24 h-24 text-indigo-600" />
+            </div>
+            
+            <CardContent className="p-6 relative z-10">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-indigo-100 rounded-lg">
+                    <Clock className="w-6 h-6 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-lg leading-tight">En Proceso</h3>
+                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Solicitudes Pendientes</p>
+                  </div>
+                </div>
+                <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200">
+                  Activo
+                </Badge>
+              </div>
+
+              <div className="mb-4">
+                <p className="text-3xl font-extrabold text-indigo-900 tracking-tight">
+                  {formatCurrency(pendingWithdrawals)}
+                </p>
+                <p className="text-sm text-gray-600 mt-2 leading-relaxed">
+                  Tienes este monto en solicitudes que están siendo revisadas o procesadas por el sistema bancario.
+                </p>
+              </div>
+
+              <Button 
+                variant="outline" 
+                className="w-full justify-between group border-indigo-200 text-indigo-700 hover:bg-indigo-50 hover:text-indigo-900"
+                onClick={() => router.push('/rider/earnings/payouts')}
+              >
+                <span className="font-semibold">Ver historial detallado</span>
+                <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-1" />
               </Button>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-orange-50 to-white border-orange-100">
-            <CardContent className="p-6">
-              <h3 className="font-bold text-orange-900 mb-2">Pagos procesados</h3>
-              <p className="text-sm text-orange-700 mb-4">
-                El sistema registra {formatCurrency(processedWithdrawals)} ya pagados o retirados del saldo disponible.
-              </p>
-              <div className="text-xs font-mono text-orange-600 bg-orange-100 inline-block px-2 py-1 rounded">
-                Fuente: /payouts/balance y /financial/riders/me
+          {/* Tarjeta: Pagos Procesados */}
+          <Card className="relative overflow-hidden border-l-4 border-l-orange-500 shadow-sm hover:shadow-md transition-shadow duration-200">
+            <div className="absolute top-0 right-0 p-4 opacity-10">
+              <CheckCircle className="w-24 h-24 text-orange-600" />
+            </div>
+            
+            <CardContent className="p-6 relative z-10">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-orange-100 rounded-lg">
+                    <CheckCircle className="w-6 h-6 text-orange-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-lg leading-tight">Completados</h3>
+                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Historial de Pagos</p>
+                  </div>
+                </div>
+                <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                  Finalizado
+                </Badge>
+              </div>
+
+              <div className="mb-4">
+                <p className="text-3xl font-extrabold text-orange-900 tracking-tight">
+                  {formatCurrency(processedWithdrawals)}
+                </p>
+                <p className="text-sm text-gray-600 mt-2 leading-relaxed">
+                  Total acumulado de retiros ya pagados y transferidos exitosamente a tu cuenta.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 p-3 bg-orange-50/50 rounded-lg border border-orange-100">
+                <div className="p-1.5 bg-white rounded-md shadow-sm">
+                  <ShieldCheck className="w-4 h-4 text-orange-600" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-orange-800">Datos Verificados</p>
+                  <p className="text-[10px] text-orange-600/80 font-mono truncate">
+                    Fuente: /payouts/balance + /financial/riders/me
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
