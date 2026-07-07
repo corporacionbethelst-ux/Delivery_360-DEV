@@ -3,24 +3,38 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
-import { DollarSign, 
-         TrendingUp,
-         Clock, 
-         CheckCircle, 
-         ShieldCheck,
-         AlertCircle, 
-         ArrowRight, 
-         Download, 
-         Loader2, 
-         Wallet, 
+import { 
+  DollarSign, 
+  TrendingUp, 
+  Clock, 
+  CheckCircle, 
+  ShieldCheck,
+  AlertCircle, 
+  ArrowRight, 
+  Download, 
+  Loader2, 
+  Wallet,
+  BarChart3
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge'; // <-- Agregado Badge
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { SimpleBarChart } from '@/components/charts/SimpleBarChart';
 import { formatCurrency } from '@/lib/formatters';
 import { financialService, RiderEarnings, FinancialTransaction } from '@/services/financial.service';
 import { payoutService, PayoutBalance } from '@/services/payout.service';
+
+// Importaciones directas de Recharts para asegurar el renderizado
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  Legend, 
+  ResponsiveContainer,
+  Cell
+} from 'recharts';
 
 const MIN_WITHDRAWAL_AMOUNT = 10;
 
@@ -119,11 +133,12 @@ export default function RiderEarningsPage() {
   const completedDeliveries = Number(earnings?.completed_deliveries ?? 0);
   const canRequestWithdrawal = availableBalance >= MIN_WITHDRAWAL_AMOUNT;
 
+  // Datos formateados para el gráfico
   const chartData = [
-    { label: 'Ganado', value: totalEarned },
-    { label: 'Disponible', value: availableBalance },
-    { label: 'Pendiente', value: pendingWithdrawals },
-    { label: 'Pagado', value: processedWithdrawals },
+    { name: 'Total Ganado', value: totalEarned, color: '#16a34a' }, // green-600
+    { name: 'Disponible', value: availableBalance, color: '#2563eb' }, // blue-600
+    { name: 'En Proceso', value: pendingWithdrawals, color: '#9333ea' }, // purple-600
+    { name: 'Pagado', value: processedWithdrawals, color: '#f97316' }, // orange-500
   ];
 
   return (
@@ -155,6 +170,7 @@ export default function RiderEarningsPage() {
           </div>
         )}
 
+        {/* Tarjetas de Métricas Superiores */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card className="border-t-4 border-t-green-500 shadow-sm">
             <CardHeader className="pb-2">
@@ -171,7 +187,7 @@ export default function RiderEarningsPage() {
             <CardContent>
               <div className="flex items-center text-xs text-green-600 font-medium">
                 <TrendingUp className="w-3 h-3 mr-1" />
-                <span>Calculado desde tus entregas y transacciones reales</span>
+                <span>Calculado desde entregas reales</span>
               </div>
             </CardContent>
           </Card>
@@ -207,32 +223,72 @@ export default function RiderEarningsPage() {
             </CardHeader>
             <CardContent>
               <div className="flex items-center text-xs text-gray-500">
-                <span>Desde el histórico real del backend</span>
+                <span>Histórico real del backend</span>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        <Card className="shadow-sm">
+        {/* Gráfico de Barras Implementado Directamente con Recharts */}
+        <Card className="shadow-sm overflow-hidden">
           <CardHeader>
-            <CardTitle className="text-lg">Estado de tus ganancias</CardTitle>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <BarChart3 className="w-5 h-5 text-blue-600" />
+              Estado de tus ganancias
+            </CardTitle>
           </CardHeader>
-          <CardContent>
-            <SimpleBarChart data={chartData} height={250} showValues className="pt-4" formatValue={formatCurrency} />
+          <CardContent className="pt-4">
+            <div className="h-[300px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <XAxis 
+                    dataKey="name" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#6b7280', fontSize: 12 }} 
+                    dy={10}
+                  />
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#6b7280', fontSize: 12 }} 
+                    tickFormatter={(value) => `$${value.toLocaleString()}`}
+                  />
+                  <Tooltip 
+                    cursor={{ fill: '#f3f4f6' }}
+                    contentStyle={{ 
+                      backgroundColor: '#fff', 
+                      borderRadius: '8px', 
+                      border: '1px solid #e5e7eb',
+                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                    }}
+                    formatter={(value: number) => formatCurrency(value)}
+                  />
+                  <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                  <Bar dataKey="value" radius={[4, 4, 0, 0]} barSize={60}>
+                    {chartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </CardContent>
         </Card>
 
+        {/* Últimos Movimientos */}
         <Card className="shadow-sm">
           <CardHeader>
             <CardTitle className="text-lg">Últimos movimientos financieros</CardTitle>
           </CardHeader>
           <CardContent>
             {recentMovements.length === 0 ? (
-              <p className="text-sm text-gray-500">Aún no hay movimientos financieros para mostrar.</p>
+              <p className="text-sm text-gray-500 text-center py-4">Aún no hay movimientos financieros para mostrar.</p>
             ) : (
               <div className="space-y-3">
                 {recentMovements.map((movement) => (
-                  <div key={movement.id} className="flex items-center justify-between border rounded-lg p-3 bg-white">
+                  <div key={movement.id} className="flex items-center justify-between border rounded-lg p-3 bg-white hover:shadow-sm transition-shadow">
                     <div>
                       <p className="font-semibold text-gray-900">{movement.description}</p>
                       <p className="text-xs text-gray-500">
@@ -240,7 +296,9 @@ export default function RiderEarningsPage() {
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="font-bold text-gray-900">{formatCurrency(movement.amount)}</p>
+                      <p className={`font-bold ${movement.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {movement.amount >= 0 ? '+' : ''}{formatCurrency(movement.amount)}
+                      </p>
                       <p className="text-xs text-gray-500">Saldo: {formatCurrency(movement.balance_after || 0)}</p>
                     </div>
                   </div>
@@ -250,6 +308,7 @@ export default function RiderEarningsPage() {
           </CardContent>
         </Card>
 
+        {/* Tarjetas de Retiros en Proceso y Completados */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Tarjeta: Retiros en Proceso */}
           <Card className="relative overflow-hidden border-l-4 border-l-indigo-500 shadow-sm hover:shadow-md transition-shadow duration-200">
@@ -278,7 +337,7 @@ export default function RiderEarningsPage() {
                   {formatCurrency(pendingWithdrawals)}
                 </p>
                 <p className="text-sm text-gray-600 mt-2 leading-relaxed">
-                  Tienes este monto en solicitudes que están siendo revisadas o procesadas por el sistema bancario.
+                  Tienes este monto en solicitudes que están siendo revisadas o procesadas.
                 </p>
               </div>
 
@@ -320,7 +379,7 @@ export default function RiderEarningsPage() {
                   {formatCurrency(processedWithdrawals)}
                 </p>
                 <p className="text-sm text-gray-600 mt-2 leading-relaxed">
-                  Total acumulado de retiros ya pagados y transferidos exitosamente a tu cuenta.
+                  Total acumulado de retiros ya pagados a tu cuenta.
                 </p>
               </div>
 
