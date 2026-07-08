@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
   Plus, Search, Filter, Download, Package, Clock, Trash2, Eye, AlertCircle, 
-  Truck, Zap, CheckCircle, MapPin, RefreshCw // <--- MODIFICACIÓN: Agregado RefreshCw a los imports
+  Truck, Zap, CheckCircle, MapPin, RefreshCw 
 } from 'lucide-react';
 import { orderService, Order, OrderStatus } from '@/services/order.service';
 import { riderService } from '@/services/rider.service';
@@ -45,7 +45,6 @@ export default function OrdersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState<string | null>(null);
   
-  // <--- MODIFICACIÓN: Estado para controlar el spinner del botón de actualizar
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Estados para Cancelación
@@ -78,12 +77,10 @@ export default function OrdersPage() {
       setError('No se pudieron cargar los datos.');
     } finally {
       setLoading(false);
-      // <--- MODIFICACIÓN: Asegurar que el spinner se detenga si termina la carga inicial
       setIsRefreshing(false);
     }
   };
 
-  // <--- MODIFICACIÓN: Nueva función para manejar el refresco manual
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await fetchInitialData();
@@ -117,7 +114,6 @@ export default function OrdersPage() {
   // --- Lógica de Asignación ---
   const handleAssignClick = (order: Order) => {
     setOrderToAssign(order);
-    // Pre-seleccionar el rider actual si existe
     setSelectedRiderId(order.assigned_rider_id || '');
   };
 
@@ -224,7 +220,6 @@ export default function OrdersPage() {
     }
   };
 
-  // Helper para determinar siguientes acciones posibles
   const getNextActions = (status: OrderStatus): OrderStatus[] => {
     switch (status) {
       case 'PENDIENTE': return ['ASIGNADO'];
@@ -245,7 +240,6 @@ export default function OrdersPage() {
             <p className="text-gray-500 mt-1">Administra, asigna y rastrea pedidos.</p>
           </div>
           <div className="flex gap-2">
-            {/* <--- MODIFICACIÓN: Botón Actualizar agregado aquí */}
             <Button 
               variant="outline" 
               onClick={handleRefresh} 
@@ -283,7 +277,7 @@ export default function OrdersPage() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
               <input
                 type="text"
-                  placeholder="Buscar por ID, cliente, dirección o rider..."
+                placeholder="Buscar por ID, cliente, dirección o rider..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
@@ -299,6 +293,7 @@ export default function OrdersPage() {
                 <option value="ALL">Todos los estados</option>
                 <option value="PENDIENTE">Pendientes</option>
                 <option value="ASIGNADO">Asignados</option>
+                <option value="RECOLECTADO">Recolectados</option>
                 <option value="EN_RUTA">En Ruta</option>
                 <option value="ENTREGADO">Entregados</option>
                 <option value="CANCELADO">Cancelados</option>
@@ -337,15 +332,7 @@ export default function OrdersPage() {
             {filteredOrders.map((order) => {
               const nextActions: OrderStatus[] = getNextActions(order.status);
               
-              // CORRECCIÓN CRÍTICA:
-              // Usamos SOLO assigned_rider_id para determinar si hay rider.
-              // El objeto 'order.rider' a veces no viene en la lista por optimización del backend,
-              // pero el ID siempre está presente si hay asignación.
               const hasRider = !!order.assigned_rider_id;
-              
-              // Lógica del botón:
-              // 1. Si NO tiene rider Y está PENDIENTE -> Mostrar "Asignar"
-              // 2. Si TIENE rider (sin importar el estado, ej: ASIGNADO) -> Mostrar "Reasignar"
               const showAssignButton = (!hasRider && order.status === 'PENDIENTE') || hasRider;
 
               return (
@@ -400,7 +387,6 @@ export default function OrdersPage() {
                         <Eye className="w-3 h-3 mr-1" /> Ver
                       </Button>
                       
-                      {/* Botón Asignar / Reasignar */}
                       {showAssignButton && (
                         <Dialog 
                           open={orderToAssign?.id === order.id} 
@@ -431,7 +417,6 @@ export default function OrdersPage() {
                             </DialogHeader>
                             
                             <div className="py-4 space-y-4">
-                              {/* Opción Automática (Solo si no tiene rider y es pendiente) */}
                               {!hasRider && order.status === 'PENDIENTE' && (
                                 <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100">
                                   <Button 
@@ -459,7 +444,6 @@ export default function OrdersPage() {
                                 <div className="flex-grow border-t border-gray-200"></div>
                               </div>
 
-                              {/* Opción Manual */}
                               <div className="space-y-2">
                                 <Label htmlFor="rider-select-manual">Repartidor Disponible</Label>
                                 <Select value={selectedRiderId} onValueChange={(val) => setSelectedRiderId(val)}>
@@ -503,7 +487,6 @@ export default function OrdersPage() {
                         </Dialog>
                       )}
 
-                      {/* Acciones Rápidas de Estado */}
                       {nextActions.map((nextStatus) => (
                         <Button
                           key={nextStatus}
