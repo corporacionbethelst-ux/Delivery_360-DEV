@@ -18,6 +18,7 @@ from app.models.rider import Rider, RiderStatus, utc_now_naive
 from app.models.user import User, UserRole
 from app.models.delivery import Delivery, DeliveryStatus
 from app.models.financial import Financial, TransactionType, PaymentStatus
+from app.models.platform_setting import PlatformSetting
 from app.api.v1.auth import get_current_user, require_role
 from app.services.notification_service import NotificationService
 from app.services.audit_service import AuditService, get_audit_service
@@ -634,8 +635,13 @@ async def _ensure_delivery_and_financial_records(db: AsyncSession, order: Order,
     existing_financial = financial_result.scalar_one_or_none()
     
     if not existing_financial:
-        # Calcular pago base por entrega (configurable, aquí usamos un valor base)
-        base_payment = Decimal("2.50")  # Pago base por entrega
+        # Obtener el bono base configurable desde platform_settings (FASE 1)
+        # Si no existe configuración, usar 2.50 como fallback para retrocompatibilidad
+        settings_result = await db.execute(
+            select(PlatformSetting.value).where(PlatformSetting.key == "rider_delivery_bonus")
+        )
+        bonus_value = settings_result.scalar_one_or_none()
+        base_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("2.50")
         
         # Crear registro financiero
         financial = Financial(
@@ -651,7 +657,7 @@ async def _ensure_delivery_and_financial_records(db: AsyncSession, order: Order,
         )
         db.add(financial)
         await db.flush()
-        logger.info(f"Registro financiero creado automáticamente para orden {order.id} - Rider {rider_id}")
+        logger.info(f"Registro financiero creado automáticamente para orden {order.id} - Rider {rider_id} - Bono: {base_payment}")
 
 
 async def _ensure_delivery_record_on_assignment(db: AsyncSession, order: Order, rider_id: uuid.UUID) -> None:
