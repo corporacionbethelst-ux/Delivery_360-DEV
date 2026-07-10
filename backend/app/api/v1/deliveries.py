@@ -20,6 +20,7 @@ from app.models.order import Order, OrderStatus
 from app.models.rider import Rider, RiderStatus
 from app.models.user import User, UserRole
 from app.models.financial import Financial, TransactionType, PaymentStatus
+from app.models.platform_setting import PlatformSetting
 from app.services.notification_service import NotificationService
 from app.services.redis_audit_service import get_redis_audit_logger
 from app.services.audit_service import get_audit_service
@@ -505,7 +506,14 @@ async def complete_delivery(
     
     if not existing_financial and delivery.rider_id:
         from decimal import Decimal
-        base_payment = Decimal("2.50")  # Pago base por entrega (configurable)
+        
+        # Obtener el bono base configurable desde platform_settings (FASE 1)
+        # Si no existe configuración, usar 2.50 como fallback para retrocompatibilidad
+        settings_result = await db.execute(
+            select(PlatformSetting.value).where(PlatformSetting.key == "rider_delivery_bonus")
+        )
+        bonus_value = settings_result.scalar_one_or_none()
+        base_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("2.50")
         
         financial = Financial(
             rider_id=delivery.rider_id,
@@ -519,7 +527,7 @@ async def complete_delivery(
             status=PaymentStatus.PROCESADO,
         )
         db.add(financial)
-        logger.info(f"Registro financiero creado para entrega {delivery.id} - Rider {delivery.rider_id}")
+        logger.info(f"Registro financiero creado para entrega {delivery.id} - Rider {delivery.rider_id} - Bono: {base_payment}")
     
     # Asegurar que se guarde cualquier cambio en la entidad delivery antes del commit
     await db.flush()

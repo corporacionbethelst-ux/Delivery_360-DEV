@@ -30,6 +30,7 @@ DEFAULT_PLATFORM_SETTINGS: dict[str, Any] = {
     "active_zones": ["Norte", "Sur", "Centro"],
     "support_email": "soporte@delivery.com",
     "maintenance_mode": False,
+    "rider_delivery_bonus": 2.50,
 }
 
 SETTING_DESCRIPTIONS: dict[str, str] = {
@@ -39,6 +40,7 @@ SETTING_DESCRIPTIONS: dict[str, str] = {
     "active_zones": "Lista de zonas activas visibles para operación.",
     "support_email": "Correo de soporte público.",
     "maintenance_mode": "Bloquea flujos públicos durante mantenimiento.",
+    "rider_delivery_bonus": "Bono base pagado al repartidor por cada entrega completada exitosamente.",
 }
 
 
@@ -49,6 +51,7 @@ class PlatformSettingsResponse(BaseModel):
     active_zones: List[str]
     support_email: EmailStr
     maintenance_mode: bool
+    rider_delivery_bonus: float = 2.50
     updated_at: Optional[str] = None
     updated_by_user_id: Optional[str] = None
 
@@ -60,6 +63,7 @@ class PlatformSettingsUpdate(BaseModel):
     active_zones: Optional[List[str]] = None
     support_email: Optional[EmailStr] = None
     maintenance_mode: Optional[bool] = None
+    rider_delivery_bonus: Optional[float] = Field(None, ge=0)
 
 
 async def _load_settings_rows(db: AsyncSession) -> dict[str, PlatformSetting]:
@@ -86,6 +90,7 @@ def _coerce_settings(rows: dict[str, PlatformSetting]) -> dict[str, Any]:
     values["delivery_fee_base"] = float(values.get("delivery_fee_base") or 0)
     values["commission_percentage"] = float(values.get("commission_percentage") or 0)
     values["min_order_amount"] = float(values.get("min_order_amount") or 0)
+    values["rider_delivery_bonus"] = float(values.get("rider_delivery_bonus") or 2.50)
     values["active_zones"] = [str(zone).strip() for zone in values.get("active_zones", []) if str(zone).strip()]
     values["maintenance_mode"] = bool(values.get("maintenance_mode"))
     return values

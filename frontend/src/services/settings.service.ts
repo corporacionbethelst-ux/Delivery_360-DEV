@@ -7,6 +7,7 @@ export interface PlatformSettings {
   active_zones: string[];
   support_email: string;
   maintenance_mode: boolean;
+  rider_delivery_bonus: number;
   updated_at?: string | null;
   updated_by_user_id?: string | null;
 }
@@ -18,6 +19,7 @@ const normalizeSettings = (settings: PlatformSettings): PlatformSettings => ({
   delivery_fee_base: Number(settings.delivery_fee_base ?? 0),
   commission_percentage: Number(settings.commission_percentage ?? 0),
   min_order_amount: Number(settings.min_order_amount ?? 0),
+  rider_delivery_bonus: Number(settings.rider_delivery_bonus ?? 2.50),
   active_zones: Array.isArray(settings.active_zones) ? settings.active_zones : [],
   support_email: settings.support_email || 'soporte@delivery.com',
   maintenance_mode: Boolean(settings.maintenance_mode),
@@ -32,6 +34,9 @@ const validateSettings = (settings: PlatformSettingsUpdate): void => {
   }
   if (settings.min_order_amount !== undefined && settings.min_order_amount < 0) {
     throw new Error('El pedido mínimo no puede ser negativo');
+  }
+  if (settings.rider_delivery_bonus !== undefined && settings.rider_delivery_bonus < 0) {
+    throw new Error('El bono del repartidor no puede ser negativo');
   }
   if (settings.active_zones !== undefined && settings.active_zones.filter(Boolean).length === 0) {
     throw new Error('Debe existir al menos una zona activa');
