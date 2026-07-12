@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Bike, Clock, CreditCard, Package, RefreshCw, Truck, Wallet } from 'lucide-react';
+import { ArrowLeft, Bike, Clock, CreditCard, Eye, Package, RefreshCw, Truck, Wallet } from 'lucide-react';
 import { riderService, RiderAuditSummary } from '@/services/rider.service';
 import { orderService, Order } from '@/services/order.service';
 import { deliveryService, Delivery } from '@/services/delivery.service';
@@ -133,7 +133,7 @@ export default function ManagerRiderAuditDetailPage() {
         <Section title="Órdenes del repartidor" icon={Package} empty={!loading && orders.length === 0}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b"><tr><Th>Orden</Th><Th>Cliente</Th><Th>Estado</Th><Th>Total</Th><Th>Creada</Th></tr></thead>
+              <thead className="bg-gray-50 border-b"><tr><Th>Orden</Th><Th>Cliente</Th><Th>Estado</Th><Th>Total</Th><Th>Creada</Th><Th>Acciones</Th></tr></thead>
               <tbody className="divide-y">
                 {orders.map((order) => (
                   <tr key={order.id} className="hover:bg-gray-50">
@@ -142,6 +142,18 @@ export default function ManagerRiderAuditDetailPage() {
                     <Td><Badge variant="outline">{order.status}</Badge></Td>
                     <Td>{formatCurrency(order.total_amount ?? order.total ?? 0)}</Td>
                     <Td>{formatDate(order.created_at)}</Td>
+                    <Td>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs"
+                        title="Ver detalle"
+                        onClick={() => router.push(`/manager/operations/orders/${order.id}`)}
+                      >
+                        <Eye className="w-3.5 h-3.5 mr-1" />
+                        Ver
+                      </Button>
+                    </Td>
                   </tr>
                 ))}
               </tbody>
