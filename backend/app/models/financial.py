@@ -16,6 +16,7 @@ def utc_now_naive():
 class TransactionType(str, enum.Enum):
     """Transaction types."""
     PAGO_ENTREGA = "PAGO_ENTREGA"
+    PAGO_INTENTO_FALLIDO = "PAGO_INTENTO_FALLIDO"
     BONO = "BONO"
     DESCUENTO = "DESCUENTO"
     AJUSTE = "AJUSTE"

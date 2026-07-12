@@ -53,6 +53,7 @@ export default function SettingsPage() {
         commission_percentage: Number(settings.commission_percentage),
         min_order_amount: Number(settings.min_order_amount),
         rider_delivery_bonus: Number(settings.rider_delivery_bonus),
+        rider_failed_attempt_bonus: Number(settings.rider_failed_attempt_bonus),
         support_email: settings.support_email,
         maintenance_mode: settings.maintenance_mode,
         active_zones: zonesText.split(',').map((zone) => zone.trim()).filter(Boolean),
@@ -168,6 +169,18 @@ export default function SettingsPage() {
                 className="mt-1"
               />
               <p className="text-xs text-gray-500 mt-1">Pago base al repartidor por entrega completada.</p>
+            </div>
+            <div>
+              <Label>Bono por Intento Fallido</Label>
+              <Input
+                type="number"
+                min={0}
+                step={0.01}
+                value={settings.rider_failed_attempt_bonus}
+                onChange={(event) => updateSetting('rider_failed_attempt_bonus', Number(event.target.value))}
+                className="mt-1"
+              />
+              <p className="text-xs text-gray-500 mt-1">Pago al repartidor cuando la entrega falla por causa del cliente.</p>
             </div>
           </CardContent>
         </Card>
