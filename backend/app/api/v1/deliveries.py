@@ -616,7 +616,7 @@ async def fail_delivery(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Marca la entrega como fallida con razón."""
+    """Marca la entrega como fallida con razón y crea pago de intento fallido si corresponde."""
     result = await db.execute(select(Delivery).where(Delivery.id == _parse_uuid(delivery_id, "delivery_id")))
     delivery = result.scalar_one_or_none()
     if not delivery:
@@ -645,6 +645,47 @@ async def fail_delivery(
         order.status = OrderStatus.FALLIDO
         order.failure_reason = body.issue_type
         order.failure_notes = body.issue_description
+
+    # FASE 2: Crear registro financiero por intento fallido si el repartidor ya estaba asignado
+    # Se paga solo cuando el fallo es por causa del cliente (dirección mala, rechazo, etc.)
+    if delivery.rider_id:
+        from decimal import Decimal
+        
+        # Determinar si el motivo del fallo amerita pago al repartidor
+        # Motivos que pagan: cliente_no_esta, direccion_incorrecta, cliente_rechaza, otro_cliente
+        # Motivos que NO pagan: vehiculo_descompuesto, rider_no_quiere, accidente, etc.
+        customer_fault_reasons = ["cliente_no_esta", "direccion_incorrecta", "cliente_rechaza", "otro_cliente"]
+        should_pay_rider = body.issue_type.lower() in customer_fault_reasons
+        
+        if should_pay_rider:
+            idempotency_key = f"pago_fallido_{delivery.order_id}"
+            
+            financial_result = await db.execute(
+                select(Financial).where(Financial.idempotency_key == idempotency_key)
+            )
+            existing_financial = financial_result.scalar_one_or_none()
+            
+            if not existing_financial:
+                # Obtener el bono por intento fallido desde platform_settings
+                settings_result = await db.execute(
+                    select(PlatformSetting.value).where(PlatformSetting.key == "rider_failed_attempt_bonus")
+                )
+                bonus_value = settings_result.scalar_one_or_none()
+                failed_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("1.00")
+                
+                financial = Financial(
+                    rider_id=delivery.rider_id,
+                    amount=failed_payment,
+                    transaction_type=TransactionType.PAGO_INTENTO_FALLIDO,
+                    description=f"Pago por intento fallido (orden {order.external_id if order else delivery.order_id}) - Motivo: {body.issue_type}",
+                    reference_id=str(order.id) if order else str(delivery.order_id),
+                    source_type="delivery_failed",
+                    source_id=str(delivery.id),
+                    idempotency_key=idempotency_key,
+                    status=PaymentStatus.PROCESADO,
+                )
+                db.add(financial)
+                logger.info(f"Registro financiero creado para entrega fallida {delivery.id} - Rider {delivery.rider_id} - Bono: {failed_payment}")
 
     await db.commit()
     
