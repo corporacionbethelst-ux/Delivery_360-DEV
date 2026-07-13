@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import uuid
 import json
 import logging
@@ -142,7 +142,7 @@ class AuditService:
         result = await self.db.execute(query.order_by(AuditLog.created_at.desc()))
         return result.scalars().all()
 
-    async def get_action_statistics(self, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
+    async def get_action_statistics(self, start_date: datetime, end_date: datetime) -> Dict[str, Union[int, str, Dict[str, int]]]:
         """Obtener estadísticas por tipo de acción."""
         total = int(
             (await self.db.execute(
