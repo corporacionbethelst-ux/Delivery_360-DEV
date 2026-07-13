@@ -1,5 +1,6 @@
 import { api } from '@/lib/api';
 import type { Delivery, DeliveryStatus } from '@/types/delivery';
+import type { AxiosError } from 'axios';
 
 // Usamos string union para ser flexibles con el filtro
 export type DeliveryStatusFilter = 'PENDIENTE' | 'INICIADA' | 'EN_ROUTE' | 'EN_RUTA' | 'COMPLETADA' | 'INCIDENCIA' | 'FALLIDA' | 'EN_PICKUP' | 'EN_DESTINO';
@@ -153,27 +154,30 @@ export const deliveryService = {
       const deliveryId = String(id);
       // El backend espera un POST a /deliveries/{id}/status
       return await api.post<Delivery>(`/deliveries/${deliveryId}/status`, payload);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[DeliveryService] Error updating status:', error);
-      throw new Error(error.response?.data?.detail || 'No se pudo actualizar el estado de la entrega');
+      const axiosError = error as AxiosError<{ detail?: string }>;
+      throw new Error(axiosError.response?.data?.detail || 'No se pudo actualizar el estado de la entrega');
     }
   },
 
   start: async (orderId: string): Promise<{ otp_code: string; message: string }> => {
     if (!orderId) throw new Error('[DeliveryService] Order ID requerido');
     try {
-      return await api.post(`/deliveries/${orderId}/start`);
-    } catch (error: any) {
-      throw new Error(error.response?.data?.detail || 'No se pudo iniciar la entrega');
+      return await api.post<{ otp_code: string; message: string }>(`/deliveries/${orderId}/start`);
+    } catch (error: unknown) {
+      const axiosError = error as AxiosError<{ detail?: string }>;
+      throw new Error(axiosError.response?.data?.detail || 'No se pudo iniciar la entrega');
     }
   },
 
-  complete: async (id: string, proof: DeliveryProofInput): Promise<any> => {
+  complete: async (id: string, proof: DeliveryProofInput): Promise<Delivery> => {
     if (!id) throw new Error('[DeliveryService] ID requerido');
     try {
-      return await api.post(`/deliveries/${id}/complete`, proof);
-    } catch (error: any) {
-      throw new Error(error.response?.data?.detail || 'Error al completar');
+      return await api.post<Delivery>(`/deliveries/${id}/complete`, proof);
+    } catch (error: unknown) {
+      const axiosError = error as AxiosError<{ detail?: string }>;
+      throw new Error(axiosError.response?.data?.detail || 'Error al completar');
     }
   },
 
@@ -186,13 +190,14 @@ export const deliveryService = {
         latitude: lat,
         longitude: lng,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[DeliveryService] Error updating location:', error);
-      throw new Error(error.response?.data?.detail || 'No se pudo actualizar la ubicación');
+      const axiosError = error as AxiosError<{ detail?: string }>;
+      throw new Error(axiosError.response?.data?.detail || 'No se pudo actualizar la ubicación');
     }
   },
 
-  GetActiveTracking: async (): Promise<Delivery[]> => {
+  getActiveTracking: async (): Promise<Delivery[]> => {
      try {
        const response = await api.get<Delivery[] | DeliveryListResponse>('/deliveries?status=EN_ROUTE&limit=100&include_total=true');
        

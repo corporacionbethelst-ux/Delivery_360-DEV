@@ -1,5 +1,6 @@
 import { api } from '@/lib/api';
 import { User, AuthResponse } from '@/types/user';
+import type { AxiosError } from 'axios';
 
 export interface MessageResponse {
   message: string;
@@ -40,11 +41,12 @@ export const authService = {
       });
       
       return response; 
-    } catch (error: any) {
-      console.error('❌ Error detallado del login:', error.response?.data || error);
+    } catch (error: unknown) {
+      console.error('❌ Error detallado del login:', (error as AxiosError).response?.data || error);
       
-      const errorMsg = error.response?.data?.detail 
-        || error.response?.data?.message 
+      const axiosError = error as AxiosError<{ detail?: string; message?: string }>;
+      const errorMsg = axiosError.response?.data?.detail 
+        || axiosError.response?.data?.message 
         || 'Credenciales inválidas o error de conexión';
         
       throw new Error(errorMsg);
@@ -95,9 +97,10 @@ export const authService = {
         },
       });
       return response;
-    } catch (error: any) {
-      console.error('❌ Error en registro:', error.response?.data);
-      const errorMsg = error.response?.data?.detail || error.response?.data?.message || 'Error al registrar usuario';
+    } catch (error: unknown) {
+      console.error('❌ Error en registro:', (error as AxiosError).response?.data);
+      const axiosError = error as AxiosError<{ detail?: string; message?: string }>;
+      const errorMsg = axiosError.response?.data?.detail || axiosError.response?.data?.message || 'Error al registrar usuario';
       throw new Error(errorMsg);
     }
   },
@@ -109,7 +112,7 @@ export const authService = {
     try {
       const response = await api.get<User>('/auth/me'); 
       return response;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.warn('⚠️ Ruta /auth/me no encontrada, intentando /users/me...');
       
       try {
@@ -159,8 +162,9 @@ export const authService = {
     try {
       const response = await api.post<MessageResponse>('/auth/forgot-password', { email });
       return response;
-    } catch (error: any) {
-      if (error.response?.status === 404 || error.response?.status === 400) {
+    } catch (error: unknown) {
+      const axiosError = error as AxiosError;
+      if (axiosError.response?.status === 404 || axiosError.response?.status === 400) {
          return { message: 'Si el correo existe, recibirás instrucciones.' };
       }
       throw error;
