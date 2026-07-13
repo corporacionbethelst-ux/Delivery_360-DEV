@@ -1,12 +1,10 @@
 """
 Configuración de Sentry para error tracking
 """
+from typing import Any, Optional, Union, Dict, List
+from datetime import datetime, date, timedelta
+from decimal import Decimal
 import sentry_sdk
-from sentry_sdk.integrations.fastapi import FastApiIntegration
-from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
-from sentry_sdk.integrations.redis import RedisIntegration
-from sentry_sdk.integrations.celery import CeleryIntegration
-from typing import Any, Optional
 from app.core.config import settings
 
 
