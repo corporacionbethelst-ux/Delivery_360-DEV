@@ -1,10 +1,25 @@
 // Tipos TypeScript para Deliveries - Delivery360
 import { Order } from './order';
-// CORRECCIÓN CRÍTICA: Asegúrate de que esta importación traiga la interfaz Rider correcta.
-// Si rider.ts tiene conflictos, cambia esto para importar desde user.ts si allí está exportada la definitiva.
 import { Rider } from './user'; 
 
-export type DeliveryStatus = 
+/**
+ * Enum de estados de entrega para el flujo del repartidor.
+ * Define los estados exactos que se usan en la máquina de estados de entregas.
+ */
+export const DeliveryStatus = {
+  INICIADA: 'INICIADA',
+  EN_PICKUP: 'EN_PICKUP',
+  EN_ROUTE: 'EN_ROUTE',
+  COMPLETE: 'COMPLETE',
+  FAILED: 'FAILED',
+} as const;
+
+export type DeliveryStatusType = typeof DeliveryStatus[keyof typeof DeliveryStatus];
+
+/**
+ * Tipo legacy para compatibilidad con respuestas antiguas del backend.
+ */
+export type DeliveryStatusLegacy = 
   | 'PENDIENTE'
   | 'ASIGNADO'
   | 'RECOGIDO'
@@ -12,6 +27,11 @@ export type DeliveryStatus =
   | 'ENTREGADO'
   | 'FALLIDO'
   | 'CANCELADO';
+
+/**
+ * Tipo unificado de estado de entrega.
+ */
+export type DeliveryStatus = DeliveryStatusType | DeliveryStatusLegacy;
 
 export type DeliveryType = 'STANDARD' | 'EXPRESS' | 'PROGRAMADO' | 'AGENDADO';
 export type ProofType = 'FIRMA' | 'FOTO' | 'CODIGO' | 'OTP';
@@ -23,7 +43,7 @@ export interface DeliveryLocation {
   neighborhood: string;
   city: string;
   state: string;
-  zipCode: string; // Mantenido en camelCase si es procesamiento frontend, o cambiar a zip_code si viene del backend
+  zipCode: string;
   reference?: string;
 }
 
@@ -53,61 +73,70 @@ export interface DeliveryEvent {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Interfaz principal de Delivery para el flujo del repartidor.
+ * Incluye los campos específicos requeridos para la gestión de estados.
+ */
 export interface Delivery {
   id: string;
-  deliveryNumber: string;
+  deliveryNumber?: string;
   
+  // Relación con orden
   orderId: string;
   order?: Order;
   
-  status: DeliveryStatus;
-  type: DeliveryType;
-  priority: 'NORMAL' | 'ALTA' | 'URGENTE';
-  
+  // Asignación de repartidor
   riderId?: string;
   rider_id?: string;
   rider?: Rider;
   
-  pickupLocation: DeliveryLocation;
-  deliveryLocation: DeliveryLocation;
+  // Estado actual (usando el enum DeliveryStatus)
+  status: DeliveryStatus;
   
+  // Timestamps específicos del flujo de entrega (nullable)
+  created_at?: string | Date | null;
+  picked_up_at?: string | Date | null;
+  in_route_at?: string | Date | null;
+  completed_at?: string | Date | null;
+  failed_at?: string | Date | null;
+  
+  // Motivo de fallo (solo cuando status es FAILED)
+  failure_reason?: string | null;
+  
+  // Campos adicionales para compatibilidad con otras partes del sistema
+  type?: DeliveryType;
+  priority?: 'NORMAL' | 'ALTA' | 'URGENTE';
+  pickupLocation?: DeliveryLocation;
+  deliveryLocation?: DeliveryLocation;
   estimatedPickupTime?: Date;
   estimatedDeliveryTime?: Date;
   estimated_delivery_time?: string | Date;
   actualPickupTime?: Date;
   actualDeliveryTime?: Date;
-  
   proofOfDelivery?: ProofOfDelivery;
-  events: DeliveryEvent[];
-  
+  events?: DeliveryEvent[];
   observations?: string;
   internalNotes?: string;
   customerInstructions?: string;
-  
-  deliveryFee: number;
-  distanceKm: number;
-  durationMinutes: number;
-  
-  createdAt: Date;
-  updatedAt: Date;
-  created_at?: string | Date;
-  updated_at?: string | Date;
+  deliveryFee?: number;
+  distanceKm?: number;
+  durationMinutes?: number;
+  createdAt?: Date;
+  updatedAt?: Date;
   completedAt?: Date;
   cancelledAt?: Date;
-  
   cancellationReason?: string;
-  failureReason?: string;
   cancelledBy?: string;
 }
 
 export interface DeliveryCreateInput {
   orderId: string;
-  type: DeliveryType;
+  type?: DeliveryType;
   priority?: 'NORMAL' | 'ALTA' | 'URGENTE';
   riderId?: string;
   rider_id?: string;
-  pickupLocation: Omit<DeliveryLocation, 'address'> & { address: string };
-  deliveryLocation: Omit<DeliveryLocation, 'address'> & { address: string };
+  pickupLocation?: Omit<DeliveryLocation, 'address'> & { address: string };
+  deliveryLocation?: Omit<DeliveryLocation, 'address'> & { address: string };
   estimatedPickupTime?: Date;
   estimatedDeliveryTime?: Date;
   estimated_delivery_time?: string | Date;
