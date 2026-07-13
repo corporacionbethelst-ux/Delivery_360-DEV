@@ -51,6 +51,17 @@ class DeliveryFail(BaseModel):
     issue_type: str
     issue_description: Optional[str] = None
 
+class DeliveryStatusUpdate(BaseModel):
+    """Schema para actualizar el estado de una entrega."""
+    status: str
+    issue_type: Optional[str] = None
+    issue_description: Optional[str] = None
+    otp_code: Optional[str] = None
+    notes: Optional[str] = None
+    customer_name_received: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+
 # --- Helpers Internos ---
 
 def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
@@ -788,3 +799,202 @@ async def get_previous_view(
         "redirect_to": target_route,
         "label": "Volver al Panel Principal"
     }
+
+
+@router.patch("/{delivery_id}/status")
+async def update_delivery_status(
+    delivery_id: str,
+    body: DeliveryStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Endpoint unificado para que el repartidor actualice el estado de su entrega.
+    Permite transiciones: ASIGNADO→RECOLECTADO→EN_RUTA→ENTREGADO/FALLIDO
+    """
+    # 1. Obtener entrega
+    result = await db.execute(select(Delivery).where(Delivery.id == _parse_uuid(delivery_id, "delivery_id")))
+    delivery = result.scalar_one_or_none()
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+
+    # 2. Validar permisos - Solo el repartidor asignado puede actualizar
+    if current_user.role == UserRole.REPARTIDOR:
+        rider = await _get_rider_for_user(db, current_user.id)
+        if not rider or delivery.rider_id != rider.id:
+            raise HTTPException(status_code=403, detail="No tienes permiso para actualizar esta entrega")
+    
+    # 3. Mapear estados del frontend a estados del sistema
+    status_mapping = {
+        "RECOLECTADO": DeliveryStatus.EN_PICKUP,
+        "EN_RUTA": DeliveryStatus.EN_ROUTE,
+        "EN_DESTINO": DeliveryStatus.EN_DESTINO,
+        "ENTREGADO": DeliveryStatus.COMPLETADA,
+        "FALLIDO": DeliveryStatus.FALLIDA,
+    }
+    
+    new_status = status_mapping.get(body.status.upper())
+    if not new_status:
+        raise HTTPException(status_code=400, detail=f"Estado inválido: {body.status}")
+    
+    # 4. Validar transiciones de estado permitidas
+    allowed_transitions = {
+        DeliveryStatus.INICIADA: [DeliveryStatus.EN_PICKUP, DeliveryStatus.EN_ROUTE],
+        DeliveryStatus.EN_PICKUP: [DeliveryStatus.EN_ROUTE],
+        DeliveryStatus.EN_ROUTE: [DeliveryStatus.EN_DESTINO, DeliveryStatus.COMPLETADA, DeliveryStatus.FALLIDA],
+        DeliveryStatus.EN_DESTINO: [DeliveryStatus.COMPLETADA, DeliveryStatus.FALLIDA],
+    }
+    
+    current_status = delivery.status
+    if current_status in allowed_transitions:
+        if new_status not in allowed_transitions[current_status]:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"No se puede cambiar de {current_status.value} a {new_status.value}. Transiciones válidas: {[s.value for s in allowed_transitions[current_status]]}"
+            )
+    
+    now = datetime.now(timezone.utc)
+    
+    # 5. Ejecutar actualización según el nuevo estado
+    if new_status == DeliveryStatus.EN_PICKUP:
+        delivery.status = DeliveryStatus.EN_PICKUP
+        delivery.arrived_pickup_at = now
+        
+    elif new_status == DeliveryStatus.EN_ROUTE:
+        delivery.status = DeliveryStatus.EN_ROUTE
+        delivery.left_pickup_at = now
+        if body.lat and body.lng:
+            delivery.current_latitude = body.lat
+            delivery.current_longitude = body.lng
+            
+    elif new_status == DeliveryStatus.EN_DESTINO:
+        delivery.status = DeliveryStatus.EN_DESTINO
+        delivery.arrived_delivery_at = now
+        
+    elif new_status == DeliveryStatus.COMPLETADA:
+        # Reutilizar lógica de completado
+        if body.otp_code and delivery.proof_otp and body.otp_code != delivery.proof_otp:
+            raise HTTPException(status_code=400, detail="Código OTP incorrecto")
+        
+        delivery.status = DeliveryStatus.COMPLETADA
+        delivery.completed_at = now
+        delivery.proof_notes = body.notes
+        delivery.customer_name_received = body.customer_name_received
+        if body.lat and body.lng:
+            delivery.current_latitude = body.lat
+            delivery.current_longitude = body.lng
+        
+        # Cálculo de SLA
+        if delivery.started_at:
+            elapsed_minutes = max(0, int((now - delivery.started_at).total_seconds() / 60))
+            delivery.sla_actual_minutes = elapsed_minutes
+            if delivery.sla_expected_minutes is not None:
+                delivery.sla_compliant = elapsed_minutes <= delivery.sla_expected_minutes
+        
+        # Actualizar orden
+        order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
+        order = order_result.scalar_one_or_none()
+        if order:
+            order.status = OrderStatus.ENTREGADO
+            order.delivered_at = now
+        
+        # FASE 1: Crear registro financiero por entrega exitosa
+        idempotency_key = f"pago_entrega_{delivery.order_id}"
+        financial_result = await db.execute(select(Financial).where(Financial.idempotency_key == idempotency_key))
+        existing_financial = financial_result.scalar_one_or_none()
+        
+        if not existing_financial and delivery.rider_id:
+            from decimal import Decimal
+            settings_result = await db.execute(
+                select(PlatformSetting.value).where(PlatformSetting.key == "rider_delivery_bonus")
+            )
+            bonus_value = settings_result.scalar_one_or_none()
+            base_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("2.50")
+            
+            financial = Financial(
+                rider_id=delivery.rider_id,
+                amount=base_payment,
+                transaction_type=TransactionType.PAGO_ENTREGA,
+                description=f"Pago por entrega de orden {order.external_id if order else delivery.order_id}",
+                reference_id=str(order.id) if order else str(delivery.order_id),
+                source_type="delivery",
+                source_id=str(delivery.id),
+                idempotency_key=idempotency_key,
+                status=PaymentStatus.PROCESADO,
+            )
+            db.add(financial)
+            logger.info(f"Registro financiero creado para entrega {delivery.id} - Rider {delivery.rider_id} - Bono: {base_payment}")
+            
+    elif new_status == DeliveryStatus.FALLIDA:
+        # FASE 2: Reutilizar lógica de fallo
+        if not body.issue_type:
+            raise HTTPException(status_code=400, detail="El motivo del fallo es requerido")
+        
+        delivery.status = DeliveryStatus.FALLIDA
+        delivery.has_issues = True
+        delivery.issue_type = body.issue_type
+        delivery.issue_description = body.issue_description
+        
+        # Actualizar orden
+        order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
+        order = order_result.scalar_one_or_none()
+        if order:
+            order.status = OrderStatus.FALLIDO
+            order.failure_reason = body.issue_type
+            order.failure_notes = body.issue_description
+        
+        # FASE 2: Crear registro financiero por intento fallido si corresponde
+        if delivery.rider_id:
+            from decimal import Decimal
+            customer_fault_reasons = ["cliente_no_esta", "direccion_incorrecta", "cliente_rechaza", "otro_cliente"]
+            should_pay_rider = body.issue_type.lower() in customer_fault_reasons
+            
+            if should_pay_rider:
+                idempotency_key = f"pago_fallido_{delivery.order_id}"
+                financial_result = await db.execute(select(Financial).where(Financial.idempotency_key == idempotency_key))
+                existing_financial = financial_result.scalar_one_or_none()
+                
+                if not existing_financial:
+                    settings_result = await db.execute(
+                        select(PlatformSetting.value).where(PlatformSetting.key == "rider_failed_attempt_bonus")
+                    )
+                    bonus_value = settings_result.scalar_one_or_none()
+                    failed_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("1.00")
+                    
+                    financial = Financial(
+                        rider_id=delivery.rider_id,
+                        amount=failed_payment,
+                        transaction_type=TransactionType.PAGO_INTENTO_FALLIDO,
+                        description=f"Pago por intento fallido (orden {order.external_id if order else delivery.order_id}) - Motivo: {body.issue_type}",
+                        reference_id=str(order.id) if order else str(delivery.order_id),
+                        source_type="delivery_failed",
+                        source_id=str(delivery.id),
+                        idempotency_key=idempotency_key,
+                        status=PaymentStatus.PROCESADO,
+                    )
+                    db.add(financial)
+                    logger.info(f"Registro financiero creado para entrega fallida {delivery.id} - Rider {delivery.rider_id} - Bono: {failed_payment}")
+    
+    # Guardar cambios
+    await db.flush()
+    await db.commit()
+    
+    # Refresh y serialización
+    await db.refresh(delivery, attribute_names=['rider', 'order'])
+    if delivery.rider:
+        await db.refresh(delivery.rider, attribute_names=['user'])
+    
+    r_alias = aliased(Rider)
+    u_alias = aliased(User)
+    o_alias = aliased(Order)
+    final_stmt = (
+        select(Delivery, r_alias, u_alias, o_alias)
+        .outerjoin(r_alias, Delivery.rider_id == r_alias.id)
+        .outerjoin(u_alias, r_alias.user_id == u_alias.id)
+        .outerjoin(o_alias, Delivery.order_id == o_alias.id)
+        .where(Delivery.id == delivery.id)
+    )
+    res = await db.execute(final_stmt)
+    d_row, r_row, u_row, o_row = res.first()
+    
+    return _serialize_delivery(d_row, r_row, u_row, o_row)

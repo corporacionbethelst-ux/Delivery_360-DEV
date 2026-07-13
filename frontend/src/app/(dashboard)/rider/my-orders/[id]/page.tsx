@@ -4,12 +4,16 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { orderService, Order } from '@/services/order.service';
-import { ArrowLeft, MapPin, Phone, Package, DollarSign, Clock, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
+import { ArrowLeft, MapPin, Phone, Package, DollarSign, Clock, Loader2, AlertCircle, ExternalLink, CheckCircle, XCircle, Bike, Truck } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/formatters';
 import { resolveOrderCollectAmount } from '@/lib/order-amount';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 
 export default function OrderDetailPage() {
   const router = useRouter();
@@ -21,6 +25,27 @@ export default function OrderDetailPage() {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
+  
+  // Estados para acciones del repartidor
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [selectedIssueType, setSelectedIssueType] = useState('');
+  const [issueDescription, setIssueDescription] = useState('');
+  const [showFailDialog, setShowFailDialog] = useState(false);
+
+  // Motivos de fallo atribuibles al cliente (generan pago)
+  const customerFaultReasons = [
+    { value: 'cliente_no_esta', label: 'Cliente no está en la dirección' },
+    { value: 'direccion_incorrecta', label: 'Dirección incorrecta o no existe' },
+    { value: 'cliente_rechaza', label: 'Cliente rechaza el pedido' },
+    { value: 'otro_cliente', label: 'Otro motivo atribuible al cliente' },
+  ];
+
+  // Motivos de fallo NO atribuibles al cliente (no generan pago)
+  const riderFaultReasons = [
+    { value: 'vehiculo_descompuesto', label: 'Vehículo descompuesto' },
+    { value: 'accidente', label: 'Accidente o emergencia' },
+    { value: 'rider_no_quiere', label: 'Repartidor no quiere continuar' },
+  ];
 
   useEffect(() => {
     setIsMounted(true);
@@ -50,6 +75,100 @@ export default function OrderDetailPage() {
     };
     fetchOrder();
   }, [orderId, isMounted, isAuthenticated, user, router]);
+
+  // Función para actualizar estado de la entrega
+  const updateDeliveryStatus = async (status: string, issueType?: string, description?: string) => {
+    setUpdatingStatus(true);
+    try {
+      // Obtener el delivery_id de la orden
+      const deliveryId = order?.delivery?.id || order?.id;
+      if (!deliveryId) {
+        alert('No se pudo identificar la entrega asociada');
+        return;
+      }
+
+      // Construir payload
+      const payload: any = {
+        status,
+        lat: undefined,
+        lng: undefined,
+      };
+
+      if (issueType) payload.issue_type = issueType;
+      if (description) payload.issue_description = description;
+
+      // Hacer petición al backend
+      const response = await fetch(`/api/v1/deliveries/${deliveryId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${typeof window !== 'undefined' ? localStorage.getItem('token') : ''}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Error al actualizar estado');
+      }
+
+      const updatedDelivery = await response.json();
+      
+      // Actualizar la orden en el estado local
+      setOrder(prev => prev ? {
+        ...prev,
+        status: status === 'ENTREGADO' ? 'ENTREGADO' : status === 'FALLIDO' ? 'CANCELADO' : prev.status,
+        delivery: updatedDelivery,
+      } : null);
+
+      alert(`Estado actualizado exitosamente a: ${status}`);
+      setShowFailDialog(false);
+      setSelectedIssueType('');
+      setIssueDescription('');
+      
+      // Recargar la página para mostrar cambios completos
+      setTimeout(() => window.location.reload(), 1000);
+      
+    } catch (error: any) {
+      console.error('Error updating status:', error);
+      alert(`Error: ${error.message}`);
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
+  // Determinar acciones disponibles según el estado actual
+  const getAvailableActions = () => {
+    if (!order?.delivery) return [];
+    
+    const deliveryStatus = order.delivery.status;
+    const actions = [];
+
+    switch (deliveryStatus) {
+      case 'INICIADA':
+        actions.push({ key: 'RECOLECTADO', label: '✅ Pedido Recolectado', icon: CheckCircle, variant: 'default' as const });
+        break;
+      case 'EN_PICKUP':
+        actions.push({ key: 'EN_RUTA', label: '🚗 En Ruta a Entrega', icon: Truck, variant: 'default' as const });
+        break;
+      case 'EN_ROUTE':
+        actions.push(
+          { key: 'ENTREGADO', label: '✅ Marcar como Entregado', icon: CheckCircle, variant: 'success' as const },
+          { key: 'FALLIDO', label: '❌ Reportar Incidencia', icon: XCircle, variant: 'destructive' as const }
+        );
+        break;
+      case 'EN_DESTINO':
+        actions.push(
+          { key: 'ENTREGADO', label: '✅ Confirmar Entrega', icon: CheckCircle, variant: 'success' as const },
+          { key: 'FALLIDO', label: '❌ Reportar Problema', icon: XCircle, variant: 'destructive' as const }
+        );
+        break;
+      default:
+        break;
+    }
+
+    return actions;
+  };
 
   if (!isMounted || !isAuthenticated || !user || loading) {
     return (
@@ -223,6 +342,140 @@ export default function OrderDetailPage() {
                 <ExternalLink className="w-4 h-4 ml-2 opacity-70" />
               </Button>
             </div>
+
+            {/* SECCIÓN DE ACCIONES PARA EL REPARTIDOR - FASE 2 */}
+            {user.role === 'REPARTIDOR' && order?.delivery && (
+              <Card className="mt-6 border-t-4 border-t-orange-500 shadow-md">
+                <CardHeader className="bg-orange-50 border-b">
+                  <CardTitle className="text-lg text-orange-900 flex items-center gap-2">
+                    <Bike className="w-5 h-5" />
+                    Acciones de Entrega
+                  </CardTitle>
+                  <p className="text-sm text-orange-700">
+                    Estado actual: <span className="font-bold">{order.delivery.status}</span>
+                  </p>
+                </CardHeader>
+                <CardContent className="pt-6">
+                  {getAvailableActions().length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {getAvailableActions().map((action) => {
+                        const Icon = action.icon;
+                        return (
+                          <Button
+                            key={action.key}
+                            className={`h-14 text-base font-semibold ${
+                              action.variant === 'success' ? 'bg-green-600 hover:bg-green-700 text-white' :
+                              action.variant === 'destructive' ? 'bg-red-600 hover:bg-red-700 text-white' :
+                              'bg-blue-600 hover:bg-blue-700 text-white'
+                            }`}
+                            onClick={() => {
+                              if (action.key === 'FALLIDO') {
+                                setShowFailDialog(true);
+                              } else {
+                                updateDeliveryStatus(action.key);
+                              }
+                            }}
+                            disabled={updatingStatus}
+                          >
+                            <Icon className="w-5 h-5 mr-2" />
+                            {updatingStatus ? 'Procesando...' : action.label}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-gray-500 text-center py-4">
+                      {order.delivery.status === 'COMPLETADA' || order.delivery.status === 'FALLIDA' 
+                        ? 'Esta entrega ya ha sido finalizada'
+                        : 'Esperando asignación para comenzar acciones'}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* DIALOGO PARA REPORTAR FALLIDOS - FASE 2 */}
+            <Dialog open={showFailDialog} onOpenChange={setShowFailDialog}>
+              <DialogContent className="sm:max-w-[500px]">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-red-700">
+                    <XCircle className="w-6 h-6" />
+                    Reportar Incidencia / Entrega Fallida
+                  </DialogTitle>
+                  <DialogDescription>
+                    Selecciona el motivo del fallo. Si es por causa del cliente, recibirás un bono compensatorio.
+                  </DialogDescription>
+                </DialogHeader>
+                
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="issue-type">Motivo del Fallo *</Label>
+                    <Select value={selectedIssueType} onValueChange={setSelectedIssueType}>
+                      <SelectTrigger id="issue-type">
+                        <SelectValue placeholder="Selecciona un motivo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {/* Motivos que generan pago */}
+                        <optgroup label="📌 Culpa del Cliente (Generan Bono)">
+                          {customerFaultReasons.map((reason) => (
+                            <SelectItem key={reason.value} value={reason.value}>
+                              {reason.label}
+                            </SelectItem>
+                          ))}
+                        </optgroup>
+                        {/* Motivos que NO generan pago */}
+                        <optgroup label="⚠️ Problemas del Repartidor (Sin Bono)">
+                          {riderFaultReasons.map((reason) => (
+                            <SelectItem key={reason.value} value={reason.value}>
+                              {reason.label}
+                            </SelectItem>
+                          ))}
+                        </optgroup>
+                      </SelectContent>
+                    </Select>
+                    {selectedIssueType && customerFaultReasons.some(r => r.value === selectedIssueType) && (
+                      <p className="text-xs text-green-600 font-medium mt-1">
+                        ✅ Este motivo genera un bono compensatorio configurable
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="issue-description">Descripción Adicional</Label>
+                    <Textarea
+                      id="issue-description"
+                      placeholder="Describe brevemente lo sucedido..."
+                      value={issueDescription}
+                      onChange={(e) => setIssueDescription(e.target.value)}
+                      rows={3}
+                    />
+                  </div>
+                </div>
+
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowFailDialog(false)}
+                    disabled={updatingStatus}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                    onClick={() => {
+                      if (!selectedIssueType) {
+                        alert('Debes seleccionar un motivo del fallo');
+                        return;
+                      }
+                      updateDeliveryStatus('FALLIDO', selectedIssueType, issueDescription);
+                    }}
+                    disabled={updatingStatus || !selectedIssueType}
+                  >
+                    {updatingStatus ? 'Procesando...' : 'Confirmar Reporte'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </CardContent>
         </Card>
       </div>
