@@ -102,10 +102,14 @@ export interface Order {
   cancelledBy?: string;
   cancelReason?: string;
   
-  // Campos adicionales para compatibilidad
+  // Campos adicionales para compatibilidad con la UI del repartidor
   restaurant_name?: string;
   restaurant_address?: string;
   restaurant_phone?: string;
+  customer_phone?: string;
+  delivery_address?: string;
+  delivery_instructions?: string;
+  rider_delivery_bonus?: number;
 }
 
 export interface OrderFilters {
