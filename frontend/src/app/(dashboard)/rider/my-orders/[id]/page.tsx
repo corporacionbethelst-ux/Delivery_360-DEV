@@ -1,520 +1,503 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore';
-import { orderService, Order, DeliverySummary } from '@/services/order.service';
-import { ArrowLeft, MapPin, Phone, Package, DollarSign, Clock, Loader2, AlertCircle, ExternalLink, CheckCircle, XCircle, Bike, Truck } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { formatCurrency } from '@/lib/formatters';
-import { resolveOrderCollectAmount } from '@/lib/order-amount';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { orderService } from "@/services/order.service";
+import { deliveryService } from "@/services/delivery.service";
+import { Order, Delivery, DeliveryStatus } from "@/types";
+import { 
+  Package, 
+  Clock, 
+  DollarSign, 
+  AlertCircle, 
+  CheckCircle, 
+  Truck, 
+  XCircle, 
+  MapPin,
+  Phone,
+  MessageSquare
+} from "lucide-react";
+import Link from "next/link";
 
-// La interfaz Order ahora incluye delivery?: DeliverySummary | null nativamente
-// No se necesita una interfaz extendida personalizada
-
-export default function OrderDetailPage() {
-  const router = useRouter();
+export default function RiderOrderDetailPage() {
   const params = useParams();
-  const orderId = (params?.id as string) || ''; 
+  const router = useRouter();
+  const id = params.id as string;
 
-  const { user, isAuthenticated } = useAuthStore();
-  
+  // Estados
   const [order, setOrder] = useState<Order | null>(null);
+  const [delivery, setDelivery] = useState<Delivery | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isMounted, setIsMounted] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
   
-  // Estados para acciones del repartidor
-  const [updatingStatus, setUpdatingStatus] = useState(false);
-  const [selectedIssueType, setSelectedIssueType] = useState('');
-  const [issueDescription, setIssueDescription] = useState('');
-  const [showFailDialog, setShowFailDialog] = useState(false);
-
-  // Motivos de fallo atribuibles al cliente (generan pago - FASE 2)
-  const customerFaultReasons = [
-    { value: 'cliente_no_esta', label: 'Cliente no está en la dirección' },
-    { value: 'direccion_incorrecta', label: 'Dirección incorrecta o no existe' },
-    { value: 'cliente_rechaza', label: 'Cliente rechaza el pedido' },
-    { value: 'otro_cliente', label: 'Otro motivo atribuible al cliente' },
-  ];
-
-  // Motivos de fallo NO atribuibles al cliente (no generan pago)
-  const riderFaultReasons = [
-    { value: 'vehiculo_descompuesto', label: 'Vehículo descompuesto' },
-    { value: 'accidente', label: 'Accidente o emergencia' },
-    { value: 'rider_no_quiere', label: 'Repartidor no quiere continuar' },
-  ];
+  // Estado para modal de fallo
+  const [showFailModal, setShowFailModal] = useState(false);
+  const [failReason, setFailReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setIsMounted(true);
-  }, []);
+    loadOrderData();
+  }, [id]);
 
-  useEffect(() => {
-    if (!isMounted || !isAuthenticated || !user) return;
-
-    const allowedRoles = ['REPARTIDOR', 'SUPERADMIN', 'GERENTE', 'OPERADOR'];
-    if (!allowedRoles.includes(user.role)) {
-      router.push('/login');
-      return;
-    }
-
-    if (!orderId) return;
-
-    const fetchOrder = async () => {
-      setLoading(true);
-      try {
-        const data = await orderService.getById(orderId);
-        setOrder(data);
-      } catch (error) {
-        console.error('Error fetching order:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchOrder();
-  }, [orderId, isMounted, isAuthenticated, user, router]);
-
-  /**
-   * Función principal para actualizar el estado de la entrega.
-   * Conecta con el endpoint PATCH /api/v1/deliveries/{id}/status
-   */
-  const updateDeliveryStatus = async (status: string, issueType?: string, description?: string) => {
-    setUpdatingStatus(true);
+  const loadOrderData = async () => {
     try {
-      // Obtener el delivery_id de la orden
-      // Prioridad: delivery.id (si existe relación) > order.id (fallback si es la misma entidad)
-      const deliveryId = order?.delivery?.id || order?.id;
+      setLoading(true);
+      setError(null);
+      const data = await orderService.getById(id);
       
-      if (!deliveryId) {
-        alert('No se pudo identificar la entrega asociada a esta orden.');
+      if (!data) {
+        setError("Orden no encontrada");
         return;
       }
 
-      // Construir payload según el schema DeliveryStatusUpdate del backend
-      const payload: any = {
-        status, // Ej: 'RECOLECTADO', 'EN_RUTA', 'ENTREGADO', 'FALLIDO'
-        lat: undefined, // Opcional: se podría agregar geolocalización aquí si se desea
-        lng: undefined,
-      };
-
-      // Solo enviar datos de incidencia si es un fallo
-      if (status === 'FALLIDO') {
-        if (!issueType) {
-          throw new Error('El motivo del fallo es requerido');
-        }
-        payload.issue_type = issueType;
-        payload.issue_description = description || '';
-      }
-
-      // Petición al backend
-      const response = await fetch(`/api/v1/deliveries/${deliveryId}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${typeof window !== 'undefined' ? localStorage.getItem('token') : ''}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Error al actualizar estado');
-      }
-
-      const updatedDelivery = await response.json();
+      setOrder(data);
       
-      // Actualizar estado local optimista
-      setOrder(prev => prev ? {
-        ...prev,
-        // Actualizamos el estado general de la orden para reflejar cambios visuales inmediatos
-        status: status === 'ENTREGADO' ? 'ENTREGADO' : status === 'FALLIDO' ? 'CANCELADO' : prev.status,
-        delivery: updatedDelivery,
-      } : null);
+      // Manejo seguro del objeto delivery (puede venir anidado o ser null)
+      const deliveryData = (data as any).delivery || null;
+      setDelivery(deliveryData);
 
-      // Feedback al usuario
-      const successMessage = status === 'FALLIDO' 
-        ? 'Incidencia reportada correctamente. El bono correspondiente se está procesando.' 
-        : `Estado actualizado exitosamente a: ${status}`;
-        
-      alert(successMessage);
-      
-      // Limpiar formulario de incidencias
-      setShowFailDialog(false);
-      setSelectedIssueType('');
-      setIssueDescription('');
-      
-      // Recargar la página para asegurar que toda la UI (badges, tarjetas) esté sincronizada con el backend
-      setTimeout(() => window.location.reload(), 1000);
-      
-    } catch (error: any) {
-      console.error('Error updating status:', error);
-      alert(`Error: ${error.message}`);
+    } catch (err: any) {
+      console.error("Error cargando orden:", err);
+      setError(err.message || "Error al cargar los datos de la orden");
     } finally {
-      setUpdatingStatus(false);
+      setLoading(false);
     }
   };
 
-  /**
-   * Determina qué botones mostrar según el estado actual de la entrega.
-   * Mapea los estados del backend a acciones de UI.
-   */
-  const getAvailableActions = () => {
-    // Si no hay delivery, significa que la orden aún no ha sido asignada formalmente
-    if (!order?.delivery) return [];
-    
-    const deliveryStatus = order.delivery.status;
-    const actions: Array<{ key: string; label: string; icon: any; variant: 'default' | 'success' | 'destructive' }> = [];
+  // Validación de transiciones permitidas
+  const canTransitionTo = (target: DeliveryStatus): boolean => {
+    if (!delivery) return false;
 
-    // Lógica de transición de estados basada en el backend
-    switch (deliveryStatus) {
-      case 'INICIADA':
-        // Paso 1: El repartidor confirma que recogió el pedido
-        actions.push({ key: 'RECOLECTADO', label: '✅ Pedido Recolectado', icon: CheckCircle, variant: 'default' as const });
-        break;
-      
-      case 'EN_PICKUP':
-        // Paso 2: El repartidor sale del restaurante hacia el cliente
-        actions.push({ key: 'EN_RUTA', label: '🚗 En Ruta a Entrega', icon: Truck, variant: 'default' as const });
-        break;
-      
-      case 'EN_ROUTE':
-        // Paso 3: Llegó a destino. Puede entregar o reportar problema.
-        actions.push(
-          { key: 'ENTREGADO', label: '✅ Marcar como Entregado', icon: CheckCircle, variant: 'success' as const },
-          { key: 'FALLIDO', label: '❌ Reportar Incidencia', icon: XCircle, variant: 'destructive' as const }
-        );
-        break;
-      
-      case 'EN_DESTINO':
-        // Variante de paso 3 (si el backend usa este estado intermedio)
-        actions.push(
-          { key: 'ENTREGADO', label: '✅ Confirmar Entrega', icon: CheckCircle, variant: 'success' as const },
-          { key: 'FALLIDO', label: '❌ Reportar Problema', icon: XCircle, variant: 'destructive' as const }
-        );
-        break;
-      
+    switch (delivery.status) {
+      case DeliveryStatus.INICIADA:
+        return target === DeliveryStatus.EN_PICKUP;
+      case DeliveryStatus.EN_PICKUP:
+        return target === DeliveryStatus.EN_ROUTE;
+      case DeliveryStatus.EN_ROUTE:
+        return target === DeliveryStatus.COMPLETE || target === DeliveryStatus.FAILED;
       default:
-        // Estados finales (COMPLETADA, FALLIDA) o inválidos no muestran acciones
-        break;
+        return false;
     }
-
-    return actions;
   };
 
-  if (!isMounted || !isAuthenticated || !user || loading) {
+  const handleQuickAction = (newStatus: DeliveryStatus) => {
+    if (!delivery) return;
+
+    if (newStatus === DeliveryStatus.FAILED) {
+      setShowFailModal(true);
+      return;
+    }
+
+    executeStatusChange(newStatus);
+  };
+
+  const executeStatusChange = async (newStatus: DeliveryStatus, reason?: string) => {
+    if (!delivery) return;
+
+    setActionLoading(newStatus);
+    try {
+      const payload: any = { new_status: newStatus };
+      if (reason) payload.failure_reason = reason;
+
+      await deliveryService.updateStatus(delivery.id, payload);
+      
+      // Recargar datos para obtener el estado actualizado
+      await loadOrderData();
+      
+      alert(`Estado actualizado correctamente a: ${newStatus}`);
+    } catch (err: any) {
+      console.error("Error actualizando estado:", err);
+      alert(err.message || "Error al actualizar el estado de la entrega");
+    } finally {
+      setActionLoading(null);
+      setShowFailModal(false);
+      setFailReason("");
+    }
+  };
+
+  if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <Loader2 className="animate-spin h-12 w-12 text-blue-600 mx-auto mb-4" />
-          <p className="text-gray-600">Cargando detalles...</p>
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (error || !order) {
+    return (
+      <div className="container mx-auto p-6 text-center">
+        <div className="bg-red-50 text-red-600 p-6 rounded-lg inline-block">
+          <AlertCircle className="w-12 h-12 mx-auto mb-4" />
+          <h2 className="text-xl font-bold mb-2">Error al cargar</h2>
+          <p>{error || "La orden no existe o no tienes permiso para verla."}</p>
+          <button 
+            onClick={() => router.push('/rider/my-orders')}
+            className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+          >
+            Volver a Mis Órdenes
+          </button>
         </div>
       </div>
     );
   }
 
-  if (!order) {
+  // Si la orden está asignada pero AÚN NO hay registro de entrega (caso borde raro)
+  if (!delivery) {
     return (
-      <div className="p-6 flex flex-col items-center justify-center min-h-screen bg-gray-50">
-        <AlertCircle className="w-16 h-16 text-red-400 mb-4" />
-        <h2 className="text-xl font-bold text-gray-900 mb-2">Orden no encontrada</h2>
-        <Button onClick={() => router.back()} variant="outline">Volver</Button>
+      <div className="container mx-auto p-6 text-center">
+        <div className="bg-yellow-50 text-yellow-800 p-6 rounded-lg inline-block max-w-md">
+          <Clock className="w-12 h-12 mx-auto mb-4 animate-pulse" />
+          <h2 className="text-xl font-bold mb-2">Esperando confirmación</h2>
+          <p className="mb-4">
+            La orden ha sido asignada, pero el sistema de entregas aún no ha generado tu hoja de ruta.
+          </p>
+          <p className="text-sm italic">
+            Por favor espera unos segundos y recarga la página, o contacta al manager.
+          </p>
+          <button 
+            onClick={() => loadOrderData()}
+            className="mt-4 px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700"
+          >
+            Reintentar Carga
+          </button>
+        </div>
       </div>
     );
   }
 
-  // Función para abrir mapa
-  const handleOpenMap = () => {
-    if (!order.delivery_address) return;
-    const address = encodeURIComponent(order.delivery_address);
-    // Abre Google Maps en una nueva pestaña
-    window.open(`https://www.google.com/maps/search/?api=1&query=${address}`, '_blank');
-  };
-
-  // Función para llamar al cliente
-  const handleCallCustomer = () => {
-    // Prioridad: Contacto de entrega -> Teléfono del cliente -> Teléfono del restaurante (fallback)
-    const phoneNumber = order.delivery_contact || order.customer_phone;
-    
-    if (!phoneNumber) {
-      alert('No hay número de teléfono disponible para esta orden.');
-      return;
-    }
-
-    // Eliminar caracteres no numéricos excepto '+' para formar un enlace tel: limpio
-    const cleanNumber = phoneNumber.replace(/[^\d+]/g, '');
-    
-    // Abrir marcador telefónico
-    window.location.href = `tel:${cleanNumber}`;
-  };
-
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
-      <div className="max-w-3xl mx-auto">
-        <Button variant="ghost" onClick={() => router.back()} className="mb-6 pl-0 hover:bg-transparent hover:text-blue-600">
-          <ArrowLeft className="mr-2 h-4 w-4" /> Volver a mis órdenes
-        </Button>
-
-        <Card className="mb-6 border-t-4 border-t-blue-500 shadow-md overflow-hidden">
-          <CardHeader className="bg-gray-50 border-b">
-            <div className="flex justify-between items-start">
-              <div>
-                <CardTitle className="text-2xl text-gray-900">Orden #{order.external_id}</CardTitle>
-                <p className="text-gray-500 text-sm mt-1 font-mono">{order.id}</p>
-              </div>
-              <Badge className={`text-sm px-3 py-1 border ${
-                order.status === 'ENTREGADO' ? 'bg-green-100 text-green-800 border-green-200' :
-                order.status === 'CANCELADO' ? 'bg-red-100 text-red-800 border-red-200' :
-                'bg-blue-100 text-blue-800 border-blue-200'
-              }`}>
-                {order.status}
-              </Badge>
+    <div className="container mx-auto p-4 max-w-5xl space-y-6 pb-20">
+      
+      {/* Modal de Reporte de Fallo */}
+      {showFailModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="bg-red-50 p-4 border-b border-red-100 flex items-center gap-3">
+              <AlertCircle className="w-6 h-6 text-red-600" />
+              <h3 className="text-lg font-bold text-red-800">Reportar Entrega Fallida</h3>
             </div>
-          </CardHeader>
-          
-          <CardContent className="space-y-6 pt-6">
-            {/* Dirección */}
-            <div className="flex items-start gap-4 p-4 bg-blue-50/50 rounded-lg border border-blue-100">
-              <div className="p-2 bg-white rounded-full shadow-sm">
-                <MapPin className="w-6 h-6 text-blue-600 shrink-0" />
+            
+            <div className="p-6">
+              <p className="text-sm text-gray-600 mb-4">
+                Es obligatorio especificar el motivo detallado para procesar el reporte y calcular el bono parcial (si aplica).
+              </p>
+              
+              <textarea
+                className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-shadow min-h-[120px]"
+                placeholder="Describe qué sucedió (ej: Cliente no abre, dirección incorrecta, negocio cerrado...)"
+                value={failReason}
+                onChange={(e) => setFailReason(e.target.value)}
+                autoFocus
+              />
+              
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setShowFailModal(false);
+                    setFailReason("");
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors font-medium"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => executeStatusChange(DeliveryStatus.FAILED, failReason)}
+                  disabled={!failReason.trim()}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium flex items-center gap-2"
+                >
+                  <XCircle className="w-4 h-4" />
+                  Confirmar Reporte
+                </button>
               </div>
-              <div className="flex-1">
-                <h3 className="font-semibold text-gray-900 text-sm uppercase tracking-wide mb-1">Dirección de Entrega</h3>
-                <p className="text-gray-700 font-medium">{order.delivery_address}</p>
-                {order.delivery_reference && (
-                  <p className="text-sm text-gray-500 mt-1">Ref: {order.delivery_reference}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header de Navegación y Título */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <Link href="/rider/my-orders" className="text-sm text-gray-500 hover:text-primary flex items-center gap-1 mb-2 w-fit">
+            ← Volver al listado
+          </Link>
+          <h1 className="text-2xl font-bold text-gray-900">Orden #{order.id}</h1>
+        </div>
+        <div className="flex gap-2">
+          <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border
+            ${order.status === 'ASIGNADO' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-600 border-gray-200'}
+          `}>
+            Orden: {order.status}
+          </span>
+          <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border
+            ${delivery.status === 'COMPLETE' ? 'bg-green-50 text-green-700 border-green-200' : 
+              delivery.status === 'FAILED' ? 'bg-red-50 text-red-700 border-red-200' :
+              delivery.status === 'EN_ROUTE' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+              'bg-yellow-50 text-yellow-700 border-yellow-200'}
+          `}>
+            Entrega: {delivery.status.replace('_', ' ')}
+          </span>
+        </div>
+      </div>
+
+      {/* Panel Principal */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        
+        {/* Sección de Acciones Rápidas (Solo si no está completada o fallida) */}
+        {delivery.status !== 'COMPLETE' && delivery.status !== 'FAILED' && (
+          <div className="bg-gray-50 border-b border-gray-200 p-6">
+            <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+              <Truck className="w-4 h-4" />
+              Acciones de Entrega
+            </h3>
+            
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {/* Botón: Recolectar */}
+              <button
+                onClick={() => handleQuickAction(DeliveryStatus.EN_PICKUP)}
+                disabled={!canTransitionTo(DeliveryStatus.EN_PICKUP) || !!actionLoading}
+                className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200
+                  ${canTransitionTo(DeliveryStatus.EN_PICKUP)
+                    ? 'bg-white border-gray-200 hover:border-orange-500 hover:shadow-md cursor-pointer' 
+                    : 'bg-gray-100 border-gray-100 opacity-50 cursor-not-allowed'}
+                `}
+              >
+                <div className={`p-3 rounded-full mb-2 transition-colors ${canTransitionTo(DeliveryStatus.EN_PICKUP) ? 'bg-orange-50 group-hover:bg-orange-100' : 'bg-gray-200'}`}>
+                  <Package className={`w-6 h-6 ${canTransitionTo(DeliveryStatus.EN_PICKUP) ? 'text-orange-600' : 'text-gray-400'}`} />
+                </div>
+                <span className="font-semibold text-sm text-gray-700">Recolectar Pedido</span>
+                {actionLoading === DeliveryStatus.EN_PICKUP && (
+                  <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-xl">
+                    <div className="animate-spin h-6 w-6 border-2 border-orange-500 border-t-transparent rounded-full"></div>
+                  </div>
+                )}
+              </button>
+
+              {/* Botón: En Ruta */}
+              <button
+                onClick={() => handleQuickAction(DeliveryStatus.EN_ROUTE)}
+                disabled={!canTransitionTo(DeliveryStatus.EN_ROUTE) || !!actionLoading}
+                className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200
+                  ${canTransitionTo(DeliveryStatus.EN_ROUTE)
+                    ? 'bg-white border-gray-200 hover:border-blue-500 hover:shadow-md cursor-pointer' 
+                    : 'bg-gray-100 border-gray-100 opacity-50 cursor-not-allowed'}
+                `}
+              >
+                <div className={`p-3 rounded-full mb-2 transition-colors ${canTransitionTo(DeliveryStatus.EN_ROUTE) ? 'bg-blue-50 group-hover:bg-blue-100' : 'bg-gray-200'}`}>
+                  <Truck className={`w-6 h-6 ${canTransitionTo(DeliveryStatus.EN_ROUTE) ? 'text-blue-600' : 'text-gray-400'}`} />
+                </div>
+                <span className="font-semibold text-sm text-gray-700">En Ruta</span>
+                {actionLoading === DeliveryStatus.EN_ROUTE && (
+                  <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-xl">
+                    <div className="animate-spin h-6 w-6 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                  </div>
+                )}
+              </button>
+
+              {/* Botón: Completar */}
+              <button
+                onClick={() => handleQuickAction(DeliveryStatus.COMPLETE)}
+                disabled={!canTransitionTo(DeliveryStatus.COMPLETE) || !!actionLoading}
+                className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200
+                  ${canTransitionTo(DeliveryStatus.COMPLETE)
+                    ? 'bg-white border-gray-200 hover:border-green-500 hover:shadow-md cursor-pointer' 
+                    : 'bg-gray-100 border-gray-100 opacity-50 cursor-not-allowed'}
+                `}
+              >
+                <div className={`p-3 rounded-full mb-2 transition-colors ${canTransitionTo(DeliveryStatus.COMPLETE) ? 'bg-green-50 group-hover:bg-green-100' : 'bg-gray-200'}`}>
+                  <CheckCircle className={`w-6 h-6 ${canTransitionTo(DeliveryStatus.COMPLETE) ? 'text-green-600' : 'text-gray-400'}`} />
+                </div>
+                <span className="font-semibold text-sm text-gray-700">Entregado</span>
+                {actionLoading === DeliveryStatus.COMPLETE && (
+                  <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-xl">
+                    <div className="animate-spin h-6 w-6 border-2 border-green-500 border-t-transparent rounded-full"></div>
+                  </div>
+                )}
+              </button>
+
+              {/* Botón: Reportar Fallo */}
+              <button
+                onClick={() => handleQuickAction(DeliveryStatus.FAILED)}
+                disabled={!canTransitionTo(DeliveryStatus.FAILED) || !!actionLoading}
+                className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200
+                  ${canTransitionTo(DeliveryStatus.FAILED)
+                    ? 'bg-white border-gray-200 hover:border-red-500 hover:shadow-md cursor-pointer' 
+                    : 'bg-gray-100 border-gray-100 opacity-50 cursor-not-allowed'}
+                `}
+              >
+                <div className={`p-3 rounded-full mb-2 transition-colors ${canTransitionTo(DeliveryStatus.FAILED) ? 'bg-red-50 group-hover:bg-red-100' : 'bg-gray-200'}`}>
+                  <AlertCircle className={`w-6 h-6 ${canTransitionTo(DeliveryStatus.FAILED) ? 'text-red-600' : 'text-gray-400'}`} />
+                </div>
+                <span className="font-semibold text-sm text-gray-700">Reportar Fallo</span>
+                {actionLoading === DeliveryStatus.FAILED && (
+                  <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-xl">
+                    <div className="animate-spin h-6 w-6 border-2 border-red-500 border-t-transparent rounded-full"></div>
+                  </div>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Contenido Principal: Detalles */}
+        <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
+          
+          {/* Columna Izquierda: Ubicaciones */}
+          <div className="space-y-6">
+            {/* Restaurante */}
+            <div>
+              <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-orange-500" />
+                Punto de Recolección
+              </h4>
+              <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                <h5 className="font-bold text-lg text-gray-900">{order.restaurant_name}</h5>
+                <p className="text-gray-600 mt-1">{order.restaurant_address}</p>
+                {order.restaurant_phone && (
+                  <a href={`tel:${order.restaurant_phone}`} className="inline-flex items-center gap-2 mt-3 text-sm font-medium text-orange-600 hover:text-orange-700 bg-orange-50 px-3 py-1.5 rounded-lg transition-colors">
+                    <Phone className="w-4 h-4" />
+                    Llamar al Restaurante
+                  </a>
                 )}
               </div>
             </div>
 
-            {/* Items */}
+            {/* Cliente */}
             <div>
-              <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                <Package className="w-5 h-5 text-gray-500" /> Productos
-              </h3>
-              <div className="border rounded-lg overflow-hidden shadow-sm">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-gray-50 text-gray-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Producto</th>
-                      <th className="px-4 py-3 font-medium text-center">Cant.</th>
-                      <th className="px-4 py-3 font-medium text-right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y bg-white">
-                    {order.items && order.items.length > 0 ? (
-                      order.items.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 text-gray-900 font-medium">{item.product_name || 'Sin nombre'}</td>
-                          <td className="px-4 py-3 text-center text-gray-600">x{item.quantity}</td>
-                          <td className="px-4 py-3 text-right font-bold text-gray-900">
-                            {formatCurrency(item.unit_price * item.quantity)}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={3} className="px-4 py-6 text-center text-gray-400 italic">No hay productos listados</td>
-                      </tr>
-                    )}
-                  </tbody>
-                  <tfoot className="bg-gray-50 font-bold text-gray-900">
-                    <tr>
-                      <td colSpan={2} className="px-4 py-3 text-right">TOTAL A PAGAR</td>
-                      <td className="px-4 py-3 text-right text-blue-700 text-base">
-                        {formatCurrency(resolveOrderCollectAmount(order))}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </div>
-
-            {/* Totales y Info Extra */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t">
-              <div className="flex items-center gap-3 p-3 bg-white rounded-lg border shadow-sm">
-                <div className="p-2 bg-green-100 rounded-full">
-                  <DollarSign className="w-5 h-5 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 font-semibold uppercase">Total a cobrar</p>
-                  <p className="font-bold text-lg text-gray-900">{formatCurrency(resolveOrderCollectAmount(order))}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 p-3 bg-white rounded-lg border shadow-sm">
-                <div className="p-2 bg-gray-100 rounded-full">
-                  <Clock className="w-5 h-5 text-gray-600" />
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 font-semibold uppercase">Creado el</p>
-                  <p className="font-medium text-gray-900 text-sm">{new Date(order.created_at).toLocaleString()}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Acciones Generales (Llamar, Mapa) */}
-            <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t mt-6">
-              <Button 
-                className="flex-1 bg-green-600 hover:bg-green-700 text-white shadow-md h-12 text-base"
-                onClick={handleCallCustomer}
-                disabled={!order.delivery_contact && !order.customer_phone}
-              >
-                <Phone className="w-5 h-5 mr-2" /> 
-                {!order.delivery_contact && !order.customer_phone ? 'Sin Teléfono' : 'Llamar al Cliente'}
-              </Button>
-              
-              <Button 
-                variant="outline" 
-                className="flex-1 border-blue-200 text-blue-700 hover:bg-blue-50 h-12 text-base"
-                onClick={handleOpenMap}
-                disabled={!order.delivery_address}
-              >
-                <MapPin className="w-5 h-5 mr-2" /> 
-                Ver en Mapa
-                <ExternalLink className="w-4 h-4 ml-2 opacity-70" />
-              </Button>
-            </div>
-
-            {/* SECCIÓN DE ACCIONES PARA EL REPARTIDOR - FASE 2 */}
-            {user.role === 'REPARTIDOR' && order?.delivery && (
-              <Card className="mt-6 border-t-4 border-t-orange-500 shadow-md">
-                <CardHeader className="bg-orange-50 border-b">
-                  <CardTitle className="text-lg text-orange-900 flex items-center gap-2">
-                    <Bike className="w-5 h-5" />
-                    Acciones de Entrega
-                  </CardTitle>
-                  <p className="text-sm text-orange-700">
-                    Estado actual: <span className="font-bold">{order.delivery.status}</span>
-                  </p>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  {getAvailableActions().length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {getAvailableActions().map((action) => {
-                        const Icon = action.icon;
-                        return (
-                          <Button
-                            key={action.key}
-                            className={`h-14 text-base font-semibold ${
-                              action.variant === 'success' ? 'bg-green-600 hover:bg-green-700 text-white' :
-                              action.variant === 'destructive' ? 'bg-red-600 hover:bg-red-700 text-white' :
-                              'bg-blue-600 hover:bg-blue-700 text-white'
-                            }`}
-                            onClick={() => {
-                              if (action.key === 'FALLIDO') {
-                                setShowFailDialog(true);
-                              } else {
-                                updateDeliveryStatus(action.key);
-                              }
-                            }}
-                            disabled={updatingStatus}
-                          >
-                            <Icon className="w-5 h-5 mr-2" />
-                            {updatingStatus ? 'Procesando...' : action.label}
-                          </Button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-gray-500 text-center py-4">
-                      {order.delivery.status === 'COMPLETADA' || order.delivery.status === 'FALLIDA' 
-                        ? 'Esta entrega ya ha sido finalizada'
-                        : 'Esperando asignación para comenzar acciones'}
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* DIALOGO PARA REPORTAR FALLIDOS - FASE 2 */}
-            <Dialog open={showFailDialog} onOpenChange={setShowFailDialog}>
-              <DialogContent className="sm:max-w-[500px]">
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2 text-red-700">
-                    <XCircle className="w-6 h-6" />
-                    Reportar Incidencia / Entrega Fallida
-                  </DialogTitle>
-                  <DialogDescription>
-                    Selecciona el motivo del fallo. Si es por causa del cliente, recibirás un bono compensatorio configurable.
-                  </DialogDescription>
-                </DialogHeader>
+              <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-blue-500" />
+                Punto de Entrega
+              </h4>
+              <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                <h5 className="font-bold text-lg text-gray-900">{order.customer_name}</h5>
+                <p className="text-gray-600 mt-1">{order.delivery_address}</p>
                 
-                <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="issue-type">Motivo del Fallo *</Label>
-                    <Select value={selectedIssueType} onValueChange={setSelectedIssueType}>
-                      <SelectTrigger id="issue-type">
-                        <SelectValue placeholder="Selecciona un motivo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {/* Motivos que generan pago (FASE 2) */}
-                        <optgroup label="📌 Culpa del Cliente (Generan Bono)">
-                          {customerFaultReasons.map((reason) => (
-                            <SelectItem key={reason.value} value={reason.value}>
-                              {reason.label}
-                            </SelectItem>
-                          ))}
-                        </optgroup>
-                        {/* Motivos que NO generan pago */}
-                        <optgroup label="⚠️ Problemas del Repartidor (Sin Bono)">
-                          {riderFaultReasons.map((reason) => (
-                            <SelectItem key={reason.value} value={reason.value}>
-                              {reason.label}
-                            </SelectItem>
-                          ))}
-                        </optgroup>
-                      </SelectContent>
-                    </Select>
-                    {selectedIssueType && customerFaultReasons.some(r => r.value === selectedIssueType) && (
-                      <p className="text-xs text-green-600 font-medium mt-1 flex items-center gap-1">
-                        <CheckCircle className="w-3 h-3" />
-                        Este motivo genera un bono compensatorio automático
+                {order.delivery_instructions && (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <div className="flex items-start gap-2">
+                      <MessageSquare className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
+                      <p className="text-sm text-gray-700 italic bg-white p-2 rounded border border-gray-100">
+                        "{order.delivery_instructions}"
                       </p>
-                    )}
+                    </div>
                   </div>
+                )}
 
-                  <div className="space-y-2">
-                    <Label htmlFor="issue-description">Descripción Adicional</Label>
-                    <Textarea
-                      id="issue-description"
-                      placeholder="Describe brevemente lo sucedido (opcional)..."
-                      value={issueDescription}
-                      onChange={(e) => setIssueDescription(e.target.value)}
-                      rows={3}
-                    />
+                {order.customer_phone && (
+                  <a href={`tel:${order.customer_phone}`} className="inline-flex items-center gap-2 mt-3 text-sm font-medium text-blue-600 hover:text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg transition-colors">
+                    <Phone className="w-4 h-4" />
+                    Llamar al Cliente
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Columna Derecha: Finanzas y Timeline */}
+          <div className="space-y-6">
+            
+            {/* Resumen Financiero */}
+            <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-5 border border-green-100">
+              <h4 className="text-xs font-bold text-green-800 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <DollarSign className="w-4 h-4" />
+                Resumen de Ganancia
+              </h4>
+              
+              <div className="space-y-3">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-green-700/80">Bono por Entrega Exitosa:</span>
+                  <span className="font-bold text-green-900">
+                    ${order.rider_delivery_bonus?.toFixed(2) || "0.00"}
+                  </span>
+                </div>
+                
+                {delivery.status === 'FAILED' && (
+                  <div className="pt-3 border-t border-green-200/50">
+                    <p className="text-xs text-red-600 font-medium mb-1 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      Entrega Fallida
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      El pago está sujeto a revisión según el motivo: <br/>
+                      <span className="italic">"{delivery.failure_reason}"</span>
+                    </p>
                   </div>
+                )}
+
+                <div className="pt-4 mt-2 border-t border-green-200/50 flex justify-between items-end">
+                  <span className="text-sm font-medium text-green-800">Total Estimado:</span>
+                  <span className="text-2xl font-extrabold text-green-700">
+                    ${(order.rider_delivery_bonus || 0).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Timeline de Estados */}
+            <div>
+              <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                Bitácora de Eventos
+              </h4>
+              
+              <div className="relative border-l-2 border-gray-200 ml-3 space-y-6 pb-2">
+                {/* Evento: Iniciada */}
+                <div className="relative pl-6">
+                  <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 ${['INICIADA', 'EN_PICKUP', 'EN_ROUTE', 'COMPLETE', 'FAILED'].includes(delivery.status) ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300'}`}></div>
+                  <p className="text-sm font-medium text-gray-900">Entrega Iniciada</p>
+                  <p className="text-xs text-gray-500">{new Date(delivery.created_at).toLocaleTimeString()}</p>
                 </div>
 
-                <DialogFooter>
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowFailDialog(false)}
-                    disabled={updatingStatus}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button
-                    className="bg-red-600 hover:bg-red-700 text-white"
-                    onClick={() => {
-                      if (!selectedIssueType) {
-                        alert('Debes seleccionar un motivo del fallo');
-                        return;
-                      }
-                      updateDeliveryStatus('FALLIDO', selectedIssueType, issueDescription);
-                    }}
-                    disabled={updatingStatus || !selectedIssueType}
-                  >
-                    {updatingStatus ? 'Procesando...' : 'Confirmar Reporte'}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </CardContent>
-        </Card>
+                {/* Evento: Pickup */}
+                {delivery.picked_up_at ? (
+                  <div className="relative pl-6">
+                    <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-green-500 border-2 border-green-500"></div>
+                    <p className="text-sm font-medium text-gray-900">Pedido Recolectado</p>
+                    <p className="text-xs text-gray-500">{new Date(delivery.picked_up_at).toLocaleTimeString()}</p>
+                  </div>
+                ) : (
+                  <div className="relative pl-6 opacity-50">
+                    <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-white border-2 border-gray-300"></div>
+                    <p className="text-sm text-gray-500">Esperando recolección...</p>
+                  </div>
+                )}
+
+                {/* Evento: En Ruta */}
+                {delivery.in_route_at ? (
+                  <div className="relative pl-6">
+                    <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-blue-500 border-2 border-blue-500"></div>
+                    <p className="text-sm font-medium text-gray-900">En Ruta a Destino</p>
+                    <p className="text-xs text-gray-500">{new Date(delivery.in_route_at).toLocaleTimeString()}</p>
+                  </div>
+                ) : (
+                  <div className="relative pl-6 opacity-50">
+                    <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-white border-2 border-gray-300"></div>
+                    <p className="text-sm text-gray-500">Pendiente de salida...</p>
+                  </div>
+                )}
+
+                {/* Evento: Completado */}
+                {delivery.completed_at && (
+                  <div className="relative pl-6">
+                    <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-green-600 border-2 border-green-600 shadow-lg shadow-green-200"></div>
+                    <p className="text-sm font-bold text-green-700">¡Entrega Completada!</p>
+                    <p className="text-xs text-gray-500">{new Date(delivery.completed_at).toLocaleTimeString()}</p>
+                  </div>
+                )}
+
+                {/* Evento: Fallido */}
+                {delivery.failed_at && (
+                  <div className="relative pl-6">
+                    <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-red-500 border-2 border-red-500 shadow-lg shadow-red-200"></div>
+                    <p className="text-sm font-bold text-red-700">Entrega Fallida</p>
+                    <p className="text-xs text-red-600 italic mt-1">Motivo: {delivery.failure_reason}</p>
+                    <p className="text-xs text-gray-500">{new Date(delivery.failed_at).toLocaleTimeString()}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+          </div>
+        </div>
       </div>
     </div>
   );
