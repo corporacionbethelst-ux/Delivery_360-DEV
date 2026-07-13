@@ -19,6 +19,16 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+// Helper seguro para fechas que pueden ser null/undefined/string
+const safeDate = (dateVal: string | Date | null | undefined): string => {
+  if (!dateVal) return "--:--";
+  try {
+    return new Date(dateVal).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    return "--:--";
+  }
+};
+
 export default function RiderOrderDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -43,7 +53,10 @@ export default function RiderOrderDetailPage() {
     try {
       setLoading(true);
       setError(null);
-      const data = await orderService.getById(id);
+      
+      // CORRECCIÓN PRINCIPAL: Doble casting para evitar conflicto de definiciones de interfaz entre servicios y types
+      // Primero convertimos a 'unknown' para limpiar el tipo original, luego a 'Order' esperado.
+      const data = await orderService.getById(id) as unknown as Order;
       
       if (!data) {
         setError("Orden no encontrada");
@@ -54,7 +67,7 @@ export default function RiderOrderDetailPage() {
       
       // Manejo seguro del objeto delivery (puede venir anidado o ser null)
       const deliveryData = (data as any).delivery || null;
-      setDelivery(deliveryData);
+      setDelivery(deliveryData ? (deliveryData as Delivery) : null);
 
     } catch (err: any) {
       console.error("Error cargando orden:", err);
@@ -444,7 +457,7 @@ export default function RiderOrderDetailPage() {
                 <div className="relative pl-6">
                   <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 ${[DeliveryStatus.INICIADA, DeliveryStatus.EN_PICKUP, DeliveryStatus.EN_ROUTE, DeliveryStatus.COMPLETE, DeliveryStatus.FAILED].includes(delivery.status as DeliveryStatus) ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300'}`}></div>
                   <p className="text-sm font-medium text-gray-900">Entrega Iniciada</p>
-                  <p className="text-xs text-gray-500">{new Date(delivery.created_at).toLocaleTimeString()}</p>
+                  <p className="text-xs text-gray-500">{safeDate(delivery.created_at)}</p>
                 </div>
 
                 {/* Evento: Pickup */}
@@ -452,7 +465,7 @@ export default function RiderOrderDetailPage() {
                   <div className="relative pl-6">
                     <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-green-500 border-2 border-green-500"></div>
                     <p className="text-sm font-medium text-gray-900">Pedido Recolectado</p>
-                    <p className="text-xs text-gray-500">{new Date(delivery.picked_up_at).toLocaleTimeString()}</p>
+                    <p className="text-xs text-gray-500">{safeDate(delivery.picked_up_at)}</p>
                   </div>
                 ) : (
                   <div className="relative pl-6 opacity-50">
@@ -466,7 +479,7 @@ export default function RiderOrderDetailPage() {
                   <div className="relative pl-6">
                     <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-blue-500 border-2 border-blue-500"></div>
                     <p className="text-sm font-medium text-gray-900">En Ruta a Destino</p>
-                    <p className="text-xs text-gray-500">{new Date(delivery.in_route_at).toLocaleTimeString()}</p>
+                    <p className="text-xs text-gray-500">{safeDate(delivery.in_route_at)}</p>
                   </div>
                 ) : (
                   <div className="relative pl-6 opacity-50">
@@ -480,7 +493,7 @@ export default function RiderOrderDetailPage() {
                   <div className="relative pl-6">
                     <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-green-600 border-2 border-green-600 shadow-lg shadow-green-200"></div>
                     <p className="text-sm font-bold text-green-700">¡Entrega Completada!</p>
-                    <p className="text-xs text-gray-500">{new Date(delivery.completed_at).toLocaleTimeString()}</p>
+                    <p className="text-xs text-gray-500">{safeDate(delivery.completed_at)}</p>
                   </div>
                 )}
 
@@ -490,7 +503,7 @@ export default function RiderOrderDetailPage() {
                     <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-red-500 border-2 border-red-500 shadow-lg shadow-red-200"></div>
                     <p className="text-sm font-bold text-red-700">Entrega Fallida</p>
                     <p className="text-xs text-red-600 italic mt-1">Motivo: {delivery.failure_reason}</p>
-                    <p className="text-xs text-gray-500">{new Date(delivery.failed_at).toLocaleTimeString()}</p>
+                    <p className="text-xs text-gray-500">{safeDate(delivery.failed_at)}</p>
                   </div>
                 )}
               </div>
