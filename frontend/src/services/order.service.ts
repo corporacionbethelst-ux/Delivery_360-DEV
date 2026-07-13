@@ -36,6 +36,21 @@ export interface OrderRiderSummary {
   last_location_at?: string | null;
 }
 
+export interface DeliverySummary {
+  id: string;
+  order_id: string;
+  rider_id?: string | null;
+  status: string;
+  started_at?: string | null;
+  arrived_pickup_at?: string | null;
+  left_pickup_at?: string | null;
+  arrived_delivery_at?: string | null;
+  completed_at?: string | null;
+  sla_expected_minutes?: number | null;
+  sla_actual_minutes?: number | null;
+  sla_compliant?: boolean | null;
+}
+
 export interface Order {
   id: string;
   external_id: string;
@@ -101,6 +116,7 @@ export interface Order {
   // Relaciones
   customer?: User;
   rider?: OrderRiderSummary | User | null;
+  delivery?: DeliverySummary | null;  // NUEVO: Datos de la entrega
   
   // Auditoría
   created_at: string;

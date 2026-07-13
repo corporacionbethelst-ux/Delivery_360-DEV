@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
-import { orderService, Order } from '@/services/order.service';
+import { orderService, Order, DeliverySummary } from '@/services/order.service';
 import { ArrowLeft, MapPin, Phone, Package, DollarSign, Clock, Loader2, AlertCircle, ExternalLink, CheckCircle, XCircle, Bike, Truck } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,21 +15,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 
-// --- CORRECCIÓN DEL ERROR DE TIPO ---
-// Extendemos la interfaz Order localmente para incluir la propiedad 'delivery'
-// que viene del backend pero no está definida en el tipo base del frontend.
-interface DeliveryData {
-  id: string;
-  status: string;
-  rider_id?: string;
-  started_at?: string;
-  completed_at?: string;
-}
-
-interface OrderWithDelivery extends Order {
-  delivery?: DeliveryData;
-}
-// ------------------------------------
+// La interfaz Order ahora incluye delivery?: DeliverySummary | null nativamente
+// No se necesita una interfaz extendida personalizada
 
 export default function OrderDetailPage() {
   const router = useRouter();
@@ -38,8 +25,7 @@ export default function OrderDetailPage() {
 
   const { user, isAuthenticated } = useAuthStore();
   
-  // Usamos la interfaz corregida aquí
-  const [order, setOrder] = useState<OrderWithDelivery | null>(null);
+  const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
   
@@ -178,11 +164,11 @@ export default function OrderDetailPage() {
    * Mapea los estados del backend a acciones de UI.
    */
   const getAvailableActions = () => {
-    // Ahora TypeScript sabe que order.delivery puede existir gracias a OrderWithDelivery
+    // Si no hay delivery, significa que la orden aún no ha sido asignada formalmente
     if (!order?.delivery) return [];
     
     const deliveryStatus = order.delivery.status;
-    const actions = [];
+    const actions: Array<{ key: string; label: string; icon: any; variant: 'default' | 'success' | 'destructive' }> = [];
 
     // Lógica de transición de estados basada en el backend
     switch (deliveryStatus) {
