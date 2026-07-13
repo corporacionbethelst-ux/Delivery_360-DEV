@@ -140,6 +140,25 @@ def _order_to_dict(o: Order, rider: Optional[Rider] = None) -> dict:
     sla_breached = bool(o.sla_deadline and o.delivered_at and o.delivered_at > o.sla_deadline)
     assigned_rider = rider if rider is not None else o.__dict__.get("assigned_rider")
     
+    # Serializar delivery si existe (relación cargada via joinedload)
+    delivery_obj = o.__dict__.get("delivery")
+    delivery_data = None
+    if delivery_obj:
+        delivery_data = {
+            "id": str(delivery_obj.id),
+            "order_id": str(delivery_obj.order_id),
+            "rider_id": str(delivery_obj.rider_id) if delivery_obj.rider_id else None,
+            "status": delivery_obj.status.value if hasattr(delivery_obj.status, "value") else str(delivery_obj.status),
+            "started_at": delivery_obj.started_at.isoformat() if delivery_obj.started_at else None,
+            "arrived_pickup_at": delivery_obj.arrived_pickup_at.isoformat() if delivery_obj.arrived_pickup_at else None,
+            "left_pickup_at": delivery_obj.left_pickup_at.isoformat() if delivery_obj.left_pickup_at else None,
+            "arrived_delivery_at": delivery_obj.arrived_delivery_at.isoformat() if delivery_obj.arrived_delivery_at else None,
+            "completed_at": delivery_obj.completed_at.isoformat() if delivery_obj.completed_at else None,
+            "sla_expected_minutes": delivery_obj.sla_expected_minutes,
+            "sla_actual_minutes": delivery_obj.sla_actual_minutes,
+            "sla_compliant": delivery_obj.sla_compliant,
+        }
+    
     # Manejo seguro de atributos que quizás aún no existen en la BD
     return {
         "id": str(o.id),
@@ -171,6 +190,7 @@ def _order_to_dict(o: Order, rider: Optional[Rider] = None) -> dict:
         "rider_id": str(o.assigned_rider_id) if o.assigned_rider_id else None,
         "assigned_rider_id": str(o.assigned_rider_id) if o.assigned_rider_id else None,
         "rider": _serialize_order_rider(assigned_rider),
+        "delivery": delivery_data,  # NUEVO: Incluir datos de delivery en la respuesta
         "source": getattr(o, 'source', 'MANUAL'),
         "created_at": o.created_at.isoformat() if o.created_at else None,
         "accepted_at": o.accepted_at.isoformat() if o.accepted_at else None,
@@ -221,7 +241,10 @@ async def list_orders(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    q = select(Order).options(joinedload(Order.assigned_rider).joinedload(Rider.user))
+    q = select(Order).options(
+        joinedload(Order.assigned_rider).joinedload(Rider.user),
+        joinedload(Order.delivery)
+    )
 
     if current_user.role == UserRole.REPARTIDOR:
         rider = await _get_rider_for_user(db, current_user.id)
@@ -313,7 +336,10 @@ async def create_order(
     await db.commit()
     refreshed = await db.execute(
         select(Order)
-        .options(joinedload(Order.assigned_rider).joinedload(Rider.user))
+        .options(
+            joinedload(Order.assigned_rider).joinedload(Rider.user),
+            joinedload(Order.delivery)
+        )
         .where(Order.id == order.id)
     )
     return _order_to_dict(refreshed.scalar_one())
@@ -343,7 +369,10 @@ async def get_order(
 ):
     result = await db.execute(
         select(Order)
-        .options(joinedload(Order.assigned_rider).joinedload(Rider.user))
+        .options(
+            joinedload(Order.assigned_rider).joinedload(Rider.user),
+            joinedload(Order.delivery)
+        )
         .where(Order.id == _parse_uuid(order_id, "order_id"))
     )
     order = result.scalar_one_or_none()
@@ -425,7 +454,10 @@ async def update_order(
     await db.commit()
     refreshed = await db.execute(
         select(Order)
-        .options(joinedload(Order.assigned_rider).joinedload(Rider.user))
+        .options(
+            joinedload(Order.assigned_rider).joinedload(Rider.user),
+            joinedload(Order.delivery)
+        )
         .where(Order.id == order.id)
     )
     return _order_to_dict(refreshed.scalar_one())
@@ -507,7 +539,10 @@ async def assign_rider(
     
     refreshed = await db.execute(
         select(Order)
-        .options(joinedload(Order.assigned_rider).joinedload(Rider.user))
+        .options(
+            joinedload(Order.assigned_rider).joinedload(Rider.user),
+            joinedload(Order.delivery)
+        )
         .where(Order.id == order.id)
     )
     return _order_to_dict(refreshed.scalar_one())
