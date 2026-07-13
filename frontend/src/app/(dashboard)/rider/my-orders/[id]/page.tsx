@@ -10,10 +10,26 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/formatters';
 import { resolveOrderCollectAmount } from '@/lib/order-amount';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+
+// --- CORRECCIÓN DEL ERROR DE TIPO ---
+// Extendemos la interfaz Order localmente para incluir la propiedad 'delivery'
+// que viene del backend pero no está definida en el tipo base del frontend.
+interface DeliveryData {
+  id: string;
+  status: string;
+  rider_id?: string;
+  started_at?: string;
+  completed_at?: string;
+}
+
+interface OrderWithDelivery extends Order {
+  delivery?: DeliveryData;
+}
+// ------------------------------------
 
 export default function OrderDetailPage() {
   const router = useRouter();
@@ -22,7 +38,8 @@ export default function OrderDetailPage() {
 
   const { user, isAuthenticated } = useAuthStore();
   
-  const [order, setOrder] = useState<Order | null>(null);
+  // Usamos la interfaz corregida aquí
+  const [order, setOrder] = useState<OrderWithDelivery | null>(null);
   const [loading, setLoading] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
   
@@ -32,7 +49,7 @@ export default function OrderDetailPage() {
   const [issueDescription, setIssueDescription] = useState('');
   const [showFailDialog, setShowFailDialog] = useState(false);
 
-  // Motivos de fallo atribuibles al cliente (generan pago)
+  // Motivos de fallo atribuibles al cliente (generan pago - FASE 2)
   const customerFaultReasons = [
     { value: 'cliente_no_esta', label: 'Cliente no está en la dirección' },
     { value: 'direccion_incorrecta', label: 'Dirección incorrecta o no existe' },
@@ -76,28 +93,39 @@ export default function OrderDetailPage() {
     fetchOrder();
   }, [orderId, isMounted, isAuthenticated, user, router]);
 
-  // Función para actualizar estado de la entrega
+  /**
+   * Función principal para actualizar el estado de la entrega.
+   * Conecta con el endpoint PATCH /api/v1/deliveries/{id}/status
+   */
   const updateDeliveryStatus = async (status: string, issueType?: string, description?: string) => {
     setUpdatingStatus(true);
     try {
       // Obtener el delivery_id de la orden
+      // Prioridad: delivery.id (si existe relación) > order.id (fallback si es la misma entidad)
       const deliveryId = order?.delivery?.id || order?.id;
+      
       if (!deliveryId) {
-        alert('No se pudo identificar la entrega asociada');
+        alert('No se pudo identificar la entrega asociada a esta orden.');
         return;
       }
 
-      // Construir payload
+      // Construir payload según el schema DeliveryStatusUpdate del backend
       const payload: any = {
-        status,
-        lat: undefined,
+        status, // Ej: 'RECOLECTADO', 'EN_RUTA', 'ENTREGADO', 'FALLIDO'
+        lat: undefined, // Opcional: se podría agregar geolocalización aquí si se desea
         lng: undefined,
       };
 
-      if (issueType) payload.issue_type = issueType;
-      if (description) payload.issue_description = description;
+      // Solo enviar datos de incidencia si es un fallo
+      if (status === 'FALLIDO') {
+        if (!issueType) {
+          throw new Error('El motivo del fallo es requerido');
+        }
+        payload.issue_type = issueType;
+        payload.issue_description = description || '';
+      }
 
-      // Hacer petición al backend
+      // Petición al backend
       const response = await fetch(`/api/v1/deliveries/${deliveryId}/status`, {
         method: 'PATCH',
         headers: {
@@ -114,19 +142,27 @@ export default function OrderDetailPage() {
 
       const updatedDelivery = await response.json();
       
-      // Actualizar la orden en el estado local
+      // Actualizar estado local optimista
       setOrder(prev => prev ? {
         ...prev,
+        // Actualizamos el estado general de la orden para reflejar cambios visuales inmediatos
         status: status === 'ENTREGADO' ? 'ENTREGADO' : status === 'FALLIDO' ? 'CANCELADO' : prev.status,
         delivery: updatedDelivery,
       } : null);
 
-      alert(`Estado actualizado exitosamente a: ${status}`);
+      // Feedback al usuario
+      const successMessage = status === 'FALLIDO' 
+        ? 'Incidencia reportada correctamente. El bono correspondiente se está procesando.' 
+        : `Estado actualizado exitosamente a: ${status}`;
+        
+      alert(successMessage);
+      
+      // Limpiar formulario de incidencias
       setShowFailDialog(false);
       setSelectedIssueType('');
       setIssueDescription('');
       
-      // Recargar la página para mostrar cambios completos
+      // Recargar la página para asegurar que toda la UI (badges, tarjetas) esté sincronizada con el backend
       setTimeout(() => window.location.reload(), 1000);
       
     } catch (error: any) {
@@ -137,33 +173,47 @@ export default function OrderDetailPage() {
     }
   };
 
-  // Determinar acciones disponibles según el estado actual
+  /**
+   * Determina qué botones mostrar según el estado actual de la entrega.
+   * Mapea los estados del backend a acciones de UI.
+   */
   const getAvailableActions = () => {
+    // Ahora TypeScript sabe que order.delivery puede existir gracias a OrderWithDelivery
     if (!order?.delivery) return [];
     
     const deliveryStatus = order.delivery.status;
     const actions = [];
 
+    // Lógica de transición de estados basada en el backend
     switch (deliveryStatus) {
       case 'INICIADA':
+        // Paso 1: El repartidor confirma que recogió el pedido
         actions.push({ key: 'RECOLECTADO', label: '✅ Pedido Recolectado', icon: CheckCircle, variant: 'default' as const });
         break;
+      
       case 'EN_PICKUP':
+        // Paso 2: El repartidor sale del restaurante hacia el cliente
         actions.push({ key: 'EN_RUTA', label: '🚗 En Ruta a Entrega', icon: Truck, variant: 'default' as const });
         break;
+      
       case 'EN_ROUTE':
+        // Paso 3: Llegó a destino. Puede entregar o reportar problema.
         actions.push(
           { key: 'ENTREGADO', label: '✅ Marcar como Entregado', icon: CheckCircle, variant: 'success' as const },
           { key: 'FALLIDO', label: '❌ Reportar Incidencia', icon: XCircle, variant: 'destructive' as const }
         );
         break;
+      
       case 'EN_DESTINO':
+        // Variante de paso 3 (si el backend usa este estado intermedio)
         actions.push(
           { key: 'ENTREGADO', label: '✅ Confirmar Entrega', icon: CheckCircle, variant: 'success' as const },
           { key: 'FALLIDO', label: '❌ Reportar Problema', icon: XCircle, variant: 'destructive' as const }
         );
         break;
+      
       default:
+        // Estados finales (COMPLETADA, FALLIDA) o inválidos no muestran acciones
         break;
     }
 
@@ -320,7 +370,7 @@ export default function OrderDetailPage() {
               </div>
             </div>
 
-            {/* Acciones REALES */}
+            {/* Acciones Generales (Llamar, Mapa) */}
             <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t mt-6">
               <Button 
                 className="flex-1 bg-green-600 hover:bg-green-700 text-white shadow-md h-12 text-base"
@@ -403,7 +453,7 @@ export default function OrderDetailPage() {
                     Reportar Incidencia / Entrega Fallida
                   </DialogTitle>
                   <DialogDescription>
-                    Selecciona el motivo del fallo. Si es por causa del cliente, recibirás un bono compensatorio.
+                    Selecciona el motivo del fallo. Si es por causa del cliente, recibirás un bono compensatorio configurable.
                   </DialogDescription>
                 </DialogHeader>
                 
@@ -415,7 +465,7 @@ export default function OrderDetailPage() {
                         <SelectValue placeholder="Selecciona un motivo" />
                       </SelectTrigger>
                       <SelectContent>
-                        {/* Motivos que generan pago */}
+                        {/* Motivos que generan pago (FASE 2) */}
                         <optgroup label="📌 Culpa del Cliente (Generan Bono)">
                           {customerFaultReasons.map((reason) => (
                             <SelectItem key={reason.value} value={reason.value}>
@@ -434,8 +484,9 @@ export default function OrderDetailPage() {
                       </SelectContent>
                     </Select>
                     {selectedIssueType && customerFaultReasons.some(r => r.value === selectedIssueType) && (
-                      <p className="text-xs text-green-600 font-medium mt-1">
-                        ✅ Este motivo genera un bono compensatorio configurable
+                      <p className="text-xs text-green-600 font-medium mt-1 flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3" />
+                        Este motivo genera un bono compensatorio automático
                       </p>
                     )}
                   </div>
@@ -444,7 +495,7 @@ export default function OrderDetailPage() {
                     <Label htmlFor="issue-description">Descripción Adicional</Label>
                     <Textarea
                       id="issue-description"
-                      placeholder="Describe brevemente lo sucedido..."
+                      placeholder="Describe brevemente lo sucedido (opcional)..."
                       value={issueDescription}
                       onChange={(e) => setIssueDescription(e.target.value)}
                       rows={3}
