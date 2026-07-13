@@ -1,7 +1,8 @@
 // Tipos TypeScript para Orders - Delivery360
 import { User, Rider } from './user';
+import type { Delivery } from './delivery';
 
-export type OrderStatus = 
+export type OrderStatus =
   | 'PENDIENTE'
   | 'ASIGNADO'
   | 'CONFIRMADO'
@@ -38,13 +39,17 @@ export interface OrderItem {
   observations?: string;
 }
 
+/**
+ * Interfaz principal de Order.
+ * Incluye la propiedad opcional delivery para el flujo del repartidor.
+ */
 export interface Order {
   id: string;
   orderNumber: string;
   status: OrderStatus;
   priority: OrderPriority;
   type: OrderType;
-  
+
   // Cliente
   customerId: string;
   customer_id?: string;
@@ -52,22 +57,25 @@ export interface Order {
   customer_name?: string;
   customerPhone: string;
   customerEmail?: string;
-  
+
   // Direcciones
   pickupAddress: OrderAddress;
   deliveryAddress: OrderAddress;
-  
+
   // Items y valores
   items: OrderItem[];
   subtotal: number;
   deliveryFee: number;
   discount: number;
   total: number;
-  
+
   // Asignación
   assignedRiderId?: string;
-  assignedRider?: Rider; // Depende de que Rider esté bien definido en rider.ts
-  
+  assignedRider?: Rider;
+
+  // Entrega asociada (para el flujo del repartidor)
+  delivery?: Delivery | null;
+
   // Tiempos
   createdAt: Date;
   estimatedPickupTime?: Date;
@@ -76,23 +84,28 @@ export interface Order {
   deliveredAt?: Date;
   cancelledAt?: Date;
   scheduledAt?: string | Date;
-  
+
   // Información adicional
   paymentMethod: 'EFECTIVO' | 'TARJETA' | 'PIX' | 'ONLINE' | 'DEBIT_CARD';
   paymentStatus: 'PENDIENTE' | 'PAGADO' | 'REEMBOLSADO';
   observations?: string;
   internalNotes?: string;
-  
+
   // Tracking
   trackingCode?: string;
   signatureUrl?: string;
   photoProofUrl?: string;
-  
+
   // Auditoría
   createdBy: string;
   updatedBy?: string;
   cancelledBy?: string;
   cancelReason?: string;
+  
+  // Campos adicionales para compatibilidad
+  restaurant_name?: string;
+  restaurant_address?: string;
+  restaurant_phone?: string;
 }
 
 export interface OrderFilters {

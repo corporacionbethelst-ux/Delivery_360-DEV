@@ -1,46 +1,14 @@
 import { api } from '@/lib/api';
+import type { Delivery, DeliveryStatus } from '@/types/delivery';
 
 // Usamos string union para ser flexibles con el filtro
-export type DeliveryStatus = 'PENDIENTE' | 'INICIADA' | 'EN_ROUTE' | 'EN_RUTA' | 'COMPLETADA' | 'INCIDENCIA' | 'FALLIDA' | 'EN_PICKUP' | 'EN_DESTINO';
+export type DeliveryStatusFilter = 'PENDIENTE' | 'INICIADA' | 'EN_ROUTE' | 'EN_RUTA' | 'COMPLETADA' | 'INCIDENCIA' | 'FALLIDA' | 'EN_PICKUP' | 'EN_DESTINO';
 
 export interface RiderInfo {
   id: string;
   first_name: string;
   last_name: string;
   vehicle_type?: string | null;
-}
-
-export interface Delivery {
-  id: string;
-  order_id: string;
-  external_id?: string;
-  rider_id?: string;
-  status: string;
-  started_at?: string | null;
-  completed_at?: string | null;
-  pickup_at?: string | null;
-  delivered_at?: string | null;
-  current_latitude?: number | null;
-  current_longitude?: number | null;
-  total_time?: number | null;
-  distance_total?: number | null;
-  sla_compliant?: boolean | null;
-  proof_otp?: string | null;
-  created_at?: string;
-  updated_at?: string;
-  // Datos Enriquecidos (Vienen del backend gracias al join)
-  customer_name?: string;
-  rider_name?: string;
-  rider_phone?: string;
-  customer_phone?: string;
-  pickup_address?: string;
-  delivery_address?: string;
-  total_amount?: number;
-  payment_method?: string;
-  notes?: string;
-  estimated_delivery_time?: string;
-  order?: { customer_name?: string; customer_phone?: string; delivery_address?: string; total_amount?: number } | null;
-  rider?: RiderInfo | null;
 }
 
 export interface DeliveryProofInput {
@@ -58,9 +26,9 @@ export interface DeliveryLocationInput {
 
 export interface DeliveryFilters {
   rider_id?: string;
-  status?: string; // CAMBIO CRÍTICO: Permitir string genérico
+  status?: string;
   limit?: number;
-  offset?: number; // CAMBIO CRÍTICO: Agregar offset explícito
+  offset?: number;
   include_total?: boolean;
 }
 
@@ -69,6 +37,14 @@ export interface DeliveryListResponse {
   total: number;
   limit?: number;
   offset?: number;
+}
+
+/**
+ * Payload para actualizar el estado de una entrega.
+ */
+export interface UpdateStatusPayload {
+  new_status: DeliveryStatus;
+  failure_reason?: string;
 }
 
 export const deliveryService = {
@@ -142,6 +118,47 @@ export const deliveryService = {
     }
   },
 
+  /**
+   * Obtener una entrega por el ID de la orden asociada.
+   * Útil como fallback cuando no se tiene el delivery.id directamente.
+   */
+  getByOrderId: async (orderId: string): Promise<Delivery | null> => {
+    if (!orderId) {
+      throw new Error('[DeliveryService] Order ID requerido');
+    }
+    try {
+      const response = await api.get<Delivery[]>(`/deliveries?order_id=${orderId}&limit=1`);
+      const items = Array.isArray(response) ? response : (response as DeliveryListResponse).items || [];
+      return items.length > 0 ? items[0] : null;
+    } catch (error) {
+      console.error(`[DeliveryService] Error fetching delivery for order ${orderId}:`, error);
+      return null;
+    }
+  },
+
+  /**
+   * Actualizar el estado de una entrega.
+   * @param id - ID de la entrega
+   * @param payload - Objeto con new_status y opcionalmente failure_reason
+   * @returns La entrega actualizada
+   */
+  updateStatus: async (id: string | number, payload: UpdateStatusPayload): Promise<Delivery> => {
+    if (!id) {
+      throw new Error('[DeliveryService] ID de entrega requerido');
+    }
+    if (!payload.new_status) {
+      throw new Error('[DeliveryService] Estado nuevo requerido');
+    }
+    try {
+      const deliveryId = String(id);
+      // El backend espera un POST a /deliveries/{id}/status
+      return await api.post<Delivery>(`/deliveries/${deliveryId}/status`, payload);
+    } catch (error: any) {
+      console.error('[DeliveryService] Error updating status:', error);
+      throw new Error(error.response?.data?.detail || 'No se pudo actualizar el estado de la entrega');
+    }
+  },
+
   start: async (orderId: string): Promise<{ otp_code: string; message: string }> => {
     if (!orderId) throw new Error('[DeliveryService] Order ID requerido');
     try {
@@ -154,8 +171,6 @@ export const deliveryService = {
   complete: async (id: string, proof: DeliveryProofInput): Promise<any> => {
     if (!id) throw new Error('[DeliveryService] ID requerido');
     try {
-      // CORRECCIÓN CRÍTICA: Usar POST en lugar de PATCH para el endpoint /complete
-      // Esto asegura que se dispare la lógica de creación de registros financieros
       return await api.post(`/deliveries/${id}/complete`, proof);
     } catch (error: any) {
       throw new Error(error.response?.data?.detail || 'Error al completar');
