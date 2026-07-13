@@ -1,5 +1,6 @@
 import { api } from '@/lib/api';
 import { User } from '@/types/user';
+import type { AxiosError } from 'axios';
 
 export type OrderStatus = 
   | 'PENDIENTE' 
@@ -185,9 +186,10 @@ export interface OrderStats {
 }
 
 // Helper interno para extraer datos de forma segura
-const extractData = <T>(response: any): T => {
+const extractData = <T>(response: unknown): T => {
   if (!response) throw new Error('Respuesta vacía del servidor');
-  return response.data || response;
+  const axiosResponse = response as { data?: T };
+  return axiosResponse.data || (response as T);
 };
 
 export const orderService = {
@@ -319,14 +321,15 @@ export const orderService = {
         { params: { new_status: status } } // Parámetros de URL
       );
       return extractData<Order>(response);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(`[OrderService] Error updating status for order ${id}:`, error);
       
       // Mejorar el mensaje de error para depuración
       let msg = 'Error al actualizar estado';
-      if (error.response?.data?.detail) {
-        msg = error.response.data.detail;
-      } else if (error.response?.status === 422) {
+      const axiosError = error as AxiosError<{ detail?: string }>;
+      if (axiosError.response?.data?.detail) {
+        msg = axiosError.response.data.detail;
+      } else if (axiosError.response?.status === 422) {
         msg = 'Formato de estado inválido o faltante (Error 422). Verifica la consola del servidor.';
       }
       
