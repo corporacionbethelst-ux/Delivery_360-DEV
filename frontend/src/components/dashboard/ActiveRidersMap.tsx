@@ -118,9 +118,9 @@ export function ActiveRidersMap({ riders: propRiders, onRiderClick }: ActiveRide
                   // Verificamos si existe la propiedad stats y es un objeto
                   if ('stats' in selectedRider && selectedRider.stats && typeof selectedRider.stats === 'object') {
                     // Cast a any para acceso seguro a propiedades dinámicas no definidas en la interfaz base
-                    const statsAny = selectedRider.stats as any;
-                    const rating = typeof statsAny.customerRating === 'number' ? statsAny.customerRating.toFixed(1) : 'N/A';
-                    const deliveries = statsAny.completedDeliveries || 0;
+                    const stats = selectedRider.stats as Partial<Record<string, unknown>>;
+                    const rating = typeof stats.customerRating === 'number' ? stats.customerRating.toFixed(1) : 'N/A';
+                    const deliveries = (stats.completedDeliveries as number) || 0;
 
                     return (
                       <div className="flex items-center gap-2">

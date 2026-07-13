@@ -66,20 +66,27 @@ export function RecentOrdersTable({ orders, onViewOrder, onAssignRider }: Recent
             {filteredOrders.map(order => {
               const statusConfig = getStatusConfig(order.status);
               
-              // ✅ CORRECCIÓN 2: Acceso seguro a propiedades snake_case y anidadas
-              // Nota: Ajusta 'customerName' según tu interfaz Order real (puede ser customer_name o calculado)
-              const customerName = (order as any).customerName || (order as any).customer_name || order.id.slice(0, 8);
+              // Acceso seguro a propiedades snake_case y camelCase usando operadores opcionales
+              const customerName = 
+                (order as Partial<Record<string, unknown>>).customerName || 
+                (order as Partial<Record<string, unknown>>).customer_name || 
+                order.id.slice(0, 8);
               
               // Acceso seguro a la dirección (la interfaz Order suele tener delivery_address como objeto o string)
-              const deliveryAddress = (order as any).delivery_address;
+              const deliveryAddress = (order as Partial<Record<string, unknown>>).delivery_address;
               const address = typeof deliveryAddress === 'string' 
                 ? deliveryAddress 
-                : deliveryAddress?.address || deliveryAddress?.street || 'Sin dirección';
+                : (deliveryAddress as Partial<Record<string, unknown>>)?.address || 
+                  (deliveryAddress as Partial<Record<string, unknown>>)?.street || 
+                  'Sin dirección';
 
               // Acceso seguro al repartidor asignado
-              const assignedRider = (order as any).assigned_rider || order.assignedRider;
+              const assignedRider = (order as Partial<Record<string, unknown>>).assigned_rider || order.assignedRider;
               const riderName = assignedRider 
-                ? (assignedRider.full_name || assignedRider.fullName || assignedRider.first_name || 'Repartidor') 
+                ? ((assignedRider as Partial<Record<string, unknown>>).full_name || 
+                   (assignedRider as Partial<Record<string, unknown>>).fullName || 
+                   (assignedRider as Partial<Record<string, unknown>>).first_name || 
+                   'Repartidor') 
                 : null;
 
               return (

@@ -3,7 +3,7 @@
 import logging
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Any, Dict, Optional
+from typing import Dict, Optional, Union, List
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +21,7 @@ CREDIT_TYPES = {TransactionType.PAGO_ENTREGA, TransactionType.BONO}
 DEBIT_TYPES = {TransactionType.DESCUENTO, TransactionType.RETIRO}
 
 
-def money(value: Any) -> Decimal:
+def money(value: Union[Decimal, float, int, str, None]) -> Decimal:
     """Normalizar valores monetarios a Decimal con dos decimales."""
     return Decimal(str(value or 0)).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
 
@@ -178,7 +178,7 @@ class FinancialService:
         is_sla_compliant: bool = True,
         is_night_shift: bool = False,
         is_rainy_day: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Decimal]:
         """Calcular una ganancia base configurable sin crear movimientos contables."""
         total = Decimal(str(base_rate))
         bonuses = Decimal("0.00")
@@ -201,7 +201,7 @@ class FinancialService:
             "total": money(final_amount),
         }
 
-    async def create_daily_liquidation(self, rider_id: str, liquidation_date: date) -> Dict[str, Any]:
+    async def create_daily_liquidation(self, rider_id: str, liquidation_date: date) -> Dict[str, Union[str, Decimal, int, datetime]]:
         """Calcular la liquidación diaria a partir del ledger procesado."""
         start_dt = datetime.combine(liquidation_date, datetime.min.time())
         end_dt = datetime.combine(liquidation_date, datetime.max.time())
@@ -235,7 +235,7 @@ class FinancialService:
         rider_id: str,
         start_date: datetime,
         end_date: datetime,
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Union[Decimal, int, datetime]]:
         """Obtener resumen de ganancias procesadas de un repartidor en un período."""
         result = await self.db.execute(
             select(
@@ -265,7 +265,7 @@ class FinancialService:
         self,
         start_date: date,
         end_date: date,
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Union[Decimal, int, date, Dict[str, Decimal]]]:
         """Consolidar datos financieros procesados de un período."""
         start_dt = datetime.combine(start_date, datetime.min.time())
         end_dt = datetime.combine(end_date, datetime.max.time())
