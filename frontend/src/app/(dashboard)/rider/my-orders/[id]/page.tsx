@@ -229,9 +229,9 @@ export default function RiderOrderDetailPage() {
             Orden: {order.status}
           </span>
           <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border
-            ${delivery.status === 'COMPLETE' ? 'bg-green-50 text-green-700 border-green-200' : 
-              delivery.status === 'FAILED' ? 'bg-red-50 text-red-700 border-red-200' :
-              delivery.status === 'EN_ROUTE' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+            ${delivery.status === DeliveryStatus.COMPLETE ? 'bg-green-50 text-green-700 border-green-200' : 
+              delivery.status === DeliveryStatus.FAILED ? 'bg-red-50 text-red-700 border-red-200' :
+              delivery.status === DeliveryStatus.EN_ROUTE ? 'bg-blue-50 text-blue-700 border-blue-200' :
               'bg-yellow-50 text-yellow-700 border-yellow-200'}
           `}>
             Entrega: {delivery.status.replace('_', ' ')}
@@ -243,7 +243,7 @@ export default function RiderOrderDetailPage() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         
         {/* Sección de Acciones Rápidas (Solo si no está completada o fallida) */}
-        {delivery.status !== 'COMPLETE' && delivery.status !== 'FAILED' && (
+        {delivery.status !== DeliveryStatus.COMPLETE && delivery.status !== DeliveryStatus.FAILED && (
           <div className="bg-gray-50 border-b border-gray-200 p-6">
             <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
               <Truck className="w-4 h-4" />
@@ -410,7 +410,7 @@ export default function RiderOrderDetailPage() {
                   </span>
                 </div>
                 
-                {delivery.status === 'FAILED' && (
+                {delivery.status === DeliveryStatus.FAILED && (
                   <div className="pt-3 border-t border-green-200/50">
                     <p className="text-xs text-red-600 font-medium mb-1 flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" />
@@ -442,7 +442,7 @@ export default function RiderOrderDetailPage() {
               <div className="relative border-l-2 border-gray-200 ml-3 space-y-6 pb-2">
                 {/* Evento: Iniciada */}
                 <div className="relative pl-6">
-                  <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 ${['INICIADA', 'EN_PICKUP', 'EN_ROUTE', 'COMPLETE', 'FAILED'].includes(delivery.status) ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300'}`}></div>
+                  <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 ${[DeliveryStatus.INICIADA, DeliveryStatus.EN_PICKUP, DeliveryStatus.EN_ROUTE, DeliveryStatus.COMPLETE, DeliveryStatus.FAILED].includes(delivery.status as DeliveryStatus) ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300'}`}></div>
                   <p className="text-sm font-medium text-gray-900">Entrega Iniciada</p>
                   <p className="text-xs text-gray-500">{new Date(delivery.created_at).toLocaleTimeString()}</p>
                 </div>

@@ -6,15 +6,13 @@ import { Rider } from './user';
  * Enum de estados de entrega para el flujo del repartidor.
  * Define los estados exactos que se usan en la máquina de estados de entregas.
  */
-export const DeliveryStatus = {
-  INICIADA: 'INICIADA',
-  EN_PICKUP: 'EN_PICKUP',
-  EN_ROUTE: 'EN_ROUTE',
-  COMPLETE: 'COMPLETE',
-  FAILED: 'FAILED',
-} as const;
-
-export type DeliveryStatusType = typeof DeliveryStatus[keyof typeof DeliveryStatus];
+export enum DeliveryStatus {
+  INICIADA = 'INICIADA',
+  EN_PICKUP = 'EN_PICKUP',
+  EN_ROUTE = 'EN_ROUTE',
+  COMPLETE = 'COMPLETE',
+  FAILED = 'FAILED',
+}
 
 /**
  * Tipo legacy para compatibilidad con respuestas antiguas del backend.
@@ -31,7 +29,7 @@ export type DeliveryStatusLegacy =
 /**
  * Tipo unificado de estado de entrega.
  */
-export type DeliveryStatus = DeliveryStatusType | DeliveryStatusLegacy;
+export type DeliveryStatusType = DeliveryStatus | DeliveryStatusLegacy;
 
 export type DeliveryType = 'STANDARD' | 'EXPRESS' | 'PROGRAMADO' | 'AGENDADO';
 export type ProofType = 'FIRMA' | 'FOTO' | 'CODIGO' | 'OTP';
@@ -62,7 +60,7 @@ export interface ProofOfDelivery {
 export interface DeliveryEvent {
   id: string;
   deliveryId: string;
-  status: DeliveryStatus;
+  status: DeliveryStatus | DeliveryStatusLegacy;
   timestamp: Date;
   location?: {
     latitude: number;
@@ -91,7 +89,7 @@ export interface Delivery {
   rider?: Rider;
   
   // Estado actual (usando el enum DeliveryStatus)
-  status: DeliveryStatus;
+  status: DeliveryStatus | DeliveryStatusLegacy;
   
   // Timestamps específicos del flujo de entrega (nullable)
   created_at?: string | Date | null;
