@@ -108,9 +108,10 @@ export type {
 // export { OrderStatus as OrderStatusEnum } from './order'; 
 
 // 4. Delivery
+// Nota: DeliveryStatus es un enum (valor), debe exportarse sin 'type'
+export { DeliveryStatus } from './delivery';
 export type { 
   Delivery, 
-  DeliveryStatus, 
   DeliveryType,
   DeliveryLocation,
   ProofOfDelivery,

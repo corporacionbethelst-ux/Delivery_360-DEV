@@ -1,39 +1,45 @@
-```
-# Compiled and build artifacts
-*.pyc
-__pycache__/
-*.o
-*.obj
-dist/
-build/
-
+```gitignore
 # Dependencies
-.venv/
-venv/
 node_modules/
 
-# Logs and temp files
-*.log
-*.tmp
-*.swp
+# Build outputs
+dist/
+build/
+target/
 
-# Environment
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
 .env
 .env.local
 .env.*
-
-# Editors
-.vscode/
-.idea/
-
-# Coverage reports
-coverage/
-htmlcov/
+.pytest_cache/
+.mypy_cache/
 .coverage
+
+# Logs
+*.log
 
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# Coverage reports
+coverage/
+htmlcov/
 
 # Compressed files
 *.zip
