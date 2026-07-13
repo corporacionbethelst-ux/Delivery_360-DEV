@@ -1,1 +1,10 @@
-Nothing should be ignored in this case, as the changes only include source code files (.py, .tsx, .ts) without any build artifacts, dependencies, or temporary files.
+```
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Directories
+backend/app/api/v1/__pycache__/
+```

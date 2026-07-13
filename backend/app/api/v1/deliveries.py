@@ -850,7 +850,7 @@ async def update_delivery_status(
         if new_status not in allowed_transitions[current_status]:
             raise HTTPException(
                 status_code=400, 
-                detail=f"No se puede cambiar de {current_status.value} a {new_status.value}. Transiciones válidas: {[s.value for s in allowed_transitions[current_status]]}"
+                detail=f"No se puede cambiar de {current_status.value} a {new_status.value}. Transiciones validas: {[s.value for s in allowed_transitions[current_status]]}"
             )
     
     now = datetime.now(timezone.utc)
