@@ -1,6 +1,6 @@
 """Servicio para gestión de rutas y geolocalización del sistema Delivery360."""
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TypedDict
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -9,6 +9,16 @@ from app.utils.geolocation import calculate_distance, is_point_in_polygon
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+class RouteMetricsData(TypedDict):
+    """Tipo de retorno para métricas de ruta"""
+    total_distance_km: float
+    avg_speed_kmh: float
+    max_speed_kmh: float
+    total_time_minutes: float
+    points_count: int
+    stops_count: int
 
 
 class RouteService:
@@ -112,7 +122,7 @@ class RouteService:
         points = result.scalars().all()
         return list(points)
     
-    async def calculate_route_metrics(self, route_id: int) -> Dict[str, Any]:
+    async def calculate_route_metrics(self, route_id: int) -> RouteMetricsData:
         """Calcular métricas de una ruta"""
         points_query = await self.db.execute(
             select(RoutePoint).where(

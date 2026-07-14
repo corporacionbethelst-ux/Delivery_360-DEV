@@ -1,7 +1,7 @@
 """Servicio para dashboards y reportes del sistema Delivery360."""
 
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional, TypedDict, Union
+from datetime import datetime, timedelta, date
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, distinct
@@ -16,13 +16,54 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class ManagerDashboardData(TypedDict):
+    """Tipo de retorno para dashboard de gerente"""
+    total_orders: int
+    delivered_orders: int
+    delivery_rate: float
+    avg_delivery_time_minutes: float
+    sla_percentage: float
+    avg_cost_per_order: float
+    active_riders: int
+    period_start: datetime
+    period_end: datetime
+
+
+class OperatorDashboardData(TypedDict):
+    """Tipo de retorno para dashboard de operador"""
+    pending_orders: int
+    in_progress_orders: int
+    available_riders: int
+    active_shifts: int
+    at_risk_deliveries: int
+    timestamp: datetime
+
+
+class RiderDashboardData(TypedDict):
+    """Tipo de retorno para dashboard de repartidor"""
+    completed_deliveries: int
+    daily_earnings: float
+    total_hours_worked: float
+    personal_sla_percentage: float
+    date: date
+    timestamp: datetime
+
+
+class ProductivityComparisonItem(TypedDict):
+    """Tipo para items de comparación de productividad"""
+    date: date
+    avg_deliveries_per_hour: float
+    avg_sla_compliance: float
+    total_deliveries: int
+
+
 class DashboardService:
     """Servicio para obtención de datos de dashboards"""
     
     def __init__(self, db: AsyncSession):
         self.db = db
     
-    async def get_manager_dashboard(self, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
+    async def get_manager_dashboard(self, start_date: datetime, end_date: datetime) -> ManagerDashboardData:
         """Obtener datos para dashboard de gerente"""
         # Total de pedidos
         result = await self.db.execute(
@@ -124,7 +165,7 @@ class DashboardService:
             "period_end": end_date
         }
     
-    async def get_operator_dashboard(self, shift_id: Optional[int] = None) -> Dict[str, Any]:
+    async def get_operator_dashboard(self, shift_id: Optional[int] = None) -> OperatorDashboardData:
         """Obtener datos para dashboard de operador"""
         # Pedidos pendientes
         result = await self.db.execute(
@@ -194,7 +235,7 @@ class DashboardService:
             "timestamp": datetime.utcnow()
         }
     
-    async def get_rider_dashboard(self, rider_id: int, date: Optional[datetime] = None) -> Dict[str, Any]:
+    async def get_rider_dashboard(self, rider_id: int, date: Optional[datetime] = None) -> RiderDashboardData:
         """Obtener datos para dashboard de repartidor"""
         if not date:
             date = datetime.utcnow().date()
@@ -296,7 +337,7 @@ class DashboardService:
         start_date: datetime,
         end_date: datetime,
         group_by: str = "day"
-    ) -> List[Dict[str, Any]]:
+    ) -> List[ProductivityComparisonItem]:
         """Obtener comparación de productividad por período"""
         # Implementación básica agrupando por día
         result = await self.db.execute(

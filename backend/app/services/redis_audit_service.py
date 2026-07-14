@@ -10,12 +10,24 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+
+class AuditEvent(TypedDict):
+    """Tipo para evento de auditoría"""
+    event_id: str
+    event_type: str
+    resource_type: str
+    resource_id: str
+    user_id: Optional[str]
+    details: Optional[str]
+    timestamp: str
+    created_at: float
 
 
 class RedisAuditLogger:
@@ -219,7 +231,7 @@ class RedisAuditLogger:
             },
         )
     
-    async def get_recent_events(self, limit: int = 50) -> List[Dict[str, Any]]:
+    async def get_recent_events(self, limit: int = 50) -> List[AuditEvent]:
         """Obtener eventos recientes"""
         if not self.connected or not self.redis:
             return []
@@ -236,7 +248,7 @@ class RedisAuditLogger:
         resource_type: str,
         resource_id: str,
         limit: int = 100,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[AuditEvent]:
         """Obtener historial de un recurso específico"""
         if not self.connected or not self.redis:
             return []

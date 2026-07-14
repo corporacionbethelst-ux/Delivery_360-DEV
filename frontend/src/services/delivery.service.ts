@@ -224,8 +224,8 @@ export const deliveryService = {
 
       // Filtramos cliente-side para asegurarnos que tengan coordenadas válidas
       return items.filter(d => 
-        isValidCoordinate(d.current_latitude, -90, 90) &&
-        isValidCoordinate(d.current_longitude, -180, 180) &&
+        isValidCoordinate((d as Partial<Record<string, unknown>>).current_latitude, -90, 90) &&
+        isValidCoordinate((d as Partial<Record<string, unknown>>).current_longitude, -180, 180) &&
         [ 'INICIADA', 'EN_PICKUP', 'EN_ROUTE', 'EN_DESTINO' ].includes(d.status)
       );
     } catch (error) {
