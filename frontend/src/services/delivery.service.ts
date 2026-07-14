@@ -1,6 +1,7 @@
 import { api } from '@/lib/api';
 import type { Delivery, DeliveryStatus } from '@/types/delivery';
 import type { AxiosError } from 'axios';
+import { isAxiosError } from 'axios';
 
 // Usamos string union para ser flexibles con el filtro
 export type DeliveryStatusFilter = 'PENDIENTE' | 'INICIADA' | 'EN_ROUTE' | 'EN_RUTA' | 'COMPLETADA' | 'INCIDENCIA' | 'FALLIDA' | 'EN_PICKUP' | 'EN_DESTINO';
@@ -156,8 +157,8 @@ export const deliveryService = {
       return await api.post<Delivery>(`/deliveries/${deliveryId}/status`, payload);
     } catch (error: unknown) {
       console.error('[DeliveryService] Error updating status:', error);
-      const axiosError = error as AxiosError<{ detail?: string }>;
-      throw new Error(axiosError.response?.data?.detail || 'No se pudo actualizar el estado de la entrega');
+      const axiosError = isAxiosError(error) ? error : null;
+      throw new Error(axiosError?.response?.data?.detail || 'No se pudo actualizar el estado de la entrega');
     }
   },
 
@@ -166,8 +167,8 @@ export const deliveryService = {
     try {
       return await api.post<{ otp_code: string; message: string }>(`/deliveries/${orderId}/start`);
     } catch (error: unknown) {
-      const axiosError = error as AxiosError<{ detail?: string }>;
-      throw new Error(axiosError.response?.data?.detail || 'No se pudo iniciar la entrega');
+      const axiosError = isAxiosError(error) ? error : null;
+      throw new Error(axiosError?.response?.data?.detail || 'No se pudo iniciar la entrega');
     }
   },
 
@@ -176,8 +177,8 @@ export const deliveryService = {
     try {
       return await api.post<Delivery>(`/deliveries/${id}/complete`, proof);
     } catch (error: unknown) {
-      const axiosError = error as AxiosError<{ detail?: string }>;
-      throw new Error(axiosError.response?.data?.detail || 'Error al completar');
+      const axiosError = isAxiosError(error) ? error : null;
+      throw new Error(axiosError?.response?.data?.detail || 'Error al completar');
     }
   },
 
@@ -192,8 +193,8 @@ export const deliveryService = {
       });
     } catch (error: unknown) {
       console.error('[DeliveryService] Error updating location:', error);
-      const axiosError = error as AxiosError<{ detail?: string }>;
-      throw new Error(axiosError.response?.data?.detail || 'No se pudo actualizar la ubicación');
+      const axiosError = isAxiosError(error) ? error : null;
+      throw new Error(axiosError?.response?.data?.detail || 'No se pudo actualizar la ubicación');
     }
   },
 

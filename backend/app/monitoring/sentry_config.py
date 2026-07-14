@@ -64,7 +64,7 @@ def set_tag(key: str, value: str):
     sentry_sdk.set_tag(key, value)
 
 
-def set_extra(key: str, value: Any):
+def set_extra(key: str, value: Union[str, int, float, bool, None, Dict[str, Any], List[Any], datetime, date, Decimal]):
     """Agregar información adicional al evento"""
     sentry_sdk.set_extra(key, value)
 
