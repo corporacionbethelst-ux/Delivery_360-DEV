@@ -125,6 +125,10 @@ export interface Delivery {
   cancelledAt?: Date;
   cancellationReason?: string;
   cancelledBy?: string;
+  
+  // Coordenadas actuales para tracking en tiempo real
+  current_latitude?: number | string | null;
+  current_longitude?: number | string | null;
 }
 
 export interface DeliveryCreateInput {

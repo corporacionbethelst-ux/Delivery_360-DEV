@@ -12,7 +12,7 @@ import csv
 import io
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, or_, select
@@ -50,7 +50,7 @@ def _parse_datetime(value: str, field_name: str, end_of_day: bool = False) -> da
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} inválida")
 
 
-def _enum_value(value: Any) -> Any:
+def _enum_value(value: Any) -> Union[str, int, float, None]:
     return value.value if hasattr(value, "value") else value
 
 
