@@ -61,30 +61,20 @@ export default function RiderRegistrationForm({ onSuccess, onCancel }: RiderRegi
       // Si hay más de una palabra, el resto es apellido. Si no, usamos un placeholder.
       const last_name = nameParts.length > 1 ? nameParts.slice(1).join(' ') : 'Apellido';
 
-      // Construimos el payload manualmente para asegurar compatibilidad
-      // Evitamos usar el tipo RiderCreateInput si está causando conflicto, 
-      // o aseguramos que coincida con lo que el store espera.
+      // Construimos el payload manualmente para asegurar compatibilidad con RiderCreateInput del store
       const payload = {
-        first_name,       // Enviamos separado si el backend/store lo requiere
-        last_name,        // Enviamos separado
-        fullName: data.fullName, // Enviamos también el completo por seguridad
         email: data.email,
         password: data.password,
+        first_name,       // Campo requerido por RiderCreateInput
+        last_name,        // Campo requerido por RiderCreateInput
         phone: data.phone,
-        cpf: data.cpf,
-        birthDate: new Date(data.birthDate),
-        vehicle: {
-          type: data.vehicleType as RiderVehicleType,
-          plate: data.vehiclePlate || undefined,
-        },
-        operatingZone: data.operatingZone,
+        vehicle_type: data.vehicleType as RiderVehicleType,
+        vehicle_plate: data.vehiclePlate || undefined,
+        operating_zone: data.operatingZone,
       };
 
-      // Nota: Si tu store 'createRider' espera estrictamente 'fullName' y falla con 'first_name',
-      // deberías verificar la implementación en src/stores/ridersStore.ts.
-      // Pero dado el error que reportas, el store probablemente espera los campos separados.
-      
-      await createRider(payload as any); // 'as any' temporal para bypass de tipos si hay conflicto estricto
+      // El store espera campos snake_case según la interfaz RiderCreateInput
+      await createRider(payload);
       
       form.reset();
       onSuccess?.();

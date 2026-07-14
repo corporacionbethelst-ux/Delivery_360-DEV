@@ -5,6 +5,13 @@ import { MapPin, Bike, Loader2 } from 'lucide-react';
 import type { Rider } from '@/types/user';
 import { Card } from '@/components/ui/card';
 
+// Extensión de tipos para Leaflet en window
+declare global {
+  interface Window {
+    L?: any; // Leaflet namespace
+  }
+}
+
 // Tipos simplificados para el mapa
 interface RiderLocation extends Pick<Rider, 'id' | 'first_name' | 'last_name' | 'status'> {
   lat: number;
@@ -63,7 +70,7 @@ export default function LiveTrackingMap({
 
   // NOTA: Para producción real, instala leaflet y react-leaflet.
   // Este código muestra un fallback visual funcional si no están instalados.
-  const hasLeaflet = typeof window !== 'undefined' && (window as any).L;
+  const hasLeaflet = typeof window !== 'undefined' && !!window.L;
 
   return (
     <Card className={`${height} w-full relative overflow-hidden bg-slate-100`}>
