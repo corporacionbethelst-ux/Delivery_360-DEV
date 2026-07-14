@@ -2,13 +2,26 @@
 Servicio de Integraciones con sistemas externos
 """
 from datetime import datetime
-from typing import Optional, Dict, Any, List, TypedDict
+from typing import Optional, Dict, List, TypedDict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.integration import Integration, IntegrationType, IntegrationStatus, WebhookEvent
 from app.integrations.pos_connector import POSConnector
 from app.integrations.erp_connector import ERPConnector
 from app.integrations.webhook_handler import WebhookHandler
+
+
+# Tipo para configuraciones de integración (datos dinámicos de sistemas externos)
+IntegrationConfig = Dict[str, Any]
+
+# Tipo para datos de pedidos del POS (estructura variable según sistema externo)
+POSOrderData = Dict[str, Any]
+
+# Tipo para datos financieros del ERP (estructura variable según sistema externo)
+ERPFinancialData = Dict[str, Any]
+
+# Tipo para payloads de webhooks (estructura dinámica)
+WebhookPayload = Dict[str, Any]
 
 
 class TestConnectionResult(TypedDict):
@@ -31,7 +44,7 @@ class IntegrationService:
         self,
         name: str,
         integration_type: IntegrationType,
-        config: Dict[str, Any],
+        config: IntegrationConfig,
         enabled: bool = True
     ) -> Integration:
         """Crear nueva integración"""
@@ -92,18 +105,18 @@ class IntegrationService:
         
         return integration
     
-    async def sync_with_pos(self, order_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def sync_with_pos(self, order_data: POSOrderData) -> Dict[str, Any]:
         """Sincronizar pedido con sistema POS"""
         return await self.pos_connector.send_order(order_data)
     
-    async def sync_with_erp(self, financial_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def sync_with_erp(self, financial_data: ERPFinancialData) -> Dict[str, Any]:
         """Sincronizar datos financieros con ERP"""
         return await self.erp_connector.send_financial_data(financial_data)
     
     async def trigger_webhook(
         self,
         event_type: str,
-        payload: Dict[str, Any],
+        payload: WebhookPayload,
         webhook_url: str
     ) -> bool:
         """Disparar webhook externo"""
@@ -113,7 +126,7 @@ class IntegrationService:
         self,
         integration_id: int,
         event_type: str,
-        payload: Dict[str, Any],
+        payload: WebhookPayload,
         success: bool,
         response_code: Optional[int] = None
     ) -> WebhookEvent:

@@ -75,7 +75,7 @@ export default function DeliveryTracker() {
       const customerName = delivery.order?.customerName?.toLowerCase() || ""; // Ojo: verifica si es customer_name o customerName en tu tipo Order
       const address = delivery.deliveryLocation?.address?.toLowerCase() || "";
       const riderName = delivery.rider?.full_name?.toLowerCase() || 
-                        (delivery.rider as any)?.first_name?.toLowerCase() || ""; // Fallback por si viene separado
+                        delivery.rider?.first_name?.toLowerCase() || ""; // Fallback por si viene separado
       
       // Buscamos en ID también (a veces es útil buscar por ID corto)
       const idMatch = delivery.id.toLowerCase().includes(term);
@@ -120,7 +120,7 @@ export default function DeliveryTracker() {
     // Intenta varios campos posibles según cómo venga la respuesta de tu backend
     return (
       delivery.order?.customerName || 
-      (delivery.order as any)?.customer_name || 
+      (delivery.order as Partial<typeof delivery.order> & { customer_name?: string })?.customer_name || 
       "Cliente no especificado"
     );
   };

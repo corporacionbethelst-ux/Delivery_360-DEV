@@ -1,6 +1,6 @@
 """Servicio para dashboards y reportes del sistema Delivery360."""
 
-from typing import List, Dict, Any, Optional, TypedDict, Union
+from typing import List, Dict, Optional, TypedDict, Union
 from datetime import datetime, timedelta, date
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession

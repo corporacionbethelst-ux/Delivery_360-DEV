@@ -2,8 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Order } from '@/types/order';
-// ✅ CORRECCIÓN 1: Eliminamos la importación de 'Rider' si no la usamos explícitamente para tipar variables.
-// El store ya nos devuelve los datos tipados, o podemos usar 'any' temporalmente si hay conflicto de tipos.
+import type { Rider } from '@/types/user';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,8 +29,8 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
     fetchRiders({ status: ['ACTIVO'] }); 
   }, [fetchRiders]);
 
-  // ✅ CORRECCIÓN 2: Tipamos explícitamente el array filtrado para evitar errores de inferencia
-  const availableRiders = riders.filter((rider: any) => {
+  // ✅ Filtramos riders con tipo explícito para evitar inferencia incorrecta
+  const availableRiders = riders.filter((rider: Rider) => {
     const fullName = rider.full_name || rider.fullName || ''; // Soporte snake y camel case
     const cpf = rider.cpf || '';
     
@@ -49,8 +48,8 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
     }
   };
 
-  // Detección segura de asignación previa
-  const assignedRider = order.assignedRider || (order as any).assigned_rider;
+  // Detección segura de asignación previa usando type assertion controlado
+  const assignedRider = order.assignedRider || (order as Partial<Order> & { assigned_rider?: Rider }).assigned_rider;
   const isAssigned = !!order.assignedRiderId || !!assignedRider;
   const assignedRiderName = assignedRider?.full_name || assignedRider?.fullName || 'Repartidor';
 
@@ -150,8 +149,8 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
               )}
             </div>
           ) : (
-            availableRiders.map((rider: any) => {
-              // ✅ CORRECCIÓN 3: Extraer variables de forma segura aquí dentro del scope
+            availableRiders.map((rider: Rider) => {
+              // ✅ Extraer variables de forma segura aquí dentro del scope
               const vehicleType = rider.vehicle?.type || rider.vehicle_type || 'No especificado';
               const vehiclePlate = rider.vehicle?.plate || rider.vehicle_plate || 'S/P';
               const rating = rider.stats?.customerRating || rider.customer_rating || 0;
