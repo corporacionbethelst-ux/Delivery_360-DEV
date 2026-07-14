@@ -3,286 +3,380 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
-import { alertService, Alert } from '@/services/alert.service';
-import { deliveryService, Delivery } from '@/services/delivery.service';
-import { orderService, Order } from '@/services/order.service';
+import { orderService } from '@/services/order.service';
+import { deliveryService } from '@/services/delivery.service';
 import { riderService } from '@/services/rider.service';
-import { shiftService, Shift } from '@/services/shift.service';
-import { Clock, AlertTriangle, MapPin, Activity, Users, Loader2, RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { 
+  Bike, 
+  Package, 
+  Truck, 
+  Users, 
+  AlertCircle, 
+  Clock, 
+  MapPin, 
+  ArrowRight,
+  Loader2,
+  RefreshCw
+} from 'lucide-react';
+import { formatCurrency } from '@/lib/formatters';
 
-// Función auxiliar para extraer datos correctamente independientemente del formato de respuesta
-// Esto soluciona el error "Argument of type 'DeliveryListResponse' is not assignable..."
-const extractData = <T,>(result: PromiseSettledResult<any>): T[] => {
-  if (result.status === 'fulfilled') {
-    const value = result.value;
-    // Si la respuesta es un objeto con propiedad 'data' (común en Axios o clientes fetch envueltos)
-    if (value && typeof value === 'object' && Array.isArray(value.data)) {
-      return value.data;
-    }
-    // Si la respuesta es directamente el array
-    if (Array.isArray(value)) {
-      return value;
-    }
-  }
-  return [];
-};
+// Interfaces locales simplificadas para evitar conflictos de tipos externos
+interface LocalOrder {
+  id: string;
+  external_id?: string;
+  status: string;
+  total_amount?: number;
+  total?: number;
+  customer_name?: string;
+  created_at: string;
+}
+
+interface LocalDelivery {
+  id: string;
+  status: string;
+  rider_name?: string;
+  customer_name?: string;
+  updated_at?: string;
+  created_at: string;
+}
+
+interface LocalRider {
+  id: string;
+  first_name?: string;
+  last_name?: string;
+  is_online: boolean;
+  status: string;
+}
+
+interface Stats {
+  pendingOrders: number;
+  activeDeliveries: number;
+  onlineRiders: number;
+  totalRevenueToday: number;
+}
 
 export default function OperatorDashboard() {
   const router = useRouter();
   const { user, isAuthenticated } = useAuthStore();
   
-  const [activeShift, setActiveShift] = useState<Shift | null>(null);
-  const [recentAlerts, setRecentAlerts] = useState<Alert[]>([]);
-  const [stats, setStats] = useState({ deliveriesToday: 0, pendingOrders: 0, activeRiders: 0 });
   const [loading, setLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false); // Estado para el botón de actualizar
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isMounted, setIsMounted] = useState(false);
+  
+  // Estados de datos
+  const [stats, setStats] = useState<Stats>({
+    pendingOrders: 0,
+    activeDeliveries: 0,
+    onlineRiders: 0,
+    totalRevenueToday: 0,
+  });
+  
+  const [recentOrders, setRecentOrders] = useState<LocalOrder[]>([]);
+  const [activeDeliveriesList, setActiveDeliveriesList] = useState<LocalDelivery[]>([]);
+  const [onlineRidersList, setOnlineRidersList] = useState<LocalRider[]>([]);
 
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isMounted || !isAuthenticated || !user) return;
-
-    const allowedRoles = ['OPERADOR', 'GERENTE', 'SUPERADMIN'];
-    if (!allowedRoles.includes(user.role)) {
-      router.push('/login');
-      return;
-    }
-
-    loadData();
-  }, [user, isAuthenticated, router, isMounted]);
-
-  const isToday = (value?: string | null) => {
-    if (!value) return false;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return false;
-    return date.toDateString() === new Date().toDateString();
+  // Helper para extraer items de respuestas paginadas o arrays directos
+  const extractItems = (response: any): any[] => {
+    if (Array.isArray(response)) return response;
+    if (response && Array.isArray(response.items)) return response.items;
+    if (response && Array.isArray(response.data)) return response.data;
+    return [];
   };
 
-  const loadData = async () => {
-    // Si es un refresco manual, activamos el estado de carga específico, si es inicial usamos el general
-    if (!loading) setIsRefreshing(true);
+  const loadData = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
     else setLoading(true);
     
     setError(null);
+
     try {
-      const [ordersResult, deliveriesResult, shiftsResult, alertsResult, ridersResult] = await Promise.allSettled([
-        orderService.getAll({ limit: 100 }),
-        deliveryService.getAll({ limit: 100 }),
-        shiftService.getAll({ limit: 100 }),
-        alertService.getAll({ status: 'UNREAD', limit: 5 }),
-        riderService.listRiders({ is_online: true, status_filter: 'ACTIVO' }),
-      ]);
+      // 1. Cargar Órdenes Pendientes
+      // Usamos 'as any' en los params para evitar conflictos estrictos de tipos con el servicio
+      const ordersRes = await orderService.getAll({ status: 'PENDIENTE', limit: 5 } as any);
+      const orders = extractItems(ordersRes).slice(0, 5);
+      setRecentOrders(orders);
 
-      // Extraemos los datos de forma segura usando la función auxiliar
-      const orders: Order[] = extractData<Order>(ordersResult);
-      const deliveries: Delivery[] = extractData<Delivery>(deliveriesResult);
-      const shifts: Shift[] = extractData<Shift>(shiftsResult);
-      const alerts: Alert[] = extractData<Alert>(alertsResult);
-      const riders = extractData<any>(ridersResult);
+      // 2. Cargar Entregas Activas
+      const deliveriesRes = await deliveryService.getAll({ limit: 10 } as any);
+      const allDeliveries = extractItems(deliveriesRes);
+      const activeDeliveries = allDeliveries.filter((d: any) => 
+        ['INICIADA', 'EN_PICKUP', 'EN_ROUTE', 'EN_DESTINO'].includes(d.status)
+      ).slice(0, 5);
+      setActiveDeliveriesList(activeDeliveries);
 
-      // Verificamos si hubo errores críticos en alguna llamada
-      const results = [ordersResult, deliveriesResult, shiftsResult, alertsResult, ridersResult];
-      const hasErrors = results.some(result => result.status === 'rejected');
+      // 3. Cargar Riders (Filtramos en frontend para evitar problemas de params en el servicio)
+      const ridersRes = await riderService.getAll({ limit: 50 } as any);
+      const allRiders = extractItems(ridersRes);
+      const onlineRiders = allRiders.filter((r: any) => r.is_online === true).slice(0, 10);
+      setOnlineRidersList(onlineRiders);
 
-      if (hasErrors) {
-        console.warn('Algunos módulos del dashboard no pudieron cargarse completamente.');
-        // No establecemos error bloqueante si tenemos al menos algunos datos, pero podrías mostrar un toast
-      }
-
-      // Lógica de negocio segura (verificando que sean arrays antes de operar)
-      const active = shifts.find(s => s.status === 'ACTIVO') ?? shifts.find(s => s.status === 'PLANIFICADO') ?? null;
-      setActiveShift(active);
-      setRecentAlerts(alerts);
-
+      // 4. Calcular Estadísticas
       setStats({
-        deliveriesToday: Array.isArray(deliveries) ? deliveries.filter(d => isToday(d.completed_at ?? d.created_at)).length : 0,
-        pendingOrders: Array.isArray(orders) ? orders.filter(o => o.status === 'PENDIENTE' || !o.assigned_rider_id).length : 0,
-        activeRiders: Array.isArray(riders) ? riders.length : 0,
+        pendingOrders: orders.length, // En una app real, esto vendría de un endpoint de stats
+        activeDeliveries: activeDeliveries.length,
+        onlineRiders: onlineRiders.length,
+        totalRevenueToday: 0, // Placeholder hasta tener endpoint de finanzas
       });
 
-    } catch (err) {
-      console.error('Error crítico cargando dashboard:', err);
-      setError('No se pudo conectar con el servidor de operaciones.');
-      setActiveShift(null);
-      setRecentAlerts([]);
-      setStats({ deliveriesToday: 0, pendingOrders: 0, activeRiders: 0 });
+    } catch (err: any) {
+      console.error('Error cargando dashboard:', err);
+      setError('No se pudieron cargar los datos del dashboard. Verifica tu conexión o permisos.');
     } finally {
       setLoading(false);
-      setIsRefreshing(false);
+      setRefreshing(false);
     }
   };
 
-  const handleRefresh = async () => {
-    await loadData();
-  };
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      // Validar rol
+      const allowedRoles = ['SUPERADMIN', 'GERENTE', 'OPERADOR'];
+      if (!allowedRoles.includes(user.role)) {
+        router.push('/unauthorized');
+        return;
+      }
+      loadData();
+    }
+  }, [isAuthenticated, user, router]);
 
-  if (!isMounted || !isAuthenticated || !user || loading) {
+  if (!isAuthenticated || !user) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <Loader2 className="animate-spin h-12 w-12 text-blue-600" />
+      <div className="flex h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center min-h-[60vh]">
+        <Loader2 className="h-12 w-12 animate-spin text-blue-600 mb-4" />
+        <p className="text-gray-500">Cargando panel de control...</p>
       </div>
     );
   }
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Panel de Operaciones</h1>
-            <p className="text-gray-500">Supervisión en tiempo real de turnos e incidencias.</p>
-          </div>
-          <div className="flex gap-2">
-            {/* Botón Actualizar Agregado */}
-            <Button 
-              variant="outline" 
-              onClick={handleRefresh} 
-              disabled={isRefreshing}
-              className="gap-2"
-            >
-              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-              {isRefreshing ? 'Actualizando...' : 'Actualizar'}
-            </Button>
-            <Button onClick={() => router.push('/operator/live-map')} className="bg-blue-600 hover:bg-blue-700 shadow-sm">
-              <MapPin className="w-4 h-4 mr-2" /> Ver Mapa en Vivo
-            </Button>
-          </div>
+    <div className="p-6 bg-gray-50 min-h-screen space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Panel de Operador</h1>
+          <p className="text-gray-500">Monitor en tiempo real de operaciones</p>
         </div>
+        <Button 
+          variant="outline" 
+          onClick={() => loadData(true)} 
+          disabled={refreshing}
+          className="gap-2"
+        >
+          <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          Actualizar
+        </Button>
+      </div>
 
-        {error && (
-          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 flex justify-between items-center">
-            <span>{error}</span>
-            <Button variant="ghost" size="sm" onClick={loadData} className="text-red-700 hover:bg-red-100">Reintentar</Button>
-          </div>
-        )}
-
-        {/* KPIs Rápidos */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className="border-l-4 border-l-blue-500 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Entregas Hoy</CardTitle>
-              <Activity className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.deliveriesToday}</div>
-              <p className="text-xs text-green-600 flex items-center mt-1">
-                <RefreshCw className="w-3 h-3 mr-1" /> Datos en vivo
-              </p>
-            </CardContent>
-          </Card>
-          
-          <Card className="border-l-4 border-l-yellow-500 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pendientes</CardTitle>
-              <Clock className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.pendingOrders}</div>
-              <p className="text-xs text-gray-500 mt-1">Asignación requerida</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-l-purple-500 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Repartidores Activos</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.activeRiders}</div>
-              <p className="text-xs text-gray-500 mt-1">En turno actual</p>
-            </CardContent>
-          </Card>
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md flex items-center gap-2">
+          <AlertCircle className="h-5 w-5" />
+          {error}
         </div>
+      )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Widget: Turno Actual */}
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="w-5 h-5 text-blue-600" /> Turno Actual
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {activeShift ? (
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg border border-blue-100">
-                    <div>
-                      <p className="font-bold text-blue-900">{activeShift.rider_name}</p>
-                      <p className="text-xs text-blue-700">ID: {activeShift.id}</p>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard 
+          title="Órdenes Pendientes" 
+          value={stats.pendingOrders} 
+          icon={Package} 
+          color="text-yellow-600" 
+          bg="bg-yellow-50"
+          onClick={() => router.push('/operator/orders?status=PENDIENTE')}
+        />
+        <StatCard 
+          title="Entregas Activas" 
+          value={stats.activeDeliveries} 
+          icon={Truck} 
+          color="text-blue-600" 
+          bg="bg-blue-50"
+          onClick={() => router.push('/operator/deliveries')}
+        />
+        <StatCard 
+          title="Riders Online" 
+          value={stats.onlineRiders} 
+          icon={Users} 
+          color="text-green-600" 
+          bg="bg-green-50"
+          onClick={() => router.push('/operator/riders')}
+        />
+        <StatCard 
+          title="Recaudo Hoy" 
+          value={formatCurrency(stats.totalRevenueToday)} 
+          icon={Clock} 
+          color="text-purple-600" 
+          bg="bg-purple-50"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Órdenes Recientes */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Package className="h-5 w-5 text-yellow-600" />
+              Órdenes Pendientes
+            </CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => router.push('/operator/orders')}>
+              Ver todas <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {recentOrders.length === 0 ? (
+              <EmptyState message="No hay órdenes pendientes" />
+            ) : (
+              <div className="space-y-3">
+                {recentOrders.map((order) => (
+                  <div key={order.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center text-yellow-700 font-bold">
+                        #{order.external_id?.slice(-2) || '??'}
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">Orden #{order.external_id || order.id.slice(-6)}</p>
+                        <p className="text-xs text-gray-500">{order.customer_name || 'Cliente'}</p>
+                      </div>
                     </div>
-                    <Badge className="bg-green-100 text-green-800 border-green-200">
-                      {activeShift.status}
+                    <div className="text-right">
+                      <p className="font-bold text-sm">{formatCurrency(order.total_amount || order.total || 0)}</p>
+                      <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => router.push(`/operator/orders/${order.id}`)}>
+                        Gestionar
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Riders Online */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Bike className="h-5 w-5 text-green-600" />
+              Riders Activos
+            </CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => router.push('/operator/riders')}>
+              Ver todos <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {onlineRidersList.length === 0 ? (
+              <EmptyState message="No hay riders online actualmente" />
+            ) : (
+              <div className="space-y-3">
+                {onlineRidersList.map((rider) => (
+                  <div key={rider.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-bold">
+                          {(rider.first_name?.[0] || '')}{(rider.last_name?.[0] || '')}
+                        </div>
+                        <span className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 border-2 border-white rounded-full"></span>
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">{rider.first_name} {rider.last_name}</p>
+                        <p className="text-xs text-green-600 font-medium">En línea</p>
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="text-xs">
+                      {rider.status || 'Disponible'}
                     </Badge>
                   </div>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <p className="text-gray-500">Inicio</p>
-                      <p className="font-medium">{new Date(activeShift.start_time).toLocaleTimeString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">Duración</p>
-                      <p className="font-medium">
-                        {Math.floor((Date.now() - new Date(activeShift.start_time).getTime()) / 60000)} min
-                      </p>
-                    </div>
-                  </div>
-                  <Button variant="outline" className="w-full mt-2" size="sm" onClick={() => router.push('/operator/shifts')}>
-                    Gestionar Turno
-                  </Button>
-                </div>
-              ) : (
-                <p className="text-gray-500 text-center py-4">No hay turnos activos actualmente.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Widget: Alertas Críticas */}
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-red-600" /> Alertas Recientes
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {recentAlerts.length === 0 ? (
-                  <p className="text-gray-500 text-center py-4">Todo bajo control.</p>
-                ) : (
-                  recentAlerts.map(alert => (
-                    <div key={alert.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100 hover:bg-gray-100 transition-colors cursor-pointer"
-                         onClick={() => router.push('/operator/alerts')}>
-                      <div className={`mt-1 w-2 h-2 rounded-full shrink-0 ${
-                        alert.status === 'UNREAD' ? 'bg-red-500 animate-pulse' : 'bg-yellow-500'
-                      }`} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">{alert.title}</p>
-                        <p className="text-xs text-gray-500">
-                          {new Date(alert.createdAt).toLocaleTimeString()} • {alert.type}
-                        </p>
-                      </div>
-                      <Badge variant="outline" className="text-xs shrink-0">
-                        {alert.status}
-                      </Badge>
-                    </div>
-                  ))
-                )}
+                ))}
               </div>
-              {recentAlerts.length > 0 && (
-                <Button variant="link" className="w-full text-blue-600 mt-2" onClick={() => router.push('/operator/alerts')}>
-                  Ver todas las alertas
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
+
+      {/* Entregas en Curso */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <MapPin className="h-5 w-5 text-blue-600" />
+            Entregas en Progreso
+          </CardTitle>
+          <Button variant="ghost" size="sm" onClick={() => router.push('/operator/deliveries')}>
+            Ver mapa <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {activeDeliveriesList.length === 0 ? (
+            <EmptyState message="No hay entregas activas en este momento" />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="text-xs text-gray-500 uppercase bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3">Estado</th>
+                    <th className="px-4 py-3">Rider</th>
+                    <th className="px-4 py-3">Cliente</th>
+                    <th className="px-4 py-3 text-right">Acción</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {activeDeliveriesList.map((delivery) => (
+                    <tr key={delivery.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                          {delivery.status}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 font-medium">{delivery.rider_name || 'No asignado'}</td>
+                      <td className="px-4 py-3 text-gray-600">{delivery.customer_name || 'N/A'}</td>
+                      <td className="px-4 py-3 text-right">
+                        <Button variant="outline" size="sm" onClick={() => router.push(`/operator/deliveries/${delivery.id}`)}>
+                          Ver
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// Componentes Auxiliares
+function StatCard({ title, value, icon: Icon, color, bg, onClick }: any) {
+  return (
+    <Card className={`cursor-pointer transition-shadow hover:shadow-md ${onClick ? 'hover:border-blue-300' : ''}`} onClick={onClick}>
+      <CardContent className="p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-500">{title}</p>
+            <p className="text-2xl font-bold mt-1">{value}</p>
+          </div>
+          <div className={`p-3 rounded-full ${bg} ${color}`}>
+            <Icon className="h-6 w-6" />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="text-center py-8 text-gray-500 text-sm">
+      <p>{message}</p>
     </div>
   );
 }

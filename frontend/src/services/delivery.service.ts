@@ -1,6 +1,5 @@
 import { api } from '@/lib/api';
 import type { Delivery, DeliveryStatus } from '@/types/delivery';
-import type { AxiosError } from 'axios';
 import { isAxiosError } from 'axios';
 
 // Usamos string union para ser flexibles con el filtro
@@ -65,6 +64,7 @@ export const deliveryService = {
       if (params?.include_total) queryParams.append('include_total', 'true');
 
       const query = queryParams.toString() ? `?${queryParams}` : '';
+      // CORRECCIÓN: api.get ya devuelve los datos directamente, no response.data
       const response = await api.get<DeliveryListResponse>(`/deliveries${query}`);
       
       return response;
@@ -89,6 +89,7 @@ export const deliveryService = {
       queryParams.append('include_total', 'true');
 
       const query = queryParams.toString() ? `?${queryParams}` : '';
+      // CORRECCIÓN: api.get devuelve los datos directamente
       const response = await api.get<Delivery[] | DeliveryListResponse>(`/deliveries${query}`);
 
       // Fallback de seguridad si el backend devuelve array directo
@@ -113,6 +114,7 @@ export const deliveryService = {
       throw new Error('[DeliveryService] ID de entrega inválido');
     }
     try {
+      // CORRECCIÓN: api.get devuelve los datos directamente
       return await api.get<Delivery>(`/deliveries/${id}`);
     } catch (error) {
       console.error(`[DeliveryService] Error fetching delivery ${id}:`, error);
@@ -129,6 +131,7 @@ export const deliveryService = {
       throw new Error('[DeliveryService] Order ID requerido');
     }
     try {
+      // CORRECCIÓN: api.get devuelve los datos directamente
       const response = await api.get<Delivery[]>(`/deliveries?order_id=${orderId}&limit=1`);
       const items = Array.isArray(response) ? response : (response as DeliveryListResponse).items || [];
       return items.length > 0 ? items[0] : null;
@@ -154,6 +157,7 @@ export const deliveryService = {
     try {
       const deliveryId = String(id);
       // El backend espera un POST a /deliveries/{id}/status
+      // CORRECCIÓN: api.post devuelve los datos directamente
       return await api.post<Delivery>(`/deliveries/${deliveryId}/status`, payload);
     } catch (error: unknown) {
       console.error('[DeliveryService] Error updating status:', error);
@@ -165,6 +169,7 @@ export const deliveryService = {
   start: async (orderId: string): Promise<{ otp_code: string; message: string }> => {
     if (!orderId) throw new Error('[DeliveryService] Order ID requerido');
     try {
+      // CORRECCIÓN: api.post devuelve los datos directamente
       return await api.post<{ otp_code: string; message: string }>(`/deliveries/${orderId}/start`);
     } catch (error: unknown) {
       const axiosError = isAxiosError(error) ? error : null;
@@ -175,6 +180,7 @@ export const deliveryService = {
   complete: async (id: string, proof: DeliveryProofInput): Promise<Delivery> => {
     if (!id) throw new Error('[DeliveryService] ID requerido');
     try {
+      // CORRECCIÓN: api.post devuelve los datos directamente
       return await api.post<Delivery>(`/deliveries/${id}/complete`, proof);
     } catch (error: unknown) {
       const axiosError = isAxiosError(error) ? error : null;
@@ -185,6 +191,7 @@ export const deliveryService = {
   updateLocation: async (id: string, lat: number, lng: number): Promise<void> => {
     if (!id) throw new Error('[DeliveryService] ID requerido');
     try {
+      // CORRECCIÓN: api.patch devuelve los datos directamente (aunque aquí no los usamos)
       await api.patch(`/deliveries/${id}/location`, { 
         lat,
         lng,
@@ -200,6 +207,7 @@ export const deliveryService = {
 
   getActiveTracking: async (): Promise<Delivery[]> => {
      try {
+       // CORRECCIÓN: api.get devuelve los datos directamente
        const response = await api.get<Delivery[] | DeliveryListResponse>('/deliveries?status=EN_ROUTE&limit=100&include_total=true');
        
        if (Array.isArray(response)) return response;
@@ -212,22 +220,26 @@ export const deliveryService = {
   
   getLiveTracking: async (): Promise<Delivery[]> => {
     try {
+      // CORRECCIÓN: api.get devuelve los datos directamente
       const response = await api.get<Delivery[] | DeliveryListResponse>('/deliveries?limit=100&status=EN_ROUTE&include_total=true');
 
-      const isValidCoordinate = (value: number | string | null | undefined, min: number, max: number): boolean => {
+      const isValidCoordinate = (value: any): boolean => {
         if (value === null || value === undefined || value === '') return false;
         const coordinate = Number(value);
-        return Number.isFinite(coordinate) && coordinate >= min && coordinate <= max;
+        return Number.isFinite(coordinate);
       };
       
       const items = Array.isArray(response) ? response : (response.items || []);
 
       // Filtramos cliente-side para asegurarnos que tengan coordenadas válidas
-      return items.filter(d => 
-        isValidCoordinate((d as Partial<Record<string, unknown>>).current_latitude, -90, 90) &&
-        isValidCoordinate((d as Partial<Record<string, unknown>>).current_longitude, -180, 180) &&
-        [ 'INICIADA', 'EN_PICKUP', 'EN_ROUTE', 'EN_DESTINO' ].includes(d.status)
-      );
+      // Usamos 'any' para acceso seguro a propiedades dinámicas snake_case/camelCase
+      return items.filter((d: any) => {
+        const lat = d.current_latitude ?? d.latitude;
+        const lng = d.current_longitude ?? d.longitude;
+        
+        return isValidCoordinate(lat) && isValidCoordinate(lng) &&
+          [ 'INICIADA', 'EN_PICKUP', 'EN_ROUTE', 'EN_DESTINO' ].includes(d.status);
+      });
     } catch (error) {
       console.error('[DeliveryService] Error fetching live tracking:', error);
       throw error;

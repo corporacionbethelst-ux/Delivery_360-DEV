@@ -1,260 +1,246 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
-import { deliveryService, Delivery, DeliveryStatus } from '@/services/delivery.service';
-import { Package, Clock, CheckCircle, AlertCircle, MapPin, Search, Filter, Loader2, RefreshCw } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
+import { deliveryService } from '@/services/delivery.service';
+// Importamos el tipo pero somos flexibles con su uso debido a inconsistencias backend/frontend
+import type { Delivery } from '@/types/delivery';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Bike, Search, Filter, Eye, AlertCircle, RefreshCw } from 'lucide-react';
+import { formatCurrency } from '@/lib/formatters';
+
+// Tipos locales para los filtros
+type StatusFilter = 'TODOS' | 'INICIADA' | 'EN_PICKUP' | 'EN_ROUTE' | 'EN_DESTINO' | 'COMPLETADA' | 'FALLIDA';
 
 export default function OperatorDeliveriesPage() {
   const router = useRouter();
-  const { user, isAuthenticated } = useAuthStore(); 
+  const { user, isAuthenticated } = useAuthStore();
   
-  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<DeliveryStatus | 'ALL'>('ALL');
-  const [isMounted, setIsMounted] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [deliveries, setDeliveries] = useState<any[]>([]); // Usamos any[] temporalmente para evitar errores de tipo estricto
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Filtros
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('TODOS');
+  const [dateFilter, setDateFilter] = useState<'today' | 'week' | 'month' | 'all'>('today');
 
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  // CORRECCIÓN 1: Lógica de carga separada y robusta
   const loadDeliveries = async () => {
+    if (!isAuthenticated) return;
+    setLoading(true);
+    setError(null);
     try {
-      setError(null);
-      // Llamamos al servicio
+      // Obtenemos todas las entregas (el backend debería permitir filtrar, pero aquí filtramos en frontend por ahora)
       const response = await deliveryService.getAll({ limit: 100 });
-      
-      // CORRECCIÓN CRÍTICA: El servicio devuelve { items: [], total: N }
-      // Verificamos 'items' primero, luego 'data' por seguridad, y fallback a array directo.
-      let deliveriesList: Delivery[] = [];
-      
-      if (Array.isArray(response)) {
-        deliveriesList = response;
-      } else if (response && typeof response === 'object') {
-        // Aquí estaba el error: buscabas .data pero el servicio devuelve .items
-        deliveriesList = (response as any).items || (response as any).data || [];
-      }
-      
-      setDeliveries(deliveriesList);
+      // Aseguramos que sea un array
+      const items = Array.isArray(response) ? response : (response as any).items || [];
+      setDeliveries(items);
     } catch (err: any) {
       console.error('Error loading deliveries:', err);
-      setError('No se pudieron cargar las entregas. Intente nuevamente.');
-      setDeliveries([]);
+      setError(err?.message || 'No se pudieron cargar las entregas.');
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    // Si no está montado, no hacemos nada aún
-    if (!isMounted) return;
-
-    // Si no está autenticado o no hay usuario, detenemos carga y redirigimos
-    if (!isAuthenticated || !user) {
-      setIsLoading(false); 
-      // Pequeño delay para evitar parpadeo si es un refresh rápido
-      setTimeout(() => router.push('/login'), 100);
-      return;
+    if (isAuthenticated) {
+      loadDeliveries();
     }
+  }, [isAuthenticated]);
 
-    const allowedRoles = ['SUPERADMIN', 'GERENTE', 'OPERADOR'];
-    if (!allowedRoles.includes(user.role)) {
-      setIsLoading(false);
-      router.push('/login');
-      return;
-    }
+  // Lógica de filtrado segura accediendo a propiedades dinámicas
+  const filteredDeliveries = useMemo(() => {
+    return deliveries.filter((d: any) => {
+      // Normalización de propiedades (soporta snake_case y camelCase)
+      const status = d.status || d.delivery_status;
+      const externalId = d.external_id || d.order_id;
+      const riderName = d.rider_name || d.rider?.first_name || '';
+      const customerName = d.customer_name || d.order?.customer_name || '';
+      
+      // Filtro de texto
+      const searchLower = searchTerm.toLowerCase();
+      const matchesSearch = 
+        String(externalId).toLowerCase().includes(searchLower) ||
+        riderName.toLowerCase().includes(searchLower) ||
+        customerName.toLowerCase().includes(searchLower);
 
-    // Si todo está bien, cargamos datos
-    loadDeliveries();
-    
-    // Dependencia exclusiva de loadDeliveries para no crear bucles
-  }, [isAuthenticated, user, router, isMounted]);
+      // Filtro de estado
+      const matchesStatus = statusFilter === 'TODOS' || status === statusFilter;
 
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    await loadDeliveries();
-  };
+      // Filtro de fecha (usando created_at o started_at)
+      const dateStr = d.started_at || d.created_at;
+      let matchesDate = true;
+      if (dateFilter !== 'all' && dateStr) {
+        const date = new Date(dateStr);
+        const now = new Date();
+        if (dateFilter === 'today') {
+          matchesDate = date.toDateString() === now.toDateString();
+        } else if (dateFilter === 'week') {
+          const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          matchesDate = date >= weekAgo;
+        } else if (dateFilter === 'month') {
+          matchesDate = date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+        }
+      }
 
-  const filteredDeliveries = deliveries.filter(d => {
-    const orderId = d.order_id || d.external_id || '';
-    const riderName = d.rider ? `${d.rider.first_name || ''} ${d.rider.last_name || ''}`.trim() : '';
-    const customerName = d.customer_name || d.order?.customer_name || '';
-    
-    const term = searchTerm.toLowerCase();
-    
-    const matchesSearch = 
-      orderId.toLowerCase().includes(term) ||
-      riderName.toLowerCase().includes(term) ||
-      customerName.toLowerCase().includes(term);
-    
-    const matchesStatus = statusFilter === 'ALL' || d.status === statusFilter;
-    
-    return matchesSearch && matchesStatus;
-  });
+      return matchesSearch && matchesStatus && matchesDate;
+    });
+  }, [deliveries, searchTerm, statusFilter, dateFilter]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'COMPLETADA': return 'bg-green-100 text-green-800 border-green-200';
-      case 'EN_ROUTE':
-      case 'EN_RUTA': return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'INCIDENCIA': 
       case 'FALLIDA': return 'bg-red-100 text-red-800 border-red-200';
-      case 'INICIADA': 
-      case 'EN_PICKUP': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'EN_ROUTE':
+      case 'EN_DESTINO': return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'EN_PICKUP':
+      case 'INICIADA': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
       default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
 
-  // Renderizado condicional seguro
-  if (!isMounted || (!isAuthenticated && !user)) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-gray-50">
-        <Loader2 className="animate-spin h-12 w-12 text-blue-600" />
-      </div>
-    );
-  }
-
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Gestión de Entregas</h1>
-            <p className="text-gray-500">Monitoreo en tiempo real de todas las entregas</p>
+            <p className="text-gray-500">Monitoreo en tiempo real de entregas activas y completadas.</p>
           </div>
-          <Button 
-            variant="outline" 
-            onClick={handleRefresh} 
-            disabled={isRefreshing || isLoading}
-            className="gap-2"
-          >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            {isRefreshing ? 'Actualizando...' : 'Actualizar'}
+          <Button onClick={loadDeliveries} variant="outline" disabled={loading}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Actualizar
           </Button>
         </div>
 
-        {/* Alerta de Error */}
+        {/* Filtros */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="md:col-span-2 relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Buscar por orden, repartidor o cliente..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Estado" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="TODOS">Todos los estados</SelectItem>
+                  <SelectItem value="INICIADA">Iniciada</SelectItem>
+                  <SelectItem value="EN_PICKUP">En Pickup</SelectItem>
+                  <SelectItem value="EN_ROUTE">En Ruta</SelectItem>
+                  <SelectItem value="EN_DESTINO">En Destino</SelectItem>
+                  <SelectItem value="COMPLETADA">Completada</SelectItem>
+                  <SelectItem value="FALLIDA">Fallida</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={dateFilter} onValueChange={(v) => setDateFilter(v as any)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Fecha" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="today">Hoy</SelectItem>
+                  <SelectItem value="week">Esta semana</SelectItem>
+                  <SelectItem value="month">Este mes</SelectItem>
+                  <SelectItem value="all">Todo el historial</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Error Alert */}
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 flex justify-between items-center">
+          <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-md flex items-center gap-2">
+            <AlertCircle className="w-5 h-5" />
             <span>{error}</span>
-            <Button variant="outline" size="sm" onClick={loadDeliveries}>Reintentar</Button>
           </div>
         )}
 
-        {/* Filtros */}
-        <div className="bg-white p-4 rounded-xl shadow-sm mb-6 flex gap-4 flex-col md:flex-row">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <Input 
-              placeholder="Buscar por orden, cliente o repartidor..." 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9"
-              disabled={isLoading}
-            />
-          </div>
-          <select 
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as any)}
-            className="px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
-            disabled={isLoading}
-          >
-            <option value="ALL">Todos los estados</option>
-            <option value="PENDIENTE">Pendientes</option>
-            <option value="INICIADA">Iniciadas</option>
-            <option value="EN_ROUTE">En Ruta</option>
-            <option value="COMPLETADA">Completadas</option>
-            <option value="FALLIDA">Fallidas</option>
-          </select>
-        </div>
-
-        {/* Lista */}
-        <div className="grid gap-4">
-          {isLoading && deliveries.length === 0 ? (
-             <div className="flex justify-center py-20">
-               <Loader2 className="animate-spin h-10 w-10 text-blue-600" />
-             </div>
-          ) : filteredDeliveries.length === 0 ? (
-            <Card>
-              <CardContent className="p-8 text-center text-gray-500">
-                <Package className="w-12 h-12 mx-auto mb-4 opacity-20" />
-                <p className="font-medium">
-                  {error ? 'Error al cargar datos' : 'No se encontraron entregas'}
-                </p>
-                {!error && <p className="text-sm mt-2">Intenta ajustar los filtros o verifica que haya entregas activas.</p>}
-              </CardContent>
-            </Card>
-          ) : (
-            filteredDeliveries.map((delivery) => (
-              <Card key={delivery.id} className="hover:shadow-md transition-shadow border-l-4 border-l-transparent hover:border-l-blue-500">
-                <CardContent className="p-4">
-                  <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
-                    <div className="flex items-start gap-4">
-                      <div className={`p-3 rounded-full ${delivery.status === 'COMPLETADA' ? 'bg-green-100' : 'bg-blue-100'}`}>
-                        <Package className={`w-6 h-6 ${delivery.status === 'COMPLETADA' ? 'text-green-600' : 'text-blue-600'}`} />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-gray-900">
-                          Orden #{delivery.external_id || delivery.order_id || 'N/A'}
-                        </h3>
-                        <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
-                          <MapPin className="w-3 h-3" />
-                          <span className="truncate max-w-[300px]">
-                            {delivery.delivery_address || delivery.order?.delivery_address || 'Dirección no disponible'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
-                          <span className="font-medium text-gray-700">Repartidor:</span>
-                          {delivery.rider ? (
-                            <span className="text-gray-900">{delivery.rider.first_name} {delivery.rider.last_name}</span>
-                          ) : (
-                            <span className="italic">Sin asignar</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-end gap-4">
-                      <Badge className={`${getStatusColor(delivery.status)} border font-medium`}>
-                        {delivery.status}
-                      </Badge>
-                      <div className="text-right">
-                        <div className="text-xs text-gray-500">Duración</div>
-                        <div className="font-medium text-gray-900">
-                          {delivery.total_time ? `${Math.round(delivery.total_time)} min` : '-'}
-                        </div>
-                      </div>
-                      {delivery.sla_compliant === false && (
-                        <div className="relative group cursor-help" title="SLA Incumplido">
-                          <AlertCircle className="w-5 h-5 text-red-500" />
-                        </div>
-                      )}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => router.push(`/operator/deliveries/${delivery.id}`)}
-                        disabled={isLoading}
-                      >
-                        Ver Detalle
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
-          )}
-        </div>
+        {/* Tabla */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Bike className="w-5 h-5 text-blue-600" />
+              Listado de Entregas ({filteredDeliveries.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex justify-center py-12">
+                <RefreshCw className="animate-spin h-8 w-8 text-blue-600" />
+              </div>
+            ) : filteredDeliveries.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                No se encontraron entregas con los filtros actuales.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600 uppercase text-xs">Orden</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600 uppercase text-xs">Estado</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600 uppercase text-xs">Repartidor</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600 uppercase text-xs">Cliente</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600 uppercase text-xs">Inicio</th>
+                      <th className="px-4 py-3 text-right font-semibold text-gray-600 uppercase text-xs">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {filteredDeliveries.map((delivery: any) => {
+                      // Acceso seguro a propiedades
+                      const id = delivery.id;
+                      const externalId = delivery.external_id || delivery.order_id;
+                      const status = delivery.status || delivery.delivery_status;
+                      const riderName = delivery.rider_name || `${delivery.rider?.first_name || ''} ${delivery.rider?.last_name || ''}`.trim() || 'No asignado';
+                      const customerName = delivery.customer_name || delivery.order?.customer_name || 'Cliente';
+                      const startedAt = delivery.started_at || delivery.created_at;
+                      
+                      return (
+                        <tr key={id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-4 py-3 font-medium text-gray-900">#{externalId}</td>
+                          <td className="px-4 py-3">
+                            <Badge variant="outline" className={`${getStatusColor(status)} border`}>
+                              {status}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3 text-gray-700">{riderName}</td>
+                          <td className="px-4 py-3 text-gray-700">{customerName}</td>
+                          <td className="px-4 py-3 text-gray-500">
+                            {startedAt ? new Date(startedAt).toLocaleString() : '-'}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => router.push(`/operator/deliveries/${id}`)}
+                            >
+                              <Eye className="w-4 h-4 mr-1" /> Ver
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

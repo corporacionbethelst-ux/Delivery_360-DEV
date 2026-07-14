@@ -1,6 +1,6 @@
 // src/stores/deliveryStore.ts
 import { create } from 'zustand';
-import type { Delivery, DeliveryStatus, DeliveryFilters, ProofOfDelivery, DeliveryEvent } from '@/types/delivery';
+import type { Delivery, DeliveryStatus, DeliveryFilters, ProofOfDelivery, DeliveryEvent, DeliveryLocation } from '@/types/delivery';
 import api from '@/lib/api';
 
 // ==============================================================================
@@ -108,12 +108,12 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
       const response = await api.get<any>(`/deliveries?${params.toString()}`);
       
       // Normalizar datos recibidos
-      const rawItems = response.data.items || response.data || [];
+      const rawItems = response.data?.items || response.data || [];
       const normalizedItems = rawItems.map((item: any) => get().normalizeDelivery(item));
 
       set({ 
         deliveries: normalizedItems, 
-        total: response.data.total || normalizedItems.length,
+        total: response.data?.total || normalizedItems.length,
         isLoading: false 
       });
     } catch (error: any) {
@@ -242,8 +242,6 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
   finishDelivery: async (deliveryId: string, proof: Omit<ProofOfDelivery, 'id' | 'deliveryId' | 'timestamp'>) => {
     set({ isLoading: true, error: null });
     try {
-      // CORRECCIÓN CRÍTICA: Usar POST en /complete en lugar de /finish
-      // Esto asegura que se dispare la lógica de creación de registros financieros en deliveries y financials
       const response = await api.post<any>(`/deliveries/${deliveryId}/complete`, proof);
       const updated = get().normalizeDelivery(response.data);
       
@@ -307,15 +305,25 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
   
   updateDeliveryLocation: (deliveryId: string, latitude: number, longitude: number) => {
     set((state) => {
-      const updateLocation = (d: Delivery) => ({
-        ...d,
-        // Asumiendo que deliveryLocation existe en el tipo, si no, ajustar a last_lat/last_lng
-        deliveryLocation: {
-          ...d.deliveryLocation,
-          latitude,
-          longitude
-        }
-      });
+      const updateLocation = (d: Delivery) => {
+        // Obtenemos la ubicación actual de forma segura (puede ser undefined)
+        const currentLocation = d.deliveryLocation;
+
+        return {
+          ...d,
+          deliveryLocation: {
+            latitude,
+            longitude,
+            // Usamos encadenamiento opcional (?.) para evitar errores si currentLocation es undefined
+            address: currentLocation?.address,
+            neighborhood: currentLocation?.neighborhood,
+            city: currentLocation?.city,
+            state: currentLocation?.state,
+            zipCode: currentLocation?.zipCode,
+            reference: currentLocation?.reference,
+          } as DeliveryLocation // Cast para asegurar que cumple la interfaz
+        };
+      };
 
       return {
         deliveries: state.deliveries.map(d => d.id === deliveryId ? updateLocation(d) : d),

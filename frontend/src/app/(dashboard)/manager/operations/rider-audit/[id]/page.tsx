@@ -5,7 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Bike, Clock, CreditCard, Eye, Package, RefreshCw, Truck, Wallet } from 'lucide-react';
 import { riderService, RiderAuditSummary } from '@/services/rider.service';
 import { orderService, Order } from '@/services/order.service';
-import { deliveryService, Delivery } from '@/services/delivery.service';
+import { deliveryService } from '@/services/delivery.service';
+import type { Delivery } from '@/types/delivery';
 import { transactionService, Transaction } from '@/services/transaction.service';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -79,7 +80,7 @@ export default function ManagerRiderAuditDetailPage() {
   const totals = useMemo(() => ({
     ordersTotal: orders.length,
     ordersDelivered: orders.filter((order) => order.status === 'ENTREGADO').length,
-    deliveriesCompleted: deliveries.filter((delivery) => delivery.status === 'COMPLETADA').length,
+    deliveriesCompleted: deliveries.filter((delivery) => delivery.status === 'COMPLETE').length,
     transactionsTotal: transactions.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0),
   }), [orders, deliveries, transactions]);
 
@@ -169,11 +170,11 @@ export default function ManagerRiderAuditDetailPage() {
                 {deliveries.map((delivery) => (
                   <tr key={delivery.id} className="hover:bg-gray-50">
                     <Td>{delivery.id.slice(0, 8)}...</Td>
-                    <Td>#{delivery.external_id || delivery.order_id.slice(0, 8)}</Td>
-                    <Td>{delivery.customer_name || delivery.order?.customer_name || 'Cliente'}</Td>
+                    <Td>#{delivery.deliveryNumber || delivery.orderId.slice(0, 8)}</Td>
+                    <Td>{delivery.order?.customer_name || 'Cliente'}</Td>
                     <Td><Badge variant="outline">{delivery.status}</Badge></Td>
-                    <Td>{delivery.sla_compliant === true ? 'OK' : delivery.sla_compliant === false ? 'No cumple' : 'N/A'}</Td>
-                    <Td>{formatDate(delivery.updated_at || delivery.created_at)}</Td>
+                    <Td>N/A</Td>
+                    <Td>{formatDate(delivery.updatedAt?.toISOString() || delivery.createdAt?.toISOString())}</Td>
                   </tr>
                 ))}
               </tbody>

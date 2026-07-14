@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { deliveryService, Delivery } from '@/services/delivery.service';
+import { deliveryService } from '@/services/delivery.service';
 import { riderService } from '@/services/rider.service';
 import { Rider } from '@/types/user';
 import { 
