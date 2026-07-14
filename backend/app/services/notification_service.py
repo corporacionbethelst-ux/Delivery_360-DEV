@@ -1,6 +1,6 @@
 """Servicio para notificaciones multi-canal del sistema Delivery360."""
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TypedDict
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
@@ -9,6 +9,18 @@ import logging
 import json
 
 logger = logging.getLogger(__name__)
+
+
+class NotificationResult(TypedDict):
+    """Tipo de retorno para creación de notificación"""
+    id: int
+    user_id: int
+    notification_type: str
+    title: str
+    message: str
+    channel: str
+    status: str
+    created_at: datetime
 
 
 class NotificationService:

@@ -2,13 +2,20 @@
 Servicio de Integraciones con sistemas externos
 """
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, TypedDict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.integration import Integration, IntegrationType, IntegrationStatus, WebhookEvent
 from app.integrations.pos_connector import POSConnector
 from app.integrations.erp_connector import ERPConnector
 from app.integrations.webhook_handler import WebhookHandler
+
+
+class TestConnectionResult(TypedDict):
+    """Tipo de retorno para prueba de conexión"""
+    success: bool
+    error: Optional[str]
+    message: Optional[str]
 
 
 class IntegrationService:
@@ -125,7 +132,7 @@ class IntegrationService:
         
         return event
     
-    async def test_connection(self, integration_id: int) -> Dict[str, Any]:
+    async def test_connection(self, integration_id: int) -> TestConnectionResult:
         """Probar conexión con integración"""
         integration = await self.get_integration(integration_id)
         

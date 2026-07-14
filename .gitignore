@@ -1,42 +1,98 @@
-```
-# Compiled and build artifacts
-*.pyc
+```gitignore
+# Python
 __pycache__/
-*.o
-*.obj
-dist/
-build/
-target/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+*.pot
+*.pyc
+*.pyo
+.pytest_cache/
 
 # Dependencies
-.venv/
-venv/
 node_modules/
-.mypy_cache/
-.pytest_cache/
-.gradle/
+julia-*/
+zig*/
 
-# Logs and temp files
-*.log
-*.tmp
-*.swp
-*.swo
+# Build artifacts
+dist/
+build/
+*.egg-info/
+.eggs/
+.installed.cfg
+lib/
+lib64/
+parts/
+sdist/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
 
 # Environment
 .env
 .env.local
 .env.*
+!requirements.txt
+!Pipfile
+!Pipfile.lock
 
 # Editors
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
-# System
+# OS
 .DS_Store
 Thumbs.db
+
+# Testing
+.coverage
+htmlcov/
+.coverage.*
+.nyc_output/
+istanbul/
+.mypy_cache/
+.pytest_cache/
+.hypothesis/
+
+# Compression
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
 ```

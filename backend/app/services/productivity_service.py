@@ -3,8 +3,8 @@ Delivery360 - Productivity Service
 Productivity metrics, SLA calculation, performance rankings
 """
 
-from datetime import datetime
-from typing import List, Dict, Any
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, TypedDict, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func
 from app.models.delivery import Delivery, DeliveryStatus
@@ -12,6 +12,48 @@ from app.models.shift import Shift, ShiftStatus
 from app.models.rider import Rider
 from sqlalchemy import select
 from fastapi import HTTPException
+
+
+class RiderProductivityData(TypedDict):
+    """Tipo de retorno para productividad de repartidor"""
+    rider_id: int
+    period: Dict[str, datetime]
+    total_deliveries: int
+    on_time_deliveries: int
+    sla_percentage: float
+    avg_delivery_time_minutes: float
+    deliveries_per_hour: float
+    total_hours_worked: float
+
+
+class ShiftProductivityData(TypedDict):
+    """Tipo de retorno para productividad de turno"""
+    shift_id: int
+    rider_id: int
+    start_time: datetime
+    end_time: datetime
+    total_deliveries: int
+    duration_hours: float
+    deliveries_per_hour: float
+
+
+class PerformanceRankingItem(TypedDict):
+    """Tipo para item de ranking de rendimiento"""
+    rank: int
+    rider_id: int
+    user_id: int
+    total_deliveries: int
+    avg_delivery_time_minutes: float
+
+
+class SLAComplianceReport(TypedDict):
+    """Tipo para reporte de cumplimiento de SLA"""
+    period: Dict[str, datetime]
+    total_deliveries: int
+    met_sla_count: int
+    missed_sla_count: int
+    sla_percentage: float
+    compliance_level: str
 
 
 class ProductivityService:
@@ -25,7 +67,7 @@ class ProductivityService:
         rider_id: int, 
         start_date: datetime, 
         end_date: datetime
-    ) -> Dict[str, Any]:
+    ) -> RiderProductivityData:
         """Calculate productivity metrics for a rider in a period"""
         
         # Total deliveries completed
@@ -98,7 +140,7 @@ class ProductivityService:
     async def calculate_shift_productivity(
         self, 
         shift_id: int
-    ) -> Dict[str, Any]:
+    ) -> ShiftProductivityData:
         """Calculate productivity metrics for a specific shift"""
         
         shift = await self.db.get(Shift, shift_id)
@@ -136,7 +178,7 @@ class ProductivityService:
         start_date: datetime, 
         end_date: datetime, 
         limit: int = 10
-    ) -> List[Dict[str, Any]]:
+    ) -> List[PerformanceRankingItem]:
         """Get top performing riders in a period"""
         
         # Query riders with their metrics
@@ -174,7 +216,7 @@ class ProductivityService:
         self, 
         start_date: datetime, 
         end_date: datetime
-    ) -> Dict[str, Any]:
+    ) -> SLAComplianceReport:
         """Get SLA compliance report for a period"""
         
         # Total deliveries
