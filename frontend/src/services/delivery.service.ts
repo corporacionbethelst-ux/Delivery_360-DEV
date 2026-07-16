@@ -146,20 +146,19 @@ export const deliveryService = {
   /**
    * Actualizar el estado de una entrega.
    * @param id - ID de la entrega
-   * @param payload - Objeto con new_status y opcionalmente failure_reason
+   * @param payload - Objeto con status y opcionalmente issue_type/issue_description
    * @returns La entrega actualizada
    */
   updateStatus: async (id: string | number, payload: UpdateStatusPayload): Promise<Delivery> => {
     if (!id) {
       throw new Error('[DeliveryService] ID de entrega requerido');
     }
-    if (!payload.new_status) {
+    if (!payload.status) {
       throw new Error('[DeliveryService] Estado nuevo requerido');
     }
     try {
       const deliveryId = String(id);
       // El backend espera un PATCH a /deliveries/{id}/status
-      // CORRECCIÓN: Usar PATCH en lugar de POST para coincidir con el backend
       return await api.patch<Delivery>(`/deliveries/${deliveryId}/status`, payload);
     } catch (error: unknown) {
       console.error('[DeliveryService] Error updating status:', error);

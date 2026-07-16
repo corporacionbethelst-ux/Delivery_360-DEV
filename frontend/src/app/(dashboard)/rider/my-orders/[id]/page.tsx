@@ -220,7 +220,7 @@ export default function RiderOrderDetailPage() {
                   Cancelar
                 </button>
                 <button
-                  onClick={() => executeStatusChange(DeliveryStatus.FAILED, failReason)}
+                  onClick={() => executeStatusChange(DeliveryStatus.FALLIDA, failReason)}
                   disabled={!failReason.trim()}
                   className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium flex items-center gap-2"
                 >
@@ -314,19 +314,19 @@ export default function RiderOrderDetailPage() {
 
               {/* Botón: Completar */}
               <button
-                onClick={() => handleQuickAction(DeliveryStatus.COMPLETE)}
-                disabled={!canTransitionTo(DeliveryStatus.COMPLETE) || !!actionLoading}
+                onClick={() => handleQuickAction(DeliveryStatus.COMPLETADA)}
+                disabled={!canTransitionTo(DeliveryStatus.COMPLETADA) || !!actionLoading}
                 className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200
-                  ${canTransitionTo(DeliveryStatus.COMPLETE)
+                  ${canTransitionTo(DeliveryStatus.COMPLETADA)
                     ? 'bg-white border-gray-200 hover:border-green-500 hover:shadow-md cursor-pointer' 
                     : 'bg-gray-100 border-gray-100 opacity-50 cursor-not-allowed'}
                 `}
               >
-                <div className={`p-3 rounded-full mb-2 transition-colors ${canTransitionTo(DeliveryStatus.COMPLETE) ? 'bg-green-50 group-hover:bg-green-100' : 'bg-gray-200'}`}>
-                  <CheckCircle className={`w-6 h-6 ${canTransitionTo(DeliveryStatus.COMPLETE) ? 'text-green-600' : 'text-gray-400'}`} />
+                <div className={`p-3 rounded-full mb-2 transition-colors ${canTransitionTo(DeliveryStatus.COMPLETADA) ? 'bg-green-50 group-hover:bg-green-100' : 'bg-gray-200'}`}>
+                  <CheckCircle className={`w-6 h-6 ${canTransitionTo(DeliveryStatus.COMPLETADA) ? 'text-green-600' : 'text-gray-400'}`} />
                 </div>
                 <span className="font-semibold text-sm text-gray-700">Entregado</span>
-                {actionLoading === DeliveryStatus.COMPLETE && (
+                {actionLoading === DeliveryStatus.COMPLETADA && (
                   <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-xl">
                     <div className="animate-spin h-6 w-6 border-2 border-green-500 border-t-transparent rounded-full"></div>
                   </div>
@@ -335,19 +335,19 @@ export default function RiderOrderDetailPage() {
 
               {/* Botón: Reportar Fallo */}
               <button
-                onClick={() => handleQuickAction(DeliveryStatus.FAILED)}
-                disabled={!canTransitionTo(DeliveryStatus.FAILED) || !!actionLoading}
+                onClick={() => handleQuickAction(DeliveryStatus.FALLIDA)}
+                disabled={!canTransitionTo(DeliveryStatus.FALLIDA) || !!actionLoading}
                 className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200
-                  ${canTransitionTo(DeliveryStatus.FAILED)
+                  ${canTransitionTo(DeliveryStatus.FALLIDA)
                     ? 'bg-white border-gray-200 hover:border-red-500 hover:shadow-md cursor-pointer' 
                     : 'bg-gray-100 border-gray-100 opacity-50 cursor-not-allowed'}
                 `}
               >
-                <div className={`p-3 rounded-full mb-2 transition-colors ${canTransitionTo(DeliveryStatus.FAILED) ? 'bg-red-50 group-hover:bg-red-100' : 'bg-gray-200'}`}>
-                  <AlertCircle className={`w-6 h-6 ${canTransitionTo(DeliveryStatus.FAILED) ? 'text-red-600' : 'text-gray-400'}`} />
+                <div className={`p-3 rounded-full mb-2 transition-colors ${canTransitionTo(DeliveryStatus.FALLIDA) ? 'bg-red-50 group-hover:bg-red-100' : 'bg-gray-200'}`}>
+                  <AlertCircle className={`w-6 h-6 ${canTransitionTo(DeliveryStatus.FALLIDA) ? 'text-red-600' : 'text-gray-400'}`} />
                 </div>
                 <span className="font-semibold text-sm text-gray-700">Reportar Fallo</span>
-                {actionLoading === DeliveryStatus.FAILED && (
+                {actionLoading === DeliveryStatus.FALLIDA && (
                   <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-xl">
                     <div className="animate-spin h-6 w-6 border-2 border-red-500 border-t-transparent rounded-full"></div>
                   </div>
@@ -429,7 +429,7 @@ export default function RiderOrderDetailPage() {
                   </span>
                 </div>
                 
-                {delivery.status === DeliveryStatus.FAILED && (
+                {delivery.status === DeliveryStatus.FALLIDA && (
                   <div className="pt-3 border-t border-green-200/50">
                     <p className="text-xs text-red-600 font-medium mb-1 flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" />
@@ -461,7 +461,7 @@ export default function RiderOrderDetailPage() {
               <div className="relative border-l-2 border-gray-200 ml-3 space-y-6 pb-2">
                 {/* Evento: Iniciada */}
                 <div className="relative pl-6">
-                  <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 ${[DeliveryStatus.INICIADA, DeliveryStatus.EN_PICKUP, DeliveryStatus.EN_ROUTE, DeliveryStatus.COMPLETE, DeliveryStatus.FAILED].includes(delivery.status as DeliveryStatus) ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300'}`}></div>
+                  <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 ${[DeliveryStatus.INICIADA, DeliveryStatus.EN_PICKUP, DeliveryStatus.EN_ROUTE, DeliveryStatus.COMPLETADA, DeliveryStatus.FALLIDA].includes(delivery.status as DeliveryStatus) ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300'}`}></div>
                   <p className="text-sm font-medium text-gray-900">Entrega Iniciada</p>
                   <p className="text-xs text-gray-500">{safeDate(delivery.created_at)}</p>
                 </div>
