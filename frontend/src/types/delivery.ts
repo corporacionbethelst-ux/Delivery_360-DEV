@@ -5,13 +5,16 @@ import { Rider } from './user';
 /**
  * Enum de estados de entrega para el flujo del repartidor.
  * Define los estados exactos que se usan en la máquina de estados de entregas.
+ * Debe coincidir con el enum DeliveryStatus del backend (backend/app/models/delivery.py).
  */
 export enum DeliveryStatus {
+  PENDIENTE = 'PENDIENTE',
   INICIADA = 'INICIADA',
   EN_PICKUP = 'EN_PICKUP',
   EN_ROUTE = 'EN_ROUTE',
-  COMPLETE = 'COMPLETE',
-  FAILED = 'FAILED',
+  EN_DESTINO = 'EN_DESTINO',
+  COMPLETADA = 'COMPLETADA',
+  FALLIDA = 'FALLIDA',
 }
 
 /**

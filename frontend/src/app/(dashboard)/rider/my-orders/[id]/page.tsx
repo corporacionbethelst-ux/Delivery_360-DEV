@@ -77,17 +77,19 @@ export default function RiderOrderDetailPage() {
     }
   };
 
-  // Validación de transiciones permitidas
+  // Validación de transiciones permitidas (debe coincidir con allowed_transitions del backend)
   const canTransitionTo = (target: DeliveryStatus): boolean => {
     if (!delivery) return false;
 
     switch (delivery.status) {
       case DeliveryStatus.INICIADA:
-        return target === DeliveryStatus.EN_PICKUP;
+        return target === DeliveryStatus.EN_PICKUP || target === DeliveryStatus.EN_ROUTE;
       case DeliveryStatus.EN_PICKUP:
         return target === DeliveryStatus.EN_ROUTE;
       case DeliveryStatus.EN_ROUTE:
-        return target === DeliveryStatus.COMPLETE || target === DeliveryStatus.FAILED;
+        return target === DeliveryStatus.EN_DESTINO || target === DeliveryStatus.COMPLETADA || target === DeliveryStatus.FALLIDA;
+      case DeliveryStatus.EN_DESTINO:
+        return target === DeliveryStatus.COMPLETADA || target === DeliveryStatus.FALLIDA;
       default:
         return false;
     }
@@ -96,7 +98,7 @@ export default function RiderOrderDetailPage() {
   const handleQuickAction = (newStatus: DeliveryStatus) => {
     if (!delivery) return;
 
-    if (newStatus === DeliveryStatus.FAILED) {
+    if (newStatus === DeliveryStatus.FALLIDA) {
       setShowFailModal(true);
       return;
     }
@@ -109,8 +111,12 @@ export default function RiderOrderDetailPage() {
 
     setActionLoading(newStatus);
     try {
-      const payload: any = { new_status: newStatus };
-      if (reason) payload.failure_reason = reason;
+      // El backend espera 'status' y opcionalmente 'issue_type' / 'issue_description'
+      const payload: any = { status: newStatus };
+      if (reason) {
+        payload.issue_type = reason;
+        payload.issue_description = reason;
+      }
 
       await deliveryService.updateStatus(delivery.id, payload);
       
@@ -242,8 +248,8 @@ export default function RiderOrderDetailPage() {
             Orden: {order.status}
           </span>
           <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border
-            ${delivery.status === DeliveryStatus.COMPLETE ? 'bg-green-50 text-green-700 border-green-200' : 
-              delivery.status === DeliveryStatus.FAILED ? 'bg-red-50 text-red-700 border-red-200' :
+            ${delivery.status === DeliveryStatus.COMPLETADA ? 'bg-green-50 text-green-700 border-green-200' : 
+              delivery.status === DeliveryStatus.FALLIDA ? 'bg-red-50 text-red-700 border-red-200' :
               delivery.status === DeliveryStatus.EN_ROUTE ? 'bg-blue-50 text-blue-700 border-blue-200' :
               'bg-yellow-50 text-yellow-700 border-yellow-200'}
           `}>
@@ -256,7 +262,7 @@ export default function RiderOrderDetailPage() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         
         {/* Sección de Acciones Rápidas (Solo si no está completada o fallida) */}
-        {delivery.status !== DeliveryStatus.COMPLETE && delivery.status !== DeliveryStatus.FAILED && (
+        {delivery.status !== DeliveryStatus.COMPLETADA && delivery.status !== DeliveryStatus.FALLIDA && (
           <div className="bg-gray-50 border-b border-gray-200 p-6">
             <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
               <Truck className="w-4 h-4" />
