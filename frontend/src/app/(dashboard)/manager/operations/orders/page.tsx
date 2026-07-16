@@ -60,6 +60,13 @@ export default function OrdersPage() {
 
   useEffect(() => {
     fetchInitialData();
+    
+    // Configurar polling para actualizar automáticamente los cambios del rider
+    const pollInterval = setInterval(() => {
+      fetchInitialData();
+    }, 5000); // Actualizar cada 5 segundos
+
+    return () => clearInterval(pollInterval); // Limpiar intervalo al desmontar
   }, []);
 
   const fetchInitialData = async () => {
