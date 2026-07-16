@@ -826,11 +826,11 @@ async def update_delivery_status(
     
     # 3. Mapear estados del frontend a estados del sistema
     status_mapping = {
-        "RECOLECTADO": DeliveryStatus.EN_PICKUP,
-        "EN_RUTA": DeliveryStatus.EN_ROUTE,
+        "EN_PICKUP": DeliveryStatus.EN_PICKUP,
+        "EN_ROUTE": DeliveryStatus.EN_ROUTE,
         "EN_DESTINO": DeliveryStatus.EN_DESTINO,
-        "ENTREGADO": DeliveryStatus.COMPLETADA,
-        "FALLIDO": DeliveryStatus.FALLIDA,
+        "COMPLETADA": DeliveryStatus.COMPLETADA,
+        "FALLIDA": DeliveryStatus.FALLIDA,
     }
     
     new_status = status_mapping.get(body.status.upper())
