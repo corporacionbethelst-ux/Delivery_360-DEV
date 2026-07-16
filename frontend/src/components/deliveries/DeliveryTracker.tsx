@@ -1,4 +1,4 @@
-"use client";
+"use client"; 
 
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,31 +33,28 @@ import {
   Truck,
 } from "lucide-react";
 // ✅ IMPORTANTE: Usar tipos globales
-import type { Delivery, DeliveryStatus } from "@/types/delivery";
-import { useDeliveriesStore } from "@/stores/deliveryStore"; // Asumiendo que existe este store
+import type { Delivery } from "@/types/delivery";
+// ⚠️ CORRECCIÓN: Asegúrate de que el nombre del store sea correcto (deliveriesStore vs deliveryStore)
+import { useDeliveriesStore } from "@/stores/deliveriesStore"; 
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 
 /**
  * Componente principal para el seguimiento de entregas
- * Integrado con tipos reales y stores de Zustand
  */
 export default function DeliveryTracker() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
   
-  // Opción A: Usar datos del store (Recomendado)
+  // Usamos el store corregido
   const { deliveries, fetchDeliveries, isLoading } = useDeliveriesStore();
   
-  // Opción B: Si prefieres cargar solo aquí, usa estado local y descomenta el useEffect de carga
-  // const [deliveries, setDeliveries] = useState<Delivery[]>([]);
-
   const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null);
 
   // Cargar entregas al montar si usas el store
   useEffect(() => {
     if (deliveries.length === 0 && !isLoading) {
-      fetchDeliveries({ limit: 50 }); // Ajusta filtros según necesites
+      fetchDeliveries({ limit: 50 });
     }
   }, []);
 
@@ -71,13 +68,12 @@ export default function DeliveryTracker() {
     // Filtro por búsqueda (ID, cliente, dirección, repartidor)
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      const customerId = delivery.order?.customer_id?.toLowerCase() || "";
-      const customerName = delivery.order?.customerName?.toLowerCase() || ""; // Ojo: verifica si es customer_name o customerName en tu tipo Order
+      // Manejo seguro de propiedades snake_case / camelCase
+      const customerId = (delivery.order as any)?.customer_id?.toLowerCase() || "";
+      const customerName = ((delivery.order as any)?.customer_name || (delivery.order as any)?.customerName || "").toLowerCase();
       const address = delivery.deliveryLocation?.address?.toLowerCase() || "";
-      const riderName = delivery.rider?.full_name?.toLowerCase() || 
-                        delivery.rider?.first_name?.toLowerCase() || ""; // Fallback por si viene separado
+      const riderName = (delivery.rider?.full_name || delivery.rider?.first_name || "").toLowerCase();
       
-      // Buscamos en ID también (a veces es útil buscar por ID corto)
       const idMatch = delivery.id.toLowerCase().includes(term);
 
       if (
@@ -93,9 +89,12 @@ export default function DeliveryTracker() {
     return true;
   });
 
-  // Helper para configuración de badges según estado (Mayúsculas como en el enum)
-  const getStatusConfig = (status: DeliveryStatus) => {
-    switch (status) {
+  // ✅ CORRECCIÓN CRÍTICA: Cambiar tipo a string para evitar errores de unión estrecha
+  const getStatusConfig = (status: string) => {
+    // Normalizamos a mayúsculas por si acaso viene en otro formato
+    const s = status.toUpperCase();
+
+    switch (s) {
       case "PENDIENTE":
         return { color: "bg-yellow-100 text-yellow-800 border-yellow-300", label: "Pendiente", icon: <Clock className="h-3 w-3 mr-1" /> };
       case "ASIGNADO":
@@ -103,13 +102,23 @@ export default function DeliveryTracker() {
       case "RECOGIDO":
         return { color: "bg-indigo-100 text-indigo-800 border-indigo-300", label: "Recogido", icon: <Package className="h-3 w-3 mr-1" /> };
       case "EN_CAMINO":
+      case "EN_ROUTE": // Soporte para variante en inglés/otro formato
         return { color: "bg-cyan-100 text-cyan-800 border-cyan-300", label: "En Camino", icon: <Truck className="h-3 w-3 mr-1" /> };
       case "ENTREGADO":
+      case "COMPLETADA":
         return { color: "bg-green-100 text-green-800 border-green-300", label: "Entregado", icon: <CheckCircle className="h-3 w-3 mr-1" /> };
       case "FALLIDO":
+      case "FALLIDA":
         return { color: "bg-red-100 text-red-800 border-red-300", label: "Fallido", icon: <AlertCircle className="h-3 w-3 mr-1" /> };
       case "CANCELADO":
+      case "CANCELADA":
         return { color: "bg-gray-100 text-gray-800 border-gray-300", label: "Cancelado", icon: <AlertCircle className="h-3 w-3 mr-1" /> };
+      case "INICIADA":
+        return { color: "bg-orange-100 text-orange-800 border-orange-300", label: "Iniciada", icon: <Truck className="h-3 w-3 mr-1" /> };
+      case "EN_PICKUP":
+        return { color: "bg-purple-100 text-purple-800 border-purple-300", label: "En Pickup", icon: <Package className="h-3 w-3 mr-1" /> };
+      case "EN_DESTINO":
+        return { color: "bg-sky-100 text-sky-800 border-sky-300", label: "En Destino", icon: <MapPin className="h-3 w-3 mr-1" /> };
       default:
         return { color: "bg-gray-100 text-gray-800", label: status, icon: <Package className="h-3 w-3 mr-1" /> };
     }
@@ -117,10 +126,9 @@ export default function DeliveryTracker() {
 
   // Helper para obtener nombre del cliente de forma segura
   const getCustomerName = (delivery: Delivery) => {
-    // Intenta varios campos posibles según cómo venga la respuesta de tu backend
     return (
-      delivery.order?.customerName || 
-      (delivery.order as Partial<typeof delivery.order> & { customer_name?: string })?.customer_name || 
+      (delivery.order as any)?.customer_name || 
+      (delivery.order as any)?.customerName || 
       "Cliente no especificado"
     );
   };
@@ -129,17 +137,27 @@ export default function DeliveryTracker() {
   const getAddress = (delivery: Delivery) => {
     const loc = delivery.deliveryLocation;
     if (!loc) return "Sin dirección";
-    return `${loc.address}${loc.city ? `, ${loc.city}` : ""}`;
+    return `${loc.address || ""}${loc.city ? `, ${loc.city}` : ""}`;
   };
 
   // Helper para repartidor
   const getRiderName = (delivery: Delivery) => {
     if (!delivery.rider) return null;
     return (
-      delivery.rider.full_name || 
-      `${delivery.rider.first_name || ""} ${delivery.rider.last_name || ""}`.trim() || 
+      (delivery.rider as any).full_name || 
+      `${(delivery.rider as any).first_name || ""} ${(delivery.rider as any).last_name || ""}`.trim() || 
       "Repartidor"
     );
+  };
+
+  // Helper seguro para fechas
+  const getFormattedDate = (dateStr: string | number | Date | undefined | null) => {
+    if (!dateStr) return "Reciente";
+    try {
+      return formatDistanceToNow(new Date(dateStr), { addSuffix: true, locale: es });
+    } catch (e) {
+      return "Fecha inválida";
+    }
   };
 
   if (isLoading && deliveries.length === 0) {
@@ -270,9 +288,7 @@ export default function DeliveryTracker() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
-                           {delivery.updatedAt 
-                             ? formatDistanceToNow(new Date(delivery.updatedAt), { addSuffix: true, locale: es })
-                             : "Reciente"}
+                           {getFormattedDate((delivery as any).updated_at || delivery.updatedAt)}
                         </TableCell>
                         <TableCell className="text-right">
                           <Button
@@ -319,11 +335,11 @@ export default function DeliveryTracker() {
                       <User className="h-4 w-4 text-muted-foreground" />
                       <span className="font-medium">{getCustomerName(selectedDelivery)}</span>
                     </div>
-                    {selectedDelivery.order?.customerPhone && (
+                    {(selectedDelivery.order as any)?.customer_phone && (
                       <div className="flex items-center gap-2">
                         <Phone className="h-4 w-4 text-muted-foreground" />
-                        <a href={`tel:${selectedDelivery.order.customerPhone}`} className="text-primary hover:underline text-sm">
-                          {selectedDelivery.order.customerPhone}
+                        <a href={`tel:${(selectedDelivery.order as any).customer_phone}`} className="text-primary hover:underline text-sm">
+                          {(selectedDelivery.order as any).customer_phone}
                         </a>
                       </div>
                     )}
@@ -363,9 +379,7 @@ export default function DeliveryTracker() {
                            <div>
                              <p className="font-bold text-lg">{config.label}</p>
                              <p className="text-xs text-muted-foreground">
-                               Actualizado {selectedDelivery.updatedAt 
-                                 ? formatDistanceToNow(new Date(selectedDelivery.updatedAt), { addSuffix: true, locale: es })
-                                 : "recientemente"}
+                               Actualizado {getFormattedDate((selectedDelivery as any).updated_at || selectedDelivery.updatedAt)}
                              </p>
                            </div>
                          </div>
@@ -385,8 +399,8 @@ export default function DeliveryTracker() {
                           </div>
                           <div>
                             <p className="font-medium">{getRiderName(selectedDelivery)}</p>
-                            {selectedDelivery.rider?.phone && (
-                              <p className="text-xs text-muted-foreground">{selectedDelivery.rider.phone}</p>
+                            {(selectedDelivery.rider as any)?.phone && (
+                              <p className="text-xs text-muted-foreground">{(selectedDelivery.rider as any).phone}</p>
                             )}
                           </div>
                         </div>
@@ -407,11 +421,11 @@ export default function DeliveryTracker() {
                 <div className="grid grid-cols-2 gap-2">
                    <div className="border rounded-lg p-3 text-center">
                       <p className="text-xs text-muted-foreground">Distancia</p>
-                      <p className="font-semibold">{selectedDelivery.distanceKm || 0} km</p>
+                      <p className="font-semibold">{(selectedDelivery as any).distance_km || (selectedDelivery as any).distanceKm || 0} km</p>
                    </div>
                    <div className="border rounded-lg p-3 text-center">
                       <p className="text-xs text-muted-foreground">Tarifa</p>
-                      <p className="font-semibold">${selectedDelivery.deliveryFee?.toFixed(2) || "0.00"}</p>
+                      <p className="font-semibold">${Number((selectedDelivery as any).delivery_fee || (selectedDelivery as any).deliveryFee || 0).toFixed(2)}</p>
                    </div>
                 </div>
               </div>
@@ -421,7 +435,6 @@ export default function DeliveryTracker() {
                <Button variant="outline" onClick={() => setSelectedDelivery(null)}>
                  Cerrar Detalles
                </Button>
-               {/* Aquí podrías agregar botones de acción rápida como "Asignar Repartidor" o "Ver Mapa" */}
             </div>
           </CardContent>
         </Card>

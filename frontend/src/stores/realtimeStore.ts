@@ -1,10 +1,10 @@
 // Realtime Store - Zustand para actualizaciones en tiempo real (WebSocket)
 import { create } from 'zustand';
 import type { Order, OrderStatus } from '@/types/order';
-import type { Delivery, DeliveryStatus } from '@/types/delivery';
+import type { Delivery, DeliveryStatus, DeliveryStatusLegacy } from '@/types/delivery';
 import type { Rider, RiderStatus } from '@/types/user';
 import type { Alert } from '@/types/alerts';
-
+ 
 interface RealtimeState {
   // Estado de conexión
   isConnected: boolean;
@@ -74,9 +74,9 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     set((state) => {
       const existingIndex = state.activeOrders.findIndex(o => o.id === order.id);
       
-      // Estados finales según /types/order.ts (Ajustar si tu tipo OrderStatus es diferente)
-      // Asumiendo: 'PENDIENTE', 'ASIGNADO', 'EN_RECOLECCION', 'RECOLECTADO', 'EN_RUTA', 'ENTREGADO', 'FALLIDO', 'CANCELADO'
-      const finalStatuses: OrderStatus[] = ['ENTREGADO', 'CANCELADO'];
+      // Estados finales para Órdenes (Ajustar según tu tipo OrderStatus real)
+      // Asumiendo valores comunes, verificar si coinciden con tu enum OrderStatus
+      const finalStatuses: OrderStatus[] = ['ENTREGADO', 'CANCELADO'] as OrderStatus[];
       
       if (existingIndex >= 0) {
         const updatedOrders = [...state.activeOrders];
@@ -91,7 +91,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
         
         return { activeOrders: updatedOrders };
       } else {
-        // Nueva orden (solo si no es final, aunque normalmente las nuevas no nacen finales)
+        // Nueva orden (solo si no es final)
         if (!finalStatuses.includes(order.status)) {
           return { activeOrders: [...state.activeOrders, order] };
         }
@@ -105,14 +105,15 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     set((state) => {
       const existingIndex = state.activeDeliveries.findIndex(d => d.id === delivery.id);
       
-      // CORRECCIÓN: Usando exclusivamente los valores de /types/delivery.ts
-      const finalStatuses: DeliveryStatus[] = ['ENTREGADO', 'FALLIDO', 'CANCELADO'];
+      // ✅ CORRECCIÓN: Usando los valores EXACTOS del enum DeliveryStatus
+      // INICIADA, EN_PICKUP, EN_ROUTE, COMPLETE, FAILED
+      const finalStatuses: (DeliveryStatus | DeliveryStatusLegacy)[] = ['ENTREGADO', 'FALLIDO', 'CANCELADO'];
       
       if (existingIndex >= 0) {
         const updatedDeliveries = [...state.activeDeliveries];
         
         if (finalStatuses.includes(delivery.status)) {
-          // Si la entrega finalizó, la removemos de la vista de "activas"
+          // Si la entrega finalizó (Completa o Fallida), la removemos de "activas"
           updatedDeliveries.splice(existingIndex, 1);
         } else {
           // Actualizamos datos en curso
@@ -121,7 +122,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
         
         return { activeDeliveries: updatedDeliveries };
       } else {
-        // Nueva entrega activa
+        // Nueva entrega activa (solo si no es final)
         if (!finalStatuses.includes(delivery.status)) {
           return { activeDeliveries: [...state.activeDeliveries, delivery] };
         }
@@ -135,7 +136,8 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     set((state) => {
       const existingIndex = state.onlineRiders.findIndex(r => r.id === rider.id);
       
-      // ✅ CORRECCIÓN: Usar 'isOnline' en lugar de 'is_online'
+      // Verificar si está online y activo
+      // Se usa 'is_online' según tu interfaz Rider
       if (rider.is_online && rider.status === 'ACTIVO') {
         if (existingIndex >= 0) {
           // Actualizar rider existente

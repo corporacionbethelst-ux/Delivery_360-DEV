@@ -108,7 +108,7 @@ export default function OperatorDashboard() {
       setActiveDeliveriesList(activeDeliveries);
 
       // 3. Cargar Riders (Filtramos en frontend para evitar problemas de params en el servicio)
-      const ridersRes = await riderService.getAll({ limit: 50 } as any);
+      const ridersRes = await riderService.getAll({ limit: 50 } as any); 
       const allRiders = extractItems(ridersRes);
       const onlineRiders = allRiders.filter((r: any) => r.is_online === true).slice(0, 10);
       setOnlineRidersList(onlineRiders);

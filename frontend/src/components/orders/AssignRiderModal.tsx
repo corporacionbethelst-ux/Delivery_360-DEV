@@ -1,4 +1,4 @@
-'use client';
+'use client'; 
 
 import React, { useState, useEffect } from 'react';
 import { Order } from '@/types/order';
@@ -8,9 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { X, Search, User, Phone, MapPin, Star, Bike } from 'lucide-react';
+import { X, Search, User, Phone, Star, Bike } from 'lucide-react';
 import { useRidersStore } from '@/stores/ridersStore';
-import { formatCurrency } from '@/lib/formatters'; // ✅ Asegúrate que la ruta sea esta y no utils
+import { formatCurrency } from '@/lib/formatters';
 
 interface AssignRiderModalProps {
   order: Order;
@@ -26,19 +26,20 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
 
   useEffect(() => {
     // Filtramos solo activos y online
+    // Nota: Ajusta los filtros según lo que acepte tu store real
     fetchRiders({ status: ['ACTIVO'] }); 
   }, [fetchRiders]);
 
-  // ✅ Filtramos riders con tipo explícito para evitar inferencia incorrecta
   const availableRiders = riders.filter((rider: Rider) => {
-    const fullName = rider.full_name || rider.fullName || ''; // Soporte snake y camel case
+    // Construir nombre completo de forma segura
+    const fullName = rider.full_name || `${rider.first_name || ''} ${rider.last_name || ''}`.trim();
     const cpf = rider.cpf || '';
     
     const matchesSearch = 
       fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       cpf.includes(searchTerm);
     
-    // Accedemos de forma segura
+    // Verificar estado online y activo
     return rider.is_online && rider.status === 'ACTIVO' && matchesSearch;
   });
 
@@ -48,10 +49,13 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
     }
   };
 
-  // Detección segura de asignación previa usando type assertion controlado
-  const assignedRider = order.assignedRider || (order as Partial<Order> & { assigned_rider?: Rider }).assigned_rider;
-  const isAssigned = !!order.assignedRiderId || !!assignedRider;
-  const assignedRiderName = assignedRider?.full_name || assignedRider?.fullName || 'Repartidor';
+  // Detección segura de asignación previa
+  // Asumiendo que Order tiene assignedRider o similar, si no, ajustar según tu tipo Order
+  const assignedRider = (order as any).assigned_rider || order.assignedRider;
+  const isAssigned = !!(order as any).assigned_rider_id || !!order.assignedRiderId || !!assignedRider;
+  const assignedRiderName = assignedRider?.full_name || 
+                            `${(assignedRider as any)?.first_name || ''} ${(assignedRider as any)?.last_name || ''}`.trim() || 
+                            'Repartidor';
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -61,8 +65,8 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
           <div className="space-y-1">
             <h2 className="text-2xl font-bold">Asignar Repartidor</h2>
             <p className="text-sm text-gray-500">
-              Orden #{order.orderNumber || order.id.substring(0, 8)} 
-              - {order.customerName} 
+              Orden #{(order as any).order_number || order.orderNumber || order.id.substring(0, 8)} 
+              - {order.customerName || (order as any).customer_name} 
             </p>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose}>
@@ -75,26 +79,26 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-xs text-gray-500">Cliente</p>
-              <p className="font-medium">{order.customerName}</p>
-              <p className="text-xs text-gray-500">{order.customerPhone}</p>
+              <p className="font-medium">{order.customerName || (order as any).customer_name}</p>
+              <p className="text-xs text-gray-500">{order.customerPhone || (order as any).customer_phone}</p>
             </div>
             <div>
               <p className="text-xs text-gray-500">Dirección</p>
               <p className="font-medium text-sm truncate">
-                {order.deliveryAddress.street}, {order.deliveryAddress.number}
+                {(order.deliveryAddress as any)?.street || (order.deliveryAddress as any)?.address}, {(order.deliveryAddress as any)?.number}
               </p>
               <p className="text-xs text-gray-500 truncate">
-                {order.deliveryAddress.neighborhood}
+                {(order.deliveryAddress as any)?.neighborhood}
               </p>
             </div>
             <div>
               <p className="text-xs text-gray-500">Total</p>
-              <p className="font-bold text-lg">{formatCurrency(order.total)}</p>
+              <p className="font-bold text-lg">{formatCurrency(order.total || (order as any).total_amount || 0)}</p>
             </div>
             <div>
               <p className="text-xs text-gray-500">Prioridad</p>
-              <Badge variant={order.priority === 'URGENTE' ? 'destructive' : 'default'}>
-                {order.priority}
+              <Badge variant={(order.priority === 'URGENTE' || (order as any).priority === 'URGENTE') ? 'destructive' : 'default'}>
+                {order.priority || (order as any).priority}
               </Badge>
             </div>
           </div>
@@ -150,12 +154,17 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
             </div>
           ) : (
             availableRiders.map((rider: Rider) => {
-              // ✅ Extraer variables de forma segura aquí dentro del scope
-              const vehicleType = rider.vehicle?.type || rider.vehicle_type || 'No especificado';
-              const vehiclePlate = rider.vehicle?.plate || rider.vehicle_plate || 'S/P';
-              const rating = rider.stats?.customerRating || rider.customer_rating || 0;
-              const deliveries = rider.stats?.completedDeliveries || rider.completed_deliveries || 0;
-              const fullName = rider.full_name || rider.fullName || 'Sin Nombre';
+              // Extracción segura basada en la interfaz Rider real (propiedades planas)
+              const vehicleType = rider.vehicle_type || 'No especificado';
+              const vehiclePlate = rider.vehicle_plate || 'S/P';
+              
+              // Como la interfaz Rider no tiene 'stats' anidado ni 'customer_rating' directo en tu definición,
+              // usamos valores por defecto o campos alternativos si existieran en una extensión futura.
+              // Por ahora, simulamos rating 0 o buscamos en extensiones posibles.
+              const rating = 0; // Valor por defecto seguro basado en tu interfaz actual
+              const deliveries = 0; // Valor por defecto seguro
+
+              const fullName = rider.full_name || `${rider.first_name || ''} ${rider.last_name || ''}`.trim() || 'Sin Nombre';
 
               return (
                 <Card
@@ -175,6 +184,7 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
                       <div className="flex-1 space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="font-semibold">{fullName}</h3>
+                          {/* Mostramos badge solo si tuvieras rating real, por ahora oculto o estático */}
                           {rating >= 4.5 && (
                             <Badge className="bg-yellow-100 text-yellow-800 text-xs">
                               <Star className="w-3 h-3 fill-yellow-500 mr-1" />
@@ -185,7 +195,7 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
                         <div className="flex items-center gap-3 text-sm text-gray-600 flex-wrap">
                           <span className="flex items-center gap-1">
                             <Phone className="w-3 h-3" />
-                            {rider.phone}
+                            {rider.phone || 'Sin teléfono'}
                           </span>
                           <span className="flex items-center gap-1">
                             <Bike className="w-3 h-3" />
@@ -193,14 +203,18 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
                           </span>
                         </div>
                         <div className="flex gap-2 pt-1 flex-wrap">
-                          <Badge variant="outline" className="text-xs">
-                            {deliveries} entregas
-                          </Badge>
-                          {rider.operating_zone && (
+                          {/* Mostramos zona operativa si existe */}
+                          {rider.operating_zone ? (
                              <Badge variant="outline" className="text-xs">
                                📍 {rider.operating_zone}
                              </Badge>
-                          )}
+                          ) : null}
+                          {/* Badge de nivel si existe */}
+                          {rider.level ? (
+                            <Badge variant="secondary" className="text-xs">
+                              Nvl {rider.level}
+                            </Badge>
+                          ) : null}
                         </div>
                       </div>
                     </div>

@@ -28,3 +28,9 @@ npm-debug.log*
 Thumbs.db
 # TypeScript incremental cache
 *.tsbuildinfo
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
