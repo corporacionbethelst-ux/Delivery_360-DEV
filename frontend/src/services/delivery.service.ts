@@ -42,10 +42,12 @@ export interface DeliveryListResponse {
 
 /**
  * Payload para actualizar el estado de una entrega.
+ * Debe coincidir con el schema DeliveryStatusUpdate del backend.
  */
 export interface UpdateStatusPayload {
-  new_status: DeliveryStatus;
-  failure_reason?: string;
+  status: string;  // El backend espera 'status', no 'new_status'
+  issue_type?: string;
+  issue_description?: string;
 }
 
 export const deliveryService = {
@@ -156,9 +158,9 @@ export const deliveryService = {
     }
     try {
       const deliveryId = String(id);
-      // El backend espera un POST a /deliveries/{id}/status
-      // CORRECCIÓN: api.post devuelve los datos directamente
-      return await api.post<Delivery>(`/deliveries/${deliveryId}/status`, payload);
+      // El backend espera un PATCH a /deliveries/{id}/status
+      // CORRECCIÓN: Usar PATCH en lugar de POST para coincidir con el backend
+      return await api.patch<Delivery>(`/deliveries/${deliveryId}/status`, payload);
     } catch (error: unknown) {
       console.error('[DeliveryService] Error updating status:', error);
       const axiosError = isAxiosError(error) ? error : null;
