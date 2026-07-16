@@ -860,6 +860,13 @@ async def update_delivery_status(
         delivery.status = DeliveryStatus.EN_PICKUP
         delivery.arrived_pickup_at = now
         
+        # Actualizar orden padre
+        order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
+        order = order_result.scalar_one_or_none()
+        if order:
+            order.status = OrderStatus.RECOLECTADO
+            order.picked_up_at = now
+        
     elif new_status == DeliveryStatus.EN_ROUTE:
         delivery.status = DeliveryStatus.EN_ROUTE
         delivery.left_pickup_at = now
@@ -867,9 +874,21 @@ async def update_delivery_status(
             delivery.current_latitude = body.lat
             delivery.current_longitude = body.lng
             
+        # Actualizar orden padre
+        order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
+        order = order_result.scalar_one_or_none()
+        if order:
+            order.status = OrderStatus.EN_RUTA
+        
     elif new_status == DeliveryStatus.EN_DESTINO:
         delivery.status = DeliveryStatus.EN_DESTINO
         delivery.arrived_delivery_at = now
+        
+        # Actualizar orden padre
+        order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
+        order = order_result.scalar_one_or_none()
+        if order:
+            order.status = OrderStatus.EN_RUTA
         
     elif new_status == DeliveryStatus.COMPLETADA:
         # Reutilizar lógica de completado
