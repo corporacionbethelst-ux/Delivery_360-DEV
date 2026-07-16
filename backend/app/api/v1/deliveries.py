@@ -853,7 +853,7 @@ async def update_delivery_status(
                 detail=f"No se puede cambiar de {current_status.value} a {new_status.value}. Transiciones validas: {[s.value for s in allowed_transitions[current_status]]}"
             )
     
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)  # Naive UTC para compatibilidad con PostgreSQL TIMESTAMP WITHOUT TIME ZONE
     
     # 5. Ejecutar actualización según el nuevo estado
     if new_status == DeliveryStatus.EN_PICKUP:
