@@ -76,7 +76,8 @@ export interface DeliveryEvent {
 
 /**
  * Interfaz principal de Delivery para el flujo del repartidor.
- * Incluye los campos específicos requeridos para la gestión de estados.
+ * Incluye los campos específicos requeridos para la gestión de estados, incidencias y métricas.
+ * Actualizado para Fase 2 (Bonos por fallo) y sincronización completa con el backend.
  */
 export interface Delivery {
   id: string;
@@ -86,6 +87,12 @@ export interface Delivery {
   orderId: string;
   order?: Order;
   
+  // Datos denormalizados de la orden para acceso rápido
+  external_id?: string;
+  customer_name?: string;
+  pickup_address?: string;
+  delivery_address?: string;
+  
   // Asignación de repartidor
   riderId?: string;
   rider_id?: string;
@@ -94,16 +101,52 @@ export interface Delivery {
   // Estado actual (usando el enum DeliveryStatus)
   status: DeliveryStatus | DeliveryStatusLegacy;
   
-  // Timestamps específicos del flujo de entrega (nullable)
+  // --- TIMELINE DETALLADO (Timestamps específicos del flujo) ---
   created_at?: string | Date | null;
-  picked_up_at?: string | Date | null;
-  in_route_at?: string | Date | null;
+  started_at?: string | Date | null;           // Cuando el rider acepta/inicia
+  arrived_pickup_at?: string | Date | null;    // Llegada al restaurante (EN_PICKUP)
+  left_pickup_at?: string | Date | null;       // Salida del restaurante (EN_ROUTE)
+  arrived_delivery_at?: string | Date | null;  // Llegada al cliente (EN_DESTINO)
+  picked_up_at?: string | Date | null;         // Alias para arrived_pickup_at o left_pickup_at según lógica frontend
+  in_route_at?: string | Date | null;          // Alias para left_pickup_at
   completed_at?: string | Date | null;
   failed_at?: string | Date | null;
   
-  // Motivo de fallo (solo cuando status es FAILED)
-  failure_reason?: string | null;
+  // --- INCIDENCIAS Y FALLOS (FASE 2) ---
+  has_issues?: boolean;
+  issue_type?: string | null;                  // Motivo del fallo (ej: "cliente_no_esta")
+  issue_description?: string | null;           // Descripción detallada
+  issue_resolved?: boolean;
+  failure_reason?: string | null;              // Alias para issue_type en vistas
   
+  // --- PRUEBAS DE ENTREGA ---
+  proof_type?: ProofType | string | null;
+  proof_photo_url?: string | null;
+  proof_signature?: string | null;
+  proof_otp?: string | null;
+  proof_notes?: string | null;
+  customer_name_received?: string | null;
+  
+  // --- MÉTRICAS Y SLA ---
+  distance_total?: number | null;
+  distance_pickup?: number | null;
+  distance_delivery?: number | null;
+  total_time?: number | null;                  // Tiempo total en minutos
+  time_to_pickup?: number | null;
+  time_at_pickup?: number | null;
+  time_to_delivery?: number | null;
+  sla_expected_minutes?: number | null;
+  sla_actual_minutes?: number | null;
+  sla_compliant?: boolean | null;
+  
+  // --- UBICACIÓN EN TIEMPO REAL ---
+  current_latitude?: number | string | null;
+  current_longitude?: number | string | null;
+  last_location_update?: string | Date | null;
+  
+  // --- DATOS DE RUTA (Opcional, para navegación avanzada) ---
+  route_data?: any | null;
+
   // Campos adicionales para compatibilidad con otras partes del sistema
   type?: DeliveryType;
   priority?: 'NORMAL' | 'ALTA' | 'URGENTE';
@@ -128,10 +171,6 @@ export interface Delivery {
   cancelledAt?: Date;
   cancellationReason?: string;
   cancelledBy?: string;
-  
-  // Coordenadas actuales para tracking en tiempo real
-  current_latitude?: number | string | null;
-  current_longitude?: number | string | null;
 }
 
 export interface DeliveryCreateInput {
@@ -157,6 +196,8 @@ export interface DeliveryUpdateInput {
   estimated_delivery_time?: string | Date;
   observations?: string;
   internalNotes?: string;
+  issue_type?: string;
+  issue_description?: string;
 }
 
 export interface DeliveryAssignment {

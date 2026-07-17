@@ -14,6 +14,7 @@ from app.models.order import Order, OrderStatus
 from app.models.rider import Rider
 from app.models.user import User, UserRole
 from app.models.zone import Zone
+# Asegúrate de que tus schemas en app/schemas/zone.py tengan bonus_multiplier: float = 1.0
 from app.schemas.zone import ZoneCreate, ZoneResponse, ZoneUpdate
 
 router = APIRouter(prefix="/zones", tags=["Zones"])
@@ -83,6 +84,8 @@ async def _build_zone_response(db: AsyncSession, zone: Zone) -> dict:
         "delivery_fee_base": float(zone.delivery_fee_base or 0),
         "cost_per_km": float(zone.cost_per_km or 0),
         "estimated_time_min": float(zone.estimated_time_min or 0),
+        # FASE 3: Incluir multiplicador en la respuesta
+        "bonus_multiplier": float(zone.bonus_multiplier or 1.0),
         "is_priority": bool(zone.is_priority),
         "is_active": bool(zone.is_active),
         "color_hex": zone.color_hex or "#6b7280",
@@ -147,6 +150,9 @@ async def create_zone(
     if exists.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"La zona '{code}' ya existe")
 
+    # FASE 3: Usar el multiplicador del body o default 1.0
+    multiplier = getattr(body, 'bonus_multiplier', 1.0) or 1.0
+
     zone = Zone(
         id=uuid.uuid4(),
         name=body.name.strip(),
@@ -155,6 +161,7 @@ async def create_zone(
         delivery_fee_base=body.delivery_fee_base,
         cost_per_km=body.cost_per_km,
         estimated_time_min=body.estimated_time_min,
+        bonus_multiplier=multiplier,
         is_priority=body.is_priority,
         is_active=body.is_active,
         color_hex=body.color_hex,
@@ -187,8 +194,10 @@ async def update_zone(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"La zona '{new_code}' ya está en uso")
         data["code"] = new_code
 
+    # FASE 3: Actualizar multiplicador si viene en el request
     for field, value in data.items():
         setattr(zone, field, value)
+    
     zone.updated_at = utc_now_naive()
 
     await db.commit()

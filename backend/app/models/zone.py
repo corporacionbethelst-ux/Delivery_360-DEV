@@ -31,9 +31,13 @@ class Zone(Base):
     code = Column(String(20), unique=True, index=True, nullable=False)
     description = Column(Text, nullable=True)
 
+    # Tarifas base existentes
     delivery_fee_base = Column(Float, nullable=False, default=0.0)
     cost_per_km = Column(Float, nullable=False, default=0.0)
     estimated_time_min = Column(Float, nullable=False, default=30.0)
+
+    # FASE 3: Multiplicador de bono para repartidores (Default 1.0 = sin cambio)
+    bonus_multiplier = Column(Float, nullable=False, default=1.0)
 
     is_priority = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)

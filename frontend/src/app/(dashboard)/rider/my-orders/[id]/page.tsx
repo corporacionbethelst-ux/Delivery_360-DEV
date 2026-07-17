@@ -19,7 +19,20 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-// Helper seguro para fechas que pueden ser null/undefined/string
+// Constantes de bonificación (Deberían venir de configuración, pero usamos defaults seguros)
+const DEFAULT_SUCCESS_BONUS = 2500; // COP
+const DEFAULT_FAILED_BONUS = 1500;  // COP
+
+// Motivos de fallo que generan pago al repartidor (Culpa del cliente)
+const CUSTOMER_FAULT_REASONS = [
+  "cliente_no_esta", 
+  "direccion_incorrecta", 
+  "cliente_rechaza", 
+  "otro_cliente",
+  "negocio_cerrado" // A veces también se paga
+];
+
+// Helper seguro para fechas
 const safeDate = (dateVal: string | Date | null | undefined): string => {
   if (!dateVal) return "--:--";
   try {
@@ -29,33 +42,80 @@ const safeDate = (dateVal: string | Date | null | undefined): string => {
   }
 };
 
+// Helper para formato de moneda
+const formatCurrency = (amount: number) => {
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    minimumFractionDigits: 0,
+  }).format(amount);
+};
+
 export default function RiderOrderDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
 
-  // Estados
   const [order, setOrder] = useState<Order | null>(null);
   const [delivery, setDelivery] = useState<Delivery | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   
-  // Estado para modal de fallo
   const [showFailModal, setShowFailModal] = useState(false);
   const [failReason, setFailReason] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // Estado calculado para la ganancia
+  const [estimatedEarnings, setEstimatedEarnings] = useState<number>(0);
+  const [earningsLabel, setEarningsLabel] = useState<string>("Estimado");
+
   useEffect(() => {
     loadOrderData();
   }, [id]);
+
+  // Recalcular ganancias cuando cambian delivery u order
+  useEffect(() => {
+    if (!delivery || !order) {
+      setEstimatedEarnings(0);
+      setEarningsLabel("Pendiente");
+      return;
+    }
+
+    let amount = 0;
+    let label = "En proceso";
+
+    if (delivery.status === DeliveryStatus.COMPLETADA) {
+      // Entrega completada: Pago completo
+      // Intentamos leer del backend, si no, usamos default
+      amount = (order as any).rider_delivery_bonus ?? DEFAULT_SUCCESS_BONUS;
+      label = "Ganancia Confirmada";
+    } else if (delivery.status === DeliveryStatus.FALLIDA) {
+      // Entrega fallida: Verificar motivo
+      const reason = (delivery.issue_type || "").toLowerCase();
+      const isCustomerFault = CUSTOMER_FAULT_REASONS.some(r => reason.includes(r));
+      
+      if (isCustomerFault) {
+        amount = DEFAULT_FAILED_BONUS; // O leer de config si estuviera disponible
+        label = "Bono por Fallo (Cliente)";
+      } else {
+        amount = 0;
+        label = "Sin Bono (Causa Repartidor)";
+      }
+    } else {
+      // En proceso: Mostrar proyección
+      amount = (order as any).rider_delivery_bonus ?? DEFAULT_SUCCESS_BONUS;
+      label = "Ganancia Proyectada";
+    }
+
+    setEstimatedEarnings(amount);
+    setEarningsLabel(label);
+  }, [delivery, order]);
 
   const loadOrderData = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      // CORRECCIÓN PRINCIPAL: Doble casting para evitar conflicto de definiciones de interfaz entre servicios y types
-      // Primero convertimos a 'unknown' para limpiar el tipo original, luego a 'Order' esperado.
       const data = await orderService.getById(id) as unknown as Order;
       
       if (!data) {
@@ -64,8 +124,6 @@ export default function RiderOrderDetailPage() {
       }
 
       setOrder(data);
-      
-      // Manejo seguro del objeto delivery (puede venir anidado o ser null)
       const deliveryData = (data as any).delivery || null;
       setDelivery(deliveryData ? (deliveryData as Delivery) : null);
 
@@ -77,7 +135,6 @@ export default function RiderOrderDetailPage() {
     }
   };
 
-  // Validación de transiciones permitidas (debe coincidir con allowed_transitions del backend)
   const canTransitionTo = (target: DeliveryStatus): boolean => {
     if (!delivery) return false;
 
@@ -111,7 +168,6 @@ export default function RiderOrderDetailPage() {
 
     setActionLoading(newStatus);
     try {
-      // El backend espera 'status' y opcionalmente 'issue_type' / 'issue_description'
       const payload: any = { status: newStatus };
       if (reason) {
         payload.issue_type = reason;
@@ -119,8 +175,6 @@ export default function RiderOrderDetailPage() {
       }
 
       await deliveryService.updateStatus(delivery.id, payload);
-      
-      // Recargar datos para obtener el estado actualizado
       await loadOrderData();
       
       alert(`Estado actualizado correctamente a: ${newStatus}`);
@@ -160,23 +214,14 @@ export default function RiderOrderDetailPage() {
     );
   }
 
-  // Si la orden está asignada pero AÚN NO hay registro de entrega (caso borde raro)
   if (!delivery) {
     return (
       <div className="container mx-auto p-6 text-center">
         <div className="bg-yellow-50 text-yellow-800 p-6 rounded-lg inline-block max-w-md">
           <Clock className="w-12 h-12 mx-auto mb-4 animate-pulse" />
           <h2 className="text-xl font-bold mb-2">Esperando confirmación</h2>
-          <p className="mb-4">
-            La orden ha sido asignada, pero el sistema de entregas aún no ha generado tu hoja de ruta.
-          </p>
-          <p className="text-sm italic">
-            Por favor espera unos segundos y recarga la página, o contacta al manager.
-          </p>
-          <button 
-            onClick={() => loadOrderData()}
-            className="mt-4 px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700"
-          >
+          <p className="mb-4">La orden ha sido asignada, pero el sistema de entregas aún no ha generado tu hoja de ruta.</p>
+          <button onClick={() => loadOrderData()} className="mt-4 px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700">
             Reintentar Carga
           </button>
         </div>
@@ -195,28 +240,19 @@ export default function RiderOrderDetailPage() {
               <AlertCircle className="w-6 h-6 text-red-600" />
               <h3 className="text-lg font-bold text-red-800">Reportar Entrega Fallida</h3>
             </div>
-            
             <div className="p-6">
               <p className="text-sm text-gray-600 mb-4">
                 Es obligatorio especificar el motivo detallado para procesar el reporte y calcular el bono parcial (si aplica).
               </p>
-              
               <textarea
                 className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-shadow min-h-[120px]"
-                placeholder="Describe qué sucedió (ej: Cliente no abre, dirección incorrecta, negocio cerrado...)"
+                placeholder="Describe qué sucedió (ej: Cliente no abre, dirección incorrecta...)"
                 value={failReason}
                 onChange={(e) => setFailReason(e.target.value)}
                 autoFocus
               />
-              
               <div className="mt-6 flex justify-end gap-3">
-                <button
-                  onClick={() => {
-                    setShowFailModal(false);
-                    setFailReason("");
-                  }}
-                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors font-medium"
-                >
+                <button onClick={() => { setShowFailModal(false); setFailReason(""); }} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors font-medium">
                   Cancelar
                 </button>
                 <button
@@ -224,8 +260,7 @@ export default function RiderOrderDetailPage() {
                   disabled={!failReason.trim()}
                   className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium flex items-center gap-2"
                 >
-                  <XCircle className="w-4 h-4" />
-                  Confirmar Reporte
+                  <XCircle className="w-4 h-4" /> Confirmar Reporte
                 </button>
               </div>
             </div>
@@ -233,7 +268,7 @@ export default function RiderOrderDetailPage() {
         </div>
       )}
 
-      {/* Header de Navegación y Título */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <Link href="/rider/my-orders" className="text-sm text-gray-500 hover:text-primary flex items-center gap-1 mb-2 w-fit">
@@ -241,18 +276,15 @@ export default function RiderOrderDetailPage() {
           </Link>
           <h1 className="text-2xl font-bold text-gray-900">Orden #{order.id}</h1>
         </div>
-        <div className="flex gap-2">
-          <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border
-            ${order.status === 'ASIGNADO' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-600 border-gray-200'}
-          `}>
+        <div className="flex gap-2 flex-wrap">
+          <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${order.status === 'ASIGNADO' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}>
             Orden: {order.status}
           </span>
-          <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border
-            ${delivery.status === DeliveryStatus.COMPLETADA ? 'bg-green-50 text-green-700 border-green-200' : 
+          <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${
+              delivery.status === DeliveryStatus.COMPLETADA ? 'bg-green-50 text-green-700 border-green-200' : 
               delivery.status === DeliveryStatus.FALLIDA ? 'bg-red-50 text-red-700 border-red-200' :
-              delivery.status === DeliveryStatus.EN_ROUTE ? 'bg-blue-50 text-blue-700 border-blue-200' :
-              'bg-yellow-50 text-yellow-700 border-yellow-200'}
-          `}>
+              'bg-yellow-50 text-yellow-700 border-yellow-200'
+            }`}>
             Entrega: {delivery.status.replace('_', ' ')}
           </span>
         </div>
@@ -261,23 +293,19 @@ export default function RiderOrderDetailPage() {
       {/* Panel Principal */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         
-        {/* Sección de Acciones Rápidas (Solo si no está completada o fallida) */}
+        {/* Acciones Rápidas */}
         {delivery.status !== DeliveryStatus.COMPLETADA && delivery.status !== DeliveryStatus.FALLIDA && (
           <div className="bg-gray-50 border-b border-gray-200 p-6">
             <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
-              <Truck className="w-4 h-4" />
-              Acciones de Entrega
+              <Truck className="w-4 h-4" /> Acciones de Entrega
             </h3>
-            
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {/* Botón: Recolectar */}
               <button
                 onClick={() => handleQuickAction(DeliveryStatus.EN_PICKUP)}
                 disabled={!canTransitionTo(DeliveryStatus.EN_PICKUP) || !!actionLoading}
                 className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200
-                  ${canTransitionTo(DeliveryStatus.EN_PICKUP)
-                    ? 'bg-white border-gray-200 hover:border-orange-500 hover:shadow-md cursor-pointer' 
-                    : 'bg-gray-100 border-gray-100 opacity-50 cursor-not-allowed'}
+                  ${canTransitionTo(DeliveryStatus.EN_PICKUP) ? 'bg-white border-gray-200 hover:border-orange-500 hover:shadow-md cursor-pointer' : 'bg-gray-100 border-gray-100 opacity-50 cursor-not-allowed'}
                 `}
               >
                 <div className={`p-3 rounded-full mb-2 transition-colors ${canTransitionTo(DeliveryStatus.EN_PICKUP) ? 'bg-orange-50 group-hover:bg-orange-100' : 'bg-gray-200'}`}>
@@ -296,9 +324,7 @@ export default function RiderOrderDetailPage() {
                 onClick={() => handleQuickAction(DeliveryStatus.EN_ROUTE)}
                 disabled={!canTransitionTo(DeliveryStatus.EN_ROUTE) || !!actionLoading}
                 className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200
-                  ${canTransitionTo(DeliveryStatus.EN_ROUTE)
-                    ? 'bg-white border-gray-200 hover:border-blue-500 hover:shadow-md cursor-pointer' 
-                    : 'bg-gray-100 border-gray-100 opacity-50 cursor-not-allowed'}
+                  ${canTransitionTo(DeliveryStatus.EN_ROUTE) ? 'bg-white border-gray-200 hover:border-blue-500 hover:shadow-md cursor-pointer' : 'bg-gray-100 border-gray-100 opacity-50 cursor-not-allowed'}
                 `}
               >
                 <div className={`p-3 rounded-full mb-2 transition-colors ${canTransitionTo(DeliveryStatus.EN_ROUTE) ? 'bg-blue-50 group-hover:bg-blue-100' : 'bg-gray-200'}`}>
@@ -317,9 +343,7 @@ export default function RiderOrderDetailPage() {
                 onClick={() => handleQuickAction(DeliveryStatus.COMPLETADA)}
                 disabled={!canTransitionTo(DeliveryStatus.COMPLETADA) || !!actionLoading}
                 className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200
-                  ${canTransitionTo(DeliveryStatus.COMPLETADA)
-                    ? 'bg-white border-gray-200 hover:border-green-500 hover:shadow-md cursor-pointer' 
-                    : 'bg-gray-100 border-gray-100 opacity-50 cursor-not-allowed'}
+                  ${canTransitionTo(DeliveryStatus.COMPLETADA) ? 'bg-white border-gray-200 hover:border-green-500 hover:shadow-md cursor-pointer' : 'bg-gray-100 border-gray-100 opacity-50 cursor-not-allowed'}
                 `}
               >
                 <div className={`p-3 rounded-full mb-2 transition-colors ${canTransitionTo(DeliveryStatus.COMPLETADA) ? 'bg-green-50 group-hover:bg-green-100' : 'bg-gray-200'}`}>
@@ -338,9 +362,7 @@ export default function RiderOrderDetailPage() {
                 onClick={() => handleQuickAction(DeliveryStatus.FALLIDA)}
                 disabled={!canTransitionTo(DeliveryStatus.FALLIDA) || !!actionLoading}
                 className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200
-                  ${canTransitionTo(DeliveryStatus.FALLIDA)
-                    ? 'bg-white border-gray-200 hover:border-red-500 hover:shadow-md cursor-pointer' 
-                    : 'bg-gray-100 border-gray-100 opacity-50 cursor-not-allowed'}
+                  ${canTransitionTo(DeliveryStatus.FALLIDA) ? 'bg-white border-gray-200 hover:border-red-500 hover:shadow-md cursor-pointer' : 'bg-gray-100 border-gray-100 opacity-50 cursor-not-allowed'}
                 `}
               >
                 <div className={`p-3 rounded-full mb-2 transition-colors ${canTransitionTo(DeliveryStatus.FALLIDA) ? 'bg-red-50 group-hover:bg-red-100' : 'bg-gray-200'}`}>
@@ -357,34 +379,29 @@ export default function RiderOrderDetailPage() {
           </div>
         )}
 
-        {/* Contenido Principal: Detalles */}
+        {/* Contenido Principal */}
         <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
           
           {/* Columna Izquierda: Ubicaciones */}
           <div className="space-y-6">
-            {/* Restaurante */}
             <div>
               <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-orange-500" />
-                Punto de Recolección
+                <MapPin className="w-4 h-4 text-orange-500" /> Punto de Recolección
               </h4>
               <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
                 <h5 className="font-bold text-lg text-gray-900">{order.restaurant_name}</h5>
                 <p className="text-gray-600 mt-1">{order.restaurant_address}</p>
                 {order.restaurant_phone && (
                   <a href={`tel:${order.restaurant_phone}`} className="inline-flex items-center gap-2 mt-3 text-sm font-medium text-orange-600 hover:text-orange-700 bg-orange-50 px-3 py-1.5 rounded-lg transition-colors">
-                    <Phone className="w-4 h-4" />
-                    Llamar al Restaurante
+                    <Phone className="w-4 h-4" /> Llamar al Restaurante
                   </a>
                 )}
               </div>
             </div>
 
-            {/* Cliente */}
             <div>
               <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-blue-500" />
-                Punto de Entrega
+                <MapPin className="w-4 h-4 text-blue-500" /> Punto de Entrega
               </h4>
               <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
                 <h5 className="font-bold text-lg text-gray-900">{order.customer_name}</h5>
@@ -403,8 +420,7 @@ export default function RiderOrderDetailPage() {
 
                 {order.customer_phone && (
                   <a href={`tel:${order.customer_phone}`} className="inline-flex items-center gap-2 mt-3 text-sm font-medium text-blue-600 hover:text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg transition-colors">
-                    <Phone className="w-4 h-4" />
-                    Llamar al Cliente
+                    <Phone className="w-4 h-4" /> Llamar al Cliente
                   </a>
                 )}
               </div>
@@ -414,38 +430,41 @@ export default function RiderOrderDetailPage() {
           {/* Columna Derecha: Finanzas y Timeline */}
           <div className="space-y-6">
             
-            {/* Resumen Financiero */}
+            {/* Resumen Financiero ACTUALIZADO */}
             <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-5 border border-green-100">
               <h4 className="text-xs font-bold text-green-800 uppercase tracking-wider mb-4 flex items-center gap-2">
-                <DollarSign className="w-4 h-4" />
-                Resumen de Ganancia
+                <DollarSign className="w-4 h-4" /> Resumen de Ganancia
               </h4>
               
               <div className="space-y-3">
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-green-700/80">Bono por Entrega Exitosa:</span>
-                  <span className="font-bold text-green-900">
-                    ${order.rider_delivery_bonus?.toFixed(2) || "0.00"}
+                  <span className="text-green-700/80">{earningsLabel}:</span>
+                  <span className="font-bold text-green-900 text-lg">
+                    {formatCurrency(estimatedEarnings)}
                   </span>
                 </div>
                 
                 {delivery.status === DeliveryStatus.FALLIDA && (
                   <div className="pt-3 border-t border-green-200/50">
                     <p className="text-xs text-red-600 font-medium mb-1 flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3" />
-                      Entrega Fallida
+                      <AlertCircle className="w-3 h-3" /> Entrega Fallida
                     </p>
                     <p className="text-xs text-gray-600">
-                      El pago está sujeto a revisión según el motivo: <br/>
-                      <span className="italic">"{delivery.failure_reason}"</span>
+                      Motivo registrado: <br/>
+                      <span className="italic font-semibold">"{delivery.issue_type || 'Sin especificar'}"</span>
                     </p>
+                    {(delivery.issue_type && CUSTOMER_FAULT_REASONS.some(r => delivery.issue_type?.toLowerCase().includes(r))) ? (
+                       <p className="text-xs text-green-700 mt-1 font-bold">✅ Aplica bono por fallo del cliente.</p>
+                    ) : (
+                       <p className="text-xs text-orange-700 mt-1 font-bold">⚠️ Sujeto a revisión (posible causa del repartidor).</p>
+                    )}
                   </div>
                 )}
 
                 <div className="pt-4 mt-2 border-t border-green-200/50 flex justify-between items-end">
-                  <span className="text-sm font-medium text-green-800">Total Estimado:</span>
+                  <span className="text-sm font-medium text-green-800">Total a Pagar:</span>
                   <span className="text-2xl font-extrabold text-green-700">
-                    ${(order.rider_delivery_bonus || 0).toFixed(2)}
+                    {formatCurrency(estimatedEarnings)}
                   </span>
                 </div>
               </div>
@@ -454,39 +473,38 @@ export default function RiderOrderDetailPage() {
             {/* Timeline de Estados */}
             <div>
               <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                <Clock className="w-4 h-4" />
-                Bitácora de Eventos
+                <Clock className="w-4 h-4" /> Bitácora de Eventos
               </h4>
               
               <div className="relative border-l-2 border-gray-200 ml-3 space-y-6 pb-2">
                 {/* Evento: Iniciada */}
                 <div className="relative pl-6">
-                  <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 ${[DeliveryStatus.INICIADA, DeliveryStatus.EN_PICKUP, DeliveryStatus.EN_ROUTE, DeliveryStatus.COMPLETADA, DeliveryStatus.FALLIDA].includes(delivery.status as DeliveryStatus) ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300'}`}></div>
+                  <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 ${delivery.started_at ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300'}`}></div>
                   <p className="text-sm font-medium text-gray-900">Entrega Iniciada</p>
-                  <p className="text-xs text-gray-500">{safeDate(delivery.created_at)}</p>
+                  <p className="text-xs text-gray-500">{safeDate(delivery.started_at)}</p>
                 </div>
 
-                {/* Evento: Pickup */}
-                {delivery.picked_up_at ? (
-                  <div className="relative pl-6">
-                    <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-green-500 border-2 border-green-500"></div>
-                    <p className="text-sm font-medium text-gray-900">Pedido Recolectado</p>
-                    <p className="text-xs text-gray-500">{safeDate(delivery.picked_up_at)}</p>
-                  </div>
-                ) : (
-                  <div className="relative pl-6 opacity-50">
-                    <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-white border-2 border-gray-300"></div>
-                    <p className="text-sm text-gray-500">Esperando recolección...</p>
-                  </div>
-                )}
+                {/* Evento: Llegada a Pickup */}
+                <div className="relative pl-6">
+                  <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 ${delivery.arrived_pickup_at ? 'bg-orange-500 border-orange-500' : 'bg-white border-gray-300'}`}></div>
+                  <p className={`text-sm font-medium ${delivery.arrived_pickup_at ? 'text-gray-900' : 'text-gray-400'}`}>Llegada al Restaurante</p>
+                  <p className="text-xs text-gray-500">{safeDate(delivery.arrived_pickup_at)}</p>
+                </div>
+
+                {/* Evento: Salida de Pickup (Recolectado) */}
+                <div className="relative pl-6">
+                  <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 ${delivery.left_pickup_at ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300'}`}></div>
+                  <p className={`text-sm font-medium ${delivery.left_pickup_at ? 'text-gray-900' : 'text-gray-400'}`}>Pedido Recolectado</p>
+                  <p className="text-xs text-gray-500">{safeDate(delivery.left_pickup_at)}</p>
+                </div>
 
                 {/* Evento: En Ruta */}
-                {delivery.in_route_at ? (
-                  <div className="relative pl-6">
-                    <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-blue-500 border-2 border-blue-500"></div>
-                    <p className="text-sm font-medium text-gray-900">En Ruta a Destino</p>
-                    <p className="text-xs text-gray-500">{safeDate(delivery.in_route_at)}</p>
-                  </div>
+                {delivery.status === DeliveryStatus.EN_ROUTE || delivery.status === DeliveryStatus.EN_DESTINO || delivery.status === DeliveryStatus.COMPLETADA || delivery.status === DeliveryStatus.FALLIDA ? (
+                   <div className="relative pl-6">
+                     <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-blue-500 border-2 border-blue-500"></div>
+                     <p className="text-sm font-medium text-gray-900">En Ruta a Destino</p>
+                     <p className="text-xs text-gray-500">{safeDate(delivery.left_pickup_at || delivery.updatedAt)}</p>
+                   </div>
                 ) : (
                   <div className="relative pl-6 opacity-50">
                     <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-white border-2 border-gray-300"></div>
@@ -495,7 +513,7 @@ export default function RiderOrderDetailPage() {
                 )}
 
                 {/* Evento: Completado */}
-                {delivery.completed_at && (
+                {delivery.status === DeliveryStatus.COMPLETADA && (
                   <div className="relative pl-6">
                     <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-green-600 border-2 border-green-600 shadow-lg shadow-green-200"></div>
                     <p className="text-sm font-bold text-green-700">¡Entrega Completada!</p>
@@ -504,12 +522,12 @@ export default function RiderOrderDetailPage() {
                 )}
 
                 {/* Evento: Fallido */}
-                {delivery.failed_at && (
+                {delivery.status === DeliveryStatus.FALLIDA && (
                   <div className="relative pl-6">
                     <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-red-500 border-2 border-red-500 shadow-lg shadow-red-200"></div>
                     <p className="text-sm font-bold text-red-700">Entrega Fallida</p>
-                    <p className="text-xs text-red-600 italic mt-1">Motivo: {delivery.failure_reason}</p>
-                    <p className="text-xs text-gray-500">{safeDate(delivery.failed_at)}</p>
+                    <p className="text-xs text-red-600 italic mt-1">Motivo: {delivery.issue_type}</p>
+                    <p className="text-xs text-gray-500">{safeDate(delivery.updatedAt)}</p>
                   </div>
                 )}
               </div>

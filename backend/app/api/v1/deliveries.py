@@ -1,11 +1,16 @@
 """
-Delivery360 - API Endpoints para Entregas (VERSIÓN PRODUCCIÓN)
+Delivery360 - API Endpoints para Entregas (VERSIÓN PRODUCCIÓN CON FASES 1, 2 y 3)
 Optimizado para rendimiento, sin logs de debug y con serialización robusta.
+Incluye:
+- Fase 1: Bonos configurables.
+- Fase 2: Pagos por intentos fallidos.
+- Fase 3: Multiplicadores por zona geográfica.
 """
 from datetime import datetime, timezone
 import uuid
 import logging
 from typing import Optional, Dict, Any, List
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -21,6 +26,7 @@ from app.models.rider import Rider, RiderStatus
 from app.models.user import User, UserRole
 from app.models.financial import Financial, TransactionType, PaymentStatus
 from app.models.platform_setting import PlatformSetting
+from app.models.zone import Zone  # Importado para Fase 3
 from app.services.notification_service import NotificationService
 from app.services.redis_audit_service import get_redis_audit_logger
 from app.services.audit_service import get_audit_service
@@ -251,12 +257,6 @@ async def list_deliveries(
         items.append(_serialize_delivery(delivery, rider, user, order))
 
     # 8. Fallback: órdenes asignadas que todavía no tienen registro en deliveries.
-    # Esto cubre órdenes creadas/asignadas desde manager y datos migrados/legacy.
-    # NOTA: Para mantener la consistencia del conteo total en paginación estricta,
-    # este fallback se procesa pero no altera el 'total_count' calculado arriba si ya hay paginación.
-    # Si necesitas que el fallback afecte el total, deberías contar también aquí.
-    # En este diseño, priorizamos rendimiento: el total es de la tabla Delivery.
-    
     missing_delivery_alias = aliased(Delivery)
     fallback_rider = aliased(Rider)
     fallback_user = aliased(User)
@@ -282,34 +282,22 @@ async def list_deliveries(
     if order_id:
         fallback_stmt = fallback_stmt.where(o_alias.id == _parse_uuid(order_id, "order_id"))
 
-    # Ejecutar fallback solo si estamos en la primera página o si necesitamos llenar huecos
-    # Para simplificar y asegurar estabilidad en paginación, añadimos el fallback al final
-    # pero ten en cuenta que esto puede duplicar páginas si no se maneja con cuidado.
-    # Estrategia segura: El fallback se usa principalmente para vistas "sin paginación estricta" 
-    # o se asume que la creación de Delivery es inmediata.
-    # Aquí lo incluimos para compatibilidad, pero el 'total' refleja principalmente la tabla Delivery.
-    
-    if offset == 0: # Solo cargar fallback en la primera página para no romper paginación
-        fallback_result = await db.execute(fallback_stmt.limit(50)) # Límite de seguridad
+    if offset == 0:
+        fallback_result = await db.execute(fallback_stmt.limit(50))
         for order, rider, user in fallback_result.all():
             fallback_item = _serialize_order_as_delivery(order, rider, user)
             if status and fallback_item["status"] != status:
                 continue
             items.append(fallback_item)
 
-    # Si incluyeron fallback, ajustamos el total ligeramente si es necesario, 
-    # pero para estabilidad de UI, mantenemos el total de la consulta principal + fallback count si fuera crítico.
-    # En este caso, devolvemos el total real de items devueltos si hay fallback, o el count DB.
     final_total = total_count + len(items) - len(rows) if offset == 0 else total_count
 
-    response_data = {
+    return {
         "items": items,
         "total": final_total,
         "limit": limit,
         "offset": offset
     }
-
-    return response_data
 
 @router.get("/{delivery_id}")
 async def get_delivery(
@@ -339,7 +327,6 @@ async def get_delivery(
         
     delivery, rider, user, order = row
 
-    # Verificación de permisos
     if current_user.role == UserRole.REPARTIDOR:
         rider_profile = await _get_rider_for_user(db, current_user.id)
         if not rider_profile or delivery.rider_id != rider_profile.id:
@@ -369,31 +356,29 @@ async def assign_delivery(
     if not rider or rider.status != RiderStatus.ACTIVO:
         raise HTTPException(status_code=400, detail="Repartidor no disponible")
 
-    # Actualización atómica
+    now = datetime.now(timezone.utc)
+
     delivery.rider_id = rider.id
     delivery.status = DeliveryStatus.INICIADA
-    delivery.started_at = datetime.now(timezone.utc)
+    delivery.started_at = now
 
     order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
     order = order_result.scalar_one_or_none()
     if order:
         order.assigned_rider_id = rider.id
         order.status = OrderStatus.ASIGNADO
-        order.accepted_at = datetime.now(timezone.utc)
+        order.accepted_at = now
 
     await db.commit()
     
-    # Recarga de datos para respuesta
     await db.refresh(delivery, attribute_names=['rider', 'order'])
     if delivery.rider:
         await db.refresh(delivery.rider, attribute_names=['user'])
     
-    # Obtener objetos frescos para serializar
     r_alias = aliased(Rider)
     u_alias = aliased(User)
     o_alias = aliased(Order)
     
-    # Re-ejecutar consulta rápida para obtener los objetos unidos correctamente
     final_stmt = (
         select(Delivery, r_alias, u_alias, o_alias)
         .outerjoin(r_alias, Delivery.rider_id == r_alias.id)
@@ -437,12 +422,10 @@ async def start_delivery(
 
     await db.commit()
     
-    # Refresh y re-serialización
     await db.refresh(delivery, attribute_names=['rider', 'order'])
     if delivery.rider:
         await db.refresh(delivery.rider, attribute_names=['user'])
         
-    # Consulta auxiliar para serialización limpia
     r_alias = aliased(Rider)
     u_alias = aliased(User)
     o_alias = aliased(Order)
@@ -493,7 +476,6 @@ async def complete_delivery(
     if body.lng is not None:
         delivery.current_longitude = body.lng
 
-    # Cálculo de SLA
     if delivery.started_at:
         elapsed_minutes = max(0, int((now - delivery.started_at).total_seconds() / 60))
         delivery.sla_actual_minutes = elapsed_minutes
@@ -506,8 +488,6 @@ async def complete_delivery(
         order.status = OrderStatus.ENTREGADO
         order.delivered_at = now
 
-    # CRITICAL: Crear registro financiero para el pago al repartidor
-    # Usamos idempotency_key para evitar duplicados en caso de reintentos
     idempotency_key = f"pago_entrega_{delivery.order_id}"
     
     financial_result = await db.execute(
@@ -516,21 +496,32 @@ async def complete_delivery(
     existing_financial = financial_result.scalar_one_or_none()
     
     if not existing_financial and delivery.rider_id:
-        from decimal import Decimal
-        
-        # Obtener el bono base configurable desde platform_settings (FASE 1)
-        # Si no existe configuración, usar 2.50 como fallback para retrocompatibilidad
+        # Obtener bono base
         settings_result = await db.execute(
             select(PlatformSetting.value).where(PlatformSetting.key == "rider_delivery_bonus")
         )
         bonus_value = settings_result.scalar_one_or_none()
         base_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("2.50")
         
+        # FASE 3: Aplicar multiplicador de zona
+        multiplier = Decimal("1.0")
+        rider_obj = await _get_rider_for_user(db, rider.id)
+        
+        if rider_obj and rider_obj.zone_id:
+            zone_result = await db.execute(
+                select(Zone.bonus_multiplier).where(Zone.id == rider_obj.zone_id)
+            )
+            zone_mult = zone_result.scalar_one_or_none()
+            if zone_mult is not None:
+                multiplier = Decimal(str(zone_mult))
+        
+        final_payment = base_payment * multiplier
+        
         financial = Financial(
             rider_id=delivery.rider_id,
-            amount=base_payment,
+            amount=final_payment,
             transaction_type=TransactionType.PAGO_ENTREGA,
-            description=f"Pago por entrega de orden {order.external_id if order else delivery.order_id}",
+            description=f"Pago por entrega (Orden {order.external_id if order else delivery.order_id}) - Mult. Zona: {multiplier}",
             reference_id=str(order.id) if order else str(delivery.order_id),
             source_type="delivery",
             source_id=str(delivery.id),
@@ -538,14 +529,11 @@ async def complete_delivery(
             status=PaymentStatus.PROCESADO,
         )
         db.add(financial)
-        logger.info(f"Registro financiero creado para entrega {delivery.id} - Rider {delivery.rider_id} - Bono: {base_payment}")
+        logger.info(f"Pago calculado: Base {base_payment} * Mult {multiplier} = {final_payment}")
     
-    # Asegurar que se guarde cualquier cambio en la entidad delivery antes del commit
     await db.flush()
-    
     await db.commit()
-    
-    # NOTIFICATION: Enviar notificación al cliente sobre la entrega completada
+
     try:
         if order:
             customer_result = await db.execute(
@@ -566,7 +554,6 @@ async def complete_delivery(
     except Exception as e:
         logger.warning(f"No se pudo enviar notificación de entrega al cliente: {e}")
     
-    # AUDIT LOG (PostgreSQL): Registrar la acción de completado
     try:
         audit_service = get_audit_service(db)
         await audit_service.log_action_async(
@@ -586,7 +573,6 @@ async def complete_delivery(
     except Exception as e:
         logger.warning(f"No se pudo crear audit log en PostgreSQL: {e}")
     
-    # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
     try:
         redis_logger = get_redis_audit_logger()
         if redis_logger.connected:
@@ -604,7 +590,6 @@ async def complete_delivery(
     if delivery.rider:
         await db.refresh(delivery.rider, attribute_names=['user'])
 
-    # Serialización final
     r_alias = aliased(Rider)
     u_alias = aliased(User)
     o_alias = aliased(Order)
@@ -657,14 +642,7 @@ async def fail_delivery(
         order.failure_reason = body.issue_type
         order.failure_notes = body.issue_description
 
-    # FASE 2: Crear registro financiero por intento fallido si el repartidor ya estaba asignado
-    # Se paga solo cuando el fallo es por causa del cliente (dirección mala, rechazo, etc.)
     if delivery.rider_id:
-        from decimal import Decimal
-        
-        # Determinar si el motivo del fallo amerita pago al repartidor
-        # Motivos que pagan: cliente_no_esta, direccion_incorrecta, cliente_rechaza, otro_cliente
-        # Motivos que NO pagan: vehiculo_descompuesto, rider_no_quiere, accidente, etc.
         customer_fault_reasons = ["cliente_no_esta", "direccion_incorrecta", "cliente_rechaza", "otro_cliente"]
         should_pay_rider = body.issue_type.lower() in customer_fault_reasons
         
@@ -677,7 +655,6 @@ async def fail_delivery(
             existing_financial = financial_result.scalar_one_or_none()
             
             if not existing_financial:
-                # Obtener el bono por intento fallido desde platform_settings
                 settings_result = await db.execute(
                     select(PlatformSetting.value).where(PlatformSetting.key == "rider_failed_attempt_bonus")
                 )
@@ -704,7 +681,6 @@ async def fail_delivery(
     if delivery.rider:
         await db.refresh(delivery.rider, attribute_names=['user'])
 
-    # Serialización final
     r_alias = aliased(Rider)
     u_alias = aliased(User)
     o_alias = aliased(Order)
@@ -724,15 +700,11 @@ async def fail_delivery(
 @router.patch("/{delivery_id}/location")
 async def update_location(
     delivery_id: str,
-    body: DeliveryStart, # Reutilizamos el schema que ya tiene lat/lng
+    body: DeliveryStart,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Actualiza la ubicación GPS de una entrega en curso.
-    Usado por la app del repartidor o servicios de tracking.
-    """
-    # 1. Obtener entrega
+    """Actualiza la ubicación GPS de una entrega en curso."""
     stmt = select(Delivery).where(Delivery.id == _parse_uuid(delivery_id, "delivery_id"))
     result = await db.execute(stmt)
     delivery = result.scalar_one_or_none()
@@ -740,18 +712,14 @@ async def update_location(
     if not delivery:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
-    # 2. Validar permisos (Solo el rider asignado o admins pueden actualizar)
     if current_user.role == UserRole.REPARTIDOR:
         rider_profile = await _get_rider_for_user(db, current_user.id)
         if not rider_profile or delivery.rider_id != rider_profile.id:
             raise HTTPException(status_code=403, detail="No autorizado para actualizar esta ubicación")
     
-    # 3. Validar que la entrega esté en estado de movimiento
     if delivery.status not in [DeliveryStatus.INICIADA, DeliveryStatus.EN_PICKUP, DeliveryStatus.EN_ROUTE, DeliveryStatus.EN_DESTINO]:
-        # Permitimos actualizar incluso si está completada recientemente por latencia de red, pero no guardamos
         pass 
 
-    # 4. Actualizar coordenadas y timestamp
     lat = body.lat if body.lat is not None else body.latitude
     lng = body.lng if body.lng is not None else body.longitude
 
@@ -760,7 +728,6 @@ async def update_location(
         delivery.current_longitude = lng
         delivery.last_location_update = datetime.now(timezone.utc)
         
-        # Actualizar también en el Rider por redundancia
         if delivery.rider_id:
             rider_stmt = select(Rider).where(Rider.id == delivery.rider_id)
             rider_res = await db.execute(rider_stmt)
@@ -781,10 +748,7 @@ async def update_location(
 async def get_previous_view(
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Endpoint auxiliar para el botón 'Volver' del frontend.
-    Devuelve la ruta adecuada según el rol del usuario.
-    """
+    """Endpoint auxiliar para el botón 'Volver' del frontend."""
     routes = {
         UserRole.SUPERADMIN: "/manager/dashboard",
         UserRole.GERENTE: "/manager/dashboard",
@@ -811,20 +775,18 @@ async def update_delivery_status(
     """
     Endpoint unificado para que el repartidor actualice el estado de su entrega.
     Permite transiciones: ASIGNADO→RECOLECTADO→EN_RUTA→ENTREGADO/FALLIDO
+    Incluye lógica de FASE 3 para cálculo de bonos con multiplicador de zona.
     """
-    # 1. Obtener entrega
     result = await db.execute(select(Delivery).where(Delivery.id == _parse_uuid(delivery_id, "delivery_id")))
     delivery = result.scalar_one_or_none()
     if not delivery:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
-    # 2. Validar permisos - Solo el repartidor asignado puede actualizar
     if current_user.role == UserRole.REPARTIDOR:
         rider = await _get_rider_for_user(db, current_user.id)
         if not rider or delivery.rider_id != rider.id:
             raise HTTPException(status_code=403, detail="No tienes permiso para actualizar esta entrega")
     
-    # 3. Mapear estados del frontend a estados del sistema
     status_mapping = {
         "EN_PICKUP": DeliveryStatus.EN_PICKUP,
         "EN_ROUTE": DeliveryStatus.EN_ROUTE,
@@ -837,7 +799,6 @@ async def update_delivery_status(
     if not new_status:
         raise HTTPException(status_code=400, detail=f"Estado inválido: {body.status}")
     
-    # 4. Validar transiciones de estado permitidas
     allowed_transitions = {
         DeliveryStatus.INICIADA: [DeliveryStatus.EN_PICKUP, DeliveryStatus.EN_ROUTE],
         DeliveryStatus.EN_PICKUP: [DeliveryStatus.EN_ROUTE],
@@ -853,14 +814,13 @@ async def update_delivery_status(
                 detail=f"No se puede cambiar de {current_status.value} a {new_status.value}. Transiciones validas: {[s.value for s in allowed_transitions[current_status]]}"
             )
     
-    now = datetime.now(timezone.utc).replace(tzinfo=None)  # Naive UTC para compatibilidad con PostgreSQL TIMESTAMP WITHOUT TIME ZONE
+    # CORRECCIÓN CRÍTICA: Usar fecha naive para compatibilidad con PostgreSQL TIMESTAMP WITHOUT TIME ZONE
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     
-    # 5. Ejecutar actualización según el nuevo estado
     if new_status == DeliveryStatus.EN_PICKUP:
         delivery.status = DeliveryStatus.EN_PICKUP
         delivery.arrived_pickup_at = now
         
-        # Actualizar orden padre
         order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
         order = order_result.scalar_one_or_none()
         if order:
@@ -874,7 +834,6 @@ async def update_delivery_status(
             delivery.current_latitude = body.lat
             delivery.current_longitude = body.lng
             
-        # Actualizar orden padre
         order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
         order = order_result.scalar_one_or_none()
         if order:
@@ -884,14 +843,12 @@ async def update_delivery_status(
         delivery.status = DeliveryStatus.EN_DESTINO
         delivery.arrived_delivery_at = now
         
-        # Actualizar orden padre
         order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
         order = order_result.scalar_one_or_none()
         if order:
             order.status = OrderStatus.EN_RUTA
         
     elif new_status == DeliveryStatus.COMPLETADA:
-        # Reutilizar lógica de completado
         if body.otp_code and delivery.proof_otp and body.otp_code != delivery.proof_otp:
             raise HTTPException(status_code=400, detail="Código OTP incorrecto")
         
@@ -903,38 +860,54 @@ async def update_delivery_status(
             delivery.current_latitude = body.lat
             delivery.current_longitude = body.lng
         
-        # Cálculo de SLA
         if delivery.started_at:
-            elapsed_minutes = max(0, int((now - delivery.started_at).total_seconds() / 60))
+            # Asegurar que started_at sea naive si viene con tzinfo para la resta
+            start_time = delivery.started_at
+            if start_time.tzinfo is not None:
+                start_time = start_time.replace(tzinfo=None)
+            
+            elapsed_minutes = max(0, int((now - start_time).total_seconds() / 60))
             delivery.sla_actual_minutes = elapsed_minutes
             if delivery.sla_expected_minutes is not None:
                 delivery.sla_compliant = elapsed_minutes <= delivery.sla_expected_minutes
         
-        # Actualizar orden
         order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
         order = order_result.scalar_one_or_none()
         if order:
             order.status = OrderStatus.ENTREGADO
             order.delivered_at = now
         
-        # FASE 1: Crear registro financiero por entrega exitosa
+        # FASE 1 + FASE 3: Crear registro financiero con multiplicador de zona
         idempotency_key = f"pago_entrega_{delivery.order_id}"
         financial_result = await db.execute(select(Financial).where(Financial.idempotency_key == idempotency_key))
         existing_financial = financial_result.scalar_one_or_none()
         
         if not existing_financial and delivery.rider_id:
-            from decimal import Decimal
             settings_result = await db.execute(
                 select(PlatformSetting.value).where(PlatformSetting.key == "rider_delivery_bonus")
             )
             bonus_value = settings_result.scalar_one_or_none()
             base_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("2.50")
             
+            # FASE 3: Obtener multiplicador de la zona del rider
+            multiplier = Decimal("1.0")
+            rider_obj = await _get_rider_for_user(db, rider.id)
+            
+            if rider_obj and rider_obj.zone_id:
+                zone_result = await db.execute(
+                    select(Zone.bonus_multiplier).where(Zone.id == rider_obj.zone_id)
+                )
+                zone_mult = zone_result.scalar_one_or_none()
+                if zone_mult is not None:
+                    multiplier = Decimal(str(zone_mult))
+            
+            final_payment = base_payment * multiplier
+            
             financial = Financial(
                 rider_id=delivery.rider_id,
-                amount=base_payment,
+                amount=final_payment,
                 transaction_type=TransactionType.PAGO_ENTREGA,
-                description=f"Pago por entrega de orden {order.external_id if order else delivery.order_id}",
+                description=f"Pago por entrega (Orden {order.external_id if order else delivery.order_id}) - Mult. Zona: {multiplier}",
                 reference_id=str(order.id) if order else str(delivery.order_id),
                 source_type="delivery",
                 source_id=str(delivery.id),
@@ -942,10 +915,9 @@ async def update_delivery_status(
                 status=PaymentStatus.PROCESADO,
             )
             db.add(financial)
-            logger.info(f"Registro financiero creado para entrega {delivery.id} - Rider {delivery.rider_id} - Bono: {base_payment}")
+            logger.info(f"Pago calculado: Base {base_payment} * Mult {multiplier} = {final_payment}")
             
     elif new_status == DeliveryStatus.FALLIDA:
-        # FASE 2: Reutilizar lógica de fallo
         if not body.issue_type:
             raise HTTPException(status_code=400, detail="El motivo del fallo es requerido")
         
@@ -954,7 +926,6 @@ async def update_delivery_status(
         delivery.issue_type = body.issue_type
         delivery.issue_description = body.issue_description
         
-        # Actualizar orden
         order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
         order = order_result.scalar_one_or_none()
         if order:
@@ -964,7 +935,6 @@ async def update_delivery_status(
         
         # FASE 2: Crear registro financiero por intento fallido si corresponde
         if delivery.rider_id:
-            from decimal import Decimal
             customer_fault_reasons = ["cliente_no_esta", "direccion_incorrecta", "cliente_rechaza", "otro_cliente"]
             should_pay_rider = body.issue_type.lower() in customer_fault_reasons
             
@@ -994,11 +964,9 @@ async def update_delivery_status(
                     db.add(financial)
                     logger.info(f"Registro financiero creado para entrega fallida {delivery.id} - Rider {delivery.rider_id} - Bono: {failed_payment}")
     
-    # Guardar cambios
     await db.flush()
     await db.commit()
     
-    # Refresh y serialización
     await db.refresh(delivery, attribute_names=['rider', 'order'])
     if delivery.rider:
         await db.refresh(delivery.rider, attribute_names=['user'])
