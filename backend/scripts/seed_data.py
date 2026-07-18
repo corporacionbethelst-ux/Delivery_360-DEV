@@ -216,8 +216,14 @@ async def seed_zones(db: AsyncSession) -> List[Zone]:
 
 
 async def seed_platform_settings(db: AsyncSession, zones: List[Zone]):
-    """Seed persisted platform settings used by the admin settings module."""
-    print("⚙️ Sembrando configuración global de plataforma...")
+    """Seed persisted platform settings used by the admin settings module.
+    
+    Includes Fases 1, 2 y 3:
+    - Fase 1: Bono por entrega exitosa (rider_delivery_bonus)
+    - Fase 2: Bono por intento fallido (rider_failed_attempt_bonus)
+    - Configuraciones adicionales de plataforma
+    """
+    print("⚙️ Sembrando configuración global de plataforma (Fases 1, 2 y 3)...")
 
     admin_result = await db.execute(
         select(User).where(User.role.in_([UserRole.SUPERADMIN, UserRole.GERENTE])).order_by(User.created_at.asc())
@@ -226,6 +232,17 @@ async def seed_platform_settings(db: AsyncSession, zones: List[Zone]):
     active_zone_names = [zone.name for zone in zones if getattr(zone, "is_active", True)] or ["Norte", "Sur", "Centro"]
 
     setting_defs = {
+        # FASE 1: Bono por entrega exitosa (2500 COP)
+        "rider_delivery_bonus": {
+            "value": "2500",  # String como JSON, valor en COP
+            "description": "Bono en COP por cada entrega completada exitosamente (Fase 1).",
+        },
+        # FASE 2: Bono por intento fallido (culpa del cliente) (1500 COP)
+        "rider_failed_attempt_bonus": {
+            "value": "1500",  # String como JSON, valor en COP
+            "description": "Bono en COP por intento de entrega fallido por causa del cliente (Fase 2).",
+        },
+        # Configuraciones existentes
         "delivery_fee_base": {
             "value": 5000,
             "description": "Tarifa base de envío usada para pruebas operativas.",
@@ -276,6 +293,57 @@ async def seed_platform_settings(db: AsyncSession, zones: List[Zone]):
 
     await db.commit()
     print(f"   ✅ {created} configuraciones creadas / {updated_descriptions} descripciones actualizadas.")
+
+
+async def seed_zones_with_multipliers(db: AsyncSession):
+    """Actualiza las zonas con multiplicadores por defecto (FASE 3).
+    
+    Define multiplicadores geográficos para bonos de repartidores:
+    - NORTE: 1.5x (zona lejana/peligrosa: +50%)
+    - SUR: 1.2x (zona media: +20%)
+    - CENTRO: 1.0x (zona estándar: precio base)
+    - ZONA G: 1.3x (zona compleja: +30%)
+    """
+    print("📍 Sembrando multiplicadores de bono en zonas (Fase 3)...")
+    
+    # Definición de zonas ejemplo con sus multiplicadores
+    zones_update = {
+        "NRT": 1.5,    # Zona Norte: lejana/peligrosa: +50%
+        "SUR": 1.2,    # Zona Sur: media: +20%
+        "CTR": 1.0,    # Zona Centro: estándar: precio base
+        "ZNG": 1.3,    # Zona G: compleja: +30%
+    }
+
+    updated = 0
+    created = 0
+    for code, multiplier in zones_update.items():
+        stmt = select(Zone).where(Zone.code == code)
+        result = await db.execute(stmt)
+        zone = result.scalar_one_or_none()
+        
+        if zone:
+            zone.bonus_multiplier = multiplier
+            print(f"   📍 Zone {zone.name} ({code}) set to multiplier x{multiplier}")
+            updated += 1
+        else:
+            # Opcional: Crear la zona si no existe (ajusta los campos requeridos)
+            new_zone = Zone(
+                id=uuid.uuid4(),
+                name=f"Zona {code}",
+                code=code,
+                description=f"Zona de operación {code} con multiplicador {multiplier}",
+                delivery_fee_base=5000.0,
+                cost_per_km=1000.0,
+                is_active=True,
+                bonus_multiplier=multiplier,
+                color_hex="#6b7280"
+            )
+            db.add(new_zone)
+            print(f"   ✅ Created new zone: {code} with multiplier x{multiplier}")
+            created += 1
+
+    await db.commit()
+    print(f"   ✅ {updated} zonas actualizadas / {created} zonas creadas con multiplicadores.")
 
 
 async def seed_riders(db: AsyncSession, zones: List[Zone], count: int = 15) -> List[Rider]:
@@ -1161,6 +1229,10 @@ async def main():
             users = await seed_users(db)
             zones = await seed_zones(db)
             await seed_platform_settings(db, zones)
+            
+            # FASE 3: Sembrar multiplicadores de bono en zonas
+            await seed_zones_with_multipliers(db)
+            
             riders = await seed_riders(db, zones)
             
             # NUEVO: Sembrar vehículos después de tener usuarios y riders
@@ -1183,7 +1255,11 @@ async def main():
             print("   - Entregas activas con GPS para /operator/live-map")
             print("   - Turnos demo para /operator/shifts")
             print("   - Alertas Operacionales Reales para usuarios operativos")
-            print("   - Configuración global, retiros e historial/auditoría demo")
+            print("   - Configuración global (Fases 1, 2, 3):")
+            print("     * rider_delivery_bonus = 2500 COP")
+            print("     * rider_failed_attempt_bonus = 1500 COP")
+            print("     * bonus_multiplier en zonas (NRT=1.5x, SUR=1.2x, etc.)")
+            print("   - Retiros e historial/auditoría demo")
             
         except Exception as e:
             await db.rollback()
