@@ -1,5 +1,5 @@
 """Servicio canónico para operaciones contables de Delivery360."""
-
+ 
 import logging
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
