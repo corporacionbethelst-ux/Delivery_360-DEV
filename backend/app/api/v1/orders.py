@@ -697,23 +697,29 @@ async def _ensure_delivery_and_financial_records(db: AsyncSession, order: Order,
 
 async def _ensure_delivery_record_on_assignment(db: AsyncSession, order: Order, rider_id: uuid.UUID) -> None:
     """
-    Crea el registro en la tabla deliveries cuando se asigna un repartidor a una orden.
+    Crea o actualiza el registro en la tabla deliveries cuando se asigna/reasigna un repartidor a una orden.
     
     Esto asegura que toda orden asignada tenga trazabilidad desde el inicio,
     permitiendo que aparezca en la vista de auditoría del manager incluso antes
     de ser completada.
+    
+    En caso de REASIGNACIÓN (cambio de rider):
+    - Actualiza delivery.rider_id al nuevo rider
+    - Reinicia el estado a INICIADA para que el nuevo rider comience el flujo
+    - Limpia timestamps anteriores (started_at, arrived_pickup_at, etc.)
     """
     # Verificar si ya existe un registro de entrega para esta orden
     delivery_result = await db.execute(select(Delivery).where(Delivery.order_id == order.id))
     delivery = delivery_result.scalar_one_or_none()
     
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    
     if not delivery:
-        # Crear registro de entrega en estado INICIADA/PENDIENTE
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        # Crear registro de entrega en estado INICIADA
         delivery = Delivery(
             order_id=order.id,
             rider_id=rider_id,
-            status=DeliveryStatus.INICIADA,  # Estado inicial cuando se asigna
+            status=DeliveryStatus.INICIADA,
             started_at=order.accepted_at or now,
             sla_expected_minutes=getattr(order, 'sla_minutes', 60),
         )
@@ -721,13 +727,32 @@ async def _ensure_delivery_record_on_assignment(db: AsyncSession, order: Order, 
         await db.flush()
         logger.info(f"Registro de entrega creado al asignar rider para orden {order.id} - Rider {rider_id}")
     else:
-        # Si ya existe pero no tiene rider_id, actualizarlo
-        if not delivery.rider_id:
+        # DETECTAR REASIGNACIÓN: Si el rider_id es diferente al actual
+        old_rider_id = delivery.rider_id
+        is_reassignment = old_rider_id is not None and old_rider_id != rider_id
+        
+        if is_reassignment:
+            # REASIGNACIÓN: Actualizar rider y reiniciar estado de la entrega
+            logger.info(f"Reasignación detectada: Orden {order.id} pasa de rider {old_rider_id} a {rider_id}")
             delivery.rider_id = rider_id
             delivery.status = DeliveryStatus.INICIADA
-            delivery.started_at = order.accepted_at or datetime.now(timezone.utc).replace(tzinfo=None)
-            await db.flush()
-            logger.info(f"Registro de entrega actualizado con rider para orden {order.id}")
+            delivery.started_at = order.accepted_at or now
+            # Limpiar timestamps de etapas posteriores para que el nuevo rider comience limpio
+            delivery.arrived_pickup_at = None
+            delivery.left_pickup_at = None
+            delivery.arrived_delivery_at = None
+            delivery.completed_at = None
+            delivery.issue_type = None
+            delivery.issue_description = None
+            delivery.has_issues = False
+        elif not delivery.rider_id:
+            # Primera asignación (no había rider antes)
+            delivery.rider_id = rider_id
+            delivery.status = DeliveryStatus.INICIADA
+            delivery.started_at = order.accepted_at or now
+        
+        await db.flush()
+        logger.info(f"Registro de entrega {'reasignado' if is_reassignment else 'actualizado'} con rider para orden {order.id}")
 
 @router.patch("/{order_id}/cancel")
 async def cancel_order(
