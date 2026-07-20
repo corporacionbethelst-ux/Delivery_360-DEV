@@ -5,6 +5,7 @@ from datetime import datetime
 import uuid
 import re
 from typing import Optional, List, Tuple
+from sqlalchemy import select
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
@@ -14,9 +15,8 @@ from app.models.order import OrderStatus
 from app.schemas.delivery import ProofOfDeliveryCreate
 from app.crud.delivery import delivery as delivery_crud
 from app.crud.order import order as order_crud
-# Importaciones necesarias para la lógica de bonos y settings
-from app.crud.settings import settings as settings_crud
-from app.services.finance_service import finance_service 
+from app.models.platform_setting import PlatformSetting
+from app.services.financial_service import FinancialService 
 from app.models.rider import Rider
 
 class DeliveryService:
@@ -91,29 +91,33 @@ class DeliveryService:
     ) -> None:
         """Registra el bono por entrega fallida si la configuración lo permite"""
         try:
-            # Obtener el valor del setting
-            bonus_setting = await settings_crud.get_by_key(db, "rider_failed_attempt_bonus")
+            # Obtener el valor del setting desde la BD
+            result = await db.execute(
+                select(PlatformSetting.value).where(PlatformSetting.key == "rider_failed_attempt_bonus")
+            )
+            bonus_value = result.scalar_one_or_none()
             
-            if not bonus_setting or not bonus_setting.value:
+            if not bonus_value:
                 print(f"[WARNING] Setting 'rider_failed_attempt_bonus' no encontrado o vacío.")
                 return
 
-            bonus_amount = float(bonus_setting.value)
+            bonus_amount = float(bonus_value)
             
             if bonus_amount <= 0:
                 return
 
-            # Obtener datos del rider para el ledger
-            rider = db.get(Rider, rider_id) # O usar un CRUD async si es necesario
-            
-            # Registrar en el ledger financiero
-            await finance_service.add_transaction(
-                db=db,
-                user_id=rider_id,
+            # Crear instancia del servicio financiero y registrar en el ledger
+            from app.models.financial import TransactionType, PaymentStatus
+            financial_svc = FinancialService(db)
+            await financial_svc.create_transaction(
+                rider_id=str(rider_id),
                 amount=bonus_amount,
-                transaction_type="BONO_FALLIDA",
+                transaction_type=TransactionType.PAGO_INTENTO_FALLIDO,
                 description=f"Bono por entrega fallida ({reason}). ID Entrega: {str(delivery_id)[:8]}",
-                reference_id=str(delivery_id)
+                reference_id=str(delivery_id),
+                source_type="delivery_failed",
+                source_id=str(delivery_id),
+                status=PaymentStatus.PROCESADO,
             )
             
             print(f"[INFO] Bono de ${bonus_amount} asignado al rider {rider_id} por entrega fallida externa.")
