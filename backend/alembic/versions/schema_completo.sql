@@ -122,6 +122,7 @@ CREATE TABLE orders (
     sla_deadline TIMESTAMP,
     failure_reason VARCHAR(255),
     failure_notes TEXT,
+    failure_cause_external BOOLEAN,  -- True si la causa fue externa (cliente/comercio), False si fue culpa del rider
     cancelled_by VARCHAR(50),
     cancellation_reason TEXT,
     source VARCHAR(50),
