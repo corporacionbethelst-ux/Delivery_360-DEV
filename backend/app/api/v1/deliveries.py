@@ -941,10 +941,16 @@ async def update_delivery_status(
         if not body.issue_type:
             raise HTTPException(status_code=400, detail="El motivo del fallo es requerido")
         
+        # Analizar la causa usando el analizador de texto para determinar si hay bono
+        analysis = DeliveryIssueAnalyzer.analyze(body.issue_description)
+        is_external_cause = analysis["is_external_fault"]
+        analysis_reason = analysis["reason"]
+        
         delivery.status = DeliveryStatus.FALLIDA
         delivery.has_issues = True
         delivery.issue_type = body.issue_type
         delivery.issue_description = body.issue_description
+        delivery.issue_analysis_result = analysis_reason if hasattr(delivery, 'issue_analysis_result') else body.issue_description
         
         order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
         order = order_result.scalar_one_or_none()
@@ -954,9 +960,13 @@ async def update_delivery_status(
             order.failure_notes = body.issue_description
         
         # FASE 2: Crear registro financiero por intento fallido si corresponde
+        bonus_applied = False
+        bonus_amount = Decimal("0.00")
+        
         if delivery.rider_id:
+            # Determinar si se debe pagar: usa issue_type O el análisis de texto
             customer_fault_reasons = ["cliente_no_esta", "direccion_incorrecta", "cliente_rechaza", "otro_cliente"]
-            should_pay_rider = body.issue_type.lower() in customer_fault_reasons
+            should_pay_rider = body.issue_type.lower() in customer_fault_reasons or is_external_cause
             
             if should_pay_rider:
                 idempotency_key = f"pago_fallido_{delivery.order_id}"
@@ -968,13 +978,13 @@ async def update_delivery_status(
                         select(PlatformSetting.value).where(PlatformSetting.key == "rider_failed_attempt_bonus")
                     )
                     bonus_value = settings_result.scalar_one_or_none()
-                    failed_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("1.00")
+                    failed_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("1500.00")
                     
                     financial = Financial(
                         rider_id=delivery.rider_id,
                         amount=failed_payment,
                         transaction_type=TransactionType.PAGO_INTENTO_FALLIDO,
-                        description=f"Pago por intento fallido (orden {order.external_id if order else delivery.order_id}) - Motivo: {body.issue_type}",
+                        description=f"Pago por intento fallido (orden {order.external_id if order else delivery.order_id}) - Motivo: {body.issue_type}. Análisis: {analysis_reason}",
                         reference_id=str(order.id) if order else str(delivery.order_id),
                         source_type="delivery_failed",
                         source_id=str(delivery.id),
@@ -982,6 +992,8 @@ async def update_delivery_status(
                         status=PaymentStatus.PROCESADO,
                     )
                     db.add(financial)
+                    bonus_applied = True
+                    bonus_amount = failed_payment
                     logger.info(f"Registro financiero creado para entrega fallida {delivery.id} - Rider {delivery.rider_id} - Bono: {failed_payment}")
     
     await db.flush()
@@ -1004,4 +1016,11 @@ async def update_delivery_status(
     res = await db.execute(final_stmt)
     d_row, r_row, u_row, o_row = res.first()
     
-    return _serialize_delivery(d_row, r_row, u_row, o_row)
+    # Serializar y agregar información del bono aplicado si es estado FALLIDA
+    response_data = _serialize_delivery(d_row, r_row, u_row, o_row)
+    if new_status == DeliveryStatus.FALLIDA:
+        response_data["bonus_applied"] = bonus_applied
+        response_data["bonus_amount"] = float(bonus_amount) if bonus_applied else 0.0
+        response_data["issue_analysis"] = analysis if 'analysis' in locals() else None
+    
+    return response_data
