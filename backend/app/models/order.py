@@ -75,6 +75,7 @@ class Order(Base):
     
     failure_reason = Column(String(255))
     failure_notes = Column(Text)
+    failure_cause_external = Column(Boolean)  # True si la causa fue externa (cliente/comercio), False si fue culpa del rider
     cancelled_by = Column(String(50))
     cancellation_reason = Column(Text)
     source = Column(String(50), default="app")

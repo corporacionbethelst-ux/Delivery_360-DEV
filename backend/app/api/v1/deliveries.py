@@ -31,6 +31,7 @@ from app.services.notification_service import NotificationService
 from app.services.redis_audit_service import get_redis_audit_logger
 from app.services.audit_service import get_audit_service
 from app.models.audit_log import ActionType
+from app.utils.delivery_analysis import DeliveryIssueAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -630,10 +631,17 @@ async def fail_delivery(
     if delivery.status not in allowed_statuses:
         raise HTTPException(status_code=400, detail=f"Estado inválido para fallar: {delivery.status.value}")
 
+    # Analizar la causa usando el analizador de texto
+    analysis = DeliveryIssueAnalyzer.analyze(body.issue_description)
+    is_external_cause = analysis["is_external_fault"]
+    analysis_reason = analysis["reason"]
+    
     delivery.status = DeliveryStatus.FALLIDA
     delivery.has_issues = True
     delivery.issue_type = body.issue_type
     delivery.issue_description = body.issue_description
+    # Guardar el resultado del análisis en la descripción o campo dedicado si existe
+    delivery.issue_analysis_result = analysis_reason if hasattr(delivery, 'issue_analysis_result') else body.issue_description
 
     order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
     order = order_result.scalar_one_or_none()
@@ -642,9 +650,13 @@ async def fail_delivery(
         order.failure_reason = body.issue_type
         order.failure_notes = body.issue_description
 
+    bonus_applied = False
+    bonus_amount = Decimal("0.00")
+    
     if delivery.rider_id:
+        # Determinar si se debe pagar: usa issue_type O el análisis de texto
         customer_fault_reasons = ["cliente_no_esta", "direccion_incorrecta", "cliente_rechaza", "otro_cliente"]
-        should_pay_rider = body.issue_type.lower() in customer_fault_reasons
+        should_pay_rider = body.issue_type.lower() in customer_fault_reasons or is_external_cause
         
         if should_pay_rider:
             idempotency_key = f"pago_fallido_{delivery.order_id}"
@@ -659,13 +671,13 @@ async def fail_delivery(
                     select(PlatformSetting.value).where(PlatformSetting.key == "rider_failed_attempt_bonus")
                 )
                 bonus_value = settings_result.scalar_one_or_none()
-                failed_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("1.00")
+                failed_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("1500.00")
                 
                 financial = Financial(
                     rider_id=delivery.rider_id,
                     amount=failed_payment,
                     transaction_type=TransactionType.PAGO_INTENTO_FALLIDO,
-                    description=f"Pago por intento fallido (orden {order.external_id if order else delivery.order_id}) - Motivo: {body.issue_type}",
+                    description=f"Pago por intento fallido (orden {order.external_id if order else delivery.order_id}) - Motivo: {body.issue_type}. Análisis: {analysis_reason}",
                     reference_id=str(order.id) if order else str(delivery.order_id),
                     source_type="delivery_failed",
                     source_id=str(delivery.id),
@@ -673,6 +685,8 @@ async def fail_delivery(
                     status=PaymentStatus.PROCESADO,
                 )
                 db.add(financial)
+                bonus_applied = True
+                bonus_amount = failed_payment
                 logger.info(f"Registro financiero creado para entrega fallida {delivery.id} - Rider {delivery.rider_id} - Bono: {failed_payment}")
 
     await db.commit()
@@ -694,7 +708,13 @@ async def fail_delivery(
     res = await db.execute(final_stmt)
     d_row, r_row, u_row, o_row = res.first()
     
-    return _serialize_delivery(d_row, r_row, u_row, o_row)
+    # Serializar y agregar información del bono aplicado
+    response_data = _serialize_delivery(d_row, r_row, u_row, o_row)
+    response_data["bonus_applied"] = bonus_applied
+    response_data["bonus_amount"] = float(bonus_amount) if bonus_applied else 0.0
+    response_data["issue_analysis"] = analysis
+    
+    return response_data
 
 
 @router.patch("/{delivery_id}/location")
