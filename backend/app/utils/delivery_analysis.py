@@ -46,7 +46,7 @@ class DeliveryIssueAnalyzer:
         text_lower = text.lower()
 
         # 1. Detectar Culpa del Repartidor (Prioridad alta para descartar pago)
-        for fault in RiderFaults.RIDER_FAULTS:
+        for fault in DeliveryIssueAnalyzer.RIDER_FAULTS:
             if fault in text_lower:
                 return {
                     "is_external_fault": False,
@@ -71,6 +71,3 @@ class DeliveryIssueAnalyzer:
             "reason": "No se detectaron patrones claros de causa externa. Requiere revisión manual.",
             "confidence": "low"
         }
-
-# Alias para compatibilidad interna
-RiderFaults = DeliveryIssueAnalyzer

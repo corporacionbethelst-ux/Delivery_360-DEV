@@ -69,6 +69,7 @@ class Delivery(Base):
     issue_type = Column(String(50))
     issue_description = Column(Text)
     issue_resolved = Column(Boolean, default=False)
+    issue_analysis_result = Column(Text)  # Resultado del análisis de causa (externa/interna)
     
     time_to_pickup = Column(Integer)
     time_at_pickup = Column(Integer)
