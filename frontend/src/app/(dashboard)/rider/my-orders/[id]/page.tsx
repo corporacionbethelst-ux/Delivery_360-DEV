@@ -168,13 +168,18 @@ export default function RiderOrderDetailPage() {
 
     setActionLoading(newStatus);
     try {
-      const payload: any = { status: newStatus };
-      if (reason) {
-        payload.issue_type = reason;
-        payload.issue_description = reason;
+      // Si es estado FALLIDA, usar el endpoint especializado /fail que incluye análisis de texto y bono
+      if (newStatus === DeliveryStatus.FALLIDA) {
+        await deliveryService.failDelivery(delivery.id, reason || 'no_specified', reason || '');
+      } else {
+        const payload: any = { status: newStatus };
+        if (reason) {
+          payload.issue_type = reason;
+          payload.issue_description = reason;
+        }
+        await deliveryService.updateStatus(delivery.id, payload);
       }
-
-      await deliveryService.updateStatus(delivery.id, payload);
+      
       await loadOrderData();
       
       alert(`Estado actualizado correctamente a: ${newStatus}`);

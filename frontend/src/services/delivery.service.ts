@@ -206,6 +206,34 @@ export const deliveryService = {
     }
   },
 
+  /**
+   * Reportar una entrega como fallida con descripción detallada.
+   * Usa el endpoint POST /deliveries/{id}/fail que incluye análisis de causa y bono automático.
+   * @param id - ID de la entrega
+   * @param issue_type - Tipo de incidencia (ej: "cliente_no_esta", "direccion_incorrecta")
+   * @param issue_description - Descripción detallada en texto libre
+   * @returns La entrega actualizada con información del bono aplicado
+   */
+  failDelivery: async (
+    id: string, 
+    issue_type: string, 
+    issue_description: string
+  ): Promise<Delivery & { bonus_applied?: boolean; bonus_amount?: number; issue_analysis?: any }> => {
+    if (!id) throw new Error('[DeliveryService] ID de entrega requerido');
+    if (!issue_type) throw new Error('[DeliveryService] Tipo de incidencia requerido');
+    
+    try {
+      return await api.post<Delivery & { bonus_applied?: boolean; bonus_amount?: number; issue_analysis?: any }>(
+        `/deliveries/${id}/fail`, 
+        { issue_type, issue_description }
+      );
+    } catch (error: unknown) {
+      console.error('[DeliveryService] Error reporting failed delivery:', error);
+      const axiosError = isAxiosError(error) ? error : null;
+      throw new Error(axiosError?.response?.data?.detail || 'No se pudo reportar la entrega fallida');
+    }
+  },
+
   getActiveTracking: async (): Promise<Delivery[]> => {
      try {
        // CORRECCIÓN: api.get devuelve los datos directamente
