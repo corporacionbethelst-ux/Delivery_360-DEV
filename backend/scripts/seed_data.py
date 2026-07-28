@@ -62,19 +62,24 @@ async def ensure_transaction_types(db: AsyncSession):
     
     for tx_type in required_types:
         try:
+            # Validación estricta del valor antes de interpolación (seguridad)
+            if not tx_type.isupper() or not tx_type.replace('_', '').isalnum():
+                raise ValueError(f"Tipo de transacción inválido: {tx_type}")
+            
             # Usamos DO $$ ... END $$ para ejecutar un bloque anónimo de PL/pgSQL
             # que intenta agregar el valor y lo ignora si ya existe
-            sql = text("""
+            # NOTA: No podemos usar parámetros ($1) en bloques DO, usamos interpolación segura
+            sql = text(f"""
                 DO $$
                 BEGIN
-                    ALTER TYPE transactiontype ADD VALUE :new_value;
+                    ALTER TYPE transactiontype ADD VALUE '{tx_type}';
                 EXCEPTION
                     WHEN duplicate_object THEN NULL;
                     WHEN undefined_object THEN NULL;
                 END
                 $$;
             """)
-            await db.execute(sql, {"new_value": tx_type})
+            await db.execute(sql)
             await db.commit()
             print(f"   ✅ Tipo '{tx_type}' verificado/creado exitosamente.")
         except Exception as e:
