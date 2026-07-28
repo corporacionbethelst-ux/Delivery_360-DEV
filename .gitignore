@@ -1,3 +1,25 @@
-The input shows only a modification to the `.gitignore` file itself, with no other file changes provided in the lists. Since there are no actual project files being added, deleted, or modified that would suggest specific ignore patterns, and the current `.gitignore` content is not provided in the input, I cannot determine what specific patterns to include or preserve.
+```
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 
-Therefore, the output is empty as no specific ignore rules can be determined from the given information.
+# Dependencies
+.venv/
+venv/
+env/
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+```

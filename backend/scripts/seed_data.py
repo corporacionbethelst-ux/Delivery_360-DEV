@@ -37,6 +37,52 @@ DATABASE_URL = str(settings.DATABASE_URL).replace("postgresql://", "postgresql+a
 engine = create_async_engine(DATABASE_URL, echo=False)
 AsyncSessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
+
+# ==========================================
+# FUNCIONES AUXILIARES DE CONFIGURACIÓN DB
+# ==========================================
+
+async def ensure_transaction_types(db: AsyncSession):
+    """
+    Asegura que todos los tipos de transacción requeridos existan en el ENUM transactiontype.
+    
+    Esta función es idempotente y maneja correctamente el caso donde el valor ya existe,
+    evitando errores de duplicado mediante un bloque PL/pgSQL con excepción.
+    """
+    print("🔧 Verificando tipos de transacción en ENUM transactiontype...")
+    
+    required_types = [
+        'PAGO_ENTREGA',
+        'PAGO_INTENTO_FALLIDO',
+        'AJUSTE_MANUAL',
+        'BONO_RENDIMIENTO',
+        'RETIRO',
+        'PENALIZACION'
+    ]
+    
+    for tx_type in required_types:
+        try:
+            # Usamos DO $$ ... END $$ para ejecutar un bloque anónimo de PL/pgSQL
+            # que intenta agregar el valor y lo ignora si ya existe
+            sql = text("""
+                DO $$
+                BEGIN
+                    ALTER TYPE transactiontype ADD VALUE :new_value;
+                EXCEPTION
+                    WHEN duplicate_object THEN NULL;
+                    WHEN undefined_object THEN NULL;
+                END
+                $$;
+            """)
+            await db.execute(sql, {"new_value": tx_type})
+            await db.commit()
+            print(f"   ✅ Tipo '{tx_type}' verificado/creado exitosamente.")
+        except Exception as e:
+            await db.rollback()
+            print(f"   ⚠️ Advertencia al procesar '{tx_type}': {e}")
+            # Continuamos con el siguiente tipo en lugar de fallar completamente
+
+
 # ==========================================
 # DATOS MAESTROS REALISTAS
 # ==========================================
@@ -1226,6 +1272,9 @@ async def main():
     print("🚀 INICIANDO SEED DATA AVANZADO (CON ZONAS, VEHÍCULOS Y ALERTAS)")
     async with AsyncSessionLocal() as db:
         try:
+            # Asegurar que los tipos de transacción existan antes de cualquier inserción
+            await ensure_transaction_types(db)
+            
             users = await seed_users(db)
             zones = await seed_zones(db)
             await seed_platform_settings(db, zones)
