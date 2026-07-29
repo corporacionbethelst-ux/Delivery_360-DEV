@@ -1,7 +1,7 @@
 """add delivery_failure_cause enum to deliveries
 
-Revision ID: 20260728
-Revises: 20260612_add_issue_analysis_result_to_deliveries
+Revision ID: 20260613
+Revises: 20260612
 Create Date: 2026-07-28
 
 """
@@ -9,8 +9,8 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision = '20260728'
-down_revision = '20260612_add_issue_analysis_result_to_deliveries'
+revision = '20260613'
+down_revision = '20260612'
 branch_labels = None
 depends_on = None
 
