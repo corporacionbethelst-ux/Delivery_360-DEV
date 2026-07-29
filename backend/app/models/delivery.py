@@ -27,6 +27,30 @@ class ProofType(str, enum.Enum):
     OTP = "OTP"
     NINGUNO = "NINGUNO"
 
+class DeliveryFailureCause(str, enum.Enum):
+    """
+    Causas estandarizadas para entregas fallidas.
+    Determina automáticamente si el repartidor recibe bono por intento fallido.
+    """
+    # === CAUSAS EXTERNAS (BONIFICABLES - 1500 COP) ===
+    CLIENTE_NO_ESTA = "CLIENTE_NO_ESTA"
+    CLIENTE_NO_CONTESTA = "CLIENTE_NO_CONTESTA"
+    DIRECCION_INCORRECTA = "DIRECCION_INCORRECTA"
+    DIRECCION_NO_EXISTE = "DIRECCION_NO_EXISTE"
+    COMERCIO_CERRADO = "COMERCIO_CERRADO"
+    CLIENTE_RECHAZA = "CLIENTE_RECHAZA"
+    ZONA_INSEGURA = "ZONA_INSEGURA"
+    FUERZA_MAYOR = "FUERZA_MAYOR"
+    EDIFICIO_RESTRINGIDO = "EDIFICIO_RESTRINGIDO"
+    
+    # === CAUSAS DEL REPARTIDOR (NO BONIFICABLES) ===
+    REPARTIDOR_NO_QUIERE_ENTREGAR = "REPARTIDOR_NO_QUIERE_ENTREGAR"
+    REPARTIDOR_LLEGO_TARDE = "REPARTIDOR_LLEGO_TARDE"
+    REPARTIDOR_ERROR_PROPIO = "REPARTIDOR_ERROR_PROPIO"
+    REPARTIDOR_VEHICULO_FALLA = "REPARTIDOR_VEHICULO_FALLA"
+    REPARTIDOR_SIN_BATERIA = "REPARTIDOR_SIN_BATERIA"
+    OTRO_REPARTIDOR = "OTRO_REPARTIDOR"
+
 class Delivery(Base):
     __tablename__ = "deliveries"
     __table_args__ = {'extend_existing': True}
@@ -66,7 +90,8 @@ class Delivery(Base):
     customer_name_received = Column(String(255))
     
     has_issues = Column(Boolean, default=False)
-    issue_type = Column(String(50))
+    failure_cause: Any = Column(SQLEnum(DeliveryFailureCause), nullable=True)  # Nuevo campo ENUM estandarizado
+    issue_type = Column(String(50))  # Se mantiene para compatibilidad pero se depreca
     issue_description = Column(Text)
     issue_resolved = Column(Boolean, default=False)
     issue_analysis_result = Column(Text)  # Resultado del análisis de causa (externa/interna)

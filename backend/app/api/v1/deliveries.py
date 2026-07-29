@@ -20,7 +20,7 @@ from sqlalchemy.orm import aliased
 
 from app.api.v1.auth import get_current_user, require_role
 from app.core.database import get_db
-from app.models.delivery import Delivery, DeliveryStatus
+from app.models.delivery import Delivery, DeliveryStatus, DeliveryFailureCause
 from app.models.order import Order, OrderStatus
 from app.models.rider import Rider, RiderStatus
 from app.models.user import User, UserRole
@@ -55,8 +55,8 @@ class DeliveryComplete(BaseModel):
     lng: Optional[float] = None
 
 class DeliveryFail(BaseModel):
-    issue_type: str
-    issue_description: Optional[str] = None
+    failure_cause: str  # Ahora usa el ENUM estandarizado
+    issue_description: Optional[str] = None  # Opcional para contexto adicional
 
 class DeliveryStatusUpdate(BaseModel):
     """Schema para actualizar el estado de una entrega."""
@@ -613,7 +613,7 @@ async def fail_delivery(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Marca la entrega como fallida con razón y crea pago de intento fallido si corresponde."""
+    """Marca la entrega como fallida con razón estandarizada y crea pago de intento fallido si corresponde."""
     result = await db.execute(select(Delivery).where(Delivery.id == _parse_uuid(delivery_id, "delivery_id")))
     delivery = result.scalar_one_or_none()
     if not delivery:
@@ -631,63 +631,67 @@ async def fail_delivery(
     if delivery.status not in allowed_statuses:
         raise HTTPException(status_code=400, detail=f"Estado inválido para fallar: {delivery.status.value}")
 
-    # Analizar la causa usando el analizador de texto
-    analysis = DeliveryIssueAnalyzer.analyze(body.issue_description)
-    is_external_cause = analysis["is_external_fault"]
-    analysis_reason = analysis["reason"]
+    # Validar que la causa sea un ENUM válido
+    try:
+        failure_cause = DeliveryFailureCause(body.failure_cause)
+    except ValueError:
+        valid_causes = [cause.value for cause in DeliveryFailureCause]
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Causa de falla inválida. Debe ser una de: {', '.join(valid_causes)}"
+        )
+    
+    # Determinar si es bonificable usando el property del ENUM
+    is_bonificable = failure_cause.is_bonificable
     
     delivery.status = DeliveryStatus.FALLIDA
     delivery.has_issues = True
-    delivery.issue_type = body.issue_type
-    delivery.issue_description = body.issue_description
-    # Guardar el resultado del análisis en la descripción o campo dedicado si existe
-    delivery.issue_analysis_result = analysis_reason if hasattr(delivery, 'issue_analysis_result') else body.issue_description
+    delivery.failure_cause = failure_cause  # Nuevo campo estandarizado
+    delivery.issue_type = body.failure_cause  # Se mantiene para compatibilidad
+    delivery.issue_description = body.issue_description or ""
+    delivery.issue_analysis_result = f"Causa estandarizada: {failure_cause.value}. Bonificable: {is_bonificable}"
 
     order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
     order = order_result.scalar_one_or_none()
     if order:
         order.status = OrderStatus.FALLIDO
-        order.failure_reason = body.issue_type
-        order.failure_notes = body.issue_description
+        order.failure_reason = body.failure_cause
+        order.failure_notes = body.issue_description or ""
 
     bonus_applied = False
     bonus_amount = Decimal("0.00")
     
-    if delivery.rider_id:
-        # Determinar si se debe pagar: usa issue_type O el análisis de texto
-        customer_fault_reasons = ["cliente_no_esta", "direccion_incorrecta", "cliente_rechaza", "otro_cliente"]
-        should_pay_rider = body.issue_type.lower() in customer_fault_reasons or is_external_cause
+    if delivery.rider_id and is_bonificable:
+        # Ahora la decisión es clara: solo se paga si el ENUM indica que es bonificable
+        idempotency_key = f"pago_fallido_{delivery.order_id}"
         
-        if should_pay_rider:
-            idempotency_key = f"pago_fallido_{delivery.order_id}"
-            
-            financial_result = await db.execute(
-                select(Financial).where(Financial.idempotency_key == idempotency_key)
+        financial_result = await db.execute(
+            select(Financial).where(Financial.idempotency_key == idempotency_key)
+        )
+        existing_financial = financial_result.scalar_one_or_none()
+        
+        if not existing_financial:
+            settings_result = await db.execute(
+                select(PlatformSetting.value).where(PlatformSetting.key == "rider_failed_attempt_bonus")
             )
-            existing_financial = financial_result.scalar_one_or_none()
+            bonus_value = settings_result.scalar_one_or_none()
+            failed_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("1500.00")
             
-            if not existing_financial:
-                settings_result = await db.execute(
-                    select(PlatformSetting.value).where(PlatformSetting.key == "rider_failed_attempt_bonus")
-                )
-                bonus_value = settings_result.scalar_one_or_none()
-                failed_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("1500.00")
-                
-                financial = Financial(
-                    rider_id=delivery.rider_id,
-                    amount=failed_payment,
-                    transaction_type=TransactionType.PAGO_INTENTO_FALLIDO,
-                    description=f"Pago por intento fallido (orden {order.external_id if order else delivery.order_id}) - Motivo: {body.issue_type}. Análisis: {analysis_reason}",
-                    reference_id=str(order.id) if order else str(delivery.order_id),
-                    source_type="delivery_failed",
-                    source_id=str(delivery.id),
-                    idempotency_key=idempotency_key,
-                    status=PaymentStatus.PROCESADO,
-                )
-                db.add(financial)
-                bonus_applied = True
-                bonus_amount = failed_payment
-                logger.info(f"Registro financiero creado para entrega fallida {delivery.id} - Rider {delivery.rider_id} - Bono: {failed_payment}")
+            financial = Financial(
+                rider_id=delivery.rider_id,
+                amount=failed_payment,
+                transaction_type=TransactionType.PAGO_INTENTO_FALLIDO,
+                description=f"Pago por intento fallido (orden {order.external_id if order else delivery.order_id}) - Motivo: {failure_cause.value}",
+                reference_id=str(order.id) if order else str(delivery.order_id),
+                source_type="delivery_failed",
+                source_id=str(delivery.id),
+                idempotency_key=idempotency_key,
+                status=PaymentStatus.PROCESADO,
+            )
+            db.add(financial)
+            bonus_applied = True
+            bonus_amount = failed_payment
+            logger.info(f"Registro financiero creado para entrega fallida {delivery.id} - Rider {delivery.rider_id} - Bono: {failed_payment} - Causa: {failure_cause.value}")
 
     await db.commit()
     
@@ -712,7 +716,8 @@ async def fail_delivery(
     response_data = _serialize_delivery(d_row, r_row, u_row, o_row)
     response_data["bonus_applied"] = bonus_applied
     response_data["bonus_amount"] = float(bonus_amount) if bonus_applied else 0.0
-    response_data["issue_analysis"] = analysis
+    response_data["failure_cause"] = failure_cause.value
+    response_data["is_bonificable"] = is_bonificable
     
     return response_data
 
@@ -938,63 +943,68 @@ async def update_delivery_status(
             logger.info(f"Pago calculado: Base {base_payment} * Mult {multiplier} = {final_payment}")
             
     elif new_status == DeliveryStatus.FALLIDA:
-        if not body.issue_type:
-            raise HTTPException(status_code=400, detail="El motivo del fallo es requerido")
+        # Validar que la causa sea un ENUM válido si se proporciona
+        failure_cause = None
+        is_bonificable = False
         
-        # Analizar la causa usando el analizador de texto para determinar si hay bono
-        analysis = DeliveryIssueAnalyzer.analyze(body.issue_description)
-        is_external_cause = analysis["is_external_fault"]
-        analysis_reason = analysis["reason"]
+        if body.issue_type:
+            try:
+                failure_cause = DeliveryFailureCause(body.issue_type)
+                is_bonificable = failure_cause.is_bonificable
+            except ValueError:
+                # Si no es un ENUM válido, usar el analizador de texto como fallback
+                analysis = DeliveryIssueAnalyzer.analyze(body.issue_description)
+                is_bonificable = analysis["is_external_fault"]
+        
+        if not body.issue_type and not body.issue_description:
+            raise HTTPException(status_code=400, detail="El motivo del fallo o descripción es requerido")
         
         delivery.status = DeliveryStatus.FALLIDA
         delivery.has_issues = True
-        delivery.issue_type = body.issue_type
-        delivery.issue_description = body.issue_description
-        delivery.issue_analysis_result = analysis_reason if hasattr(delivery, 'issue_analysis_result') else body.issue_description
+        if failure_cause:
+            delivery.failure_cause = failure_cause
+        delivery.issue_type = body.issue_type if body.issue_type else "OTRO"
+        delivery.issue_description = body.issue_description or ""
+        delivery.issue_analysis_result = f"Causa: {failure_cause.value if failure_cause else 'Análisis texto'}. Bonificable: {is_bonificable}"
         
         order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
         order = order_result.scalar_one_or_none()
         if order:
             order.status = OrderStatus.FALLIDO
-            order.failure_reason = body.issue_type
-            order.failure_notes = body.issue_description
+            order.failure_reason = body.issue_type if body.issue_type else "OTRO"
+            order.failure_notes = body.issue_description or ""
         
         # FASE 2: Crear registro financiero por intento fallido si corresponde
         bonus_applied = False
         bonus_amount = Decimal("0.00")
         
-        if delivery.rider_id:
-            # Determinar si se debe pagar: usa issue_type O el análisis de texto
-            customer_fault_reasons = ["cliente_no_esta", "direccion_incorrecta", "cliente_rechaza", "otro_cliente"]
-            should_pay_rider = body.issue_type.lower() in customer_fault_reasons or is_external_cause
+        if delivery.rider_id and is_bonificable:
+            idempotency_key = f"pago_fallido_{delivery.order_id}"
+            financial_result = await db.execute(select(Financial).where(Financial.idempotency_key == idempotency_key))
+            existing_financial = financial_result.scalar_one_or_none()
             
-            if should_pay_rider:
-                idempotency_key = f"pago_fallido_{delivery.order_id}"
-                financial_result = await db.execute(select(Financial).where(Financial.idempotency_key == idempotency_key))
-                existing_financial = financial_result.scalar_one_or_none()
+            if not existing_financial:
+                settings_result = await db.execute(
+                    select(PlatformSetting.value).where(PlatformSetting.key == "rider_failed_attempt_bonus")
+                )
+                bonus_value = settings_result.scalar_one_or_none()
+                failed_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("1500.00")
                 
-                if not existing_financial:
-                    settings_result = await db.execute(
-                        select(PlatformSetting.value).where(PlatformSetting.key == "rider_failed_attempt_bonus")
-                    )
-                    bonus_value = settings_result.scalar_one_or_none()
-                    failed_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("1500.00")
-                    
-                    financial = Financial(
-                        rider_id=delivery.rider_id,
-                        amount=failed_payment,
-                        transaction_type=TransactionType.PAGO_INTENTO_FALLIDO,
-                        description=f"Pago por intento fallido (orden {order.external_id if order else delivery.order_id}) - Motivo: {body.issue_type}. Análisis: {analysis_reason}",
-                        reference_id=str(order.id) if order else str(delivery.order_id),
-                        source_type="delivery_failed",
-                        source_id=str(delivery.id),
-                        idempotency_key=idempotency_key,
-                        status=PaymentStatus.PROCESADO,
-                    )
-                    db.add(financial)
-                    bonus_applied = True
-                    bonus_amount = failed_payment
-                    logger.info(f"Registro financiero creado para entrega fallida {delivery.id} - Rider {delivery.rider_id} - Bono: {failed_payment}")
+                financial = Financial(
+                    rider_id=delivery.rider_id,
+                    amount=failed_payment,
+                    transaction_type=TransactionType.PAGO_INTENTO_FALLIDO,
+                    description=f"Pago por intento fallido (orden {order.external_id if order else delivery.order_id}) - Motivo: {failure_cause.value if failure_cause else body.issue_type}",
+                    reference_id=str(order.id) if order else str(delivery.order_id),
+                    source_type="delivery_failed",
+                    source_id=str(delivery.id),
+                    idempotency_key=idempotency_key,
+                    status=PaymentStatus.PROCESADO,
+                )
+                db.add(financial)
+                bonus_applied = True
+                bonus_amount = failed_payment
+                logger.info(f"Registro financiero creado para entrega fallida {delivery.id} - Rider {delivery.rider_id} - Bono: {failed_payment}")
     
     await db.flush()
     await db.commit()
