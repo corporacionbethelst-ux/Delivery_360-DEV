@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { orderService } from "@/services/order.service";
-import { deliveryService } from "@/services/delivery.service";
+import { deliveryService, FailureCause } from "@/services/delivery.service";
 import { Order, Delivery, DeliveryStatus } from "@/types";
 import { 
   Package, 
@@ -19,17 +19,36 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-// Constantes de bonificación (Deberían venir de configuración, pero usamos defaults seguros)
+// Constantes de bonificación (Defaults seguros si falla la configuración)
 const DEFAULT_SUCCESS_BONUS = 2500; // COP
 const DEFAULT_FAILED_BONUS = 1500;  // COP
 
-// Motivos de fallo que generan pago al repartidor (Culpa del cliente)
-const CUSTOMER_FAULT_REASONS = [
-  "cliente_no_esta", 
-  "direccion_incorrecta", 
-  "cliente_rechaza", 
-  "otro_cliente",
-  "negocio_cerrado" // A veces también se paga
+// Definición completa de causas estandarizadas
+interface FailureOption {
+  value: FailureCause;
+  label: string;
+  bonificable: boolean;
+}
+
+const FAILURE_CAUSES: FailureOption[] = [
+  // --- Causas Bonificables (Culpa del Cliente / Externas) ---
+  { value: "CLIENTE_NO_ESTA", label: "El cliente no estaba en el lugar", bonificable: true },
+  { value: "CLIENTE_NO_CONTESTA", label: "El cliente no contesta llamadas/timbre", bonificable: true },
+  { value: "DIRECCION_INCORRECTA", label: "La dirección proporcionada es incorrecta", bonificable: true },
+  { value: "DIRECCION_NO_EXISTE", label: "La dirección no existe / No se encuentra", bonificable: true },
+  { value: "COMERCIO_CERRADO", label: "El comercio estaba cerrado", bonificable: true },
+  { value: "CLIENTE_RECHAZA", label: "El cliente rechazó el pedido", bonificable: true },
+  { value: "ZONA_INSEGURA", label: "La zona se tornó insegura", bonificable: true },
+  { value: "FUERZA_MAYOR", label: "Fuerza mayor (clima, eventos, etc.)", bonificable: true },
+  { value: "EDIFICIO_RESTRINGIDO", label: "Acceso restringido en edificio/conjunto", bonificable: true },
+  
+  // --- Causas NO Bonificables (Culpa del Repartidor) ---
+  { value: "REPARTIDOR_NO_QUIERE_ENTREGAR", label: "Repartidor no quiere entregar (sin causa justa)", bonificable: false },
+  { value: "REPARTIDOR_LLEGO_TARDE", label: "Repartidor llegó tarde", bonificable: false },
+  { value: "REPARTIDOR_ERROR_PROPIO", label: "Error operativo del repartidor", bonificable: false },
+  { value: "REPARTIDOR_VEHICULO_FALLA", label: "Falla mecánica del vehículo", bonificable: false },
+  { value: "REPARTIDOR_SIN_BATERIA", label: "Celular sin batería / Apagado", bonificable: false },
+  { value: "OTRO_REPARTIDOR", label: "Entregada por otro repartidor", bonificable: false },
 ];
 
 // Helper seguro para fechas
@@ -62,12 +81,16 @@ export default function RiderOrderDetailPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   
   const [showFailModal, setShowFailModal] = useState(false);
-  const [failReason, setFailReason] = useState("");
+  
+  // Nuevo estado para causa seleccionada
+  const [selectedFailureCause, setSelectedFailureCause] = useState<FailureCause | "">("");
+  const [failNotes, setFailNotes] = useState(""); // Opcional: notas adicionales
+  
   const [error, setError] = useState<string | null>(null);
 
   // Estado calculado para la ganancia
   const [estimatedEarnings, setEstimatedEarnings] = useState<number>(0);
-  const [earningsLabel, setEarningsLabel] = useState<string>("Estimado");
+  const [earningsLabel, setEarningsLabel] = useState<string>("Pendiente");
 
   useEffect(() => {
     loadOrderData();
@@ -85,24 +108,41 @@ export default function RiderOrderDetailPage() {
     let label = "En proceso";
 
     if (delivery.status === DeliveryStatus.COMPLETADA) {
-      // Entrega completada: Pago completo
-      // Intentamos leer del backend, si no, usamos default
       amount = (order as any).rider_delivery_bonus ?? DEFAULT_SUCCESS_BONUS;
       label = "Ganancia Confirmada";
     } else if (delivery.status === DeliveryStatus.FALLIDA) {
-      // Entrega fallida: Verificar motivo
-      const reason = (delivery.issue_type || "").toLowerCase();
-      const isCustomerFault = CUSTOMER_FAULT_REASONS.some(r => reason.includes(r));
+      // Lógica mejorada: Usar el campo failure_cause si existe
+      const causeValue = (delivery as any).failure_cause;
       
-      if (isCustomerFault) {
-        amount = DEFAULT_FAILED_BONUS; // O leer de config si estuviera disponible
-        label = "Bono por Fallo (Cliente)";
+      if (causeValue) {
+        const option = FAILURE_CAUSES.find(f => f.value === causeValue);
+        if (option) {
+          if (option.bonificable) {
+            amount = DEFAULT_FAILED_BONUS;
+            label = "Bono por Fallo (Cliente)";
+          } else {
+            amount = 0;
+            label = "Sin Bono (Causa Repartidor)";
+          }
+        } else {
+          // Fallback si el valor no está en nuestra lista local
+          amount = 0;
+          label = "Causa desconocida (Revisión)";
+        }
       } else {
-        amount = 0;
-        label = "Sin Bono (Causa Repartidor)";
+        // Fallback legacy (si no hay failure_cause)
+        const reason = (delivery.issue_type || "").toLowerCase();
+        const isCustomerFault = ["cliente_no_esta", "direccion_incorrecta"].some(r => reason.includes(r));
+        
+        if (isCustomerFault) {
+          amount = DEFAULT_FAILED_BONUS;
+          label = "Bono por Fallo (Legacy)";
+        } else {
+          amount = 0;
+          label = "Sin Bono";
+        }
       }
     } else {
-      // En proceso: Mostrar proyección
       amount = (order as any).rider_delivery_bonus ?? DEFAULT_SUCCESS_BONUS;
       label = "Ganancia Proyectada";
     }
@@ -163,25 +203,21 @@ export default function RiderOrderDetailPage() {
     executeStatusChange(newStatus);
   };
 
-  const executeStatusChange = async (newStatus: DeliveryStatus, reason?: string) => {
+  const executeStatusChange = async (newStatus: DeliveryStatus, cause?: FailureCause, notes?: string) => {
     if (!delivery) return;
 
     setActionLoading(newStatus);
     try {
-      // Si es estado FALLIDA, usar el endpoint especializado /fail que incluye análisis de texto y bono
       if (newStatus === DeliveryStatus.FALLIDA) {
-        await deliveryService.failDelivery(delivery.id, reason || 'no_specified', reason || '');
+        if (!cause) throw new Error("Debes seleccionar una causa para el fallo");
+        // Llamada actualizada al servicio
+        await deliveryService.failDelivery(delivery.id, cause, notes);
       } else {
         const payload: any = { status: newStatus };
-        if (reason) {
-          payload.issue_type = reason;
-          payload.issue_description = reason;
-        }
         await deliveryService.updateStatus(delivery.id, payload);
       }
       
       await loadOrderData();
-      
       alert(`Estado actualizado correctamente a: ${newStatus}`);
     } catch (err: any) {
       console.error("Error actualizando estado:", err);
@@ -189,7 +225,8 @@ export default function RiderOrderDetailPage() {
     } finally {
       setActionLoading(null);
       setShowFailModal(false);
-      setFailReason("");
+      setSelectedFailureCause("");
+      setFailNotes("");
     }
   };
 
@@ -237,7 +274,7 @@ export default function RiderOrderDetailPage() {
   return (
     <div className="container mx-auto p-4 max-w-5xl space-y-6 pb-20">
       
-      {/* Modal de Reporte de Fallo */}
+      {/* Modal de Reporte de Fallo ACTUALIZADO */}
       {showFailModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
@@ -247,22 +284,52 @@ export default function RiderOrderDetailPage() {
             </div>
             <div className="p-6">
               <p className="text-sm text-gray-600 mb-4">
-                Es obligatorio especificar el motivo detallado para procesar el reporte y calcular el bono parcial (si aplica).
+                Selecciona el motivo exacto. Esto determinará automáticamente si aplica el bono de {formatCurrency(DEFAULT_FAILED_BONUS)}.
               </p>
-              <textarea
-                className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-shadow min-h-[120px]"
-                placeholder="Describe qué sucedió (ej: Cliente no abre, dirección incorrecta...)"
-                value={failReason}
-                onChange={(e) => setFailReason(e.target.value)}
-                autoFocus
-              />
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Causa del fallo <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-shadow bg-white"
+                    value={selectedFailureCause}
+                    onChange={(e) => setSelectedFailureCause(e.target.value as FailureCause)}
+                    autoFocus
+                  >
+                    <option value="">-- Selecciona una opción --</option>
+                    {FAILURE_CAUSES.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label} {opt.bonificable ? '(✅ Aplica Bono)' : '(❌ Sin Bono)'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Notas adicionales (Opcional)
+                  </label>
+                  <textarea
+                    className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-shadow min-h-[80px]"
+                    placeholder="Detalles extra que ayuden a la revisión..."
+                    value={failNotes}
+                    onChange={(e) => setFailNotes(e.target.value)}
+                  />
+                </div>
+              </div>
+
               <div className="mt-6 flex justify-end gap-3">
-                <button onClick={() => { setShowFailModal(false); setFailReason(""); }} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors font-medium">
+                <button 
+                  onClick={() => { setShowFailModal(false); setSelectedFailureCause(""); setFailNotes(""); }} 
+                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors font-medium"
+                >
                   Cancelar
                 </button>
                 <button
-                  onClick={() => executeStatusChange(DeliveryStatus.FALLIDA, failReason)}
-                  disabled={!failReason.trim()}
+                  onClick={() => executeStatusChange(DeliveryStatus.FALLIDA, selectedFailureCause || undefined, failNotes)}
+                  disabled={!selectedFailureCause}
                   className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium flex items-center gap-2"
                 >
                   <XCircle className="w-4 h-4" /> Confirmar Reporte
@@ -454,15 +521,48 @@ export default function RiderOrderDetailPage() {
                     <p className="text-xs text-red-600 font-medium mb-1 flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" /> Entrega Fallida
                     </p>
-                    <p className="text-xs text-gray-600">
-                      Motivo registrado: <br/>
-                      <span className="italic font-semibold">"{delivery.issue_type || 'Sin especificar'}"</span>
-                    </p>
-                    {(delivery.issue_type && CUSTOMER_FAULT_REASONS.some(r => delivery.issue_type?.toLowerCase().includes(r))) ? (
-                       <p className="text-xs text-green-700 mt-1 font-bold">✅ Aplica bono por fallo del cliente.</p>
+                    
+                    {/* Mostrar causa estandarizada si existe */}
+                    {(delivery as any).failure_cause ? (
+                      <div className="text-xs text-gray-700">
+                        <span className="font-semibold">Causa:</span>{' '}
+                        <span className="italic font-medium block mt-1 bg-white p-2 rounded border border-gray-200">
+                          {FAILURE_CAUSES.find(f => f.value === (delivery as any).failure_cause)?.label || (delivery as any).failure_cause}
+                        </span>
+                      </div>
                     ) : (
-                       <p className="text-xs text-orange-700 mt-1 font-bold">⚠️ Sujeto a revisión (posible causa del repartidor).</p>
+                      <p className="text-xs text-gray-600">
+                        Motivo registrado: <br/>
+                        <span className="italic font-semibold">"{delivery.issue_type || 'Sin especificar'}"</span>
+                      </p>
                     )}
+
+                    {/* Lógica visual de bono */}
+                    {(() => {
+                       const causeValue = (delivery as any).failure_cause;
+                       const option = causeValue ? FAILURE_CAUSES.find(f => f.value === causeValue) : null;
+                       
+                       if (option) {
+                         return option.bonificable ? (
+                           <p className="text-xs text-green-700 mt-2 font-bold flex items-center gap-1">
+                             <CheckCircle className="w-3 h-3" /> ✅ Aplica bono por fallo externo.
+                           </p>
+                         ) : (
+                           <p className="text-xs text-orange-700 mt-2 font-bold flex items-center gap-1">
+                             <AlertCircle className="w-3 h-3" /> ⚠️ No aplica bono (Causa operativa).
+                           </p>
+                         );
+                       }
+                       
+                       // Fallback legacy
+                       const reason = (delivery.issue_type || "").toLowerCase();
+                       const isCustomerFault = ["cliente_no_esta", "direccion_incorrecta"].some(r => reason.includes(r));
+                       return isCustomerFault ? (
+                         <p className="text-xs text-green-700 mt-2 font-bold">✅ Aplica bono (Legacy).</p>
+                       ) : (
+                         <p className="text-xs text-orange-700 mt-2 font-bold">⚠️ Sujeto a revisión.</p>
+                       );
+                    })()}
                   </div>
                 )}
 
@@ -531,7 +631,11 @@ export default function RiderOrderDetailPage() {
                   <div className="relative pl-6">
                     <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-red-500 border-2 border-red-500 shadow-lg shadow-red-200"></div>
                     <p className="text-sm font-bold text-red-700">Entrega Fallida</p>
-                    <p className="text-xs text-red-600 italic mt-1">Motivo: {delivery.issue_type}</p>
+                    <p className="text-xs text-red-600 italic mt-1">
+                      {(delivery as any).failure_cause 
+                        ? FAILURE_CAUSES.find(f => f.value === (delivery as any).failure_cause)?.label 
+                        : delivery.issue_type}
+                    </p>
                     <p className="text-xs text-gray-500">{safeDate(delivery.updatedAt)}</p>
                   </div>
                 )}

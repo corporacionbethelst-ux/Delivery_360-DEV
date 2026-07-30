@@ -641,7 +641,7 @@ async def fail_delivery(
             detail=f"Causa de falla inválida. Debe ser una de: {', '.join(valid_causes)}"
         )
     
-    # Determinar si es bonificable usando el property del ENUM
+    # Determinar si es bonificable usando el property del ENUM (Ahora corregido en enums.py)
     is_bonificable = failure_cause.is_bonificable
     
     delivery.status = DeliveryStatus.FALLIDA

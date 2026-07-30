@@ -5,6 +5,24 @@ import { isAxiosError } from 'axios';
 // Usamos string union para ser flexibles con el filtro
 export type DeliveryStatusFilter = 'PENDIENTE' | 'INICIADA' | 'EN_ROUTE' | 'EN_RUTA' | 'COMPLETADA' | 'INCIDENCIA' | 'FALLIDA' | 'EN_PICKUP' | 'EN_DESTINO';
 
+// Nuevos tipos para las causas de falla estandarizadas
+export type FailureCause = 
+  | 'CLIENTE_NO_ESTA'
+  | 'CLIENTE_NO_CONTESTA'
+  | 'DIRECCION_INCORRECTA'
+  | 'DIRECCION_NO_EXISTE'
+  | 'COMERCIO_CERRADO'
+  | 'CLIENTE_RECHAZA'
+  | 'ZONA_INSEGURA'
+  | 'FUERZA_MAYOR'
+  | 'EDIFICIO_RESTRINGIDO'
+  | 'REPARTIDOR_NO_QUIERE_ENTREGAR'
+  | 'REPARTIDOR_LLEGO_TARDE'
+  | 'REPARTIDOR_ERROR_PROPIO'
+  | 'REPARTIDOR_VEHICULO_FALLA'
+  | 'REPARTIDOR_SIN_BATERIA'
+  | 'OTRO_REPARTIDOR';
+
 export interface RiderInfo {
   id: string;
   first_name: string;
@@ -42,18 +60,18 @@ export interface DeliveryListResponse {
 
 /**
  * Payload para actualizar el estado de una entrega.
- * Debe coincidir con el schema DeliveryStatusUpdate del backend.
+ * Soporta tanto el flujo legacy (issue_type) como el nuevo (failure_cause).
  */
 export interface UpdateStatusPayload {
-  status: string;  // El backend espera 'status', no 'new_status'
+  status: string;
   issue_type?: string;
   issue_description?: string;
+  failure_cause?: FailureCause;
 }
 
 export const deliveryService = {
   /**
    * Listar entregas con filtros, paginación y offset.
-   * Devuelve: { items: [...], total: number }
    */
   getAll: async (params?: Readonly<DeliveryFilters>): Promise<DeliveryListResponse> => {
     try {
@@ -66,7 +84,6 @@ export const deliveryService = {
       if (params?.include_total) queryParams.append('include_total', 'true');
 
       const query = queryParams.toString() ? `?${queryParams}` : '';
-      // CORRECCIÓN: api.get ya devuelve los datos directamente, no response.data
       const response = await api.get<DeliveryListResponse>(`/deliveries${query}`);
       
       return response;
@@ -78,7 +95,6 @@ export const deliveryService = {
 
   /**
    * Listar entregas con total real del backend para paginación estable.
-   * Maneja fallback si el backend devuelve array directo.
    */
   getPage: async (params?: Readonly<DeliveryFilters>): Promise<DeliveryListResponse> => {
     try {
@@ -91,10 +107,8 @@ export const deliveryService = {
       queryParams.append('include_total', 'true');
 
       const query = queryParams.toString() ? `?${queryParams}` : '';
-      // CORRECCIÓN: api.get devuelve los datos directamente
       const response = await api.get<Delivery[] | DeliveryListResponse>(`/deliveries${query}`);
 
-      // Fallback de seguridad si el backend devuelve array directo
       if (Array.isArray(response)) {
         return {
           items: response,
@@ -116,7 +130,6 @@ export const deliveryService = {
       throw new Error('[DeliveryService] ID de entrega inválido');
     }
     try {
-      // CORRECCIÓN: api.get devuelve los datos directamente
       return await api.get<Delivery>(`/deliveries/${id}`);
     } catch (error) {
       console.error(`[DeliveryService] Error fetching delivery ${id}:`, error);
@@ -124,16 +137,11 @@ export const deliveryService = {
     }
   },
 
-  /**
-   * Obtener una entrega por el ID de la orden asociada.
-   * Útil como fallback cuando no se tiene el delivery.id directamente.
-   */
   getByOrderId: async (orderId: string): Promise<Delivery | null> => {
     if (!orderId) {
       throw new Error('[DeliveryService] Order ID requerido');
     }
     try {
-      // CORRECCIÓN: api.get devuelve los datos directamente
       const response = await api.get<Delivery[]>(`/deliveries?order_id=${orderId}&limit=1`);
       const items = Array.isArray(response) ? response : (response as DeliveryListResponse).items || [];
       return items.length > 0 ? items[0] : null;
@@ -143,12 +151,6 @@ export const deliveryService = {
     }
   },
 
-  /**
-   * Actualizar el estado de una entrega.
-   * @param id - ID de la entrega
-   * @param payload - Objeto con status y opcionalmente issue_type/issue_description
-   * @returns La entrega actualizada
-   */
   updateStatus: async (id: string | number, payload: UpdateStatusPayload): Promise<Delivery> => {
     if (!id) {
       throw new Error('[DeliveryService] ID de entrega requerido');
@@ -158,7 +160,6 @@ export const deliveryService = {
     }
     try {
       const deliveryId = String(id);
-      // El backend espera un PATCH a /deliveries/{id}/status
       return await api.patch<Delivery>(`/deliveries/${deliveryId}/status`, payload);
     } catch (error: unknown) {
       console.error('[DeliveryService] Error updating status:', error);
@@ -170,7 +171,6 @@ export const deliveryService = {
   start: async (orderId: string): Promise<{ otp_code: string; message: string }> => {
     if (!orderId) throw new Error('[DeliveryService] Order ID requerido');
     try {
-      // CORRECCIÓN: api.post devuelve los datos directamente
       return await api.post<{ otp_code: string; message: string }>(`/deliveries/${orderId}/start`);
     } catch (error: unknown) {
       const axiosError = isAxiosError(error) ? error : null;
@@ -181,7 +181,6 @@ export const deliveryService = {
   complete: async (id: string, proof: DeliveryProofInput): Promise<Delivery> => {
     if (!id) throw new Error('[DeliveryService] ID requerido');
     try {
-      // CORRECCIÓN: api.post devuelve los datos directamente
       return await api.post<Delivery>(`/deliveries/${id}/complete`, proof);
     } catch (error: unknown) {
       const axiosError = isAxiosError(error) ? error : null;
@@ -192,7 +191,6 @@ export const deliveryService = {
   updateLocation: async (id: string, lat: number, lng: number): Promise<void> => {
     if (!id) throw new Error('[DeliveryService] ID requerido');
     try {
-      // CORRECCIÓN: api.patch devuelve los datos directamente (aunque aquí no los usamos)
       await api.patch(`/deliveries/${id}/location`, { 
         lat,
         lng,
@@ -207,25 +205,30 @@ export const deliveryService = {
   },
 
   /**
-   * Reportar una entrega como fallida con descripción detallada.
-   * Usa el endpoint POST /deliveries/{id}/fail que incluye análisis de causa y bono automático.
+   * Reportar una entrega como fallida usando el sistema estandarizado de causas.
    * @param id - ID de la entrega
-   * @param issue_type - Tipo de incidencia (ej: "cliente_no_esta", "direccion_incorrecta")
-   * @param issue_description - Descripción detallada en texto libre
-   * @returns La entrega actualizada con información del bono aplicado
+   * @param failure_cause - Valor del ENUM (ej: "CLIENTE_NO_ESTA")
+   * @param notes - (Opcional) Notas adicionales del repartidor
    */
   failDelivery: async (
     id: string, 
-    issue_type: string, 
-    issue_description: string
+    failure_cause: FailureCause, 
+    notes?: string
   ): Promise<Delivery & { bonus_applied?: boolean; bonus_amount?: number; issue_analysis?: any }> => {
     if (!id) throw new Error('[DeliveryService] ID de entrega requerido');
-    if (!issue_type) throw new Error('[DeliveryService] Tipo de incidencia requerido');
+    if (!failure_cause) throw new Error('[DeliveryService] Causa de falla requerida');
     
     try {
+      // Enviamos failure_cause como campo principal. 
+      // El backend puede usar notes como descripción secundaria si lo soporta.
+      const payload: any = { failure_cause };
+      if (notes && notes.trim()) {
+        payload.issue_description = notes;
+      }
+
       return await api.post<Delivery & { bonus_applied?: boolean; bonus_amount?: number; issue_analysis?: any }>(
         `/deliveries/${id}/fail`, 
-        { issue_type, issue_description }
+        payload
       );
     } catch (error: unknown) {
       console.error('[DeliveryService] Error reporting failed delivery:', error);
@@ -236,7 +239,6 @@ export const deliveryService = {
 
   getActiveTracking: async (): Promise<Delivery[]> => {
      try {
-       // CORRECCIÓN: api.get devuelve los datos directamente
        const response = await api.get<Delivery[] | DeliveryListResponse>('/deliveries?status=EN_ROUTE&limit=100&include_total=true');
        
        if (Array.isArray(response)) return response;
@@ -249,7 +251,6 @@ export const deliveryService = {
   
   getLiveTracking: async (): Promise<Delivery[]> => {
     try {
-      // CORRECCIÓN: api.get devuelve los datos directamente
       const response = await api.get<Delivery[] | DeliveryListResponse>('/deliveries?limit=100&status=EN_ROUTE&include_total=true');
 
       const isValidCoordinate = (value: any): boolean => {
@@ -260,8 +261,6 @@ export const deliveryService = {
       
       const items = Array.isArray(response) ? response : (response.items || []);
 
-      // Filtramos cliente-side para asegurarnos que tengan coordenadas válidas
-      // Usamos 'any' para acceso seguro a propiedades dinámicas snake_case/camelCase
       return items.filter((d: any) => {
         const lat = d.current_latitude ?? d.latitude;
         const lng = d.current_longitude ?? d.longitude;

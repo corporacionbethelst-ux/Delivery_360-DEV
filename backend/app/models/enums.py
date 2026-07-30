@@ -39,15 +39,16 @@ class DeliveryFailureCause(str, Enum):
     @property
     def is_bonificable(self) -> bool:
         """Determina si esta causa da derecho al bono por intento fallido."""
-        bonificables = [
-            self.CLIENTE_NO_ESTA,
-            self.CLIENTE_NO_CONTESTA,
-            self.DIRECCION_INCORRECTA,
-            self.DIRECCION_NO_EXISTE,
-            self.COMERCIO_CERRADO,
-            self.CLIENTE_RECHAZA,
-            self.ZONA_INSEGURA,
-            self.FUERZA_MAYOR,
-            self.EDIFICIO_RESTRINGIDO,
+        # Usamos una lista de valores string para evitar problemas de identidad de objetos Enum
+        bonificables_values = [
+            "CLIENTE_NO_ESTA",
+            "CLIENTE_NO_CONTESTA",
+            "DIRECCION_INCORRECTA",
+            "DIRECCION_NO_EXISTE",
+            "COMERCIO_CERRADO",
+            "CLIENTE_RECHAZA",
+            "ZONA_INSEGURA",
+            "FUERZA_MAYOR",
+            "EDIFICIO_RESTRINGIDO",
         ]
-        return self in bonificables
+        return self.value in bonificables_values
