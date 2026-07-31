@@ -30,12 +30,16 @@ from app.models.zone import Zone  # Importado para Fase 3
 from app.services.notification_service import NotificationService
 from app.services.redis_audit_service import get_redis_audit_logger
 from app.services.audit_service import get_audit_service
+from app.services.delivery_service import DeliveryService
 from app.models.audit_log import ActionType
 from app.utils.delivery_analysis import DeliveryIssueAnalyzer
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/deliveries")
+
+# Instancia del servicio de entregas
+delivery_service = DeliveryService()
 
 # --- Schemas de Entrada ---
 class DeliveryAssign(BaseModel):
