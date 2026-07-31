@@ -87,44 +87,63 @@ class DeliveryService:
         db: AsyncSession, 
         rider_id: uuid.UUID, 
         delivery_id: uuid.UUID, 
-        reason: str
+        failure_cause_enum_value: str
     ) -> None:
-        """Registra el bono por entrega fallida si la configuración lo permite"""
+        """Registra el bono por entrega fallida si la causa es bonificable y la configuración lo permite"""
         try:
-            # Obtener el valor del setting desde la BD
+            # 1. Importar el Enum para validar la causa
+            from app.models.enums import DeliveryFailureCause
+            
+            # 2. Validar si el valor recibido es una causa válida y bonificable
+            try:
+                cause = DeliveryFailureCause(failure_cause_enum_value)
+            except ValueError:
+                print(f"[WARNING] Causa de fallo desconocida: {failure_cause_enum_value}. No se aplica bono.")
+                return
+
+            if not cause.is_bonificable:
+                print(f"[INFO] La causa '{cause.value}' no es bonificable según la regla de negocio.")
+                return
+
+            # 3. Obtener el valor del setting DESDE LA BASE DE DATOS (Dinámico)
             result = await db.execute(
                 select(PlatformSetting.value).where(PlatformSetting.key == "rider_failed_attempt_bonus")
             )
             bonus_value = result.scalar_one_or_none()
             
             if not bonus_value:
-                print(f"[WARNING] Setting 'rider_failed_attempt_bonus' no encontrado o vacío.")
+                print(f"[WARNING] Setting 'rider_failed_attempt_bonus' no encontrado en DB. Se omite el bono.")
                 return
 
-            bonus_amount = float(bonus_value)
+            try:
+                bonus_amount = float(bonus_value)
+            except (ValueError, TypeError):
+                print(f"[ERROR] El valor del setting '{bonus_value}' no es numérico válido.")
+                return
             
             if bonus_amount <= 0:
+                print(f"[INFO] El bono por intento fallido está configurado en 0. No se registra transacción.")
                 return
 
-            # Crear instancia del servicio financiero y registrar en el ledger
+            # 4. Crear instancia del servicio financiero y registrar en el ledger
             from app.models.financial import TransactionType, PaymentStatus
             financial_svc = FinancialService(db)
             await financial_svc.create_transaction(
                 rider_id=str(rider_id),
                 amount=bonus_amount,
                 transaction_type=TransactionType.PAGO_INTENTO_FALLIDO,
-                description=f"Bono por entrega fallida ({reason}). ID Entrega: {str(delivery_id)[:8]}",
+                description=f"Bono por entrega fallida ({cause.value}). ID Entrega: {str(delivery_id)[:8]}",
                 reference_id=str(delivery_id),
                 source_type="delivery_failed",
                 source_id=str(delivery_id),
                 status=PaymentStatus.PROCESADO,
             )
             
-            print(f"[INFO] Bono de ${bonus_amount} asignado al rider {rider_id} por entrega fallida externa.")
+            print(f"[INFO] Bono DINÁMICO de ${bonus_amount} asignado al rider {rider_id} por causa '{cause.value}'.")
             
         except Exception as e:
             print(f"[ERROR] Fallo al asignar bono por entrega fallida: {str(e)}")
-            # No lanzamos excepción para no fallar el proceso de marcado como fallida, solo logueamos.
+            # No lanzamos excepción para no fallar el proceso de marcado como fallida
 
     async def get_delivery(self, db: AsyncSession, delivery_id: uuid.UUID) -> Delivery:
         """Obtiene entrega por ID"""
@@ -252,10 +271,10 @@ class DeliveryService:
         self, 
         db: AsyncSession, 
         delivery_id: uuid.UUID,
-        failure_reason: str,
+        failure_cause_enum_value: str,
         failed_by: int
     ) -> Delivery:
-        """Marca entrega como fallida y gestiona bonos si aplica"""
+        """Marca entrega como fallida y gestiona bonos si aplica basado en el Enum"""
         delivery = await self.get_delivery(db, delivery_id)
         self._ensure_status_transition(
             delivery,
@@ -263,16 +282,24 @@ class DeliveryService:
             action="fallar entrega",
         )
         
-        # 1. Analizar la causa del fallo
-        is_external_cause, reason_detail = self._analyze_failure_cause(failure_reason)
+        # 1. Importar Enum y validar causa
+        from app.models.enums import DeliveryFailureCause
+        try:
+            failure_cause = DeliveryFailureCause(failure_cause_enum_value)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Causa de falla inválida: {failure_cause_enum_value}"
+            )
         
-        # 2. Preparar datos de actualización
+        # 2. Preparar datos de actualización (usando el ENUM estandarizado)
         update_data = {
             "status": DeliveryStatus.FALLIDA,
             "has_issues": True,
-            "issue_type": "delivery_failed",
-            "issue_description": failure_reason,
-            "issue_analysis_result": reason_detail # Guardamos el resultado del análisis en DB si tienes la columna
+            "failure_cause": failure_cause,  # Campo estandarizado
+            "issue_type": failure_cause.value,
+            "issue_description": f"Fallo por causa: {failure_cause.value}",
+            "issue_analysis_result": f"Causa: {failure_cause.value}. Bonificable: {failure_cause.is_bonificable}"
         }
         
         # 3. Actualizar la entrega
@@ -282,13 +309,14 @@ class DeliveryService:
             obj_in=update_data
         )
         
-        # 4. Gestionar bono si es causa externa
-        if is_external_cause and delivery.rider_id:
+        # 4. Gestionar bono AUTOMÁTICO si el ENUM indica que es bonificable
+        #    El servicio verifica el valor dinámico en PlatformSetting
+        if delivery.rider_id and failure_cause.is_bonificable:
             await self._grant_failed_attempt_bonus(
                 db=db,
                 rider_id=delivery.rider_id,
                 delivery_id=delivery_id,
-                reason=reason_detail
+                failure_cause_enum_value=failure_cause.value
             )
         
         # 5. Actualizar estado del pedido asociado
@@ -299,8 +327,8 @@ class DeliveryService:
                 db_obj=order,
                 obj_in={
                     "status": OrderStatus.FALLIDO,
-                    "failure_reason": failure_reason,
-                    "failure_cause_external": is_external_cause, # Si tienes este campo en Order
+                    "failure_reason": failure_cause.value,
+                    "failure_notes": f"Causa: {failure_cause.value}. Bonificable: {failure_cause.is_bonificable}",
                 }
             )
         
