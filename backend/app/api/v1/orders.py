@@ -157,6 +157,11 @@ def _order_to_dict(o: Order, rider: Optional[Rider] = None) -> dict:
             "sla_expected_minutes": delivery_obj.sla_expected_minutes,
             "sla_actual_minutes": delivery_obj.sla_actual_minutes,
             "sla_compliant": delivery_obj.sla_compliant,
+            # Campos de fallo para el frontend (desde Delivery)
+            "failure_cause": delivery_obj.failure_cause.value if delivery_obj.failure_cause and hasattr(delivery_obj.failure_cause, "value") else (delivery_obj.failure_cause if delivery_obj.failure_cause else None),
+            "issue_type": delivery_obj.issue_type,
+            "issue_description": delivery_obj.issue_description,
+            "has_issues": delivery_obj.has_issues,
         }
     
     # Manejo seguro de atributos que quizás aún no existen en la BD
@@ -198,6 +203,9 @@ def _order_to_dict(o: Order, rider: Optional[Rider] = None) -> dict:
         "delivered_at": o.delivered_at.isoformat() if o.delivered_at else None,
         "estimated_delivery_time": o.estimated_delivery_time.isoformat() if o.estimated_delivery_time else None,
         "ordered_at": o.ordered_at.isoformat() if o.ordered_at else None,
+        # Campos de fallo para el frontend (desde Order)
+        "failure_reason": o.failure_reason,
+        "failure_notes": o.failure_notes,
     }
 
 def _generate_order_number() -> str:
