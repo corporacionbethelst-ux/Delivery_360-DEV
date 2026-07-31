@@ -50,6 +50,41 @@ class DeliveryFailureCause(str, enum.Enum):
     REPARTIDOR_VEHICULO_FALLA = "REPARTIDOR_VEHICULO_FALLA"
     REPARTIDOR_SIN_BATERIA = "REPARTIDOR_SIN_BATERIA"
     OTRO_REPARTIDOR = "OTRO_REPARTIDOR"
+    
+    @property
+    def is_bonificable(self) -> bool:
+        """Determina si esta causa da derecho al bono por intento fallido."""
+        return check_is_bonificable(self)
+
+
+def get_bonificable_causes() -> list[str]:
+    """Retorna lista de valores de causas bonificables."""
+    return [
+        "CLIENTE_NO_ESTA",
+        "CLIENTE_NO_CONTESTA",
+        "DIRECCION_INCORRECTA",
+        "DIRECCION_NO_EXISTE",
+        "COMERCIO_CERRADO",
+        "CLIENTE_RECHAZA",
+        "ZONA_INSEGURA",
+        "FUERZA_MAYOR",
+        "EDIFICIO_RESTRINGIDO",
+    ]
+
+
+def check_is_bonificable(cause: "DeliveryFailureCause") -> bool:
+    """
+    Función helper para verificar si una causa es bonificable.
+    
+    Args:
+        cause: Instancia de DeliveryFailureCause
+        
+    Returns:
+        True si la causa da derecho al bono por intento fallido
+    """
+    if isinstance(cause, DeliveryFailureCause):
+        return cause.value in get_bonificable_causes()
+    return False
 
 class Delivery(Base):
     __tablename__ = "deliveries"
