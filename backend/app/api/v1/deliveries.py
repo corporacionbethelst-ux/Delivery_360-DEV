@@ -502,7 +502,7 @@ async def complete_delivery(
             select(PlatformSetting.value).where(PlatformSetting.key == "rider_delivery_bonus")
         )
         bonus_value = settings_result.scalar_one_or_none()
-        base_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("2.50")
+        base_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("2500")
         
         # FASE 3: Aplicar multiplicador de zona
         multiplier = Decimal("1.0")
@@ -912,7 +912,7 @@ async def update_delivery_status(
                 select(PlatformSetting.value).where(PlatformSetting.key == "rider_delivery_bonus")
             )
             bonus_value = settings_result.scalar_one_or_none()
-            base_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("2.50")
+            base_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("2500")
             
             # FASE 3: Obtener multiplicador de la zona del rider
             multiplier = Decimal("1.0")

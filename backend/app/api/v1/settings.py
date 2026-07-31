@@ -30,8 +30,8 @@ DEFAULT_PLATFORM_SETTINGS: dict[str, Any] = {
     "active_zones": ["Norte", "Sur", "Centro"],
     "support_email": "soporte@delivery.com",
     "maintenance_mode": False,
-    "rider_delivery_bonus": 2.50,
-    "rider_failed_attempt_bonus": 1.00,
+    "rider_delivery_bonus": 2500,
+    "rider_failed_attempt_bonus": 1500,
 }
 
 SETTING_DESCRIPTIONS: dict[str, str] = {
@@ -53,8 +53,8 @@ class PlatformSettingsResponse(BaseModel):
     active_zones: List[str]
     support_email: EmailStr
     maintenance_mode: bool
-    rider_delivery_bonus: float = 2.50
-    rider_failed_attempt_bonus: float = 1.00
+    rider_delivery_bonus: float = 2500
+    rider_failed_attempt_bonus: float = 1500
     updated_at: Optional[str] = None
     updated_by_user_id: Optional[str] = None
 
@@ -94,8 +94,8 @@ def _coerce_settings(rows: dict[str, PlatformSetting]) -> dict[str, Any]:
     values["delivery_fee_base"] = float(values.get("delivery_fee_base") or 0)
     values["commission_percentage"] = float(values.get("commission_percentage") or 0)
     values["min_order_amount"] = float(values.get("min_order_amount") or 0)
-    values["rider_delivery_bonus"] = float(values.get("rider_delivery_bonus") or 2.50)
-    values["rider_failed_attempt_bonus"] = float(values.get("rider_failed_attempt_bonus") or 1.00)
+    values["rider_delivery_bonus"] = float(values.get("rider_delivery_bonus") or 2500)
+    values["rider_failed_attempt_bonus"] = float(values.get("rider_failed_attempt_bonus") or 1500)
     values["active_zones"] = [str(zone).strip() for zone in values.get("active_zones", []) if str(zone).strip()]
     values["maintenance_mode"] = bool(values.get("maintenance_mode"))
     return values
