@@ -641,59 +641,14 @@ async def fail_delivery(
             detail=f"Causa de falla inválida. Debe ser una de: {', '.join(valid_causes)}"
         )
     
-    # Determinar si es bonificable usando el property del ENUM (Ahora corregido en enums.py)
-    is_bonificable = failure_cause.is_bonificable
-    
-    delivery.status = DeliveryStatus.FALLIDA
-    delivery.has_issues = True
-    delivery.failure_cause = failure_cause  # Nuevo campo estandarizado
-    delivery.issue_type = body.failure_cause  # Se mantiene para compatibilidad
-    delivery.issue_description = body.issue_description or ""
-    delivery.issue_analysis_result = f"Causa estandarizada: {failure_cause.value}. Bonificable: {is_bonificable}"
-
-    order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
-    order = order_result.scalar_one_or_none()
-    if order:
-        order.status = OrderStatus.FALLIDO
-        order.failure_reason = body.failure_cause
-        order.failure_notes = body.issue_description or ""
-
-    bonus_applied = False
-    bonus_amount = Decimal("0.00")
-    
-    if delivery.rider_id and is_bonificable:
-        # Ahora la decisión es clara: solo se paga si el ENUM indica que es bonificable
-        idempotency_key = f"pago_fallido_{delivery.order_id}"
-        
-        financial_result = await db.execute(
-            select(Financial).where(Financial.idempotency_key == idempotency_key)
-        )
-        existing_financial = financial_result.scalar_one_or_none()
-        
-        if not existing_financial:
-            settings_result = await db.execute(
-                select(PlatformSetting.value).where(PlatformSetting.key == "rider_failed_attempt_bonus")
-            )
-            bonus_value = settings_result.scalar_one_or_none()
-            failed_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("1500.00")
-            
-            financial = Financial(
-                rider_id=delivery.rider_id,
-                amount=failed_payment,
-                transaction_type=TransactionType.PAGO_INTENTO_FALLIDO,
-                description=f"Pago por intento fallido (orden {order.external_id if order else delivery.order_id}) - Motivo: {failure_cause.value}",
-                reference_id=str(order.id) if order else str(delivery.order_id),
-                source_type="delivery_failed",
-                source_id=str(delivery.id),
-                idempotency_key=idempotency_key,
-                status=PaymentStatus.PROCESADO,
-            )
-            db.add(financial)
-            bonus_applied = True
-            bonus_amount = failed_payment
-            logger.info(f"Registro financiero creado para entrega fallida {delivery.id} - Rider {delivery.rider_id} - Bono: {failed_payment} - Causa: {failure_cause.value}")
-
-    await db.commit()
+    # Delegar toda la lógica de fallo (incluyendo bonos) al servicio
+    # El servicio ahora valida la causa, verifica si es bonificable y usa el setting dinámico de la BD
+    delivery = await delivery_service.fail_delivery(
+        db=db,
+        delivery_id=delivery.id,
+        failure_cause_enum_value=failure_cause.value,
+        failed_by=current_user.id
+    )
     
     await db.refresh(delivery, attribute_names=['rider', 'order'])
     if delivery.rider:
@@ -712,12 +667,13 @@ async def fail_delivery(
     res = await db.execute(final_stmt)
     d_row, r_row, u_row, o_row = res.first()
     
-    # Serializar y agregar información del bono aplicado
+    # Serializar respuesta
     response_data = _serialize_delivery(d_row, r_row, u_row, o_row)
-    response_data["bonus_applied"] = bonus_applied
-    response_data["bonus_amount"] = float(bonus_amount) if bonus_applied else 0.0
+    # Nota: El servicio ya registró el bono internamente si aplicaba. 
+    # Podríamos agregar un campo informativo si el servicio lo retornara, pero por ahora
+    # nos basamos en los logs del servicio.
     response_data["failure_cause"] = failure_cause.value
-    response_data["is_bonificable"] = is_bonificable
+    response_data["is_bonificable"] = failure_cause.is_bonificable
     
     return response_data
 
