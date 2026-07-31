@@ -130,9 +130,9 @@ export default function RiderOrderDetailPage() {
           label = "Causa desconocida (Revisión)";
         }
       } else {
-        // Fallback legacy (si no hay failure_cause)
-        const reason = (delivery.issue_type || "").toLowerCase();
-        const isCustomerFault = ["cliente_no_esta", "direccion_incorrecta"].some(r => reason.includes(r));
+        // Fallback legacy: intentar con issue_type desde delivery o desde order
+        const reason = ((delivery as any).issue_type || (order as any).failure_reason || "").toLowerCase();
+        const isCustomerFault = ["cliente_no_esta", "direccion_incorrecta", "client"].some(r => reason.includes(r));
         
         if (isCustomerFault) {
           amount = DEFAULT_FAILED_BONUS;
@@ -533,7 +533,7 @@ export default function RiderOrderDetailPage() {
                     ) : (
                       <p className="text-xs text-gray-600">
                         Motivo registrado: <br/>
-                        <span className="italic font-semibold">"{delivery.issue_type || 'Sin especificar'}"</span>
+                        <span className="italic font-semibold">"{(delivery as any).issue_type || (order as any).failure_reason || 'Sin especificar'}"</span>
                       </p>
                     )}
 
@@ -554,9 +554,9 @@ export default function RiderOrderDetailPage() {
                          );
                        }
                        
-                       // Fallback legacy
-                       const reason = (delivery.issue_type || "").toLowerCase();
-                       const isCustomerFault = ["cliente_no_esta", "direccion_incorrecta"].some(r => reason.includes(r));
+                       // Fallback legacy: intentar con issue_type desde delivery o desde order
+                       const reason = ((delivery as any).issue_type || (order as any).failure_reason || "").toLowerCase();
+                       const isCustomerFault = ["cliente_no_esta", "direccion_incorrecta", "client"].some(r => reason.includes(r));
                        return isCustomerFault ? (
                          <p className="text-xs text-green-700 mt-2 font-bold">✅ Aplica bono (Legacy).</p>
                        ) : (
@@ -634,7 +634,7 @@ export default function RiderOrderDetailPage() {
                     <p className="text-xs text-red-600 italic mt-1">
                       {(delivery as any).failure_cause 
                         ? FAILURE_CAUSES.find(f => f.value === (delivery as any).failure_cause)?.label 
-                        : delivery.issue_type}
+                        : ((delivery as any).issue_type || (order as any).failure_reason || 'Sin especificar')}
                     </p>
                     <p className="text-xs text-gray-500">{safeDate(delivery.updatedAt)}</p>
                   </div>
