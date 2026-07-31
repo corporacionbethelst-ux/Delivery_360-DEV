@@ -5,14 +5,14 @@ import { useParams, useRouter } from "next/navigation";
 import { orderService } from "@/services/order.service";
 import { deliveryService, FailureCause } from "@/services/delivery.service";
 import { Order, Delivery, DeliveryStatus } from "@/types";
-import { 
-  Package, 
-  Clock, 
-  DollarSign, 
-  AlertCircle, 
-  CheckCircle, 
-  Truck, 
-  XCircle, 
+import {
+  Package,
+  Clock,
+  DollarSign,
+  AlertCircle,
+  CheckCircle,
+  Truck,
+  XCircle,
   MapPin,
   Phone,
   MessageSquare
@@ -41,7 +41,7 @@ const FAILURE_CAUSES: FailureOption[] = [
   { value: "ZONA_INSEGURA", label: "La zona se tornó insegura", bonificable: true },
   { value: "FUERZA_MAYOR", label: "Fuerza mayor (clima, eventos, etc.)", bonificable: true },
   { value: "EDIFICIO_RESTRINGIDO", label: "Acceso restringido en edificio/conjunto", bonificable: true },
-  
+
   // --- Causas NO Bonificables (Culpa del Repartidor) ---
   { value: "REPARTIDOR_NO_QUIERE_ENTREGAR", label: "Repartidor no quiere entregar (sin causa justa)", bonificable: false },
   { value: "REPARTIDOR_LLEGO_TARDE", label: "Repartidor llegó tarde", bonificable: false },
@@ -79,13 +79,13 @@ export default function RiderOrderDetailPage() {
   const [delivery, setDelivery] = useState<Delivery | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  
+
   const [showFailModal, setShowFailModal] = useState(false);
-  
+
   // Nuevo estado para causa seleccionada
   const [selectedFailureCause, setSelectedFailureCause] = useState<FailureCause | "">("");
   const [failNotes, setFailNotes] = useState(""); // Opcional: notas adicionales
-  
+
   const [error, setError] = useState<string | null>(null);
 
   // Estado calculado para la ganancia
@@ -113,7 +113,7 @@ export default function RiderOrderDetailPage() {
     } else if (delivery.status === DeliveryStatus.FALLIDA) {
       // Lógica mejorada: Usar el campo failure_cause si existe
       const causeValue = (delivery as any).failure_cause;
-      
+
       if (causeValue) {
         const option = FAILURE_CAUSES.find(f => f.value === causeValue);
         if (option) {
@@ -133,7 +133,7 @@ export default function RiderOrderDetailPage() {
         // Fallback legacy: intentar con issue_type desde delivery o desde order
         const reason = ((delivery as any).issue_type || (order as any).failure_reason || "").toLowerCase();
         const isCustomerFault = ["cliente_no_esta", "direccion_incorrecta", "client"].some(r => reason.includes(r));
-        
+
         if (isCustomerFault) {
           amount = DEFAULT_FAILED_BONUS;
           label = "Bono por Fallo (Legacy)";
@@ -155,9 +155,9 @@ export default function RiderOrderDetailPage() {
     try {
       setLoading(true);
       setError(null);
-      
+
       const data = await orderService.getById(id) as unknown as Order;
-      
+
       if (!data) {
         setError("Orden no encontrada");
         return;
@@ -216,7 +216,7 @@ export default function RiderOrderDetailPage() {
         const payload: any = { status: newStatus };
         await deliveryService.updateStatus(delivery.id, payload);
       }
-      
+
       await loadOrderData();
       alert(`Estado actualizado correctamente a: ${newStatus}`);
     } catch (err: any) {
@@ -245,7 +245,7 @@ export default function RiderOrderDetailPage() {
           <AlertCircle className="w-12 h-12 mx-auto mb-4" />
           <h2 className="text-xl font-bold mb-2">Error al cargar</h2>
           <p>{error || "La orden no existe o no tienes permiso para verla."}</p>
-          <button 
+          <button
             onClick={() => router.push('/rider/my-orders')}
             className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
           >
@@ -273,7 +273,7 @@ export default function RiderOrderDetailPage() {
 
   return (
     <div className="container mx-auto p-4 max-w-5xl space-y-6 pb-20">
-      
+
       {/* Modal de Reporte de Fallo ACTUALIZADO */}
       {showFailModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -286,7 +286,7 @@ export default function RiderOrderDetailPage() {
               <p className="text-sm text-gray-600 mb-4">
                 Selecciona el motivo exacto. Esto determinará automáticamente si aplica el bono de {formatCurrency(DEFAULT_FAILED_BONUS)}.
               </p>
-              
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -321,8 +321,8 @@ export default function RiderOrderDetailPage() {
               </div>
 
               <div className="mt-6 flex justify-end gap-3">
-                <button 
-                  onClick={() => { setShowFailModal(false); setSelectedFailureCause(""); setFailNotes(""); }} 
+                <button
+                  onClick={() => { setShowFailModal(false); setSelectedFailureCause(""); setFailNotes(""); }}
                   className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors font-medium"
                 >
                   Cancelar
@@ -353,7 +353,7 @@ export default function RiderOrderDetailPage() {
             Orden: {order.status}
           </span>
           <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${
-              delivery.status === DeliveryStatus.COMPLETADA ? 'bg-green-50 text-green-700 border-green-200' : 
+              delivery.status === DeliveryStatus.COMPLETADA ? 'bg-green-50 text-green-700 border-green-200' :
               delivery.status === DeliveryStatus.FALLIDA ? 'bg-red-50 text-red-700 border-red-200' :
               'bg-yellow-50 text-yellow-700 border-yellow-200'
             }`}>
@@ -364,7 +364,7 @@ export default function RiderOrderDetailPage() {
 
       {/* Panel Principal */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        
+
         {/* Acciones Rápidas */}
         {delivery.status !== DeliveryStatus.COMPLETADA && delivery.status !== DeliveryStatus.FALLIDA && (
           <div className="bg-gray-50 border-b border-gray-200 p-6">
@@ -453,7 +453,7 @@ export default function RiderOrderDetailPage() {
 
         {/* Contenido Principal */}
         <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
-          
+
           {/* Columna Izquierda: Ubicaciones */}
           <div className="space-y-6">
             <div>
@@ -478,7 +478,7 @@ export default function RiderOrderDetailPage() {
               <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
                 <h5 className="font-bold text-lg text-gray-900">{order.customer_name}</h5>
                 <p className="text-gray-600 mt-1">{order.delivery_address}</p>
-                
+
                 {order.delivery_instructions && (
                   <div className="mt-4 pt-4 border-t border-gray-200">
                     <div className="flex items-start gap-2">
@@ -501,13 +501,13 @@ export default function RiderOrderDetailPage() {
 
           {/* Columna Derecha: Finanzas y Timeline */}
           <div className="space-y-6">
-            
+
             {/* Resumen Financiero ACTUALIZADO */}
             <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-5 border border-green-100">
               <h4 className="text-xs font-bold text-green-800 uppercase tracking-wider mb-4 flex items-center gap-2">
                 <DollarSign className="w-4 h-4" /> Resumen de Ganancia
               </h4>
-              
+
               <div className="space-y-3">
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-green-700/80">{earningsLabel}:</span>
@@ -515,13 +515,13 @@ export default function RiderOrderDetailPage() {
                     {formatCurrency(estimatedEarnings)}
                   </span>
                 </div>
-                
+
                 {delivery.status === DeliveryStatus.FALLIDA && (
                   <div className="pt-3 border-t border-green-200/50">
                     <p className="text-xs text-red-600 font-medium mb-1 flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" /> Entrega Fallida
                     </p>
-                    
+
                     {/* Mostrar causa estandarizada si existe */}
                     {(delivery as any).failure_cause ? (
                       <div className="text-xs text-gray-700">
@@ -541,7 +541,7 @@ export default function RiderOrderDetailPage() {
                     {(() => {
                        const causeValue = (delivery as any).failure_cause;
                        const option = causeValue ? FAILURE_CAUSES.find(f => f.value === causeValue) : null;
-                       
+
                        if (option) {
                          return option.bonificable ? (
                            <p className="text-xs text-green-700 mt-2 font-bold flex items-center gap-1">
@@ -553,7 +553,7 @@ export default function RiderOrderDetailPage() {
                            </p>
                          );
                        }
-                       
+
                        // Fallback legacy: intentar con issue_type desde delivery o desde order
                        const reason = ((delivery as any).issue_type || (order as any).failure_reason || "").toLowerCase();
                        const isCustomerFault = ["cliente_no_esta", "direccion_incorrecta", "client"].some(r => reason.includes(r));
@@ -580,7 +580,7 @@ export default function RiderOrderDetailPage() {
               <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
                 <Clock className="w-4 h-4" /> Bitácora de Eventos
               </h4>
-              
+
               <div className="relative border-l-2 border-gray-200 ml-3 space-y-6 pb-2">
                 {/* Evento: Iniciada */}
                 <div className="relative pl-6">
@@ -632,8 +632,8 @@ export default function RiderOrderDetailPage() {
                     <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-red-500 border-2 border-red-500 shadow-lg shadow-red-200"></div>
                     <p className="text-sm font-bold text-red-700">Entrega Fallida</p>
                     <p className="text-xs text-red-600 italic mt-1">
-                      {(delivery as any).failure_cause 
-                        ? FAILURE_CAUSES.find(f => f.value === (delivery as any).failure_cause)?.label 
+                      {(delivery as any).failure_cause
+                        ? FAILURE_CAUSES.find(f => f.value === (delivery as any).failure_cause)?.label
                         : ((delivery as any).issue_type || (order as any).failure_reason || 'Sin especificar')}
                     </p>
                     <p className="text-xs text-gray-500">{safeDate(delivery.updatedAt)}</p>
