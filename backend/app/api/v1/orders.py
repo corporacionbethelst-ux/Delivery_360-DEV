@@ -194,7 +194,7 @@ def _order_to_dict(o: Order, rider: Optional[Rider] = None) -> dict:
         "sla_breached": sla_breached,
         "rider_id": str(o.assigned_rider_id) if o.assigned_rider_id else None,
         "assigned_rider_id": str(o.assigned_rider_id) if o.assigned_rider_id else None,
-        "rider": _serialize_order_rider(assigned_rider),
+        "assigned_rider": _serialize_order_rider(assigned_rider),
         "delivery": delivery_data,  # NUEVO: Incluir datos de delivery en la respuesta
         "source": getattr(o, 'source', 'MANUAL'),
         "created_at": o.created_at.isoformat() if o.created_at else None,
@@ -206,6 +206,67 @@ def _order_to_dict(o: Order, rider: Optional[Rider] = None) -> dict:
         # Campos de fallo para el frontend (desde Order)
         "failure_reason": o.failure_reason,
         "failure_notes": o.failure_notes,
+    }
+
+
+async def _get_bonus_config_info(db: AsyncSession) -> dict:
+    """
+    Obtiene información sobre la configuración de bonos desde PlatformSetting.
+    Retorna un diccionario con los valores y un indicador de validez.
+    
+    Returns:
+        dict: {
+            "success_bonus": float | None,
+            "failed_attempt_bonus": float | None,
+            "is_config_valid": bool,
+            "config_warning": str | None
+        }
+    """
+    result = await db.execute(
+        select(PlatformSetting.key, PlatformSetting.value).where(
+            PlatformSetting.key.in_(["rider_delivery_bonus", "rider_failed_attempt_bonus"])
+        )
+    )
+    settings_rows = result.fetchall()
+    
+    settings_map = {row.key: row.value for row in settings_rows}
+    
+    success_bonus_raw = settings_map.get("rider_delivery_bonus")
+    failed_bonus_raw = settings_map.get("rider_failed_attempt_bonus")
+    
+    # Convertir a float si es posible, sino None
+    success_bonus = None
+    failed_attempt_bonus = None
+    
+    if success_bonus_raw is not None:
+        try:
+            success_bonus = float(success_bonus_raw)
+        except (ValueError, TypeError):
+            success_bonus = None
+    
+    if failed_bonus_raw is not None:
+        try:
+            failed_attempt_bonus = float(failed_bonus_raw)
+        except (ValueError, TypeError):
+            failed_attempt_bonus = None
+    
+    # Determinar si la configuración es válida
+    is_config_valid = (success_bonus is not None) and (failed_attempt_bonus is not None)
+    
+    config_warning = None
+    if not is_config_valid:
+        missing = []
+        if success_bonus is None:
+            missing.append("success_bonus (rider_delivery_bonus)")
+        if failed_attempt_bonus is None:
+            missing.append("failed_attempt_bonus (rider_failed_attempt_bonus)")
+        config_warning = f"Falta configuración de bonos en PlatformSetting: {', '.join(missing)}. Contacte al administrador."
+    
+    return {
+        "success_bonus": success_bonus,
+        "failed_attempt_bonus": failed_attempt_bonus,
+        "is_config_valid": is_config_valid,
+        "config_warning": config_warning,
     }
 
 def _generate_order_number() -> str:
@@ -387,7 +448,18 @@ async def get_order(
     if not order:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
     await _ensure_rider_order_access(db, current_user, order)
-    return _order_to_dict(order)
+    
+    # Obtener información de configuración de bonos
+    bonus_config = await _get_bonus_config_info(db)
+    
+    # Convertir orden a diccionario y agregar información de bonos
+    order_dict = _order_to_dict(order)
+    order_dict["rider_delivery_bonus"] = bonus_config["success_bonus"]
+    order_dict["rider_failed_attempt_bonus"] = bonus_config["failed_attempt_bonus"]
+    order_dict["is_bonus_config_valid"] = bonus_config["is_config_valid"]
+    order_dict["bonus_config_warning"] = bonus_config["config_warning"]
+    
+    return order_dict
 
 @router.patch("/{order_id}")
 async def update_order(

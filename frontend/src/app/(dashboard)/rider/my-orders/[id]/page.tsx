@@ -19,10 +19,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-// Constantes de bonificación (Defaults seguros si falla la configuración)
-const DEFAULT_SUCCESS_BONUS = 2500; // COP
-const DEFAULT_FAILED_BONUS = 1500;  // COP
-
 // Definición completa de causas estandarizadas
 interface FailureOption {
   value: FailureCause;
@@ -91,6 +87,10 @@ export default function RiderOrderDetailPage() {
   // Estado calculado para la ganancia
   const [estimatedEarnings, setEstimatedEarnings] = useState<number>(0);
   const [earningsLabel, setEarningsLabel] = useState<string>("Pendiente");
+  
+  // Estado para configuración de bonos
+  const [isBonusConfigValid, setIsBonusConfigValid] = useState<boolean>(true);
+  const [bonusConfigWarning, setBonusConfigWarning] = useState<string | null>(null);
 
   useEffect(() => {
     loadOrderData();
@@ -107,9 +107,19 @@ export default function RiderOrderDetailPage() {
     let amount = 0;
     let label = "En proceso";
 
+    // Verificar si la configuración de bonos es válida
+    const configIsValid = (order as any).is_bonus_config_valid === true;
+
     if (delivery.status === DeliveryStatus.COMPLETADA) {
-      amount = (order as any).rider_delivery_bonus ?? DEFAULT_SUCCESS_BONUS;
-      label = "Ganancia Confirmada";
+      // Si la configuración NO es válida, el monto es 0
+      if (!configIsValid) {
+        amount = 0;
+        label = "Ganancia: $0 (Configuración faltante)";
+      } else {
+        // Usar el valor real del backend, sin fallback
+        amount = (order as any).rider_delivery_bonus ?? 0;
+        label = "Ganancia Confirmada";
+      }
     } else if (delivery.status === DeliveryStatus.FALLIDA) {
       // Lógica mejorada: Usar el campo failure_cause si existe
       const causeValue = (delivery as any).failure_cause;
@@ -118,8 +128,14 @@ export default function RiderOrderDetailPage() {
         const option = FAILURE_CAUSES.find(f => f.value === causeValue);
         if (option) {
           if (option.bonificable) {
-            amount = DEFAULT_FAILED_BONUS;
-            label = "Bono por Fallo (Cliente)";
+            // Si la configuración NO es válida, el monto es 0
+            if (!configIsValid) {
+              amount = 0;
+              label = "Bono por Fallo: $0 (Configuración faltante)";
+            } else {
+              amount = (order as any).rider_failed_attempt_bonus ?? 0;
+              label = "Bono por Fallo (Cliente)";
+            }
           } else {
             amount = 0;
             label = "Sin Bono (Causa Repartidor)";
@@ -135,16 +151,28 @@ export default function RiderOrderDetailPage() {
         const isCustomerFault = ["cliente_no_esta", "direccion_incorrecta", "client"].some(r => reason.includes(r));
 
         if (isCustomerFault) {
-          amount = DEFAULT_FAILED_BONUS;
-          label = "Bono por Fallo (Legacy)";
+          // Si la configuración NO es válida, el monto es 0
+          if (!configIsValid) {
+            amount = 0;
+            label = "Bono por Fallo: $0 (Configuración faltante)";
+          } else {
+            amount = (order as any).rider_failed_attempt_bonus ?? 0;
+            label = "Bono por Fallo (Legacy)";
+          }
         } else {
           amount = 0;
           label = "Sin Bono";
         }
       }
     } else {
-      amount = (order as any).rider_delivery_bonus ?? DEFAULT_SUCCESS_BONUS;
-      label = "Ganancia Proyectada";
+      // Estado pendiente/en proceso
+      if (!configIsValid) {
+        amount = 0;
+        label = "Ganancia Proyectada: $0 (Configuración faltante)";
+      } else {
+        amount = (order as any).rider_delivery_bonus ?? 0;
+        label = "Ganancia Proyectada";
+      }
     }
 
     setEstimatedEarnings(amount);
@@ -166,6 +194,10 @@ export default function RiderOrderDetailPage() {
       setOrder(data);
       const deliveryData = (data as any).delivery || null;
       setDelivery(deliveryData ? (deliveryData as Delivery) : null);
+      
+      // Capturar estado de configuración de bonos
+      setIsBonusConfigValid((data as any).is_bonus_config_valid ?? true);
+      setBonusConfigWarning((data as any).bonus_config_warning ?? null);
 
     } catch (err: any) {
       console.error("Error cargando orden:", err);
@@ -284,7 +316,12 @@ export default function RiderOrderDetailPage() {
             </div>
             <div className="p-6">
               <p className="text-sm text-gray-600 mb-4">
-                Selecciona el motivo exacto. Esto determinará automáticamente si aplica el bono de {formatCurrency(DEFAULT_FAILED_BONUS)}.
+                Selecciona el motivo exacto. Esto determinará automáticamente si aplica el bono.
+                {!isBonusConfigValid && (
+                  <span className="block mt-2 text-red-600 font-semibold">
+                    ⚠️ La configuración de bonos no está definida. Esta entrega fallida podría registrar $0.
+                  </span>
+                )}
               </p>
 
               <div className="space-y-4">
@@ -502,22 +539,42 @@ export default function RiderOrderDetailPage() {
           {/* Columna Derecha: Finanzas y Timeline */}
           <div className="space-y-6">
 
+            {/* Alerta de Configuración Faltante (si aplica) */}
+            {!isBonusConfigValid && bonusConfigWarning && (
+              <div className="bg-red-50 border-2 border-red-300 rounded-xl p-5 shadow-md">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="text-sm font-bold text-red-800 mb-1">
+                      ⚠️ Configuración de Bonos No Válida
+                    </h4>
+                    <p className="text-xs text-red-700 leading-relaxed">
+                      {bonusConfigWarning}
+                    </p>
+                    <p className="text-xs text-red-700 mt-2 font-semibold">
+                      Esta transacción registra $0 hasta que el administrador configure los valores base.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Resumen Financiero ACTUALIZADO */}
-            <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-5 border border-green-100">
-              <h4 className="text-xs font-bold text-green-800 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <div className={`rounded-xl p-5 border ${!isBonusConfigValid ? 'bg-gray-50 border-gray-200' : 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-100'}`}>
+              <h4 className={`text-xs font-bold uppercase tracking-wider mb-4 flex items-center gap-2 ${!isBonusConfigValid ? 'text-gray-600' : 'text-green-800'}`}>
                 <DollarSign className="w-4 h-4" /> Resumen de Ganancia
               </h4>
 
               <div className="space-y-3">
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-green-700/80">{earningsLabel}:</span>
-                  <span className="font-bold text-green-900 text-lg">
+                  <span className={!isBonusConfigValid ? 'text-gray-600' : 'text-green-700/80'}>{earningsLabel}:</span>
+                  <span className={`font-bold text-lg ${!isBonusConfigValid ? 'text-gray-900' : 'text-green-900'}`}>
                     {formatCurrency(estimatedEarnings)}
                   </span>
                 </div>
 
                 {delivery.status === DeliveryStatus.FALLIDA && (
-                  <div className="pt-3 border-t border-green-200/50">
+                  <div className={`pt-3 border-t ${!isBonusConfigValid ? 'border-gray-200' : 'border-green-200/50'}`}>
                     <p className="text-xs text-red-600 font-medium mb-1 flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" /> Entrega Fallida
                     </p>
@@ -544,8 +601,9 @@ export default function RiderOrderDetailPage() {
 
                        if (option) {
                          return option.bonificable ? (
-                           <p className="text-xs text-green-700 mt-2 font-bold flex items-center gap-1">
-                             <CheckCircle className="w-3 h-3" /> ✅ Aplica bono por fallo externo.
+                           <p className={`text-xs mt-2 font-bold flex items-center gap-1 ${!isBonusConfigValid ? 'text-gray-500' : 'text-green-700'}`}>
+                             {isBonusConfigValid ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                             {isBonusConfigValid ? '✅ Aplica bono por fallo externo.' : '⚠️ Bono no disponible (Configuración faltante).'}
                            </p>
                          ) : (
                            <p className="text-xs text-orange-700 mt-2 font-bold flex items-center gap-1">
@@ -558,7 +616,9 @@ export default function RiderOrderDetailPage() {
                        const reason = ((delivery as any).issue_type || (order as any).failure_reason || "").toLowerCase();
                        const isCustomerFault = ["cliente_no_esta", "direccion_incorrecta", "client"].some(r => reason.includes(r));
                        return isCustomerFault ? (
-                         <p className="text-xs text-green-700 mt-2 font-bold">✅ Aplica bono (Legacy).</p>
+                         <p className={`text-xs mt-2 font-bold ${!isBonusConfigValid ? 'text-gray-500' : 'text-green-700'}`}>
+                           {isBonusConfigValid ? '✅ Aplica bono (Legacy).' : '⚠️ Bono no disponible (Configuración faltante).'}
+                         </p>
                        ) : (
                          <p className="text-xs text-orange-700 mt-2 font-bold">⚠️ Sujeto a revisión.</p>
                        );
@@ -566,9 +626,9 @@ export default function RiderOrderDetailPage() {
                   </div>
                 )}
 
-                <div className="pt-4 mt-2 border-t border-green-200/50 flex justify-between items-end">
-                  <span className="text-sm font-medium text-green-800">Total a Pagar:</span>
-                  <span className="text-2xl font-extrabold text-green-700">
+                <div className={`pt-4 mt-2 border-t ${!isBonusConfigValid ? 'border-gray-200' : 'border-green-200/50'} flex justify-between items-end`}>
+                  <span className={`text-sm font-medium ${!isBonusConfigValid ? 'text-gray-700' : 'text-green-800'}`}>Total a Pagar:</span>
+                  <span className={`text-2xl font-extrabold ${!isBonusConfigValid ? 'text-gray-900' : 'text-green-700'}`}>
                     {formatCurrency(estimatedEarnings)}
                   </span>
                 </div>
