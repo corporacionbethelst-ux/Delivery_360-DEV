@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime, timezone  # CORREGIDO
 from typing import Any
-from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Enum as SQLEnum, Text, text, Boolean, JSON
+from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Enum as SQLEnum, Text, text, Boolean, JSON, Numeric
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
@@ -86,6 +86,12 @@ def check_is_bonificable(cause: "DeliveryFailureCause") -> bool:
         return cause.value in get_bonificable_causes()
     return False
 
+class LockedBonusType(str, enum.Enum):
+    """Tipos de bono que pueden ser congelados en un snapshot financiero."""
+    SUCCESS = "SUCCESS"  # Bono por entrega completada exitosamente
+    FAILED_ATTEMPT = "FAILED_ATTEMPT"  # Bono por intento fallido bonificable
+
+
 class Delivery(Base):
     __tablename__ = "deliveries"
     __table_args__ = {'extend_existing': True}
@@ -139,6 +145,24 @@ class Delivery(Base):
     sla_expected_minutes = Column(Integer)
     sla_actual_minutes = Column(Integer)
     sla_compliant = Column(Boolean)
+    
+    # =============================================================================
+    # SNAPSHOT FINANCIERO INMUTABLE (Fase 3 - Inmutabilidad Financiera)
+    # =============================================================================
+    # Estos campos se congelan en el momento exacto de transición a estado terminal
+    # (COMPLETADA o FALLIDA) y NUNCA deben modificarse después.
+    
+    # Monto exacto del bono aplicado, congelado al momento del cierre
+    locked_bonus_amount = Column(Numeric(10, 2), nullable=True, comment='Monto del bono congelado en el momento de finalizar la entrega. Inmutable.')
+    
+    # Tipo de bono aplicado: SUCCESS (entrega completada) o FAILED_ATTEMPT (fallida bonificable)
+    locked_bonus_type: Any = Column(SQLEnum(LockedBonusType), nullable=True, comment='Tipo de bono congelado. Inmutable.')
+    
+    # Timestamp exacto del congelamiento del bono
+    bonus_snapshot_date = Column(DateTime, nullable=True, comment='Fecha y hora exacta en que se congeló el bono. Inmutable.')
+    
+    # Alerta de configuración faltante en el momento del snapshot (para auditoría)
+    bonus_config_warning_snapshot = Column(Text, nullable=True, comment='Mensaje de alerta sobre configuración faltante en el momento del snapshot. Para auditoría.')
     
     created_at = Column(DateTime, default=utc_now_naive)
     updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)

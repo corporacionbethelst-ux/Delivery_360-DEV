@@ -144,6 +144,24 @@ def _order_to_dict(o: Order, rider: Optional[Rider] = None) -> dict:
     delivery_obj = o.__dict__.get("delivery")
     delivery_data = None
     if delivery_obj:
+        # =============================================================================
+        # FASE 3: Usar valores CONGELADOS del snapshot financiero en lugar de calcular en vivo
+        # =============================================================================
+        locked_bonus_amount = None
+        locked_bonus_type = None
+        bonus_snapshot_date = None
+        bonus_config_warning = None
+        
+        # Leer valores congelados si existen (entregas finalizadas después de la migración)
+        if hasattr(delivery_obj, 'locked_bonus_amount') and delivery_obj.locked_bonus_amount is not None:
+            locked_bonus_amount = float(delivery_obj.locked_bonus_amount)
+        if hasattr(delivery_obj, 'locked_bonus_type') and delivery_obj.locked_bonus_type is not None:
+            locked_bonus_type = delivery_obj.locked_bonus_type.value if hasattr(delivery_obj.locked_bonus_type, 'value') else str(delivery_obj.locked_bonus_type)
+        if hasattr(delivery_obj, 'bonus_snapshot_date') and delivery_obj.bonus_snapshot_date is not None:
+            bonus_snapshot_date = delivery_obj.bonus_snapshot_date.isoformat()
+        if hasattr(delivery_obj, 'bonus_config_warning_snapshot'):
+            bonus_config_warning = delivery_obj.bonus_config_warning_snapshot
+        
         delivery_data = {
             "id": str(delivery_obj.id),
             "order_id": str(delivery_obj.order_id),
@@ -162,6 +180,13 @@ def _order_to_dict(o: Order, rider: Optional[Rider] = None) -> dict:
             "issue_type": delivery_obj.issue_type,
             "issue_description": delivery_obj.issue_description,
             "has_issues": delivery_obj.has_issues,
+            # =============================================================================
+            # FASE 3: Snapshot Financiero Inmutable - Valores CONGELADOS
+            # =============================================================================
+            "locked_bonus_amount": locked_bonus_amount,
+            "locked_bonus_type": locked_bonus_type,
+            "bonus_snapshot_date": bonus_snapshot_date,
+            "bonus_config_warning_snapshot": bonus_config_warning,
         }
     
     # Manejo seguro de atributos que quizás aún no existen en la BD

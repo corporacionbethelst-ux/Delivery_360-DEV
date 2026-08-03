@@ -107,6 +107,42 @@ export default function RiderOrderDetailPage() {
     let amount = 0;
     let label = "En proceso";
 
+    // =============================================================================
+    // FASE 3: Usar valores CONGELADOS del snapshot financiero (locked_bonus_amount)
+    // en lugar de calcular en vivo desde PlatformSetting.
+    // Esto garantiza inmutabilidad financiera histórica.
+    // =============================================================================
+    
+    // Verificar si existe el snapshot financiero congelado
+    const lockedAmount = (delivery as any).locked_bonus_amount;
+    const lockedType = (delivery as any).locked_bonus_type;
+    const configWarning = (delivery as any).bonus_config_warning_snapshot;
+    
+    // Si hay un snapshot congelado, usarlo directamente (prioridad máxima)
+    if (lockedAmount !== undefined && lockedAmount !== null) {
+      amount = Number(lockedAmount);
+      
+      if (delivery.status === DeliveryStatus.COMPLETADA) {
+        label = `Ganancia Confirmada (${formatCurrency(amount)})`;
+        if (configWarning) {
+          label = `Ganancia: ${formatCurrency(amount)} (Config faltante al momento)`;
+        }
+      } else if (delivery.status === DeliveryStatus.FALLIDA) {
+        if (lockedType === 'FAILED_ATTEMPT') {
+          label = `Bono por Fallo Confirmado (${formatCurrency(amount)})`;
+          if (configWarning) {
+            label = `Bono por Fallo: ${formatCurrency(amount)} (Config faltante al momento)`;
+          }
+        } else {
+          label = "Sin Bono (Causa Repartidor)";
+        }
+      }
+      setEstimatedEarnings(amount);
+      setEarningsLabel(label);
+      return;
+    }
+
+    // Fallback para órdenes antiguas sin snapshot: usar lógica legacy
     // Verificar si la configuración de bonos es válida
     const configIsValid = (order as any).is_bonus_config_valid === true;
 
@@ -165,7 +201,7 @@ export default function RiderOrderDetailPage() {
         }
       }
     } else {
-      // Estado pendiente/en proceso
+      // Estado pendiente/en proceso (sin snapshot aún)
       if (!configIsValid) {
         amount = 0;
         label = "Ganancia Proyectada: $0 (Configuración faltante)";
