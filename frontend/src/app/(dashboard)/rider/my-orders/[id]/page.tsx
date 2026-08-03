@@ -87,7 +87,7 @@ export default function RiderOrderDetailPage() {
   // Estado calculado para la ganancia
   const [estimatedEarnings, setEstimatedEarnings] = useState<number>(0);
   const [earningsLabel, setEarningsLabel] = useState<string>("Pendiente");
-  
+
   // Estado para configuración de bonos
   const [isBonusConfigValid, setIsBonusConfigValid] = useState<boolean>(true);
   const [bonusConfigWarning, setBonusConfigWarning] = useState<string | null>(null);
@@ -194,7 +194,7 @@ export default function RiderOrderDetailPage() {
       setOrder(data);
       const deliveryData = (data as any).delivery || null;
       setDelivery(deliveryData ? (deliveryData as Delivery) : null);
-      
+
       // Capturar estado de configuración de bonos
       setIsBonusConfigValid((data as any).is_bonus_config_valid ?? true);
       setBonusConfigWarning((data as any).bonus_config_warning ?? null);
