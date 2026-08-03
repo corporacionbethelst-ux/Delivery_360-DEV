@@ -110,6 +110,9 @@ export interface Order {
   delivery_address?: string;
   delivery_instructions?: string;
   rider_delivery_bonus?: number;
+  rider_failed_attempt_bonus?: number;
+  is_bonus_config_valid?: boolean;
+  bonus_config_warning?: string;
 }
 
 export interface OrderFilters {
