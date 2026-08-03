@@ -47,14 +47,14 @@ SETTING_DESCRIPTIONS: dict[str, str] = {
 
 
 class PlatformSettingsResponse(BaseModel):
-    delivery_fee_base: float
-    commission_percentage: float
-    min_order_amount: float
-    active_zones: List[str]
-    support_email: EmailStr
-    maintenance_mode: bool
-    rider_delivery_bonus: float = 2500
-    rider_failed_attempt_bonus: float = 1500
+    delivery_fee_base: Optional[float] = None
+    commission_percentage: Optional[float] = None
+    min_order_amount: Optional[float] = None
+    active_zones: List[str] = []
+    support_email: Optional[EmailStr] = None
+    maintenance_mode: bool = False
+    rider_delivery_bonus: Optional[float] = None
+    rider_failed_attempt_bonus: Optional[float] = None
     updated_at: Optional[str] = None
     updated_by_user_id: Optional[str] = None
 
@@ -76,28 +76,42 @@ async def _load_settings_rows(db: AsyncSession) -> dict[str, PlatformSetting]:
 
 
 def _coerce_settings(rows: dict[str, PlatformSetting]) -> dict[str, Any]:
-    values = dict(DEFAULT_PLATFORM_SETTINGS)
+    """Convierte rows de PlatformSetting a un diccionario de valores.
+    
+    NOTA CRÍTICA: Los valores por defecto (DEFAULT_PLATFORM_SETTINGS) solo se usan
+    como referencia estructural, NO como fallback de valores. Si un setting no existe
+    en DB, se retorna None explícitamente para forzar validación estricta.
+    """
+    values: dict[str, Any] = {}
     latest_updated_at: Optional[datetime] = None
     latest_updated_by: Optional[str] = None
 
+    # Inicializar con None explícito para cada key esperada
     for key in DEFAULT_PLATFORM_SETTINGS:
-        row = rows.get(key)
-        if not row:
-            continue
-        values[key] = row.value
-        if row.updated_at and (latest_updated_at is None or row.updated_at > latest_updated_at):
-            latest_updated_at = row.updated_at
-            latest_updated_by = str(row.updated_by_user_id) if row.updated_by_user_id else None
+        values[key] = None
+    
+    # Sobrescribir con valores reales de DB si existen
+    for key, row in rows.items():
+        if key in values:
+            values[key] = row.value
+            if row.updated_at and (latest_updated_at is None or row.updated_at > latest_updated_at):
+                latest_updated_at = row.updated_at
+                latest_updated_by = str(row.updated_by_user_id) if row.updated_by_user_id else None
 
     values["updated_at"] = latest_updated_at.isoformat() if latest_updated_at else None
     values["updated_by_user_id"] = latest_updated_by
-    values["delivery_fee_base"] = float(values.get("delivery_fee_base") or 0)
-    values["commission_percentage"] = float(values.get("commission_percentage") or 0)
-    values["min_order_amount"] = float(values.get("min_order_amount") or 0)
-    values["rider_delivery_bonus"] = float(values.get("rider_delivery_bonus") or 2500)
-    values["rider_failed_attempt_bonus"] = float(values.get("rider_failed_attempt_bonus") or 1500)
-    values["active_zones"] = [str(zone).strip() for zone in values.get("active_zones", []) if str(zone).strip()]
-    values["maintenance_mode"] = bool(values.get("maintenance_mode"))
+    
+    # Conversión segura: None se mantiene como None (validación estricta)
+    values["delivery_fee_base"] = float(values.get("delivery_fee_base")) if values.get("delivery_fee_base") is not None else None
+    values["commission_percentage"] = float(values.get("commission_percentage")) if values.get("commission_percentage") is not None else None
+    values["min_order_amount"] = float(values.get("min_order_amount")) if values.get("min_order_amount") is not None else None
+    # BONOS: Sin fallback! None indica falta de configuración crítica
+    values["rider_delivery_bonus"] = float(values.get("rider_delivery_bonus")) if values.get("rider_delivery_bonus") is not None else None
+    values["rider_failed_attempt_bonus"] = float(values.get("rider_failed_attempt_bonus")) if values.get("rider_failed_attempt_bonus") is not None else None
+    
+    values["active_zones"] = [str(zone).strip() for zone in (values.get("active_zones") or []) if str(zone).strip()]
+    values["maintenance_mode"] = bool(values.get("maintenance_mode")) if values.get("maintenance_mode") is not None else False
+    
     return values
 
 

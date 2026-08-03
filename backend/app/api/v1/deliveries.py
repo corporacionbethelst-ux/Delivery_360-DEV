@@ -506,12 +506,22 @@ async def complete_delivery(
     existing_financial = financial_result.scalar_one_or_none()
     
     if not existing_financial and delivery.rider_id:
-        # Obtener bono base
+        # Obtener bono base DESDE LA BASE DE DATOS (Dinámico)
         settings_result = await db.execute(
             select(PlatformSetting.value).where(PlatformSetting.key == "rider_delivery_bonus")
         )
         bonus_value = settings_result.scalar_one_or_none()
-        base_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("2500")
+        
+        # VALIDACIÓN ESTRICTA: Si no hay configuración, el monto es 0
+        if bonus_value is None:
+            logger.warning(f"[VALIDACIÓN ESTRICTA] rider_delivery_bonus no configurado en DB. Pago forzado a $0 para entrega {delivery.id}")
+            base_payment = Decimal("0")
+        else:
+            try:
+                base_payment = Decimal(str(bonus_value))
+            except (ValueError, TypeError):
+                logger.error(f"[ERROR] Valor inválido en rider_delivery_bonus: {bonus_value}. Usando $0.")
+                base_payment = Decimal("0")
         
         # FASE 3: Aplicar multiplicador de zona
         multiplier = Decimal("1.0")
@@ -873,11 +883,22 @@ async def update_delivery_status(
         existing_financial = financial_result.scalar_one_or_none()
         
         if not existing_financial and delivery.rider_id:
+            # Obtener bono base DESDE LA BASE DE DATOS (Dinámico)
             settings_result = await db.execute(
                 select(PlatformSetting.value).where(PlatformSetting.key == "rider_delivery_bonus")
             )
             bonus_value = settings_result.scalar_one_or_none()
-            base_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("2500")
+            
+            # VALIDACIÓN ESTRICTA: Si no hay configuración, el monto es 0
+            if bonus_value is None:
+                logger.warning(f"[VALIDACIÓN ESTRICTA] rider_delivery_bonus no configurado en DB. Pago forzado a $0 para entrega {delivery.id}")
+                base_payment = Decimal("0")
+            else:
+                try:
+                    base_payment = Decimal(str(bonus_value))
+                except (ValueError, TypeError):
+                    logger.error(f"[ERROR] Valor inválido en rider_delivery_bonus: {bonus_value}. Usando $0.")
+                    base_payment = Decimal("0")
             
             # FASE 3: Obtener multiplicador de la zona del rider
             multiplier = Decimal("1.0")
@@ -949,11 +970,22 @@ async def update_delivery_status(
             existing_financial = financial_result.scalar_one_or_none()
             
             if not existing_financial:
+                # Obtener bono por intento fallido DESDE LA BASE DE DATOS (Dinámico)
                 settings_result = await db.execute(
                     select(PlatformSetting.value).where(PlatformSetting.key == "rider_failed_attempt_bonus")
                 )
                 bonus_value = settings_result.scalar_one_or_none()
-                failed_payment = Decimal(str(bonus_value)) if bonus_value is not None else Decimal("1500.00")
+                
+                # VALIDACIÓN ESTRICTA: Si no hay configuración, el monto es 0
+                if bonus_value is None:
+                    logger.warning(f"[VALIDACIÓN ESTRICTA] rider_failed_attempt_bonus no configurado en DB. Bono forzado a $0 para entrega fallida {delivery.id}")
+                    failed_payment = Decimal("0")
+                else:
+                    try:
+                        failed_payment = Decimal(str(bonus_value))
+                    except (ValueError, TypeError):
+                        logger.error(f"[ERROR] Valor inválido en rider_failed_attempt_bonus: {bonus_value}. Usando $0.")
+                        failed_payment = Decimal("0")
                 
                 financial = Financial(
                     rider_id=delivery.rider_id,
