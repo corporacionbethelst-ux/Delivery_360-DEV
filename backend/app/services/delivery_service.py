@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
-from app.models.delivery import Delivery, DeliveryStatus
+from app.models.delivery import Delivery, DeliveryStatus, LockedBonusType
 from app.models.order import OrderStatus
 from app.schemas.delivery import ProofOfDeliveryCreate
 from app.crud.delivery import delivery as delivery_crud
@@ -81,6 +81,88 @@ class DeliveryService:
         # o podríamos retornar True si la política es 'beneficio de la duda'.
         # Aquí optamos por ser estrictos: si no menciona una causa externa clara, no hay bono.
         return False, "No se identificó causa externa clara"
+
+    async def _get_bonus_config_and_snapshot(
+        self,
+        db: AsyncSession,
+        bonus_type: LockedBonusType,
+        delivery_id: uuid.UUID,
+        rider_id: uuid.UUID
+    ) -> Tuple[Optional[float], Optional[str]]:
+        """
+        Obtiene la configuración de bonos vigente y retorna el monto aplicable.
+        
+        Args:
+            db: Sesión de base de datos
+            bonus_type: Tipo de bono (SUCCESS o FAILED_ATTEMPT)
+            delivery_id: ID de la entrega
+            rider_id: ID del repartidor
+            
+        Returns:
+            Tuple[monto_a_congelar, alerta_configuracion]
+            - Si la config es válida: retorna el monto y None
+            - Si la config es inválida: retorna 0.0 y mensaje de alerta
+        """
+        result = await db.execute(
+            select(PlatformSetting.key, PlatformSetting.value).where(
+                PlatformSetting.key.in_(["rider_delivery_bonus", "rider_failed_attempt_bonus"])
+            )
+        )
+        settings_rows = result.fetchall()
+        settings_map = {row.key: row.value for row in settings_rows}
+        
+        # Determinar qué key usar según el tipo de bono
+        if bonus_type == LockedBonusType.SUCCESS:
+            bonus_key = "rider_delivery_bonus"
+        else:  # FAILED_ATTEMPT
+            bonus_key = "rider_failed_attempt_bonus"
+        
+        bonus_value = settings_map.get(bonus_key)
+        
+        # Validar si la configuración existe y es numérica
+        if bonus_value is None:
+            # Configuración faltante
+            warning = f"Configuración '{bonus_key}' no encontrada en PlatformSetting. Bono congelado en $0."
+            return 0.0, warning
+        
+        try:
+            bonus_amount = float(bonus_value)
+        except (ValueError, TypeError):
+            warning = f"Configuración '{bonus_key}' tiene valor inválido '{bonus_value}'. Bono congelado en $0."
+            return 0.0, warning
+        
+        # Configuración válida
+        return bonus_amount, None
+
+    async def _create_financial_snapshot(
+        self,
+        db: AsyncSession,
+        delivery: Delivery,
+        bonus_type: LockedBonusType,
+        bonus_amount: float,
+        config_warning: Optional[str] = None
+    ) -> None:
+        """
+        Crea el snapshot financiero inmutable en la entrega.
+        Este método debe llamarse SOLO una vez, al momento de transición a estado terminal.
+        
+        Args:
+            db: Sesión de base de datos
+            delivery: Objeto Delivery a actualizar
+            bonus_type: Tipo de bono aplicado
+            bonus_amount: Monto exacto a congelar
+            config_warning: Mensaje de alerta si la configuración era inválida
+        """
+        now = datetime.utcnow()
+        
+        # Actualizar campos de snapshot en el objeto delivery
+        delivery.locked_bonus_amount = bonus_amount
+        delivery.locked_bonus_type = bonus_type
+        delivery.bonus_snapshot_date = now
+        delivery.bonus_config_warning_snapshot = config_warning
+        
+        # Nota: No hacemos commit aquí, se espera que el caller haga commit
+        # para mantener atomicidad con el cambio de estado
 
     async def _grant_failed_attempt_bonus(
         self, 
@@ -228,7 +310,11 @@ class DeliveryService:
         proof_data: ProofOfDeliveryCreate,
         completed_by: int
     ) -> Delivery:
-        """Completa entrega con prueba de entrega"""
+        """Completa entrega con prueba de entrega.
+        
+        IMPORTANTE: En el momento de completar, se congela el bono aplicable
+        según la configuración vigente en ESE instante. Este valor NUNCA cambiará.
+        """
         delivery = await self.get_delivery(db, delivery_id)
         self._ensure_status_transition(
             delivery,
@@ -237,21 +323,61 @@ class DeliveryService:
         )
         now = datetime.utcnow()
         
+        # =========================================================================
+        # FASE 1: Capturar Snapshot Financiero ANTES de cambiar el estado
+        # =========================================================================
+        bonus_amount, config_warning = await self._get_bonus_config_and_snapshot(
+            db=db,
+            bonus_type=LockedBonusType.SUCCESS,
+            delivery_id=delivery_id,
+            rider_id=delivery.rider_id
+        )
+        
+        # Preparar datos de actualización incluyendo el snapshot financiero
+        update_data = {
+            "status": DeliveryStatus.COMPLETADA,
+            "completed_at": now,
+            "proof_photo_url": proof_data.photo_url,
+            "proof_signature": proof_data.signature_base64,
+            "proof_otp": proof_data.otp_code,
+            "proof_notes": proof_data.notes,
+            "customer_name_received": proof_data.customer_name,
+            "current_latitude": proof_data.delivery_latitude,
+            "current_longitude": proof_data.delivery_longitude,
+            # Snapshot financiero inmutable
+            "locked_bonus_amount": bonus_amount,
+            "locked_bonus_type": LockedBonusType.SUCCESS,
+            "bonus_snapshot_date": now,
+            "bonus_config_warning_snapshot": config_warning,
+        }
+        
         delivery = await delivery_crud.update(
             db,
             db_obj=delivery,
-            obj_in={
-                "status": DeliveryStatus.COMPLETADA,
-                "completed_at": now,
-                "proof_photo_url": proof_data.photo_url,
-                "proof_signature": proof_data.signature_base64,
-                "proof_otp": proof_data.otp_code,
-                "proof_notes": proof_data.notes,
-                "customer_name_received": proof_data.customer_name,
-                "current_latitude": proof_data.delivery_latitude,
-                "current_longitude": proof_data.delivery_longitude,
-            }
+            obj_in=update_data
         )
+        
+        # =========================================================================
+        # FASE 2: Registrar transacción financiera con el valor CONGELADO
+        # =========================================================================
+        if delivery.rider_id and bonus_amount > 0:
+            try:
+                from app.models.financial import TransactionType, PaymentStatus
+                financial_svc = FinancialService(db)
+                await financial_svc.create_transaction(
+                    rider_id=str(delivery.rider_id),
+                    amount=bonus_amount,
+                    transaction_type=TransactionType.PAGO_ENTREGA,
+                    description=f"Bono por entrega completada. ID Entrega: {str(delivery_id)[:8]}",
+                    reference_id=str(delivery_id),
+                    source_type="delivery_completed",
+                    source_id=str(delivery_id),
+                    status=PaymentStatus.PROCESADO,
+                )
+                print(f"[INFO] Bono CONGELADO de ${bonus_amount} registrado para entrega {delivery_id}")
+            except Exception as e:
+                print(f"[ERROR] Fallo al registrar transacción financiera: {str(e)}")
+                # No lanzamos excepción para no revertir el cambio de estado
         
         # Actualizar estado del pedido asociado
         order = await order_crud.get(db, delivery.order_id)
@@ -274,7 +400,11 @@ class DeliveryService:
         failure_cause_enum_value: str,
         failed_by: int
     ) -> Delivery:
-        """Marca entrega como fallida y gestiona bonos si aplica basado en el Enum"""
+        """Marca entrega como fallida y gestiona bonos si aplica basado en el Enum.
+        
+        IMPORTANTE: En el momento de fallar, se congela el bono aplicable (si corresponde)
+        según la configuración vigente en ESE instante. Este valor NUNCA cambiará.
+        """
         delivery = await self.get_delivery(db, delivery_id)
         self._ensure_status_transition(
             delivery,
@@ -292,14 +422,41 @@ class DeliveryService:
                 detail=f"Causa de falla inválida: {failure_cause_enum_value}"
             )
         
-        # 2. Preparar datos de actualización (usando el ENUM estandarizado)
+        # =========================================================================
+        # FASE 1: Determinar si aplica bono y capturar snapshot financiero
+        # =========================================================================
+        bonus_amount = 0.0
+        bonus_type = None
+        config_warning = None
+        
+        if failure_cause.is_bonificable and delivery.rider_id:
+            # La causa es bonificable: obtener monto y congelar
+            bonus_amount, config_warning = await self._get_bonus_config_and_snapshot(
+                db=db,
+                bonus_type=LockedBonusType.FAILED_ATTEMPT,
+                delivery_id=delivery_id,
+                rider_id=delivery.rider_id
+            )
+            bonus_type = LockedBonusType.FAILED_ATTEMPT
+        else:
+            # No es bonificable: congelar en 0 explícitamente para auditoría
+            bonus_amount = 0.0
+            bonus_type = None  # Sin bono aplicado
+            config_warning = None
+        
+        # 2. Preparar datos de actualización (usando el ENUM estandarizado + snapshot)
         update_data = {
             "status": DeliveryStatus.FALLIDA,
             "has_issues": True,
             "failure_cause": failure_cause,  # Campo estandarizado
             "issue_type": failure_cause.value,
             "issue_description": f"Fallo por causa: {failure_cause.value}",
-            "issue_analysis_result": f"Causa: {failure_cause.value}. Bonificable: {failure_cause.is_bonificable}"
+            "issue_analysis_result": f"Causa: {failure_cause.value}. Bonificable: {failure_cause.is_bonificable}",
+            # Snapshot financiero inmutable
+            "locked_bonus_amount": bonus_amount if bonus_type else None,
+            "locked_bonus_type": bonus_type,
+            "bonus_snapshot_date": datetime.utcnow() if bonus_type else None,
+            "bonus_config_warning_snapshot": config_warning,
         }
         
         # 3. Actualizar la entrega
@@ -309,17 +466,30 @@ class DeliveryService:
             obj_in=update_data
         )
         
-        # 4. Gestionar bono AUTOMÁTICO si el ENUM indica que es bonificable
-        #    El servicio verifica el valor dinámico en PlatformSetting
-        if delivery.rider_id and failure_cause.is_bonificable:
-            await self._grant_failed_attempt_bonus(
-                db=db,
-                rider_id=delivery.rider_id,
-                delivery_id=delivery_id,
-                failure_cause_enum_value=failure_cause.value
-            )
+        # =========================================================================
+        # FASE 2: Gestionar bono AUTOMÁTICO si el ENUM indica que es bonificable
+        #          El servicio verifica el valor dinámico en PlatformSetting
+        # =========================================================================
+        if delivery.rider_id and failure_cause.is_bonificable and bonus_amount > 0:
+            try:
+                from app.models.financial import TransactionType, PaymentStatus
+                financial_svc = FinancialService(db)
+                await financial_svc.create_transaction(
+                    rider_id=str(delivery.rider_id),
+                    amount=bonus_amount,
+                    transaction_type=TransactionType.PAGO_INTENTO_FALLIDO,
+                    description=f"Bono por entrega fallida ({failure_cause.value}). ID Entrega: {str(delivery_id)[:8]}",
+                    reference_id=str(delivery_id),
+                    source_type="delivery_failed",
+                    source_id=str(delivery_id),
+                    status=PaymentStatus.PROCESADO,
+                )
+                print(f"[INFO] Bono CONGELADO de ${bonus_amount} registrado para entrega fallida {delivery_id}")
+            except Exception as e:
+                print(f"[ERROR] Fallo al registrar transacción financiera: {str(e)}")
+                # No lanzamos excepción para no revertir el cambio de estado
         
-        # 5. Actualizar estado del pedido asociado
+        # 4. Actualizar estado del pedido asociado
         order = await order_crud.get(db, delivery.order_id)
         if order:
             await order_crud.update(

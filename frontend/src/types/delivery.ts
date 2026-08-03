@@ -77,7 +77,7 @@ export interface DeliveryEvent {
 /**
  * Interfaz principal de Delivery para el flujo del repartidor.
  * Incluye los campos específicos requeridos para la gestión de estados, incidencias y métricas.
- * Actualizado para Fase 2 (Bonos por fallo) y sincronización completa con el backend.
+ * Actualizado para Fase 2 (Bonos por fallo) y Fase 3 (Snapshot Financiero Inmutable).
  */
 export interface Delivery {
   id: string;
@@ -118,6 +118,7 @@ export interface Delivery {
   issue_description?: string | null;           // Descripción detallada
   issue_resolved?: boolean;
   failure_reason?: string | null;              // Alias para issue_type en vistas
+  failure_cause?: string | null;               // Causa estandarizada del fallo (ENUM)
   
   // --- PRUEBAS DE ENTREGA ---
   proof_type?: ProofType | string | null;
@@ -146,6 +147,25 @@ export interface Delivery {
   
   // --- DATOS DE RUTA (Opcional, para navegación avanzada) ---
   route_data?: any | null;
+
+  // =============================================================================
+  // FASE 3: SNAPSHOT FINANCIERO INMUTABLE
+  // =============================================================================
+  // Campos congelados en el momento de finalizar la entrega (COMPLETADA o FALLIDA)
+  // Estos valores NUNCA deben cambiar, independientemente de futuras actualizaciones
+  // en la configuración de bonos de PlatformSetting.
+  
+  // Monto exacto del bono congelado en el momento del cierre
+  locked_bonus_amount?: number | string | null;
+  
+  // Tipo de bono aplicado: "SUCCESS" (entrega completada) o "FAILED_ATTEMPT" (fallida bonificable)
+  locked_bonus_type?: 'SUCCESS' | 'FAILED_ATTEMPT' | null;
+  
+  // Fecha y hora exacta en que se congeló el bono
+  bonus_snapshot_date?: string | Date | null;
+  
+  // Mensaje de alerta sobre configuración faltante en el momento del snapshot (para auditoría)
+  bonus_config_warning_snapshot?: string | null;
 
   // Campos adicionales para compatibilidad con otras partes del sistema
   type?: DeliveryType;
