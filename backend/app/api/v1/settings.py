@@ -23,16 +23,18 @@ def utc_now_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-DEFAULT_PLATFORM_SETTINGS: dict[str, Any] = {
-    "delivery_fee_base": 5000,
-    "commission_percentage": 15,
-    "min_order_amount": 10000,
-    "active_zones": ["Norte", "Sur", "Centro"],
-    "support_email": "soporte@delivery.com",
-    "maintenance_mode": False,
-    "rider_delivery_bonus": 2500,
-    "rider_failed_attempt_bonus": 1500,
-}
+# Lista de keys esperadas SIN valores por defecto
+# Esto fuerza validación estricta: si no está en DB, es None explícito
+EXPECTED_SETTING_KEYS: list[str] = [
+    "delivery_fee_base",
+    "commission_percentage",
+    "min_order_amount",
+    "active_zones",
+    "support_email",
+    "maintenance_mode",
+    "rider_delivery_bonus",
+    "rider_failed_attempt_bonus",
+]
 
 SETTING_DESCRIPTIONS: dict[str, str] = {
     "delivery_fee_base": "Tarifa base de envío aplicada por defecto.",
@@ -78,16 +80,15 @@ async def _load_settings_rows(db: AsyncSession) -> dict[str, PlatformSetting]:
 def _coerce_settings(rows: dict[str, PlatformSetting]) -> dict[str, Any]:
     """Convierte rows de PlatformSetting a un diccionario de valores.
     
-    NOTA CRÍTICA: Los valores por defecto (DEFAULT_PLATFORM_SETTINGS) solo se usan
-    como referencia estructural, NO como fallback de valores. Si un setting no existe
-    en DB, se retorna None explícitamente para forzar validación estricta.
+    NOTA CRÍTICA: Sin fallbacks. Si un setting no existe en DB, se retorna None
+    explícitamente para forzar validación estricta en capas superiores.
     """
     values: dict[str, Any] = {}
     latest_updated_at: Optional[datetime] = None
     latest_updated_by: Optional[str] = None
 
     # Inicializar con None explícito para cada key esperada
-    for key in DEFAULT_PLATFORM_SETTINGS:
+    for key in EXPECTED_SETTING_KEYS:
         values[key] = None
     
     # Sobrescribir con valores reales de DB si existen
@@ -116,14 +117,22 @@ def _coerce_settings(rows: dict[str, PlatformSetting]) -> dict[str, Any]:
 
 
 async def _ensure_default_settings(db: AsyncSession) -> dict[str, PlatformSetting]:
+    """Crea entradas en DB para keys que no existen, con valores None explícitos.
+    
+    Esto garantiza que todas las keys esperadas existan en DB, pero SIN valores
+    por defecto hardcodeados. El administrador debe configurar los valores reales.
+    """
     rows = await _load_settings_rows(db)
     changed = False
-    for key, value in DEFAULT_PLATFORM_SETTINGS.items():
+    
+    for key in EXPECTED_SETTING_KEYS:
         if key not in rows:
-            row = PlatformSetting(key=key, value=value, description=SETTING_DESCRIPTIONS.get(key))
+            # Crear entrada con valor None para forzar configuración explícita
+            row = PlatformSetting(key=key, value=None, description=SETTING_DESCRIPTIONS.get(key))
             db.add(row)
             rows[key] = row
             changed = True
+    
     if changed:
         await db.commit()
         rows = await _load_settings_rows(db)
@@ -169,7 +178,7 @@ async def update_platform_settings(
     now = utc_now_naive()
 
     for key, value in payload.items():
-        if key not in DEFAULT_PLATFORM_SETTINGS:
+        if key not in EXPECTED_SETTING_KEYS:
             continue
         row = rows.get(key)
         if not row:
