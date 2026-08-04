@@ -7,7 +7,7 @@ Este script congela los valores de bonos para todas las entregas ya finalizadas
 Ejecutar DESPUÉS de aplicar la migración Alembic 20260614.
 
 Uso:
-    python -m app.scripts.migrate_historical_snapshots
+    docker compose run --rm backend python -m app.scripts.migrate_historical_snapshots
     
 Nota: Este script debe ejecutarse UNA SOLA VEZ, inmediatamente después de desplegar
 la nueva versión con el snapshot financiero. Las entregas futuras ya tendrán el
@@ -16,8 +16,8 @@ snapshot automático gracias a los cambios en delivery_service.py.
 import asyncio
 import sys
 from datetime import datetime
-from decimal import Decimal
 from pathlib import Path
+import re
 
 # Agregar el root del proyecto al path para imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -29,6 +29,20 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 from app.models.delivery import Delivery, DeliveryStatus, LockedBonusType
 from app.models.platform_setting import PlatformSetting
+
+
+def ensure_async_driver(db_url: str) -> str:
+    """
+    Asegura que la URL de conexión use el driver asyncpg.
+    Convierte:
+      postgresql://... -> postgresql+asyncpg://...
+      postgresql+psycopg2://... -> postgresql+asyncpg://...
+    """
+    if db_url.startswith("postgresql+asyncpg://"):
+        return db_url
+    
+    # Reemplazo seguro para cualquier variante de postgresql
+    return re.sub(r"^postgresql(\+.*)?://", "postgresql+asyncpg://", db_url)
 
 
 async def migrate_historical_snapshots():
@@ -47,17 +61,33 @@ async def migrate_historical_snapshots():
     print(f"Fecha de ejecución: {datetime.utcnow().isoformat()}")
     print()
     
-    # Configurar conexión asíncrona
-    engine = create_async_engine(
-        settings.DATABASE_URL,
-        echo=False,
-        pool_pre_ping=True,
-    )
+    # =========================================================================
+    # CONFIGURACIÓN DE MOTOR ASÍNCRONO
+    # =========================================================================
+    original_url = settings.DATABASE_URL
+    async_url = ensure_async_driver(original_url)
     
-    async_session = sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
-    
+    print(f"[CONFIG] URL Original: {original_url}")
+    print(f"[CONFIG] URL Asíncrona: {async_url}")
+    print()
+
+    try:
+        engine = create_async_engine(
+            async_url,
+            echo=False,
+            pool_pre_ping=True,
+            pool_size=5,
+            max_overflow=10
+        )
+        
+        async_session = sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
+    except Exception as e:
+        print(f"✗ ERROR CRÍTICO al crear el motor DB: {str(e)}")
+        print("Asegúrate de que 'asyncpg' esté instalado en requirements.txt")
+        return
+
     async with async_session() as db:
         try:
             # =========================================================================
@@ -97,7 +127,8 @@ async def migrate_historical_snapshots():
             config_warning = None
             if delivery_bonus is None or failed_bonus is None:
                 config_warning = "Configuración de bonos incompleta o inválida al momento de la migración."
-                print(f"  ⚠️  ALERTA: {config_warning}")
+                print(f"  ⚠️  ALERTA CRÍTICA: {config_warning}")
+                print("  Se asignará $0.0 a las entregas históricas por seguridad.")
             else:
                 print(f"  ✓ rider_delivery_bonus: ${delivery_bonus}")
                 print(f"  ✓ rider_failed_attempt_bonus: ${failed_bonus}")
@@ -128,6 +159,7 @@ async def migrate_historical_snapshots():
             
             if total_count == 0:
                 print("✓ No hay entregas históricas que migrar. Terminando.")
+                await engine.dispose()
                 return
             
             # =========================================================================
@@ -139,6 +171,11 @@ async def migrate_historical_snapshots():
             error_count = 0
             now = datetime.utcnow()
             
+            # Importación local para evitar ciclos si los hubiera
+            from app.models.delivery import get_bonificable_causes
+            
+            bonificable_causes = get_bonificable_causes()
+
             for delivery in deliveries_to_migrate:
                 try:
                     locked_amount = 0.0
@@ -155,21 +192,18 @@ async def migrate_historical_snapshots():
                     
                     elif delivery.status == DeliveryStatus.FALLIDA:
                         # Entrega fallida: verificar si es bonificable
-                        # Nota: Para entregas antiguas, usamos issue_analysis_result o issue_type
                         is_bonificable = False
                         
+                        # Lógica robusta de detección
                         if hasattr(delivery, 'failure_cause') and delivery.failure_cause:
-                            from app.models.delivery import get_bonificable_causes
-                            is_bonificable = delivery.failure_cause.value in get_bonificable_causes()
+                            is_bonificable = delivery.failure_cause.value in bonificable_causes
                         elif hasattr(delivery, 'issue_analysis_result') and delivery.issue_analysis_result:
                             is_bonificable = 'Bonificable: True' in delivery.issue_analysis_result
                         elif hasattr(delivery, 'issue_type') and delivery.issue_type:
-                            # Fallback: verificar keywords comunes
-                            bonificable_keywords = [
-                                'CLIENTE_NO_ESTA', 'CLIENTE_NO_CONTESTA', 'DIRECCION_INCORRECTA',
-                                'COMERCIO_CERRADO', 'ZONA_INSEGURA', 'FUERZA_MAYOR'
-                            ]
-                            is_bonificable = any(kw in delivery.issue_type.upper() for kw in bonificable_keywords)
+                            # Fallback: verificar keywords comunes en mayúsculas
+                            issue_upper = delivery.issue_type.upper()
+                            # Usamos las causas conocidas del sistema como referencia
+                            is_bonificable = any(kw in issue_upper for kw in bonificable_causes)
                         
                         if is_bonificable:
                             if failed_bonus is not None:
@@ -196,8 +230,8 @@ async def migrate_historical_snapshots():
                     
                     migrated_count += 1
                     
-                    # Commit cada 100 registros para no saturar
-                    if migrated_count % 100 == 0:
+                    # Commit cada 50 registros para feedback visual y seguridad
+                    if migrated_count % 50 == 0:
                         await db.commit()
                         print(f"  ... {migrated_count}/{total_count} migradas")
                 
@@ -206,7 +240,7 @@ async def migrate_historical_snapshots():
                     print(f"  ✗ ERROR migrando entrega {delivery.id}: {str(e)}")
                     continue
             
-            # Commit final
+            # Commit final de los restantes
             await db.commit()
             
             print()
@@ -237,18 +271,18 @@ async def migrate_historical_snapshots():
             
             print()
             print("=" * 80)
-            print("MIGRACIÓN FINALIZADA")
+            print("MIGRACIÓN FINALIZADA CORRECTAMENTE")
             print("=" * 80)
             print()
             print("PRÓXIMOS PASOS:")
-            print("  1. Verificar en producción que las entregas muestran valores correctos")
-            print("  2. Monitorear alertas de configuración faltante en el frontend")
+            print("  1. Reiniciar contenedores: docker compose up -d")
+            print("  2. Verificar en frontend que las órdenes muestran valores históricos")
             print("  3. Las entregas FUTURAS ya tendrán snapshot automático")
             print()
             
         except Exception as e:
             await db.rollback()
-            print(f"\n✗ ERROR CRÍTICO: {str(e)}")
+            print(f"\n✗ ERROR CRÍTICO DURANTE LA TRANSACCIÓN: {str(e)}")
             print("La transacción ha sido revertida. Ningún dato fue modificado.")
             raise
         finally:
