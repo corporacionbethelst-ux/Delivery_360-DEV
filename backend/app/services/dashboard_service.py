@@ -135,7 +135,11 @@ class DashboardService:
             select(func.sum(FinancialTransaction.amount))
             .where(
                 and_(
-                    FinancialTransaction.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+                    FinancialTransaction.transaction_type.in_([
+                        TransactionType.PAGO_ENTREGA,
+                        TransactionType.PAGO_INTENTO_FALLIDO,
+                        TransactionType.BONO_RENDIMIENTO,
+                    ]),
                     FinancialTransaction.status.in_([PaymentStatus.PROCESADO, PaymentStatus.PAGADO]),
                     FinancialTransaction.created_at >= start_date,
                     FinancialTransaction.created_at <= end_date
@@ -267,7 +271,11 @@ class DashboardService:
             .where(
                 and_(
                     FinancialTransaction.rider_id == rider_id,
-                    FinancialTransaction.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+                    FinancialTransaction.transaction_type.in_([
+                        TransactionType.PAGO_ENTREGA,
+                        TransactionType.PAGO_INTENTO_FALLIDO,
+                        TransactionType.BONO_RENDIMIENTO,
+                    ]),
                     FinancialTransaction.status.in_([PaymentStatus.PROCESADO, PaymentStatus.PAGADO]),
                     FinancialTransaction.created_at >= start_of_day,
                     FinancialTransaction.created_at <= end_of_day

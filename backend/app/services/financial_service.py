@@ -17,8 +17,16 @@ FinancialTransaction = Financial
 
 MONEY_QUANT = Decimal("0.01")
 BALANCE_IMPACT_STATUSES = {PaymentStatus.PROCESADO, PaymentStatus.PAGADO}
-CREDIT_TYPES = {TransactionType.PAGO_ENTREGA, TransactionType.BONO}
-DEBIT_TYPES = {TransactionType.DESCUENTO, TransactionType.RETIRO}
+CREDIT_TYPES = {
+    TransactionType.PAGO_ENTREGA,
+    TransactionType.PAGO_INTENTO_FALLIDO,
+    TransactionType.BONO_RENDIMIENTO,
+    TransactionType.INGRESO,
+}
+DEBIT_TYPES = {
+    TransactionType.PENALIZACION,
+    TransactionType.RETIRO,
+}
 
 
 def money(value: Union[Decimal, float, int, str, None]) -> Decimal:
@@ -35,7 +43,7 @@ def ledger_delta(amount: Decimal, transaction_type: TransactionType) -> Decimal:
     if transaction_type in DEBIT_TYPES:
         return -abs(normalized)
 
-    # AJUSTE conserva el signo para soportar correcciones positivas y negativas.
+    # AJUSTE_MANUAL conserva el signo para soportar correcciones positivas y negativas.
     return normalized
 
 
@@ -61,21 +69,28 @@ class FinancialService:
         earnings_result = await self.db.execute(
             select(func.coalesce(func.sum(Financial.amount), 0)).where(
                 Financial.rider_id == rider_id,
-                Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+                Financial.transaction_type.in_([
+                    TransactionType.PAGO_ENTREGA,
+                    TransactionType.PAGO_INTENTO_FALLIDO,
+                    TransactionType.BONO_RENDIMIENTO,
+                ]),
                 Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
             )
         )
         deductions_result = await self.db.execute(
             select(func.coalesce(func.sum(Financial.amount), 0)).where(
                 Financial.rider_id == rider_id,
-                Financial.transaction_type.in_([TransactionType.DESCUENTO, TransactionType.RETIRO]),
+                Financial.transaction_type.in_([
+                    TransactionType.PENALIZACION,
+                    TransactionType.RETIRO,
+                ]),
                 Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
             )
         )
         adjustments_result = await self.db.execute(
             select(func.coalesce(func.sum(Financial.amount), 0)).where(
                 Financial.rider_id == rider_id,
-                Financial.transaction_type == TransactionType.AJUSTE,
+                Financial.transaction_type == TransactionType.AJUSTE_MANUAL,
                 Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
             )
         )
@@ -215,7 +230,11 @@ class FinancialService:
                     Financial.rider_id == rider_id,
                     Financial.created_at >= start_dt,
                     Financial.created_at <= end_dt,
-                    Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+                    Financial.transaction_type.in_([
+                        TransactionType.PAGO_ENTREGA,
+                        TransactionType.PAGO_INTENTO_FALLIDO,
+                        TransactionType.BONO_RENDIMIENTO,
+                    ]),
                     Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
                 )
             )
@@ -247,7 +266,11 @@ class FinancialService:
                     Financial.rider_id == rider_id,
                     Financial.created_at >= start_date,
                     Financial.created_at <= end_date,
-                    Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+                    Financial.transaction_type.in_([
+                        TransactionType.PAGO_ENTREGA,
+                        TransactionType.PAGO_INTENTO_FALLIDO,
+                        TransactionType.BONO_RENDIMIENTO,
+                    ]),
                     Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
                 )
             )

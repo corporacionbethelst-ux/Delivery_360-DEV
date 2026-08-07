@@ -400,7 +400,11 @@ async def get_available_balance(
     fin_res = await db.execute(
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider.id,
-            Financial.transaction_type.in_(["PAGO_ENTREGA", "BONO"])
+            Financial.transaction_type.in_([
+                TransactionType.PAGO_ENTREGA,
+                TransactionType.PAGO_INTENTO_FALLIDO,
+                TransactionType.BONO_RENDIMIENTO,
+            ])
         )
     )
     total_earned = float(fin_res.scalar() or 0)
@@ -482,7 +486,11 @@ async def request_payout(
     fin_res = await db.execute(
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider.id,
-            Financial.transaction_type.in_(["PAGO_ENTREGA", "BONO"])
+            Financial.transaction_type.in_([
+                TransactionType.PAGO_ENTREGA,
+                TransactionType.PAGO_INTENTO_FALLIDO,
+                TransactionType.BONO_RENDIMIENTO,
+            ])
         )
     )
     total_earned = float(fin_res.scalar() or 0)

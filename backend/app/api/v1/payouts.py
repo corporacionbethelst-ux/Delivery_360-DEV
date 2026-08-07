@@ -123,7 +123,11 @@ async def _calculate_available_balance(db: AsyncSession, rider_id, exclude_payou
     earnings_result = await db.execute(
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider_id,
-            Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+            Financial.transaction_type.in_([
+                TransactionType.PAGO_ENTREGA,
+                TransactionType.PAGO_INTENTO_FALLIDO,
+                TransactionType.BONO_RENDIMIENTO,
+            ]),
             # Some upgraded databases still have a narrower paymentstatus enum.
             # Use the canonical processed state for available-balance math to
             # avoid binding enum values that may not exist in older installs.

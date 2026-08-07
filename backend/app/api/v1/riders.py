@@ -865,7 +865,11 @@ async def get_riders_audit_summary(
         select(func.coalesce(func.sum(Financial.amount), 0))
         .where(
             Financial.rider_id == Rider.id,
-            Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+            Financial.transaction_type.in_([
+                TransactionType.PAGO_ENTREGA,
+                TransactionType.PAGO_INTENTO_FALLIDO,
+                TransactionType.BONO_RENDIMIENTO,
+            ]),
             Financial.status == PaymentStatus.PROCESADO,
         )
         .correlate(Rider)
