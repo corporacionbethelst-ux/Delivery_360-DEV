@@ -22,6 +22,7 @@ from app.models.delivery import Delivery, DeliveryStatus
 from app.models.financial import Financial, TransactionType, PaymentStatus
 from app.models.payout import Payout, PayoutStatus
 from app.api.v1.auth import get_current_user, require_role
+from app.services.financial_service import CREDIT_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -865,7 +866,7 @@ async def get_riders_audit_summary(
         select(func.coalesce(func.sum(Financial.amount), 0))
         .where(
             Financial.rider_id == Rider.id,
-            Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+            Financial.transaction_type.in_(list(CREDIT_TYPES)),
             Financial.status == PaymentStatus.PROCESADO,
         )
         .correlate(Rider)

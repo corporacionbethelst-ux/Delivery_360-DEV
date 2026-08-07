@@ -13,6 +13,7 @@ from app.models.payout import Payout, PayoutStatus
 from app.models.rider import Rider
 from app.models.user import User, UserRole
 from app.api.v1.auth import get_current_user, require_role
+from app.services.financial_service import CREDIT_TYPES, DEBIT_TYPES
 
 router = APIRouter(prefix="/financial", tags=["Financial"])
 
@@ -49,7 +50,7 @@ async def get_my_earnings(
     earnings_result = await db.execute(
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider.id,
-            Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+            Financial.transaction_type.in_(list(CREDIT_TYPES)),
             Financial.status == PaymentStatus.PROCESADO
         )
     )
@@ -244,7 +245,7 @@ async def get_financial_summary(
     rider_earnings_result = await db.execute(
         select(func.coalesce(func.sum(Financial.amount), 0)).where(
             *financial_period_filters,
-            Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+            Financial.transaction_type.in_(list(CREDIT_TYPES)),
             Financial.status.in_([PaymentStatus.PROCESADO, PaymentStatus.PAGADO]),
         )
     )
@@ -253,7 +254,7 @@ async def get_financial_summary(
     deductions_result = await db.execute(
         select(func.coalesce(func.sum(Financial.amount), 0)).where(
             *financial_period_filters,
-            Financial.transaction_type == TransactionType.DESCUENTO,
+            Financial.transaction_type.in_(list(DEBIT_TYPES)),
             Financial.status.in_([PaymentStatus.PROCESADO, PaymentStatus.PAGADO]),
         )
     )
@@ -262,7 +263,7 @@ async def get_financial_summary(
     adjustments_result = await db.execute(
         select(func.coalesce(func.sum(Financial.amount), 0)).where(
             *financial_period_filters,
-            Financial.transaction_type == TransactionType.AJUSTE,
+            Financial.transaction_type.in_([TransactionType.AJUSTE, TransactionType.AJUSTE_MANUAL]),
             Financial.status.in_([PaymentStatus.PROCESADO, PaymentStatus.PAGADO]),
         )
     )
@@ -420,18 +421,18 @@ async def get_financial_reconciliation(
         func.coalesce(
             func.sum(
                 case(
-                    (Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]), Financial.amount),
+                    (Financial.transaction_type.in_(list(CREDIT_TYPES)), Financial.amount),
                     else_=0,
                 )
             ),
             0,
         ).label("rider_earnings"),
         func.coalesce(
-            func.sum(case((Financial.transaction_type == TransactionType.DESCUENTO, Financial.amount), else_=0)),
+            func.sum(case((Financial.transaction_type.in_(list(DEBIT_TYPES)), Financial.amount), else_=0)),
             0,
         ).label("rider_deductions"),
         func.coalesce(
-            func.sum(case((Financial.transaction_type == TransactionType.AJUSTE, Financial.amount), else_=0)),
+            func.sum(case((Financial.transaction_type.in_([TransactionType.AJUSTE, TransactionType.AJUSTE_MANUAL]), Financial.amount), else_=0)),
             0,
         ).label("adjustments"),
         func.count(Financial.id).label("ledger_transactions"),

@@ -14,13 +14,22 @@ def utc_now_naive():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 class TransactionType(str, enum.Enum):
-    """Transaction types."""
+    """Transaction types - Fase 3 Inmutabilidad Financiera."""
+    # Tipos Críticos Fase 3
     PAGO_ENTREGA = "PAGO_ENTREGA"
     PAGO_INTENTO_FALLIDO = "PAGO_INTENTO_FALLIDO"
+    BONO_RENDIMIENTO = "BONO_RENDIMIENTO"
+    PENALIZACION = "PENALIZACION"
+    AJUSTE_MANUAL = "AJUSTE_MANUAL"
+    INGRESO = "INGRESO"
+    
+    # Tipos Estándar
+    RETIRO = "RETIRO"
+    
+    # Legacy (Mantenidos para compatibilidad con datos históricos)
     BONO = "BONO"
     DESCUENTO = "DESCUENTO"
     AJUSTE = "AJUSTE"
-    RETIRO = "RETIRO"
 
 
 class PaymentStatus(str, enum.Enum):

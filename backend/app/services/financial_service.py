@@ -17,8 +17,25 @@ FinancialTransaction = Financial
 
 MONEY_QUANT = Decimal("0.01")
 BALANCE_IMPACT_STATUSES = {PaymentStatus.PROCESADO, PaymentStatus.PAGADO}
-CREDIT_TYPES = {TransactionType.PAGO_ENTREGA, TransactionType.BONO}
-DEBIT_TYPES = {TransactionType.DESCUENTO, TransactionType.RETIRO}
+
+# Tipos de crédito: aumentan el balance del rider (Fase 3 Inmutabilidad Financiera)
+CREDIT_TYPES = {
+    TransactionType.PAGO_ENTREGA,
+    TransactionType.PAGO_INTENTO_FALLIDO,
+    TransactionType.BONO_RENDIMIENTO,
+    TransactionType.INGRESO,
+    # Legacy
+    TransactionType.BONO,
+}
+
+# Tipos de débito: disminuyen el balance del rider (Fase 3 Inmutabilidad Financiera)
+DEBIT_TYPES = {
+    TransactionType.PENALIZACION,
+    TransactionType.RETIRO,
+    TransactionType.AJUSTE_MANUAL,
+    # Legacy
+    TransactionType.DESCUENTO,
+}
 
 
 def money(value: Union[Decimal, float, int, str, None]) -> Decimal:
@@ -61,21 +78,21 @@ class FinancialService:
         earnings_result = await self.db.execute(
             select(func.coalesce(func.sum(Financial.amount), 0)).where(
                 Financial.rider_id == rider_id,
-                Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+                Financial.transaction_type.in_(list(CREDIT_TYPES)),
                 Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
             )
         )
         deductions_result = await self.db.execute(
             select(func.coalesce(func.sum(Financial.amount), 0)).where(
                 Financial.rider_id == rider_id,
-                Financial.transaction_type.in_([TransactionType.DESCUENTO, TransactionType.RETIRO]),
+                Financial.transaction_type.in_(list(DEBIT_TYPES)),
                 Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
             )
         )
         adjustments_result = await self.db.execute(
             select(func.coalesce(func.sum(Financial.amount), 0)).where(
                 Financial.rider_id == rider_id,
-                Financial.transaction_type == TransactionType.AJUSTE,
+                Financial.transaction_type.in_([TransactionType.AJUSTE, TransactionType.AJUSTE_MANUAL]),
                 Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
             )
         )
@@ -215,7 +232,7 @@ class FinancialService:
                     Financial.rider_id == rider_id,
                     Financial.created_at >= start_dt,
                     Financial.created_at <= end_dt,
-                    Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+                    Financial.transaction_type.in_(list(CREDIT_TYPES)),
                     Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
                 )
             )
@@ -247,7 +264,7 @@ class FinancialService:
                     Financial.rider_id == rider_id,
                     Financial.created_at >= start_date,
                     Financial.created_at <= end_date,
-                    Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+                    Financial.transaction_type.in_(list(CREDIT_TYPES)),
                     Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
                 )
             )

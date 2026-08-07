@@ -11,6 +11,7 @@ from app.models.rider import Rider, RiderStatus
 from app.models.shift import Shift, ShiftStatus
 from app.models.financial import Financial as FinancialTransaction, TransactionType, PaymentStatus
 from app.models.productivity import ProductivityMetrics, SLARecord
+from app.services.financial_service import CREDIT_TYPES
 import logging
 
 logger = logging.getLogger(__name__)
@@ -135,7 +136,7 @@ class DashboardService:
             select(func.sum(FinancialTransaction.amount))
             .where(
                 and_(
-                    FinancialTransaction.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+                    FinancialTransaction.transaction_type.in_(list(CREDIT_TYPES)),
                     FinancialTransaction.status.in_([PaymentStatus.PROCESADO, PaymentStatus.PAGADO]),
                     FinancialTransaction.created_at >= start_date,
                     FinancialTransaction.created_at <= end_date
@@ -267,7 +268,7 @@ class DashboardService:
             .where(
                 and_(
                     FinancialTransaction.rider_id == rider_id,
-                    FinancialTransaction.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+                    FinancialTransaction.transaction_type.in_(list(CREDIT_TYPES)),
                     FinancialTransaction.status.in_([PaymentStatus.PROCESADO, PaymentStatus.PAGADO]),
                     FinancialTransaction.created_at >= start_of_day,
                     FinancialTransaction.created_at <= end_of_day

@@ -10,7 +10,7 @@ import logging
 from app.core.database import get_db
 from app.models.payout import Payout, PayoutStatus, PayoutMethod, PayoutStatusHistory
 from app.models.financial import Financial, TransactionType, PaymentStatus
-from app.services.financial_service import FinancialService
+from app.services.financial_service import FinancialService, CREDIT_TYPES
 from app.services.notification_service import NotificationService
 from app.services.redis_audit_service import get_redis_audit_logger
 from app.services.audit_service import get_audit_service
@@ -123,7 +123,7 @@ async def _calculate_available_balance(db: AsyncSession, rider_id, exclude_payou
     earnings_result = await db.execute(
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider_id,
-            Financial.transaction_type.in_([TransactionType.PAGO_ENTREGA, TransactionType.BONO]),
+            Financial.transaction_type.in_(list(CREDIT_TYPES)),
             # Some upgraded databases still have a narrower paymentstatus enum.
             # Use the canonical processed state for available-balance math to
             # avoid binding enum values that may not exist in older installs.
