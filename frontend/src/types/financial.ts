@@ -5,7 +5,18 @@ import { Delivery } from './delivery';
 
 export type PaymentMethod = 'EFECTIVO' | 'TARJETA' | 'PIX' | 'TRANSFERENCIA' | 'ONLINE';
 export type PaymentStatus = 'PENDIENTE' | 'PROCESADO' | 'PAGADO' | 'REEMBOLSADO' | 'CANCELADO';
-export type TransactionType = 'INGRESO' | 'PAGO_RIDER' | 'GASTO' | 'AJUSTE' | 'REEMBOLSO';
+// Tipos de transacción financieros alineados con el backend (Fase 3)
+export type TransactionType = 
+  | 'PAGO_ENTREGA'
+  | 'PAGO_INTENTO_FALLIDO'
+  | 'BONO_RENDIMIENTO'
+  | 'PENALIZACION'
+  | 'AJUSTE_MANUAL'
+  | 'INGRESO'
+  | 'BONO'           // Legacy compatibility
+  | 'DESCUENTO'      // Legacy compatibility
+  | 'AJUSTE'         // Legacy compatibility
+  | 'RETIRO';
 export type CostType = 'COMBUSTIBLE' | 'MANTENIMIENTO' | 'SEGURO' | 'SALARIO' | 'COMISION' | 'OTRO';
 
 export interface Money {

@@ -215,10 +215,18 @@ export function generateFinancialReport(
     t.status === 'CANCELADO' || t.status === 'REEMBOLSADO'
   );
 
+  const CREDIT_TRANSACTION_TYPES: TransactionType[] = [
+    'PAGO_ENTREGA',
+    'PAGO_INTENTO_FALLIDO',
+    'BONO_RENDIMIENTO',
+    'INGRESO',
+    'BONO', // Legacy
+  ];
+
   const totalRevenue = successfulTransactions.reduce((sum, t) => sum + t.amount, 0);
   
   const totalPaid = successfulTransactions
-    .filter(t => t.type === 'PAGO_RIDER')
+    .filter(t => CREDIT_TRANSACTION_TYPES.includes(t.type))
     .reduce((sum, t) => sum + t.amount, 0);
 
   const averageTicket = successfulTransactions.length > 0 
