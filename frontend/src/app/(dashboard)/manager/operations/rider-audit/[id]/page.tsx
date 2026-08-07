@@ -49,16 +49,16 @@ export default function ManagerRiderAuditDetailPage() {
         setSummary(null);
       }
 
-      setOrders(ordersResult.status === 'fulfilled' 
-        ? (Array.isArray(ordersResult.value) ? ordersResult.value : (ordersResult.value as any).items || []) 
+      setOrders(ordersResult.status === 'fulfilled'
+        ? (Array.isArray(ordersResult.value) ? ordersResult.value : (ordersResult.value as any).items || [])
         : []);
 
-      setDeliveries(deliveriesResult.status === 'fulfilled' 
-        ? (Array.isArray(deliveriesResult.value) ? deliveriesResult.value : (deliveriesResult.value as any).items || []) 
+      setDeliveries(deliveriesResult.status === 'fulfilled'
+        ? (Array.isArray(deliveriesResult.value) ? deliveriesResult.value : (deliveriesResult.value as any).items || [])
         : []);
 
-      setTransactions(transactionsResult.status === 'fulfilled' 
-        ? (Array.isArray(transactionsResult.value) ? transactionsResult.value : (transactionsResult.value as any).items || []) 
+      setTransactions(transactionsResult.status === 'fulfilled'
+        ? (Array.isArray(transactionsResult.value) ? transactionsResult.value : (transactionsResult.value as any).items || [])
         : []);
 
       if (ordersResult.status === 'rejected' || deliveriesResult.status === 'rejected' || transactionsResult.status === 'rejected') {
@@ -80,7 +80,7 @@ export default function ManagerRiderAuditDetailPage() {
   const totals = useMemo(() => ({
     ordersTotal: orders.length,
     ordersDelivered: orders.filter((order) => order.status === 'ENTREGADO').length,
-    deliveriesCompleted: deliveries.filter((delivery) => delivery.status === 'COMPLETE').length,
+    deliveriesCompleted: deliveries.filter((delivery) => delivery.status === 'COMPLETADA').length,
     transactionsTotal: transactions.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0),
   }), [orders, deliveries, transactions]);
 
@@ -165,18 +165,52 @@ export default function ManagerRiderAuditDetailPage() {
         <Section title="Entregas del repartidor" icon={Truck} empty={!loading && deliveries.length === 0}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b"><tr><Th>Entrega</Th><Th>Orden</Th><Th>Cliente</Th><Th>Estado</Th><Th>SLA</Th><Th>Actualizada</Th></tr></thead>
+              <thead className="bg-gray-50 border-b"><tr><Th>Entrega</Th><Th>Orden</Th><Th>Cliente</Th><Th>Estado</Th><Th>Bono</Th><Th>Actualizada</Th></tr></thead>
               <tbody className="divide-y">
-                {deliveries.map((delivery) => (
-                  <tr key={delivery.id} className="hover:bg-gray-50">
-                    <Td>{delivery.id.slice(0, 8)}...</Td>
-                    <Td>#{delivery.deliveryNumber || delivery.orderId.slice(0, 8)}</Td>
-                    <Td>{delivery.order?.customer_name || 'Cliente'}</Td>
-                    <Td><Badge variant="outline">{delivery.status}</Badge></Td>
-                    <Td>N/A</Td>
-                    <Td>{formatDate(delivery.updatedAt?.toISOString() || delivery.createdAt?.toISOString())}</Td>
-                  </tr>
-                ))}
+                {deliveries.map((delivery) => {
+                  // Validación defensiva de IDs
+                  const deliveryIdShort = delivery.id ? delivery.id.slice(0, 8) + '...' : 'N/A';
+                  const orderRef = delivery.deliveryNumber
+                    ? `#${delivery.deliveryNumber}`
+                    : delivery.orderId
+                      ? '#' + delivery.orderId.slice(0, 8)
+                      : delivery.order?.id
+                        ? '#' + delivery.order.id.slice(0, 8)
+                        : 'N/A';
+
+                  const customerName = delivery.order?.customer_name || delivery.customer_name || 'Cliente';
+
+                  // CORRECCIÓN: El tipo ahora permite ReactNode para manejar el span de alerta
+                  let bonusDisplay: string | React.ReactNode = '-';
+                  
+                  if (delivery.locked_bonus_amount !== undefined && delivery.locked_bonus_amount !== null) {
+                    const amount = typeof delivery.locked_bonus_amount === 'string'
+                      ? parseFloat(delivery.locked_bonus_amount)
+                      : delivery.locked_bonus_amount;
+                    bonusDisplay = formatCurrency(amount);
+                  } else if (delivery.status === 'COMPLETADA' || delivery.status === 'FALLIDA') {
+                    // Aquí retornamos un JSX, por eso el tipo debe ser ReactNode
+                    bonusDisplay = (
+                      <span className="text-xs text-orange-500 font-medium bg-orange-50 px-2 py-1 rounded">
+                        Pendiente
+                      </span>
+                    );
+                  }
+
+                  const updatedAt = delivery.updatedAt || delivery.createdAt;
+                  const dateDisplay = updatedAt ? new Date(updatedAt).toLocaleString() : 'N/A';
+
+                  return (
+                    <tr key={delivery.id} className="hover:bg-gray-50">
+                      <Td>{deliveryIdShort}</Td>
+                      <Td>{orderRef}</Td>
+                      <Td>{customerName}</Td>
+                      <Td><Badge variant="outline">{delivery.status || 'DESCONOCIDO'}</Badge></Td>
+                      <Td className="font-medium">{bonusDisplay}</Td>
+                      <Td>{dateDisplay}</Td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -229,8 +263,8 @@ function Th({ children }: { children: React.ReactNode }) {
   return <th className="px-4 py-3 text-left font-semibold text-gray-600 uppercase text-xs">{children}</th>;
 }
 
-function Td({ children }: { children: React.ReactNode }) {
-  return <td className="px-4 py-3 text-gray-700 align-top">{children}</td>;
+function Td({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <td className={`px-4 py-3 text-gray-700 align-top ${className || ''}`}>{children}</td>;
 }
 
 function formatDate(value?: string | null) {

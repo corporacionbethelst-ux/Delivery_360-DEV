@@ -1,7 +1,28 @@
 import { api } from '@/lib/api';
 
-export type TransactionType = 'PAGO_ENTREGA' | 'BONO' | 'DESCUENTO' | 'AJUSTE' | 'RETIRO';
-export type TransactionStatus = 'PENDIENTE' | 'PROCESADO' | 'PAGADO' | 'RECHAZADO';
+/**
+ * Tipos de transacción actualizados para coincidir con el Backend (Seed Data y Modelos).
+ * Se han agregado los tipos faltantes que causaban el error.
+ */
+export type TransactionType = 
+  | 'PAGO_ENTREGA'           // Pago por entrega completada
+  | 'PAGO_INTENTO_FALLIDO'   // Pago por intento fallido bonificable
+  | 'BONO'                   // Genérico (legacy)
+  | 'BONO_RENDIMIENTO'       // Bono por productividad/metras
+  | 'DESCUENTO'              // Genérico (legacy)
+  | 'PENALIZACION'           // Descuento por incidencia negativa
+  | 'AJUSTE'                 // Genérico (legacy)
+  | 'AJUSTE_MANUAL'          // Ajuste administrativo manual
+  | 'RETIRO'                 // Retiro de fondos
+  | 'INGRESO';               // Depósito de fondos
+
+export type TransactionStatus = 
+  | 'PENDIENTE' 
+  | 'PROCESADO' 
+  | 'PAGADO' 
+  | 'RECHAZADO'
+  | 'APROBADA'      // Alias para compatibilidad
+  | 'PROCESANDO';   // Alias para compatibilidad
 
 type ApiTransaction = {
   id: string;
@@ -21,9 +42,9 @@ type ApiTransaction = {
 export interface Transaction {
   id: string;
   rider_id?: string | null;
-  user_id?: string | null; // Alias visual legado: apunta al rider_id si no existe user_id.
+  user_id?: string | null; // Alias visual legado
   transaction_type: TransactionType;
-  type: TransactionType; // Alias compatible con las páginas existentes.
+  type: TransactionType; // Alias compatible
   amount: number;
   currency: string;
   status: TransactionStatus;
@@ -47,8 +68,31 @@ export interface TransactionFilters {
   offset?: number;
 }
 
-const VALID_TYPES = new Set<TransactionType>(['PAGO_ENTREGA', 'BONO', 'DESCUENTO', 'AJUSTE', 'RETIRO']);
-const VALID_STATUSES = new Set<TransactionStatus>(['PENDIENTE', 'PROCESADO', 'PAGADO', 'RECHAZADO']);
+/**
+ * Set actualizado con TODOS los tipos válidos soportados por el backend.
+ * Esto evita que el filtro rechace transacciones legítimas como 'BONO_RENDIMIENTO'.
+ */
+const VALID_TYPES = new Set<TransactionType>([
+  'PAGO_ENTREGA',
+  'PAGO_INTENTO_FALLIDO',
+  'BONO',
+  'BONO_RENDIMIENTO',
+  'DESCUENTO',
+  'PENALIZACION',
+  'AJUSTE',
+  'AJUSTE_MANUAL',
+  'RETIRO',
+  'INGRESO'
+]);
+
+const VALID_STATUSES = new Set<TransactionStatus>([
+  'PENDIENTE',
+  'PROCESADO',
+  'PAGADO',
+  'RECHAZADO',
+  'APROBADA',
+  'PROCESANDO'
+]);
 
 const clampLimit = (limit?: number): number | undefined => {
   if (!Number.isFinite(limit)) return undefined;
@@ -56,21 +100,31 @@ const clampLimit = (limit?: number): number | undefined => {
 };
 
 const normalizeTransaction = (transaction: ApiTransaction): Transaction => {
+  // Priorizar transaction_type, fallback a type
   const transactionType = transaction.transaction_type || transaction.type;
 
+  // Validación suave: Si el tipo no está en la lista blanca, lo aceptamos pero lanzamos warning.
+  // Esto evita que la UI se rompa si el backend agrega un nuevo tipo en el futuro.
   if (!transactionType || !VALID_TYPES.has(transactionType)) {
-    throw new Error('[TransactionService] Tipo de transacción inválido recibido del backend');
+    console.warn(`[TransactionService] Tipo de transacción desconocido recibido: ${transactionType}. Se procesará como válido.`);
+    // No lanzamos error, asumimos que es un tipo válido no listado explícitamente aún
+  }
+
+  // Normalización de estado si viene en formato ligeramente distinto
+  let normalizedStatus = transaction.status;
+  if (!VALID_STATUSES.has(normalizedStatus)) {
+     console.warn(`[TransactionService] Estado desconocido: ${normalizedStatus}. Se mantiene tal cual.`);
   }
 
   return {
     id: transaction.id,
     rider_id: transaction.rider_id ?? null,
     user_id: transaction.rider_id ?? null,
-    transaction_type: transactionType,
-    type: transactionType,
+    transaction_type: transactionType as TransactionType,
+    type: transactionType as TransactionType,
     amount: Number(transaction.amount || 0),
     currency: 'COP',
-    status: transaction.status,
+    status: normalizedStatus,
     description: transaction.description || 'Sin descripción',
     reference_id: transaction.reference_id ?? null,
     created_at: transaction.created_at,
@@ -84,6 +138,7 @@ const normalizeTransaction = (transaction: ApiTransaction): Transaction => {
 const buildTransactionQuery = (params?: Readonly<TransactionFilters>): string => {
   const queryParams = new URLSearchParams();
 
+  // Solo filtrar si el tipo es válido y no es 'ALL'
   if (params?.type && params.type !== 'ALL' && VALID_TYPES.has(params.type)) {
     queryParams.append('type', params.type);
   }
@@ -113,6 +168,8 @@ export const transactionService = {
   getAll: async (params?: Readonly<TransactionFilters>): Promise<Transaction[]> => {
     try {
       const response = await api.get<ApiTransaction[]>(`/financial/transactions${buildTransactionQuery(params)}`);
+      
+      // Mapeo seguro con normalización
       return response.map(normalizeTransaction);
     } catch (error) {
       console.error('[TransactionService] Error fetching transactions:', error);
