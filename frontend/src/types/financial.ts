@@ -379,6 +379,7 @@ export interface PaymentTransaction {
   createdAt: string; // ISO String
   completedAt?: string;
   dueDate?: string;
+  isFallback?: boolean; // Indica si los datos vienen de un fallback de órdenes (no transacción real)
 }
 
 // Asegúrate de que FinancialReport tenga la estructura que espera generateFinancialReport

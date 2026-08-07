@@ -43,9 +43,14 @@ class _FakeDb:
     ("transaction_type", "amount", "expected_delta"),
     [
         (TransactionType.PAGO_ENTREGA, Decimal("25.00"), Decimal("25.00")),
+        (TransactionType.PAGO_INTENTO_FALLIDO, Decimal("5.00"), Decimal("5.00")),
+        (TransactionType.BONO_RENDIMIENTO, Decimal("10.00"), Decimal("10.00")),
+        (TransactionType.INGRESO, Decimal("50.00"), Decimal("50.00")),
         (TransactionType.BONO, Decimal("5.50"), Decimal("5.50")),
         (TransactionType.DESCUENTO, Decimal("3.00"), Decimal("-3.00")),
+        (TransactionType.PENALIZACION, Decimal("7.00"), Decimal("-7.00")),
         (TransactionType.RETIRO, Decimal("10.00"), Decimal("-10.00")),
+        (TransactionType.AJUSTE_MANUAL, Decimal("2.75"), Decimal("-2.75")),
         (TransactionType.AJUSTE, Decimal("-2.75"), Decimal("-2.75")),
     ],
 )

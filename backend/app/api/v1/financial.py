@@ -164,6 +164,7 @@ async def get_my_earnings_breakdown(
                 "idempotency_key": None,
                 "created_by_user_id": None,
                 "status": PaymentStatus.PROCESADO.value,
+                "is_fallback": True,
                 "created_at": created_at,
                 "updated_at": order.updated_at,
             })
@@ -268,6 +269,8 @@ async def get_financial_summary(
         )
     )
     operational_adjustments = float(adjustments_result.scalar() or 0)
+    # Nota: Los ajustes manuales pueden ser positivos o negativos según el contexto administrativo.
+    # Se usa DEBIT_TYPES del servicio financiero para consistencia en cálculos de balance.
 
     payout_period_date = func.coalesce(Payout.processed_at, Payout.requested_at)
     processed_payouts_result = await db.execute(
@@ -431,6 +434,7 @@ async def get_financial_reconciliation(
             func.sum(case((Financial.transaction_type.in_(list(DEBIT_TYPES)), Financial.amount), else_=0)),
             0,
         ).label("rider_deductions"),
+        # Nota: AJUSTE_MANUAL puede ser positivo o negativo. Se usa el signo del amount directamente.
         func.coalesce(
             func.sum(case((Financial.transaction_type.in_([TransactionType.AJUSTE, TransactionType.AJUSTE_MANUAL]), Financial.amount), else_=0)),
             0,

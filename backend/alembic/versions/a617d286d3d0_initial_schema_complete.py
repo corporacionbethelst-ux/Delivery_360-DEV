@@ -407,7 +407,7 @@ def upgrade() -> None:
     sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
     sa.Column('rider_id', sa.UUID(), nullable=False),
     sa.Column('shift_id', sa.UUID(), nullable=True),
-    sa.Column('transaction_type', sa.Enum('PAGO_ENTREGA', 'BONO', 'DESCUENTO', 'AJUSTE', 'RETIRO', name='transactiontype'), nullable=False),
+    sa.Column('transaction_type', sa.Enum('PAGO_ENTREGA', 'PAGO_INTENTO_FALLIDO', 'BONO_RENDIMIENTO', 'PENALIZACION', 'AJUSTE_MANUAL', 'INGRESO', 'RETIRO', 'BONO', 'DESCUENTO', 'AJUSTE', name='transactiontype'), nullable=False),
     sa.Column('amount', sa.Numeric(precision=10, scale=2), nullable=False),
     sa.Column('balance_before', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('balance_after', sa.Numeric(precision=10, scale=2), nullable=True),
