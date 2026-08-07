@@ -20,13 +20,18 @@ import { formatCurrency } from '@/lib/formatters';
 import { downloadCSV } from '@/lib/csv-export';
 import { transactionService, Transaction, TransactionType, TransactionStatus } from '@/services/transaction.service';
 
-// Mapeo de colores para Tipos
+// Mapeo de colores para Tipos (Fase 3 - Todos los tipos soportados)
 const TYPE_COLORS: Record<TransactionType, string> = {
   PAGO_ENTREGA: 'text-green-600 bg-green-50 border-green-200',
+  PAGO_INTENTO_FALLIDO: 'text-yellow-600 bg-yellow-50 border-yellow-200',
+  BONO_RENDIMIENTO: 'text-emerald-600 bg-emerald-50 border-emerald-200',
   BONO: 'text-emerald-600 bg-emerald-50 border-emerald-200',
+  PENALIZACION: 'text-red-600 bg-red-50 border-red-200',
   DESCUENTO: 'text-orange-600 bg-orange-50 border-orange-200',
+  AJUSTE_MANUAL: 'text-indigo-600 bg-indigo-50 border-indigo-200',
   AJUSTE: 'text-purple-600 bg-purple-50 border-purple-200',
   RETIRO: 'text-blue-600 bg-blue-50 border-blue-200',
+  INGRESO: 'text-cyan-600 bg-cyan-50 border-cyan-200',
 };
 
 // Mapeo de iconos para Estados reales del backend financiero
@@ -180,9 +185,14 @@ export default function TransactionsPage() {
             >
               <option value="ALL">Todos los tipos</option>
               <option value="PAGO_ENTREGA">Pago por entrega</option>
-              <option value="BONO">Bonos</option>
-              <option value="DESCUENTO">Descuentos</option>
-              <option value="AJUSTE">Ajustes</option>
+              <option value="PAGO_INTENTO_FALLIDO">Intento fallido</option>
+              <option value="BONO_RENDIMIENTO">Bono rendimiento</option>
+              <option value="BONO">Bonos (legacy)</option>
+              <option value="PENALIZACION">Penalizaciones</option>
+              <option value="DESCUENTO">Descuentos (legacy)</option>
+              <option value="AJUSTE_MANUAL">Ajuste manual</option>
+              <option value="AJUSTE">Ajustes (legacy)</option>
+              <option value="INGRESO">Ingresos/Depósitos</option>
               <option value="RETIRO">Retiros</option>
             </select>
             <select

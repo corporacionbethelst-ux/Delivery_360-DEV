@@ -397,11 +397,11 @@ async def get_available_balance(
     if not rider:
         raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
 
-    # Calcular total ganado
+    # Calcular total ganado (usando CREDIT_TYPES del servicio financiero para incluir todos los tipos de crédito)
     fin_res = await db.execute(
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider.id,
-            Financial.transaction_type.in_(["PAGO_ENTREGA", "BONO"])
+            Financial.transaction_type.in_(list(CREDIT_TYPES))
         )
     )
     total_earned = float(fin_res.scalar() or 0)
@@ -479,11 +479,11 @@ async def request_payout(
     if not rider:
         raise HTTPException(status_code=404, detail="Perfil no encontrado")
 
-    # Verificar saldo (misma lógica que get_available_balance)
+    # Verificar saldo (misma lógica que get_available_balance - usando CREDIT_TYPES)
     fin_res = await db.execute(
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider.id,
-            Financial.transaction_type.in_(["PAGO_ENTREGA", "BONO"])
+            Financial.transaction_type.in_(list(CREDIT_TYPES))
         )
     )
     total_earned = float(fin_res.scalar() or 0)
