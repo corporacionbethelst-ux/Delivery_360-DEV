@@ -25,6 +25,7 @@ from app.models.user import User, UserRole
 # Asumimos que el modelo Payout ya fue creado en app/models/payout.py
 from app.models.payout import Payout, PayoutStatus, PayoutMethod 
 from app.api.v1.auth import get_current_user, require_role
+from app.services.financial_service import CREDIT_TYPES
 
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
 
