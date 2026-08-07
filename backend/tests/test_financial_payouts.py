@@ -43,10 +43,10 @@ class _FakeDb:
     ("transaction_type", "amount", "expected_delta"),
     [
         (TransactionType.PAGO_ENTREGA, Decimal("25.00"), Decimal("25.00")),
-        (TransactionType.BONO, Decimal("5.50"), Decimal("5.50")),
-        (TransactionType.DESCUENTO, Decimal("3.00"), Decimal("-3.00")),
+        (TransactionType.BONO_RENDIMIENTO, Decimal("5.50"), Decimal("5.50")),
+        (TransactionType.PENALIZACION, Decimal("3.00"), Decimal("-3.00")),
         (TransactionType.RETIRO, Decimal("10.00"), Decimal("-10.00")),
-        (TransactionType.AJUSTE, Decimal("-2.75"), Decimal("-2.75")),
+        (TransactionType.AJUSTE_MANUAL, Decimal("-2.75"), Decimal("-2.75")),
     ],
 )
 def test_ledger_delta_uses_transaction_direction(transaction_type, amount, expected_delta):
