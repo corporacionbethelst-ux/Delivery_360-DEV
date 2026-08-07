@@ -221,12 +221,20 @@ export function generateFinancialReport(
     'BONO_RENDIMIENTO',
     'INGRESO',
     'BONO', // Legacy
+    'AJUSTE_MANUAL', // Puede ser crédito si el amount es positivo (ajuste administrativo a favor)
   ];
 
   const totalRevenue = successfulTransactions.reduce((sum, t) => sum + t.amount, 0);
   
+  // Nota: Para AJUSTE_MANUAL, el signo del amount determina si es crédito o débito.
+  // Aquí se incluyen solo los ajustes con amount positivo como créditos.
   const totalPaid = successfulTransactions
-    .filter(t => CREDIT_TRANSACTION_TYPES.includes(t.type))
+    .filter(t => {
+      if (t.type === 'AJUSTE_MANUAL') {
+        return t.amount > 0;
+      }
+      return CREDIT_TRANSACTION_TYPES.includes(t.type);
+    })
     .reduce((sum, t) => sum + t.amount, 0);
 
   const averageTicket = successfulTransactions.length > 0 
