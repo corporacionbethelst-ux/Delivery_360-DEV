@@ -709,7 +709,7 @@ async def seed_orders_and_complex_data(db: AsyncSession, riders: List[Rider], co
         sample_rider = active_riders[0]
         
         # Obtener un usuario admin para referencias (si existe)
-        result_users = await db.execute(select(User).where(User.role == "ADMIN").limit(1))
+        result_users = await db.execute(select(User).where(User.role == UserRole.SUPERADMIN).limit(1))
         users_list = list(result_users.scalars().all())
         sample_admin = users_list[0] if users_list else None
         
