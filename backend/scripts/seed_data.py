@@ -54,10 +54,14 @@ async def ensure_transaction_types(db: AsyncSession):
     required_types = [
         'PAGO_ENTREGA',
         'PAGO_INTENTO_FALLIDO',
-        'AJUSTE_MANUAL',
         'BONO_RENDIMIENTO',
+        'PENALIZACION',
+        'AJUSTE_MANUAL',
+        'INGRESO',
         'RETIRO',
-        'PENALIZACION'
+        'BONO',           # Legacy
+        'DESCUENTO',      # Legacy
+        'AJUSTE',         # Legacy
     ]
     
     for tx_type in required_types:
@@ -695,6 +699,121 @@ async def seed_orders_and_complex_data(db: AsyncSession, riders: List[Rider], co
                 
     await db.commit()
     print("   ✅ Productividad y finanzas actualizadas con ledger trazable.")
+    
+    # ==========================================
+    # GENERAR TRANSACCIONES DE EJEMPLO PARA NUEVOS TIPOS (FASE 3)
+    # ==========================================
+    print("💰 Generando transacciones de ejemplo para nuevos tipos (Fase 3)...")
+    
+    if active_riders:
+        sample_rider = active_riders[0]
+        sample_admin = users[0] if users else None
+        
+        # Obtener balance actual del rider
+        current_balance = float(sample_rider.wallet_balance) if sample_rider.wallet_balance else 0.0
+        
+        # 1. PAGO_INTENTO_FALLIDO - Ejemplo de bonificación por intento fallido
+        idempotency_failed = f"seed-failed-attempt-{sample_rider.id}"
+        existing = await db.execute(
+            select(Financial).where(Financial.idempotency_key == idempotency_failed)
+        )
+        if not existing.scalar_one_or_none():
+            await FinancialService(db).create_ledger_entry(
+                rider_id=sample_rider.id,
+                transaction_type=TransactionType.PAGO_INTENTO_FALLIDO,
+                amount=1500.00,
+                status=PaymentStatus.PROCESADO,
+                description="Bono por intento fallido - Entrega no completada por cliente ausente",
+                source_type="SEED_DEMO",
+                source_id="failed_attempt_001",
+                idempotency_key=idempotency_failed,
+                created_by_user_id=sample_admin.id if sample_admin else None,
+                commit=False,
+            )
+            print("   ✅ Transacción PAGO_INTENTO_FALLIDO creada")
+        
+        # 2. BONO_RENDIMIENTO - Ejemplo de bono por productividad
+        idempotency_bonus = f"seed-performance-bonus-{sample_rider.id}"
+        existing = await db.execute(
+            select(Financial).where(Financial.idempotency_key == idempotency_bonus)
+        )
+        if not existing.scalar_one_or_none():
+            await FinancialService(db).create_ledger_entry(
+                rider_id=sample_rider.id,
+                transaction_type=TransactionType.BONO_RENDIMIENTO,
+                amount=25000.00,
+                status=PaymentStatus.PROCESADO,
+                description="Bono de rendimiento semanal - Meta de 50 entregas completadas",
+                source_type="SEED_DEMO",
+                source_id="performance_bonus_001",
+                idempotency_key=idempotency_bonus,
+                created_by_user_id=sample_admin.id if sample_admin else None,
+                commit=False,
+            )
+            print("   ✅ Transacción BONO_RENDIMIENTO creada")
+        
+        # 3. PENALIZACION - Ejemplo de descuento operativo
+        idempotency_penalty = f"seed-penalty-{sample_rider.id}"
+        existing = await db.execute(
+            select(Financial).where(Financial.idempotency_key == idempotency_penalty)
+        )
+        if not existing.scalar_one_or_none():
+            await FinancialService(db).create_ledger_entry(
+                rider_id=sample_rider.id,
+                transaction_type=TransactionType.PENALIZACION,
+                amount=-5000.00,  # Negativo porque es un débito
+                status=PaymentStatus.PROCESADO,
+                description="Penalización por reporte de incidente operacional",
+                source_type="SEED_DEMO",
+                source_id="penalty_001",
+                idempotency_key=idempotency_penalty,
+                created_by_user_id=sample_admin.id if sample_admin else None,
+                commit=False,
+            )
+            print("   ✅ Transacción PENALIZACION creada")
+        
+        # 4. AJUSTE_MANUAL - Ejemplo de ajuste administrativo
+        idempotency_adjustment = f"seed-manual-adjustment-{sample_rider.id}"
+        existing = await db.execute(
+            select(Financial).where(Financial.idempotency_key == idempotency_adjustment)
+        )
+        if not existing.scalar_one_or_none():
+            await FinancialService(db).create_ledger_entry(
+                rider_id=sample_rider.id,
+                transaction_type=TransactionType.AJUSTE_MANUAL,
+                amount=10000.00,
+                status=PaymentStatus.PROCESADO,
+                description="Ajuste manual - Corrección de error en cálculo de bonos",
+                source_type="SEED_DEMO",
+                source_id="manual_adjustment_001",
+                idempotency_key=idempotency_adjustment,
+                created_by_user_id=sample_admin.id if sample_admin else None,
+                commit=False,
+            )
+            print("   ✅ Transacción AJUSTE_MANUAL creada")
+        
+        # 5. INGRESO - Ejemplo de depósito de saldo
+        idempotency_deposit = f"seed-deposit-{sample_rider.id}"
+        existing = await db.execute(
+            select(Financial).where(Financial.idempotency_key == idempotency_deposit)
+        )
+        if not existing.scalar_one_or_none():
+            await FinancialService(db).create_ledger_entry(
+                rider_id=sample_rider.id,
+                transaction_type=TransactionType.INGRESO,
+                amount=50000.00,
+                status=PaymentStatus.PROCESADO,
+                description="Depósito de saldo inicial - Promoción bienvenida",
+                source_type="SEED_DEMO",
+                source_id="deposit_001",
+                idempotency_key=idempotency_deposit,
+                created_by_user_id=sample_admin.id if sample_admin else None,
+                commit=False,
+            )
+            print("   ✅ Transacción INGRESO creada")
+        
+        await db.commit()
+        print("   ✅ Todas las transacciones de ejemplo Fase 3 creadas exitosamente.")
     
     return orders
 

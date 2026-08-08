@@ -11,6 +11,7 @@ from app.models.rider import Rider, RiderStatus
 from app.models.shift import Shift, ShiftStatus
 from app.models.financial import Financial as FinancialTransaction, TransactionType, PaymentStatus
 from app.models.productivity import ProductivityMetrics, SLARecord
+from app.services.financial_service import CREDIT_TYPES
 import logging
 
 logger = logging.getLogger(__name__)

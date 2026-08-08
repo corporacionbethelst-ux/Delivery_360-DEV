@@ -10,7 +10,7 @@ import logging
 from app.core.database import get_db
 from app.models.payout import Payout, PayoutStatus, PayoutMethod, PayoutStatusHistory
 from app.models.financial import Financial, TransactionType, PaymentStatus
-from app.services.financial_service import FinancialService
+from app.services.financial_service import FinancialService, CREDIT_TYPES
 from app.services.notification_service import NotificationService
 from app.services.redis_audit_service import get_redis_audit_logger
 from app.services.audit_service import get_audit_service

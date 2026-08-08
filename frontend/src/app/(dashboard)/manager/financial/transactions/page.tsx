@@ -31,7 +31,9 @@ const TYPE_COLORS: Record<TransactionType, string> = {
   RETIRO: 'text-gray-600 bg-gray-50 border-gray-200',
   // Legacy types - fallback a tipos equivalentes
   BONO: 'text-emerald-600 bg-emerald-50 border-emerald-200',
+  PENALIZACION: 'text-red-600 bg-red-50 border-red-200',
   DESCUENTO: 'text-orange-600 bg-orange-50 border-orange-200',
+  AJUSTE_MANUAL: 'text-indigo-600 bg-indigo-50 border-indigo-200',
   AJUSTE: 'text-purple-600 bg-purple-50 border-purple-200',
 };
 

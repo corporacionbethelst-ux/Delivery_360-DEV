@@ -25,6 +25,7 @@ from app.models.user import User, UserRole
 # Asumimos que el modelo Payout ya fue creado en app/models/payout.py
 from app.models.payout import Payout, PayoutStatus, PayoutMethod 
 from app.api.v1.auth import get_current_user, require_role
+from app.services.financial_service import CREDIT_TYPES
 
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
 
@@ -396,7 +397,7 @@ async def get_available_balance(
     if not rider:
         raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
 
-    # Calcular total ganado
+    # Calcular total ganado (usando CREDIT_TYPES del servicio financiero para incluir todos los tipos de crédito)
     fin_res = await db.execute(
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider.id,
@@ -482,7 +483,7 @@ async def request_payout(
     if not rider:
         raise HTTPException(status_code=404, detail="Perfil no encontrado")
 
-    # Verificar saldo (misma lógica que get_available_balance)
+    # Verificar saldo (misma lógica que get_available_balance - usando CREDIT_TYPES)
     fin_res = await db.execute(
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider.id,

@@ -22,6 +22,7 @@ from app.models.delivery import Delivery, DeliveryStatus
 from app.models.financial import Financial, TransactionType, PaymentStatus
 from app.models.payout import Payout, PayoutStatus
 from app.api.v1.auth import get_current_user, require_role
+from app.services.financial_service import CREDIT_TYPES
 
 logger = logging.getLogger(__name__)
 
