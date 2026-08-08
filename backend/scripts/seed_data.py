@@ -707,7 +707,11 @@ async def seed_orders_and_complex_data(db: AsyncSession, riders: List[Rider], co
     
     if active_riders:
         sample_rider = active_riders[0]
-        sample_admin = users[0] if users else None
+        
+        # Obtener un usuario admin para referencias (si existe)
+        result_users = await db.execute(select(User).where(User.role == "ADMIN").limit(1))
+        users_list = list(result_users.scalars().all())
+        sample_admin = users_list[0] if users_list else None
         
         # Obtener balance actual del rider
         current_balance = float(sample_rider.wallet_balance) if sample_rider.wallet_balance else 0.0
