@@ -12,7 +12,7 @@ sys.path.insert(0, "/app")
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import text, select, update
+from sqlalchemy import text, select, update, delete
 from app.core.config import settings
 from app.core.security import get_password_hash
 from app.models.user import User, UserRole
@@ -547,6 +547,25 @@ async def seed_orders_and_complex_data(db: AsyncSession, riders: List[Rider], co
             print("   ⚠️ No hay riders activos disponibles para asignar órdenes.")
             return []
 
+    # ==========================================
+    # LIMPIEZA PREvia PARA IDEMPOTENCIA (FASE 3)
+    # ==========================================
+    # Para garantizar idempotencia total, eliminamos órdenes y financials generados por seed anterior
+    # Esto evita UniqueViolationError en external_id y permite re-ejecutar el script sin errores
+    print("   🧹 Limpiando datos previos de seed (órdenes, deliveries, financials)...")
+    try:
+        # Eliminar financials asociados a seed previo
+        await db.execute(text("DELETE FROM financials WHERE source_type LIKE 'SEED%'"))
+        # Eliminar deliveries asociados a órdenes de seed
+        await db.execute(text("DELETE FROM deliveries WHERE order_id IN (SELECT id FROM orders WHERE external_id LIKE 'ORD-%' OR external_id LIKE 'LIVE-MAP-DEMO-%')"))
+        # Eliminar órdenes de seed previo
+        await db.execute(text("DELETE FROM orders WHERE external_id LIKE 'ORD-%' OR external_id LIKE 'LIVE-MAP-DEMO-%'"))
+        await db.commit()
+        print("   ✅ Limpieza completada exitosamente.")
+    except Exception as e:
+        await db.rollback()
+        print(f"   ⚠️ Advertencia en limpieza: {e}")
+
     now = utc_now_naive()
     from collections import defaultdict
     rider_stats = defaultdict(lambda: {"completed": 0, "total_time": 0, "earnings": Decimal(0)})
@@ -709,14 +728,17 @@ async def seed_orders_and_complex_data(db: AsyncSession, riders: List[Rider], co
         sample_rider = active_riders[0]
         
         # Obtener un usuario admin para referencias (si existe)
-        result_users = await db.execute(select(User).where(User.role == UserRole.SUPERADMIN).limit(1))
+        result_users = await db.execute(select(User).where(User.role.in_([UserRole.SUPERADMIN, UserRole.GERENTE])).limit(1))
         users_list = list(result_users.scalars().all())
         sample_admin = users_list[0] if users_list else None
         
         # Obtener balance actual del rider
         current_balance = float(sample_rider.wallet_balance) if sample_rider.wallet_balance else 0.0
         
-        # 1. PAGO_INTENTO_FALLIDO - Ejemplo de bonificación por intento fallido
+        # 1. PAGO_ENTREGA - Ya se genera arriba en el batch de productividad
+        #    Se deja comentado porque ya está cubierto por el código de rider_stats
+        
+        # 2. PAGO_INTENTO_FALLIDO - Ejemplo de bonificación por intento fallido
         idempotency_failed = f"seed-failed-attempt-{sample_rider.id}"
         existing = await db.execute(
             select(Financial).where(Financial.idempotency_key == idempotency_failed)
@@ -736,7 +758,7 @@ async def seed_orders_and_complex_data(db: AsyncSession, riders: List[Rider], co
             )
             print("   ✅ Transacción PAGO_INTENTO_FALLIDO creada")
         
-        # 2. BONO_RENDIMIENTO - Ejemplo de bono por productividad
+        # 3. BONO_RENDIMIENTO - Ejemplo de bono por productividad
         idempotency_bonus = f"seed-performance-bonus-{sample_rider.id}"
         existing = await db.execute(
             select(Financial).where(Financial.idempotency_key == idempotency_bonus)
@@ -756,7 +778,7 @@ async def seed_orders_and_complex_data(db: AsyncSession, riders: List[Rider], co
             )
             print("   ✅ Transacción BONO_RENDIMIENTO creada")
         
-        # 3. PENALIZACION - Ejemplo de descuento operativo
+        # 4. PENALIZACION - Ejemplo de descuento operativo
         idempotency_penalty = f"seed-penalty-{sample_rider.id}"
         existing = await db.execute(
             select(Financial).where(Financial.idempotency_key == idempotency_penalty)
@@ -765,7 +787,7 @@ async def seed_orders_and_complex_data(db: AsyncSession, riders: List[Rider], co
             await FinancialService(db).create_ledger_entry(
                 rider_id=sample_rider.id,
                 transaction_type=TransactionType.PENALIZACION,
-                amount=-5000.00,  # Negativo porque es un débito
+                amount=5000.00,  # Monto positivo, el servicio calcula el signo según DEBIT_TYPES
                 status=PaymentStatus.PROCESADO,
                 description="Penalización por reporte de incidente operacional",
                 source_type="SEED_DEMO",
@@ -776,7 +798,7 @@ async def seed_orders_and_complex_data(db: AsyncSession, riders: List[Rider], co
             )
             print("   ✅ Transacción PENALIZACION creada")
         
-        # 4. AJUSTE_MANUAL - Ejemplo de ajuste administrativo
+        # 5. AJUSTE_MANUAL - Ejemplo de ajuste administrativo (positivo)
         idempotency_adjustment = f"seed-manual-adjustment-{sample_rider.id}"
         existing = await db.execute(
             select(Financial).where(Financial.idempotency_key == idempotency_adjustment)
@@ -787,7 +809,7 @@ async def seed_orders_and_complex_data(db: AsyncSession, riders: List[Rider], co
                 transaction_type=TransactionType.AJUSTE_MANUAL,
                 amount=10000.00,
                 status=PaymentStatus.PROCESADO,
-                description="Ajuste manual - Corrección de error en cálculo de bonos",
+                description="Ajuste manual - Corrección de error en cálculo de bonos (crédito)",
                 source_type="SEED_DEMO",
                 source_id="manual_adjustment_001",
                 idempotency_key=idempotency_adjustment,
@@ -796,7 +818,7 @@ async def seed_orders_and_complex_data(db: AsyncSession, riders: List[Rider], co
             )
             print("   ✅ Transacción AJUSTE_MANUAL creada")
         
-        # 5. INGRESO - Ejemplo de depósito de saldo
+        # 6. INGRESO - Ejemplo de depósito de saldo externo
         idempotency_deposit = f"seed-deposit-{sample_rider.id}"
         existing = await db.execute(
             select(Financial).where(Financial.idempotency_key == idempotency_deposit)
