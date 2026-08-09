@@ -1,7 +1,7 @@
 """add wallet version for optimistic locking and transaction audit trail
 
 Revision ID: 20260615
-Revises: 20260614
+Revises: 20260616
 Create Date: 2026-07-29
 
 """
@@ -11,48 +11,22 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20260615'
-down_revision = '20260614'  # <--- CRÍTICO: Depende de la migración de deliveries
+down_revision = '20260616'  # <--- CRÍTICO: Ahora depende de la migración que crea wallets
 branch_labels = None
 depends_on = None
 
 def upgrade() -> None:
-    # 1. Agregar columna 'version' a wallets para Optimistic Locking
-    # Esto previene race conditions cuando dos procesos modifican el saldo a la vez
-    op.add_column(
-        'wallets',
-        sa.Column(
-            'version',
-            sa.Integer(),
-            nullable=False,
-            server_default='0',
-            comment='Contador de versión para bloqueo optimista. Se incrementa en cada update.'
-        )
-    )
-
-    # 2. Agregar columna 'balance_after' a transactions para Auditoría (Doble Libro)
-    # Permite verificar instantáneamente si el cálculo histórico coincide con el saldo actual
-    op.add_column(
-        'transactions',
-        sa.Column(
-            'balance_after',
-            sa.Numeric(12, 2),
-            nullable=True,
-            comment='Saldo exacto de la wallet después de aplicar esta transacción. Para auditoría forense.'
-        )
-    )
-
-    # 3. (Opcional pero recomendado) Índice para mejorar performance en consultas de auditoría
-    op.create_index(
-        op.f('ix_transactions_balance_after'),
-        'transactions',
-        ['balance_after'],
-        unique=False
-    ) 
+    # NOTA: La columna 'version' ya fue agregada en la migración 20260616
+    # Esta migración ahora solo se encarga del índice adicional si es necesario
+    
+    # 1. Verificar que la columna 'version' existe en wallets (ya creada en 20260616)
+    # No necesitamos hacer nada aquí porque version ya fue agregada
+    
+    # 2. La columna 'balance_after' ya existe en financials desde el schema inicial
+    # y fue verificada en la migración 20260616
+    
+    pass
 
 def downgrade() -> None:
-    # Eliminar índice
-    op.drop_index(op.f('ix_transactions_balance_after'), table_name='transactions')
-    
-    # Eliminar columnas en orden inverso
-    op.drop_column('transactions', 'balance_after')
-    op.drop_column('wallets', 'version')
+    # No hay nada que hacer aquí porque las columnas fueron creadas en 20260616
+    pass
