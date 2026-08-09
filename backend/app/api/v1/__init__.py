@@ -12,6 +12,7 @@ from app.api.v1 import vehicles as vehicles_module # Importar el nuevo módulo c
 from app.api.v1 import zones as zones_module
 from app.api.v1 import financial as financial_module
 from app.api.v1 import shifts as shifts_module
+from app.api.v1 import reconciliation as reconciliation_module
 
 # 2. Importar solo lo necesario de routers_combined para los otros módulos
 from app.api.v1.routers_combined import (
@@ -50,6 +51,7 @@ zones = zones_module
 # as /api/v1/shifts/shifts and make /api/v1/shifts return 404.
 shifts       = shifts_module
 financial    = financial_module
+reconciliation = reconciliation_module
 productivity = _make_module(productivity_router,  "productivity")
 routes       = _make_module(routes_router,        "routes")
 dashboard    = _make_module(dashboard_router,     "dashboard")
@@ -76,6 +78,7 @@ __all__ = [
     "zones",
     "shifts",
     "financial",
+    "reconciliation",
     "productivity",
     "routes",
     "dashboard",

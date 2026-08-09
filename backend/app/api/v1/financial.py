@@ -81,11 +81,11 @@ async def get_my_earnings(
     )
     total_withdrawn = float(withdrawn_result.scalar() or 0)
     
-    # Contar entregas completadas desde ledger y fallback a órdenes entregadas.
+    # Contar entregas completadas desde ledger (todos los tipos de crédito) y fallback a órdenes entregadas.
     deliveries_count_result = await db.execute(
         select(func.count(Financial.id)).where(
             Financial.rider_id == rider.id,
-            Financial.transaction_type == TransactionType.PAGO_ENTREGA
+            Financial.transaction_type.in_(list(CREDIT_TYPES))
         )
     )
     ledger_completed_deliveries = int(deliveries_count_result.scalar() or 0)
