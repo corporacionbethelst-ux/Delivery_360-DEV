@@ -1,7 +1,7 @@
 """create wallets table for rider financial management
 
 Revision ID: 20260616
-Revises: 20260614
+Revises: 20260615
 Create Date: 2026-07-29
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20260616'
-down_revision = '20260614'
+down_revision = '20260615'
 branch_labels = None
 depends_on = None
 
