@@ -30,7 +30,7 @@ def upgrade() -> None:
     # TABLAS DE LA APLICACIÓN (DELIVERY360)
     # ==========================================
 
-    # 1. USERS
+    # 1. USERS 
     op.create_table('users',
     sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
     sa.Column('email', sa.String(length=255), nullable=False),
