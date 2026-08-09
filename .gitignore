@@ -1,41 +1,94 @@
 ```
-# Compiled Python files
-*.pyc
+# Python
 __pycache__/
-
-# Dependencies
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
 venv/
 .venv/
-node_modules/
+.ENV
+.venv.bak/
+pip-log.txt
+pip-delete-this-directory.txt
 
-# Database migrations
-#alembic/
+# Alembic
+alembic/
 
-# Logs and temporary files
+# Dependencies
+requirements.txt.bak
+*.egg-info/
+.eggs/
+.installed.cfg
+.tox/
+.nox/
+
+# Logs
 *.log
-*.tmp
-*.swp
+*.log.*
 
-# Environment variables
+# Environment
 .env
+.env.*
 .env.local
-*.env.*
 
-# Editors
-.vscode/
-.idea/
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Icon?
+```
 
-# Coverage reports
+Wait, I need to reconsider. Looking at the file changes again - only Python migration files were added/modified. This appears to be a standard Python project with alembic migrations, but the changes themselves are just source code files (.py files). However, since it's a Python project, I should include common Python ignores.
+
+```
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+.ENV
+.venv.bak/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Alembic
+alembic/
+
+# Dependencies
+*.egg-info/
+.eggs/
+.installed.cfg
+.tox/
+.nox/
 .coverage
 coverage/
 htmlcov/
 
-# Python cache
-.mypy_cache/
-.pytest_cache/
+# Logs
+*.log
 
-# Build artifacts
-dist/
-build/
-target/
+# Environment
+.env
+.env.*
+.env.local
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Icon?
 ```
