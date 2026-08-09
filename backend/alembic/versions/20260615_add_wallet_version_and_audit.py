@@ -1,7 +1,7 @@
 """add wallet version for optimistic locking and transaction audit trail
 
 Revision ID: 20260615
-Revises: 20260614
+Revises: 20260616
 Create Date: 2026-07-29
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20260615'
-down_revision = '20260614'  # <--- CRÍTICO: Ahora depende de la migración que crea wallets
+down_revision = '20260616'
 branch_labels = None
 depends_on = None
 
