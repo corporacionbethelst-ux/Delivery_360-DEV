@@ -23,6 +23,7 @@ class UserRole(str, enum.Enum):
     OPERADOR = "OPERADOR"
     REPARTIDOR = "REPARTIDOR"
     CLIENTE = "CLIENTE"
+    AUDITOR = "AUDITOR"
 
 class User(Base):
     __tablename__ = "users"
