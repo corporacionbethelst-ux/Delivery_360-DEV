@@ -9,6 +9,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.financial import Financial, PaymentStatus, TransactionType
+from app.models.rider import Rider
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,6 @@ class FinancialService:
         
         Usa FOR UPDATE SKIP LOCKED para evitar race conditions en concurrencia alta.
         """
-        from app.models.rider import Rider
         result = await self.db.execute(
             select(Rider)
             .where(Rider.id == rider_id)
