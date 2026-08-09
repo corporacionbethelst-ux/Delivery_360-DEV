@@ -57,13 +57,23 @@ def ledger_delta(amount: Decimal, transaction_type: TransactionType) -> Decimal:
 
 
 class FinancialService:
-    """Servicio transaccional para escritura y consulta del ledger financiero."""
+    """Servicio transaccional para escritura y consulta del ledger financiero.
+    
+    Implementa patrones robustos para integridad financiera:
+    - Bloqueo optimista con versión para concurrencia
+    - Idempotencia estricta vía keys únicas
+    - Doble libro contable (balance_after en cada transacción)
+    """
 
     def __init__(self, db: AsyncSession):
         self.db = db
 
     async def get_current_balance(self, rider_id: str) -> Decimal:
-        """Obtener el último balance contable procesado del rider."""
+        """Obtener el último balance contable procesado del rider.
+        
+        Usa balance_after de la última transacción como fuente de verdad.
+        Fallback: recalcula desde cero si no hay historial poblado.
+        """
         result = await self.db.execute(
             select(Financial.balance_after)
             .where(Financial.rider_id == rider_id)
@@ -98,6 +108,128 @@ class FinancialService:
         )
 
         return money(earnings_result.scalar()) - money(deductions_result.scalar()) + money(adjustments_result.scalar())
+
+    async def get_rider_with_lock(self, rider_id: str) -> Optional[Rider]:
+        """Obtener rider con bloqueo pessimista para actualizaciones atómicas.
+        
+        Usa FOR UPDATE SKIP LOCKED para evitar race conditions en concurrencia alta.
+        """
+        from app.models.rider import Rider
+        result = await self.db.execute(
+            select(Rider)
+            .where(Rider.id == rider_id)
+            .with_for_update(skip_locked=True)
+        )
+        return result.scalar_one_or_none()
+
+    async def update_wallet_balance_optimistic(
+        self, 
+        rider_id: str, 
+        new_balance: Decimal,
+        expected_version: Optional[int] = None
+    ) -> bool:
+        """Actualizar wallet con validación de versión (bloqueo optimista).
+        
+        Args:
+            rider_id: ID del rider
+            new_balance: Nuevo balance a establecer
+            expected_version: Versión esperada (si es None, se omite la validación)
+            
+        Returns:
+            True si la actualización fue exitosa, False si hubo conflicto de versión
+            
+        Raises:
+            ValueError: Si el rider no existe
+        """
+        from app.models.rider import Rider
+        
+        # Obtener estado actual
+        result = await self.db.execute(select(Rider).where(Rider.id == rider_id))
+        rider = result.scalar_one_or_none()
+        
+        if not rider:
+            raise ValueError(f"Rider {rider_id} no encontrado")
+        
+        # Validar versión si se proporcionó
+        if expected_version is not None and rider.version != expected_version:
+            logger.warning(
+                f"Conflicto de versión para rider {rider_id}: "
+                f"esperada={expected_version}, actual={rider.version}"
+            )
+            return False
+        
+        # Actualizar balance e incrementar versión
+        rider.wallet_balance = money(new_balance)
+        rider.version = (rider.version or 0) + 1
+        
+        await self.db.flush()
+        return True
+
+    async def reconcile_wallet_with_ledger(self, rider_id: str) -> Dict[str, any]:
+        """Verificar y corregir inconsistencias entre wallet y ledger.
+        
+        Compara el wallet_balance almacenado vs la suma real de transacciones.
+        Si hay diferencia > 0.01, crea un ajuste automático.
+        
+        Returns:
+            Dict con estado de reconciliación y detalles
+        """
+        from app.models.rider import Rider
+        
+        # Obtener balance del ledger (suma de todas las transacciones)
+        ledger_balance = await self.get_current_balance(rider_id)
+        
+        # Obtener balance almacenado en wallet
+        result = await self.db.execute(select(Rider).where(Rider.id == rider_id))
+        rider = result.scalar_one_or_none()
+        
+        if not rider:
+            return {"status": "error", "message": "Rider no encontrado"}
+        
+        stored_balance = money(rider.wallet_balance or 0)
+        difference = abs(ledger_balance - stored_balance)
+        
+        if difference <= Decimal("0.01"):
+            return {
+                "status": "ok",
+                "ledger_balance": float(ledger_balance),
+                "stored_balance": float(stored_balance),
+                "difference": 0.00
+            }
+        
+        # Hay discrepancia significativa - crear ajuste automático
+        logger.warning(
+            f"Discrepancia detectada para rider {rider_id}: "
+            f"ledger={ledger_balance}, stored={stored_balance}, diff={difference}"
+        )
+        
+        # Crear transacción de ajuste
+        adjustment_type = TransactionType.AJUSTE_MANUAL
+        adjustment_amount = ledger_balance - stored_balance
+        
+        await self.create_ledger_entry(
+            rider_id=rider_id,
+            amount=abs(adjustment_amount),
+            transaction_type=adjustment_type,
+            description=f"Ajuste automático por reconciliación (diff: {difference})",
+            source_type="RECONCILIATION_JOB",
+            source_id=f"recon_{datetime.utcnow().isoformat()}",
+            status=PaymentStatus.PROCESADO,
+            commit=True,
+        )
+        
+        # Actualizar wallet al valor correcto
+        rider.wallet_balance = ledger_balance
+        rider.version = (rider.version or 0) + 1
+        await self.db.commit()
+        
+        return {
+            "status": "reconciled",
+            "ledger_balance": float(ledger_balance),
+            "stored_balance": float(stored_balance),
+            "difference": float(difference),
+            "adjustment_amount": float(adjustment_amount)
+        }
 
     async def create_ledger_entry(
         self,

@@ -81,6 +81,9 @@ class Rider(Base):
     wallet_balance = Column(Numeric(10, 2), default=0.00)
     pending_balance = Column(Numeric(10, 2), default=0.00)
     
+    # Campo de versión para bloqueo optimista (concurrencia financiera)
+    version = Column(Integer, default=0, nullable=False)
+    
     # RELACIONES
     user = relationship("User", back_populates="rider_profile")
     zone = relationship("Zone", back_populates="riders", foreign_keys=[zone_id])
