@@ -250,6 +250,7 @@ export default function OrdersPage() {
       case 'ASIGNADO': return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'EN_RUTA': return 'bg-purple-100 text-purple-800 border-purple-200';
       case 'CANCELADO': return 'bg-red-100 text-red-800 border-red-200 line-through opacity-75';
+      case 'FALLIDO': return 'bg-orange-100 text-orange-800 border-orange-200';
       default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
@@ -330,6 +331,7 @@ export default function OrdersPage() {
                 <option value="RECOLECTADO">Recolectados</option>
                 <option value="EN_RUTA">En Ruta</option>
                 <option value="ENTREGADO">Entregados</option>
+                <option value="FALLIDO">Fallidos</option>
                 <option value="CANCELADO">Cancelados</option>
               </select>
               <select
@@ -372,11 +374,12 @@ export default function OrdersPage() {
               return (
                 <Card 
                   key={order.id} 
-                  className={`group hover:shadow-lg transition-all duration-200 border border-gray-100 relative overflow-hidden ${order.status === 'CANCELADO' ? 'opacity-60 grayscale' : ''}`}
+                  className={`group hover:shadow-lg transition-all duration-200 border border-gray-100 relative overflow-hidden ${order.status === 'CANCELADO' || order.status === 'FALLIDO' ? 'opacity-60 grayscale' : ''}`}
                 >
                   <div className={`h-1.5 w-full ${
                     order.status === 'ENTREGADO' ? 'bg-green-500' :
                     order.status === 'CANCELADO' ? 'bg-red-500' :
+                    order.status === 'FALLIDO' ? 'bg-orange-500' :
                     order.status === 'EN_RUTA' ? 'bg-purple-500' :
                     'bg-blue-500'
                   }`} />
@@ -533,7 +536,7 @@ export default function OrdersPage() {
                         </Button>
                       ))}
 
-                      {order.status !== 'CANCELADO' && order.status !== 'ENTREGADO' && (
+                      {order.status !== 'CANCELADO' && order.status !== 'ENTREGADO' && order.status !== 'FALLIDO' && (
                         <Button 
                           variant="outline" 
                           size="sm" 
