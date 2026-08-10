@@ -190,22 +190,56 @@ export default function OrdersPage() {
   });
 
   function getRiderName(order: Order): string {
+    // Intentar primero con order.rider
     const rider = order.rider as any;
     if (rider?.full_name) return rider.full_name;
     const fullName = `${rider?.first_name || ''} ${rider?.last_name || ''}`.trim();
-    return fullName || (order.assigned_rider_id ? 'Repartidor asignado' : 'Sin asignar');
+    if (fullName) return fullName;
+    
+    // Si no hay datos en order.rider pero hay assigned_rider_id, buscar en el array riders
+    if (order.assigned_rider_id && riders.length > 0) {
+      const foundRider = riders.find(r => r.id === order.assigned_rider_id);
+      if (foundRider) {
+        return `${foundRider.first_name} ${foundRider.last_name}`.trim() || 'Repartidor asignado';
+      }
+    }
+    
+    // Fallback final
+    return order.assigned_rider_id ? 'Repartidor asignado' : 'Sin asignar';
   }
 
   function getRiderVehicle(order: Order): string {
+    // Intentar primero con order.rider
     const rider = order.rider as any;
     const vehicle = [rider?.vehicle_type, rider?.vehicle_plate].filter(Boolean).join(' ');
-    return vehicle || (order.assigned_rider_id ? 'Vehículo no especificado' : 'Sin vehículo');
+    if (vehicle) return vehicle;
+    
+    // Si no hay datos en order.rider pero hay assigned_rider_id, buscar en el array riders
+    if (order.assigned_rider_id && riders.length > 0) {
+      const foundRider = riders.find(r => r.id === order.assigned_rider_id);
+      if (foundRider) {
+        const foundVehicle = [foundRider.vehicle_type, foundRider.vehicle_plate].filter(Boolean).join(' ');
+        return foundVehicle || 'Vehículo no especificado';
+      }
+    }
+    
+    // Fallback final
+    return order.assigned_rider_id ? 'Vehículo no especificado' : 'Sin vehículo';
   }
 
   function getRiderBadgeClass(order: Order): string {
-    const rider = order.rider as any;
     if (!order.assigned_rider_id) return 'bg-gray-100 text-gray-600 border-gray-200';
+    
+    // Intentar obtener is_online de order.rider
+    const rider = order.rider as any;
     if (rider?.is_online) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    
+    // Si no está en order.rider, buscar en el array riders
+    if (riders.length > 0) {
+      const foundRider = riders.find(r => r.id === order.assigned_rider_id);
+      if (foundRider?.is_online) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    }
+    
     return 'bg-blue-50 text-blue-700 border-blue-200';
   }
 
