@@ -190,12 +190,37 @@ export default function OrderDetailManagerPage() {
     order.pickup_lng !== null && 
     order.pickup_lng !== undefined;
 
-  // Obtener nombre completo del rider
-  const riderName = order.rider 
-    ? `${order.rider.first_name} ${order.rider.last_name}` 
-    : (hasRider ? 'Repartidor Asignado' : 'Sin asignar');
+  // Obtener nombre completo del rider - Prioriza datos de order.rider, luego busca en riders locales
+  const getRiderData = () => {
+    // Si order.rider tiene datos completos, usarlos
+    if (order.rider?.first_name) {
+      return {
+        name: `${order.rider.first_name} ${order.rider.last_name || ''}`.trim(),
+        vehicle: (order.rider as any)?.vehicle_type || 'No especificado'
+      };
+    }
+    
+    // Si hay assigned_rider_id pero no datos completos, buscar en riders locales
+    if (order.assigned_rider_id && riders.length > 0) {
+      const rider = riders.find(r => r.id === order.assigned_rider_id);
+      if (rider) {
+        return {
+          name: `${rider.first_name} ${rider.last_name || ''}`.trim(),
+          vehicle: rider.vehicle_type || 'No especificado'
+        };
+      }
+    }
+    
+    // fallback a valores por defecto
+    return {
+      name: hasRider ? 'Repartidor Asignado' : 'Sin asignar',
+      vehicle: 'No especificado'
+    };
+  };
   
-  const riderVehicle = (order.rider as any)?.vehicle_type || 'No especificado';
+  const riderData = getRiderData();
+  const riderName = riderData.name;
+  const riderVehicle = riderData.vehicle;
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
