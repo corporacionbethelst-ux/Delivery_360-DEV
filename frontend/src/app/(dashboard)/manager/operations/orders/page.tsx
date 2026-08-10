@@ -374,7 +374,7 @@ export default function OrdersPage() {
               return (
                 <Card 
                   key={order.id} 
-                  className={`group hover:shadow-lg transition-all duration-200 border border-gray-100 relative overflow-hidden ${order.status === 'CANCELADO' || order.status === 'FALLIDO' ? 'opacity-60 grayscale' : ''}`}
+                  className={`group hover:shadow-lg transition-all duration-200 border border-gray-100 relative overflow-hidden ${order.status === 'CANCELADO' ? 'opacity-60 grayscale' : order.status === 'FALLIDO' ? 'opacity-75 border-orange-200 bg-orange-50/30' : ''}`}
                 >
                   <div className={`h-1.5 w-full ${
                     order.status === 'ENTREGADO' ? 'bg-green-500' :
