@@ -53,8 +53,12 @@ export interface RiderCreateInput {
   cpf: string;
   cnh?: string;
   birthDate: Date;
-  vehicle: Omit<RiderVehicle, 'year'> & { year?: number };
+  vehicle?: Omit<RiderVehicle, 'year'> & { year?: number };
   operatingZone?: string;
+  // Nuevo campo para indicar si usa vehículo propio o de empresa
+  vehicleOwnershipType?: 'PROPIO' | 'EMPRESA';
+  // ID del vehículo de empresa asignado (si aplica)
+  assignedVehicleId?: string;
 }
 
 export interface RiderUpdateInput {
@@ -65,6 +69,10 @@ export interface RiderUpdateInput {
   notificationsEnabled?: boolean;
   maxDailyHours?: number;
   preferredZones?: string[];
+  // Nuevo campo para actualizar tipo de propiedad del vehículo
+  vehicleOwnershipType?: 'PROPIO' | 'EMPRESA';
+  // ID del vehículo de empresa asignado (si aplica)
+  assignedVehicleId?: string;
 }
 
 export interface RiderApproval {
