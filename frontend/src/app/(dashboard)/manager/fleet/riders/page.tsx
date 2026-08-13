@@ -438,6 +438,7 @@ export default function ManagerRidersPage() {
           rider={editingRider}
           open={isEditModalOpen}
           onOpenChange={setIsEditModalOpen}
+          companyVehicles={companyVehicles}
           onSuccess={() => {
             loadRiders();
             loadCompanyVehicles();
