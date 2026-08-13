@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import RiderList from '@/components/riders/RiderList';
 import RiderEditModal from '@/components/riders/RiderEditModal';
+import type { RiderUpdateInput } from '@/types/rider';
 
 // --- Constantes y Configuración ---
 const ALLOWED_ROLES = ['SUPERADMIN', 'GERENTE', 'OPERADOR'];
@@ -121,6 +122,42 @@ export default function ManagerRidersPage() {
 
   // Handlers
   const handleRefresh = () => loadRiders(true);
+
+  const handleUpdateRider = async (riderId: string, data: RiderUpdateInput) => {
+    try {
+      await riderService.updateRider(riderId, data);
+
+      // Actualización optimista del estado local
+      setRiders(prev => prev.map(r => 
+        r.id === riderId 
+          ? { 
+              ...r, 
+              vehicle_ownership_type: data.vehicleOwnershipType || r.vehicle_ownership_type,
+              assigned_vehicle_id: data.assignedVehicleId || null,
+              vehicle_type: data.vehicleType,
+              vehicle_plate: data.vehiclePlate,
+              vehicle_model: data.vehicleModel,
+              phone: data.phone || r.phone
+            }
+          : r
+      ));
+
+      // Recargar vehículos por si hubo asignación/liberación
+      await loadCompanyVehicles();
+
+      toast.success('Repartidor actualizado correctamente');
+      setIsEditModalOpen(false);
+    } catch (error) {
+      console.error('Error updating rider:', error);
+      toast.error('Error al actualizar repartidor');
+      throw error;
+    }
+  };
+
+  const handleEditRider = (rider: Rider) => {
+    setEditingRider(rider);
+    setIsEditModalOpen(true);
+  };
 
   if (!isMounted || !isAuthenticated || !user) {
     return null;
@@ -313,12 +350,49 @@ export default function ManagerRidersPage() {
                       <div className="flex items-center gap-3 pt-3 border-t border-dashed border-slate-100 group/item">
                         <Bike className="w-4 h-4 text-slate-400 group-hover/item:text-blue-500 transition-colors" />
                         <div className="flex flex-col">
-                          <span className="font-semibold text-slate-800">{rider.vehicle_type || 'N/A'}</span>
-                          {rider.vehicle_plate && (
-                            <span className="text-[10px] uppercase bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-mono tracking-wide">
-                              {rider.vehicle_plate}
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-slate-800">
+                              {(() => {
+                                // Mostrar información correcta según tipo de propiedad
+                                if (rider.vehicle_ownership_type === 'EMPRESA' && rider.assigned_vehicle_id) {
+                                  const assignedVehicle = companyVehicles.find(v => v.id === rider.assigned_vehicle_id);
+                                  return assignedVehicle ? assignedVehicle.type : 'Vehículo Empresa';
+                                }
+                                return rider.vehicle_type || 'N/A';
+                              })()}
                             </span>
-                          )}
+                            {rider.vehicle_ownership_type === 'EMPRESA' && (
+                              <Badge variant="outline" className="text-[9px] bg-blue-50 text-blue-700 border-blue-200 h-auto py-0 px-1">
+                                🏢 Empresa
+                              </Badge>
+                            )}
+                            {rider.vehicle_ownership_type === 'PROPIO' && (
+                              <Badge variant="outline" className="text-[9px] bg-green-50 text-green-700 border-green-200 h-auto py-0 px-1">
+                                🏠 Propio
+                              </Badge>
+                            )}
+                          </div>
+                          {(() => {
+                            // Mostrar placa correcta según tipo de propiedad
+                            if (rider.vehicle_ownership_type === 'EMPRESA' && rider.assigned_vehicle_id) {
+                              const assignedVehicle = companyVehicles.find(v => v.id === rider.assigned_vehicle_id);
+                              if (assignedVehicle?.plate) {
+                                return (
+                                  <span className="text-[10px] uppercase bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-mono tracking-wide">
+                                    {assignedVehicle.plate}
+                                  </span>
+                                );
+                              }
+                            }
+                            if (rider.vehicle_plate) {
+                              return (
+                                <span className="text-[10px] uppercase bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-mono tracking-wide">
+                                  {rider.vehicle_plate}
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
                       </div>
                     </div>
@@ -356,6 +430,19 @@ export default function ManagerRidersPage() {
         <div className="max-w-7xl mx-auto text-center text-xs text-slate-400 pb-8">
           Mostrando {filteredRiders.length} de {riders.length} repartidores
         </div>
+      )}
+
+      {/* Modal de Edición */}
+      {isEditModalOpen && editingRider && (
+        <RiderEditModal
+          rider={editingRider}
+          open={isEditModalOpen}
+          onOpenChange={setIsEditModalOpen}
+          onSuccess={() => {
+            loadRiders();
+            loadCompanyVehicles();
+          }}
+        />
       )}
     </div>
   );
