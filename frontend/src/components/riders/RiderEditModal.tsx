@@ -30,6 +30,7 @@ interface RiderEditModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
+  companyVehicles?: Vehicle[]; // Lista opcional de vehículos de empresa
 }
 
 export default function RiderEditModal({
@@ -37,10 +38,14 @@ export default function RiderEditModal({
   open,
   onOpenChange,
   onSuccess,
+  companyVehicles: propCompanyVehicles = [],
 }: RiderEditModalProps) {
   const [loading, setLoading] = useState(false);
-  const [companyVehicles, setCompanyVehicles] = useState<Vehicle[]>([]);
   const [isLoadingVehicles, setIsLoadingVehicles] = useState(false);
+  const [internalCompanyVehicles, setInternalCompanyVehicles] = useState<Vehicle[]>([]);
+  
+  // Usar los vehículos pasados por props o cargar internamente si no se proporcionan
+  const companyVehicles = propCompanyVehicles.length > 0 ? propCompanyVehicles : internalCompanyVehicles;
 
   // Estados del formulario
   const [phone, setPhone] = useState('');
@@ -52,12 +57,12 @@ export default function RiderEditModal({
   const [vehiclePlate, setVehiclePlate] = useState('');
   const [vehicleModel, setVehicleModel] = useState('');
 
-  // Cargar vehículos de empresa cuando se abre el modal
+  // Cargar vehículos de empresa cuando se abre el modal (solo si no vienen por props)
   useEffect(() => {
-    if (open) {
+    if (open && propCompanyVehicles.length === 0) {
       loadCompanyVehicles();
     }
-  }, [open]);
+  }, [open, propCompanyVehicles.length]);
 
   // Cargar datos del rider cuando cambia
   useEffect(() => {
@@ -75,7 +80,7 @@ export default function RiderEditModal({
     setIsLoadingVehicles(true);
     try {
       const vehicles = await vehicleService.getAvailableCompanyVehicles();
-      setCompanyVehicles(vehicles);
+      setInternalCompanyVehicles(vehicles);
       
       // Auto-seleccionar si el rider ya tiene un vehículo asignado
       if (rider?.assigned_vehicle_id) {
@@ -87,6 +92,7 @@ export default function RiderEditModal({
     } catch (error) {
       console.error('Error loading company vehicles:', error);
       toast.error('No se pudieron cargar los vehículos de empresa');
+      setInternalCompanyVehicles([]); // Asegurar lista vacía en caso de error
     } finally {
       setIsLoadingVehicles(false);
     }
@@ -94,6 +100,17 @@ export default function RiderEditModal({
 
   const handleSave = async () => {
     if (!rider) return;
+
+    // Validaciones estrictas antes de enviar
+    if (vehicleOwnershipType === 'PROPIO' && !vehiclePlate.trim()) {
+      toast.error('Debe ingresar la placa del vehículo propio');
+      return;
+    }
+
+    if (vehicleOwnershipType === 'EMPRESA' && !assignedVehicleId) {
+      toast.error('Debe seleccionar un vehículo de empresa');
+      return;
+    }
 
     setLoading(true);
     try {
@@ -111,11 +128,6 @@ export default function RiderEditModal({
         updateData.assigned_vehicle_id = null; // Limpiar vehículo asignado
       } else {
         // Para vehículo de empresa, solo enviar ID
-        if (!assignedVehicleId) {
-          toast.error('Debe seleccionar un vehículo de empresa');
-          setLoading(false);
-          return;
-        }
         updateData.assigned_vehicle_id = assignedVehicleId;
         updateData.vehicle_ownership_type = 'EMPRESA';
         
@@ -250,8 +262,11 @@ export default function RiderEditModal({
               </h4>
               
               {isLoadingVehicles ? (
-                <div className="text-center py-4 text-gray-500">
-                  Cargando vehículos disponibles...
+                <div className="text-center py-8">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+                    <p className="text-gray-500 text-sm">Cargando vehículos disponibles...</p>
+                  </div>
                 </div>
               ) : availableVehicles.length === 0 ? (
                 <div className="text-center py-4 text-gray-500">

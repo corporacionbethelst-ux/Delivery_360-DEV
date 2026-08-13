@@ -1,3 +1,4 @@
+```gitignore
 # Dependencies
 node_modules/
 
@@ -6,6 +7,20 @@ dist/
 build/
 .next/
 out/
+
+# Environment variables
+.env
+.env.local
+.env.*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
 
 # Python
 __pycache__/
@@ -16,41 +31,12 @@ __pycache__/
 env/
 venv/
 .venv/
-.ENV
 .python-version
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-.git/modules/
-.DS_Store
-Thumbs.db
-
-# Environment variables
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Logs
-*.log
 
 # Temporary files
 *.tmp
 *.temp
+*~
 .DS_Store
 Thumbs.db
 
@@ -61,284 +47,21 @@ htmlcov/
 
 # MyPy
 .mypy_cache/
-.dmypy.json
-dmypy.json
 
 # PyTest
 .pytest_cache/
 
-# Distribution / packaging
-.Python
-_build/
-buck-out/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Unit test / coverage reports
-.junit.xml
-.tox/
-.nox/
-.cover/
-
-# Translations
-*.mo
-*.pot
-
-# Django
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-
-# Flask
-instance/
-.webassets-cache
-
-# Scrapy
-.scrapy
-
-# Sphinx
-docs/_build/
-
-# PyBuilder
-.pybuilder/
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-.python-version
-
-# pipenv
-Pipfile.lock
-
-# PEP 582
-__pypackages__/
-
-# Celery
-celerybeat-schedule
-celerybeat.pid
-
-# Sage
-*.sage.py
-
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre
-.pyre/
-
-# Pytype
-.pytype/
-
-# Cython
-*.so
-
-# R
-.Rproj.user
-
-# Sage
-.sage/
-
-# Gradle
-.gradle/
-build/
-
-# Maven
-target/
-
-# Scala
-lib_managed/
-src_managed/
-target/
-
-# sbt
-target/
-lib_managed/
-src_managed/
-
-# Leiningen
-.target/
-pom.xml.tag
-pom.xml.backup
-.lein/
-checkpoint
-
-# Clojure
-.clj-kondo/
-
-# Gradle
-.gradle/
-build/
-
-# Android
-build/
-.externalNativeBuild/
-
-# iOS
-Pods/
-
-# Cordova
-platforms/
-plugins/
-www/
-
-# Ionic
-ionic/www/
-
-# PhoneGap
-platforms/
-plugins/
-www/
-
-# React Native
-node_modules/
-ios/Pods/
-android/build/
-android/app/build/
-
-# Flutter
-.dart_tool/
-flutter/generated/
-build/
-ios/.symlinks/
-packages/flutter_tools/.pub-cache/
-
-# Vue
-dist/
-node_modules/
-*.log
-
-# Angular
-dist/
-node_modules/
-.angular/
-
-# Webpack
-webpack-stats.json
-dist/
-build/
-
-# Ember
-dist/
-tmp/
-.ember-cli
-node_modules/
-
-# Meteor
-.meteor/local/
-
-# App Engine
-.appspot.com/
-app.yaml
-index.yaml
-dispatch.yaml
-cron.yaml
-dos.yaml
-queue.yaml
-backends.yaml
-auth.yaml
-passwords.yaml
-replica_configuration.yaml
-settings.py
-appengine-generated/
-includes/
-deploy/
-deployments/
-index.html
-robots.txt
-sitemap.xml
-favicon.ico
-apple-touch-icon.png
-apple-touch-icon-precomposed.png
-mstile-144x144.png
-mstile-150x150.png
-mstile-310x150.png
-mstile-310x310.png
-mstile-70x70.png
-browserconfig.xml
-manifest.json
-yarn-error.log
-.yarn-integrity
-.yarn-metadata.json
-node_modules/
+# Node
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-lerna-debug.log*
 
-# Bower
-bower_components/
-
-# Grunt
-.grunt/
-grunt/
-Gruntfile.js
-
-# Gulp
-gulpfile.js
-.gulp-cache/
-
-# SASS/SCSS
-.sass-cache/
-.csscomb-cache.json
-.tern-port
-.tern-project
-
-# Vim
-*.swp
-*.swo
-*~
-
-# Emacs
-*~
-\#*\#
-/.emacs.desktop
-/.emacs.desktop.lock
-*.elc
-auto-save-list
-tramp
-.\*~
-
-
-# Added from current changes
-frontend/src/app/(dashboard)/manager/fleet/riders/page.tsx
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+```
