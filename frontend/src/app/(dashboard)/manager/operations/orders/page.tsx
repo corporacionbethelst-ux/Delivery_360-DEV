@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { orderService, Order, OrderStatus } from '@/services/order.service';
 import { riderService } from '@/services/rider.service';
+import { vehicleService, Vehicle } from '@/services/vehicle.service';
 import { formatCurrency } from '@/lib/formatters';
 import { downloadCSV } from '@/lib/csv-export';
 import { OrderSkeleton } from '@/components/loaders/OrderSkeleton';
@@ -39,6 +40,7 @@ export default function OrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [riders, setRiders] = useState<Rider[]>([]);
+  const [companyVehicles, setCompanyVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [filterRider, setFilterRider] = useState<string>('ALL');
@@ -66,12 +68,14 @@ export default function OrdersPage() {
     setLoading(true);
     setError(null);
     try {
-      const [ordersData, ridersData] = await Promise.all([
+      const [ordersData, ridersData, vehiclesData] = await Promise.all([
         orderService.getAll({ limit: 100 }),
-        riderService.listRiders({ status_filter: 'ACTIVO' })
+        riderService.listRiders({ status_filter: 'ACTIVO' }),
+        vehicleService.getAvailableCompanyVehicles().catch(() => []) // Silently fail if no vehicles
       ]);
       setOrders(ordersData);
       setRiders(ridersData);
+      setCompanyVehicles(vehiclesData);
     } catch (err: any) {
       console.error('Error fetching data:', err);
       setError('No se pudieron cargar los datos.');
@@ -209,21 +213,46 @@ export default function OrdersPage() {
   }
 
   function getRiderVehicle(order: Order): string {
-    // Intentar primero con order.rider
+    // Intentar primero con order.rider (vehículo propio)
     const rider = order.rider as any;
-    const vehicle = [rider?.vehicle_type, rider?.vehicle_plate].filter(Boolean).join(' ');
-    if (vehicle) return vehicle;
     
-    // Si no hay datos en order.rider pero hay assigned_rider_id, buscar en el array riders
-    if (order.assigned_rider_id && riders.length > 0) {
-      const foundRider = riders.find(r => r.id === order.assigned_rider_id);
-      if (foundRider) {
-        const foundVehicle = [foundRider.vehicle_type, foundRider.vehicle_plate].filter(Boolean).join(' ');
-        return foundVehicle || 'Vehículo no especificado';
+    // Verificar si tiene vehículo propio
+    const directVehicle = [rider?.vehicle_type, rider?.vehicle_plate].filter(Boolean).join(' ');
+    if (directVehicle && rider?.vehicle_ownership_type !== 'EMPRESA') {
+      return `🏠 ${directVehicle}`;
+    }
+    
+    // Si el rider tiene vehicle_ownership_type === 'EMPRESA' o no tiene vehículo propio,
+    // buscar el vehículo de empresa asignado mediante assigned_vehicle_id
+    const assignedVehicleId = rider?.assigned_vehicle_id || rider?.assignedVehicleId;
+    if (assignedVehicleId && companyVehicles.length > 0) {
+      const assignedVehicle = companyVehicles.find(v => v.id === assignedVehicleId);
+      if (assignedVehicle) {
+        return `🏢 ${assignedVehicle.type} ${assignedVehicle.plate}`;
       }
     }
     
-    // Fallback final
+    // Fallback: buscar en lista de riders del estado
+    if (order.assigned_rider_id && riders.length > 0) {
+      const foundRider = riders.find(r => r.id === order.assigned_rider_id);
+      if (foundRider) {
+        // Verificar si tiene vehículo propio
+        const foundDirect = [foundRider.vehicle_type, foundRider.vehicle_plate].filter(Boolean).join(' ');
+        if (foundDirect && foundRider.vehicle_ownership_type !== 'EMPRESA') {
+          return `🏠 ${foundDirect}`;
+        }
+        
+        // Verificar si tiene vehículo de empresa asignado
+        const foundAssignedId = foundRider.assigned_vehicle_id || (foundRider as any).assignedVehicleId;
+        if (foundAssignedId && companyVehicles.length > 0) {
+          const assignedV = companyVehicles.find(v => v.id === foundAssignedId);
+          if (assignedV) {
+            return `🏢 ${assignedV.type} ${assignedV.plate}`;
+          }
+        }
+      }
+    }
+    
     return order.assigned_rider_id ? 'Vehículo no especificado' : 'Sin vehículo';
   }
 

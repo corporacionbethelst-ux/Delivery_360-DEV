@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, Phone, Mail, MapPin } from 'lucide-react';
 import type { Rider } from '@/types/rider';
+import type { Vehicle } from '@/services/vehicle.service';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,6 +15,7 @@ import {
 
 interface RiderListProps {
   riders: Rider[];
+  companyVehicles?: Vehicle[]; // Lista opcional de vehículos de empresa para resolver IDs
   onViewDetails?: (id: string) => void;
   onEdit?: (id: string) => void;
   onSuspend?: (id: string) => void;
@@ -22,6 +24,7 @@ interface RiderListProps {
 
 export default function RiderList({ 
   riders, 
+  companyVehicles = [],
   onViewDetails, 
   onEdit, 
   onSuspend, 
@@ -53,6 +56,41 @@ export default function RiderList({
     }
   };
 
+  // Función auxiliar para obtener información del vehículo considerando tipo de propiedad
+  const getVehicleInfo = (rider: Rider) => {
+    // Si tiene vehicle_ownership_type === 'EMPRESA' y assigned_vehicle_id
+    if (rider.vehicle_ownership_type === 'EMPRESA' && rider.assigned_vehicle_id) {
+      const assignedVehicle = companyVehicles.find(v => v.id === rider.assigned_vehicle_id);
+      if (assignedVehicle) {
+        return {
+          type: assignedVehicle.type,
+          plate: assignedVehicle.plate,
+          icon: getVehicleIcon(assignedVehicle.type),
+          ownershipType: 'EMPRESA' as const
+        };
+      }
+      // Si no se encuentra el vehículo en la lista, mostrar genérico
+      return {
+        type: 'Vehículo Empresa',
+        plate: 'Asignado',
+        icon: '🏢',
+        ownershipType: 'EMPRESA' as const
+      };
+    }
+    
+    // Vehículo propio o sin especificar
+    const vehicleType = rider.vehicle?.type || rider.vehicle_type || 'NO_ESPECIFICADO';
+    const vehiclePlate = rider.vehicle?.plate || rider.vehicle_plate;
+    const vehicleLabel = vehicleType === 'NO_ESPECIFICADO' ? 'No especificado' : vehicleType;
+    
+    return {
+      type: vehicleLabel,
+      plate: vehiclePlate,
+      icon: getVehicleIcon(vehicleType),
+      ownershipType: rider.vehicle_ownership_type === 'PROPIO' ? 'PROPIO' : undefined
+    };
+  };
+
   if (riders.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500">
@@ -77,9 +115,7 @@ export default function RiderList({
         </TableHeader>
         <TableBody>
           {riders.map((rider) => {
-            // Extraer tipo de vehículo de forma segura
-            const vehicleType = rider.vehicle?.type || 'NO_ESPECIFICADO';
-            const vehicleLabel = vehicleType === 'NO_ESPECIFICADO' ? 'No especificado' : vehicleType;
+            const vehicleInfo = getVehicleInfo(rider);
 
             return (
               <TableRow key={rider.id} className="hover:bg-gray-50">
@@ -117,9 +153,28 @@ export default function RiderList({
                   )}
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">{getVehicleIcon(vehicleType)}</span>
-                    <span className="text-sm">{vehicleLabel}</span>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">{vehicleInfo.icon}</span>
+                      <span className="text-sm font-medium">{vehicleInfo.type}</span>
+                    </div>
+                    {vehicleInfo.plate && (
+                      <div className="flex items-center gap-1 ml-7">
+                        <span className="text-[10px] uppercase bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-mono tracking-wide">
+                          {vehicleInfo.plate}
+                        </span>
+                      </div>
+                    )}
+                    {vehicleInfo.ownershipType === 'EMPRESA' && (
+                      <Badge variant="outline" className="ml-7 mt-1 text-[9px] bg-blue-50 text-blue-700 border-blue-200 h-auto py-0 px-1">
+                        🏢 Empresa
+                      </Badge>
+                    )}
+                    {vehicleInfo.ownershipType === 'PROPIO' && (
+                      <Badge variant="outline" className="ml-7 mt-1 text-[9px] bg-green-50 text-green-700 border-green-200 h-auto py-0 px-1">
+                        🏠 Propio
+                      </Badge>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>

@@ -42,7 +42,10 @@ export interface Rider extends User {
   cpf?: string;
   cnh?: string;
   
-  // Nuevo campo para vehículo asignado de la empresa
+  // Tipo de propiedad del vehículo (Propio o Empresa)
+  vehicle_ownership_type?: 'PROPIO' | 'EMPRESA';
+  
+  // ID del vehículo asignado de la empresa (si aplica)
   assigned_vehicle_id?: string | null;
   
   // Estado y Ubicación

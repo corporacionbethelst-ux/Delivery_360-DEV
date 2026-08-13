@@ -4,7 +4,9 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { riderService } from '@/services/rider.service'; 
+import { vehicleService } from '@/services/vehicle.service';
 import { Rider } from '@/types/user'; 
+import { Vehicle } from '@/services/vehicle.service';
 import { 
   Users, Search, Filter, MoreVertical, Edit, FileText, Bike, Phone, Mail, 
   CheckCircle, XCircle, AlertCircle, Plus, ShieldAlert, Loader2, UserPlus,
@@ -15,6 +17,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
+import RiderList from '@/components/riders/RiderList';
+import RiderEditModal from '@/components/riders/RiderEditModal';
 
 // --- Constantes y Configuración ---
 const ALLOWED_ROLES = ['SUPERADMIN', 'GERENTE', 'OPERADOR'];
@@ -34,12 +38,17 @@ export default function ManagerRidersPage() {
   
   // Estados
   const [riders, setRiders] = useState<Rider[]>([]);
+  const [companyVehicles, setCompanyVehicles] = useState<Vehicle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [isMounted, setIsMounted] = useState(false);
+  
+  // Estados para el modal de edición
+  const [editingRider, setEditingRider] = useState<Rider | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   // Hidratación y Montaje
   useEffect(() => {
@@ -67,6 +76,17 @@ export default function ManagerRidersPage() {
       setIsRefreshing(false);
     }
   }, []);
+  
+  // Carga de vehículos de empresa
+  const loadCompanyVehicles = useCallback(async () => {
+    try {
+      const vehicles = await vehicleService.getAvailableCompanyVehicles();
+      setCompanyVehicles(vehicles);
+    } catch (err: any) {
+      console.error('Error loading company vehicles:', err);
+      // No mostrar error, simplemente usar lista vacía
+    }
+  }, []);
 
   // Verificación de Seguridad y Carga Inicial
   useEffect(() => {
@@ -78,7 +98,8 @@ export default function ManagerRidersPage() {
     }
     
     loadRiders();
-  }, [isMounted, isAuthenticated, user, router, loadRiders]);
+    loadCompanyVehicles();
+  }, [isMounted, isAuthenticated, user, router, loadRiders, loadCompanyVehicles]);
 
   // Filtrado Optimizado (Memoizado)
   const filteredRiders = useMemo(() => {
