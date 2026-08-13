@@ -42,6 +42,9 @@ export interface Rider extends User {
   cpf?: string;
   cnh?: string;
   
+  // Nuevo campo para vehículo asignado de la empresa
+  assigned_vehicle_id?: string | null;
+  
   // Estado y Ubicación
   status?: RiderStatus;
   is_online?: boolean;

@@ -21,6 +21,7 @@ export interface Vehicle {
   rider_id?: string | null;
   rider_name?: string | null;
   notes?: string | null;
+  ownership_type?: 'PROPIO' | 'EMPRESA'; // Nuevo campo para distinguir tipo de propiedad
   created_at: string;
   updated_at?: string | null;
 }
@@ -33,6 +34,7 @@ export interface VehicleCreateInput {
   year: number;
   insurance_expiry?: string;
   notes?: string;
+  ownership_type?: 'PROPIO' | 'EMPRESA'; // Tipo de propiedad del vehículo
 }
 
 export interface VehicleFilters {
@@ -246,6 +248,54 @@ export const vehicleService = {
       await api.delete(`/vehicles/${id}`);
     } catch (error) {
       throw handleApiError(error, `Error deleting vehicle ${id}`);
+    }
+  },
+
+  /**
+   * Asignar vehículo de la empresa a un repartidor.
+   * PATCH /vehicles/{id}/assign
+   */
+  assignToRider: async (vehicleId: string, riderId: string): Promise<Vehicle> => {
+    if (!vehicleId || !isValidUuid(vehicleId)) {
+      throw new ServiceError('ID de vehículo inválido', 400);
+    }
+    if (!riderId || !isValidUuid(riderId)) {
+      throw new ServiceError('ID de repartidor inválido', 400);
+    }
+    try {
+      const response = await api.patch<Vehicle>(`/vehicles/${vehicleId}/assign`, { rider_id: riderId });
+      return response;
+    } catch (error) {
+      throw handleApiError(error, `Error assigning vehicle ${vehicleId} to rider ${riderId}`);
+    }
+  },
+
+  /**
+   * Desasignar vehículo de un repartidor.
+   * PATCH /vehicles/{id}/unassign
+   */
+  unassignFromRider: async (vehicleId: string): Promise<Vehicle> => {
+    if (!vehicleId || !isValidUuid(vehicleId)) {
+      throw new ServiceError('ID de vehículo inválido', 400);
+    }
+    try {
+      const response = await api.patch<Vehicle>(`/vehicles/${vehicleId}/unassign`);
+      return response;
+    } catch (error) {
+      throw handleApiError(error, `Error unassigning vehicle ${vehicleId}`);
+    }
+  },
+
+  /**
+   * Obtener vehículos disponibles de la empresa (no asignados).
+   * GET /vehicles/available
+   */
+  getAvailableCompanyVehicles: async (): Promise<Vehicle[]> => {
+    try {
+      const response = await api.get<Vehicle[]>('/vehicles/available', { params: { ownership_type: 'EMPRESA' } });
+      return response;
+    } catch (error) {
+      throw handleApiError(error, 'Error fetching available company vehicles');
     }
   }
 };
