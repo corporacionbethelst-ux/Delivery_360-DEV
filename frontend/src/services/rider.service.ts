@@ -50,6 +50,17 @@ export interface UpdateProfilePayload {
   vehicle_plate?: string;
 }
 
+export interface UpdateRiderPayload {
+  phone?: string;
+  vehicle_type?: string;
+  vehicle_plate?: string;
+  vehicle_model?: string;
+  operating_zone?: string;
+  vehicle_ownership_type?: 'PROPIO' | 'EMPRESA';
+  assigned_vehicle_id?: string | null;
+  status?: RiderStatusType;
+}
+
 export interface OnlineStatusResponse {
   is_online: boolean;
 }
@@ -561,6 +572,34 @@ export const riderService = {
       return extractData<OnlineStatusResponse>(response);
     } catch (error) {
       throw handleApiError(error, `Error toggling online status for ${riderId}`);
+    }
+  },
+
+  /**
+   * Actualiza un repartidor completo (Admin/Gerente).
+   * PUT /riders/{rider_id}
+   */
+  updateRider: async (riderId: string, data: UpdateRiderPayload): Promise<Rider> => {
+    if (!riderId || !isValidUuid(riderId)) {
+      throw new ServiceError('ID de repartidor inválido', 400);
+    }
+
+    // Validación de exclusión mutua: no enviar vehicle_type/plate junto con assigned_vehicle_id
+    if (data.assigned_vehicle_id && (data.vehicle_type || data.vehicle_plate)) {
+      console.warn('[RiderService] Advertencia: Se están enviando datos de vehículo propio y asignado simultáneamente');
+      // El backend debería manejar esto, pero limpiamos por seguridad
+      if (data.assigned_vehicle_id) {
+        delete data.vehicle_type;
+        delete data.vehicle_plate;
+        delete data.vehicle_model;
+      }
+    }
+
+    try {
+      const response = await api.put<Rider>(`/riders/${riderId}`, data);
+      return extractData<Rider>(response);
+    } catch (error) {
+      throw handleApiError(error, `Error updating rider ${riderId}`);
     }
   },
 };
