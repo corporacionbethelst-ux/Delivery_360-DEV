@@ -5,14 +5,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MapPin, Phone, Mail, Star } from 'lucide-react';
 import type { Rider } from '@/types/rider';
+import type { Vehicle } from '@/services/vehicle.service';
 
 interface RiderCardProps {
   rider: Rider; 
+  companyVehicles?: Vehicle[]; // Lista opcional de vehículos de empresa para resolver IDs
   onViewDetails?: (id: string) => void;
   onEdit?: (id: string) => void;
 }
 
-export default function RiderCard({ rider, onViewDetails, onEdit }: RiderCardProps) {
+export default function RiderCard({ rider, companyVehicles = [], onViewDetails, onEdit }: RiderCardProps) {
   const getStatusColor = (status: string) => {
     const s = status.toUpperCase();
     switch(s) {
@@ -39,9 +41,42 @@ export default function RiderCard({ rider, onViewDetails, onEdit }: RiderCardPro
     }
   };
 
-  // Extraer tipo de vehículo de forma segura
-  const vehicleType = rider.vehicle?.type || 'NO_ESPECIFICADO';
-  const vehicleLabel = vehicleType === 'NO_ESPECIFICADO' ? 'No especificado' : vehicleType;
+  // Función auxiliar para obtener información del vehículo considerando tipo de propiedad
+  const getVehicleInfo = () => {
+    // Si tiene vehicle_ownership_type === 'EMPRESA' y assigned_vehicle_id
+    if (rider.vehicle_ownership_type === 'EMPRESA' && rider.assigned_vehicle_id) {
+      const assignedVehicle = companyVehicles.find(v => v.id === rider.assigned_vehicle_id);
+      if (assignedVehicle) {
+        return {
+          type: assignedVehicle.type,
+          plate: assignedVehicle.plate,
+          icon: getVehicleIcon(assignedVehicle.type),
+          ownershipType: 'EMPRESA' as const
+        };
+      }
+      // Si no se encuentra el vehículo en la lista, mostrar genérico
+      return {
+        type: 'Vehículo Empresa',
+        plate: 'Asignado',
+        icon: '🏢',
+        ownershipType: 'EMPRESA' as const
+      };
+    }
+    
+    // Vehículo propio o sin especificar
+    const vehicleType = rider.vehicle?.type || rider.vehicle_type || 'NO_ESPECIFICADO';
+    const vehiclePlate = rider.vehicle?.plate || rider.vehicle_plate;
+    const vehicleLabel = vehicleType === 'NO_ESPECIFICADO' ? 'No especificado' : vehicleType;
+    
+    return {
+      type: vehicleLabel,
+      plate: vehiclePlate,
+      icon: getVehicleIcon(vehicleType),
+      ownershipType: rider.vehicle_ownership_type === 'PROPIO' ? 'PROPIO' : undefined
+    };
+  };
+
+  const vehicleInfo = getVehicleInfo();
 
   return (
     <Card className="hover:shadow-lg transition-shadow duration-200">
@@ -84,13 +119,32 @@ export default function RiderCard({ rider, onViewDetails, onEdit }: RiderCardPro
           </div>
         )}
         
-        <div className="flex items-center justify-between pt-2 border-t">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">{getVehicleIcon(vehicleType)}</span>
-            <span className="text-sm text-gray-600">{vehicleLabel}</span>
+        <div className="space-y-2 pt-2 border-t">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">{vehicleInfo.icon}</span>
+              <div className="space-y-0.5">
+                <span className="text-sm font-medium text-gray-700">{vehicleInfo.type}</span>
+                {vehicleInfo.plate && (
+                  <div className="text-[10px] uppercase bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-mono tracking-wide inline-block">
+                    {vehicleInfo.plate}
+                  </div>
+                )}
+              </div>
+            </div>
+            {vehicleInfo.ownershipType === 'EMPRESA' && (
+              <Badge variant="outline" className="text-[9px] bg-blue-50 text-blue-700 border-blue-200 h-auto py-0 px-1">
+                🏢 Empresa
+              </Badge>
+            )}
+            {vehicleInfo.ownershipType === 'PROPIO' && (
+              <Badge variant="outline" className="text-[9px] bg-green-50 text-green-700 border-green-200 h-auto py-0 px-1">
+                🏠 Propio
+              </Badge>
+            )}
           </div>
           {rider.stats?.customerRating && (
-            <div className="flex items-center gap-1 text-yellow-500">
+            <div className="flex items-center gap-1 text-yellow-500 pt-1">
               <Star className="w-4 h-4 fill-current" />
               <span className="font-medium">{rider.stats.customerRating.toFixed(1)}</span>
             </div>
