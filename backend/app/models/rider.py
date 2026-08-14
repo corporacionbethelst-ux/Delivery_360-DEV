@@ -101,7 +101,8 @@ class Rider(Base):
     notifications = relationship("Notification", back_populates="rider")
     
     # Relación con vehículo de empresa asignado
-    assigned_vehicle = relationship("Vehicle", foreign_keys=[assigned_vehicle_id], lazy="select")
+    # Usamos lazy='selectin' para carga asíncrona correcta en FastAPI
+    assigned_vehicle = relationship("Vehicle", foreign_keys=[assigned_vehicle_id], lazy="selectin")
     
     # ELIMINADA LA RELACIÓN DIRECTA CON VEHICLE PARA EVITAR CONFLICTOS CIRCULARES
     # La asignación se maneja ahora vía User.vehicles

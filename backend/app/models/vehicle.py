@@ -40,7 +40,8 @@ class Vehicle(Base):
     # Relación: Un vehículo pertenece a un Usuario (que puede ser repartidor)
     # ✅ CORRECCIÓN: Eliminar back_populates para evitar circularidad.
     # La relación es unidireccional desde Vehicle hacia User.
-    rider = relationship("User", foreign_keys=[rider_id], lazy="select")
+    # Usamos lazy='selectin' para carga asíncrona correcta en FastAPI
+    rider = relationship("User", foreign_keys=[rider_id], lazy="selectin")
 
     created_at = Column(DateTime(timezone=False), default=utc_now_naive, nullable=False)
     updated_at = Column(DateTime(timezone=False), default=utc_now_naive, onupdate=utc_now_naive, nullable=True)
