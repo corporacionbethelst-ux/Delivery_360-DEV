@@ -69,10 +69,12 @@ export interface RiderUpdateInput {
   notificationsEnabled?: boolean;
   maxDailyHours?: number;
   preferredZones?: string[];
-  // Nuevo campo para actualizar tipo de propiedad del vehículo
   vehicleOwnershipType?: 'PROPIO' | 'EMPRESA';
-  // ID del vehículo de empresa asignado (si aplica)
-  assignedVehicleId?: string;
+  assignedVehicleId?: string | null;
+  // ✅ NUEVOS CAMPOS AGREGADOS:
+  vehicleType?: string;
+  vehiclePlate?: string;
+  vehicleModel?: string;
 }
 
 export interface RiderApproval {

@@ -134,9 +134,9 @@ export default function ManagerRidersPage() {
               ...r, 
               vehicle_ownership_type: data.vehicleOwnershipType || r.vehicle_ownership_type,
               assigned_vehicle_id: data.assignedVehicleId || null,
-              vehicle_type: data.vehicleType,
-              vehicle_plate: data.vehiclePlate,
-              vehicle_model: data.vehicleModel,
+              vehicle_type: 'vehicleType' in data ? (data as any).vehicleType : r.vehicle_type,
+              vehicle_plate: 'vehiclePlate' in data ? (data as any).vehiclePlate : r.vehicle_plate,
+              vehicle_model: 'vehicleModel' in data ? (data as any).vehicleModel : r.vehicle_model,
               phone: data.phone || r.phone
             }
           : r

@@ -70,9 +70,9 @@ export default function RiderEditModal({
       setPhone(rider.phone || '');
       setVehicleOwnershipType(rider.vehicle_ownership_type || 'PROPIO');
       setAssignedVehicleId(rider.assigned_vehicle_id || '');
-      setVehicleType(rider.vehicle_type || rider.vehicle?.type || '');
-      setVehiclePlate(rider.vehicle_plate || rider.vehicle?.plate || '');
-      setVehicleModel(rider.vehicle_model || rider.vehicle?.model || '');
+      setVehicleType(rider.vehicle_type || '');
+      setVehiclePlate(rider.vehicle_plate || '');
+      setVehicleModel(rider.vehicle_model || '');
     }
   }, [rider]);
 
