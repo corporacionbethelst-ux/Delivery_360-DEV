@@ -145,11 +145,19 @@ def _safe_parse_enum(enum_class, value: Optional[str]) -> Optional[Any]:
 def _build_vehicle_response(vehicle: Vehicle) -> dict:
     """Construye una respuesta serializable y estable para el frontend."""
     rider_name = None
+    rider_user_id = None
+    rider_profile_id = None  # El ID real del rider (de la tabla riders)
+    
     rider = vehicle.__dict__.get("rider")
     if rider:
         rider_name = f"{rider.first_name or ''} {rider.last_name or ''}".strip()
         if not rider_name and rider.email:
             rider_name = rider.email
+        rider_user_id = str(rider.id)
+        
+        # Si el user tiene un perfil rider, obtener ese ID
+        if hasattr(rider, 'rider_profile') and rider.rider_profile:
+            rider_profile_id = str(rider.rider_profile.id)
 
     return {
         "id": str(vehicle.id),
