@@ -21,6 +21,7 @@ from app.models.order import Order, OrderStatus
 from app.models.delivery import Delivery, DeliveryStatus
 from app.models.financial import Financial, TransactionType, PaymentStatus
 from app.models.payout import Payout, PayoutStatus
+from app.models.enums import VehicleOwnershipType
 from app.api.v1.auth import get_current_user, require_role
 from app.services.financial_service import CREDIT_TYPES
 
@@ -113,6 +114,10 @@ class RiderCreate(BaseModel):
     operating_zone: Optional[str] = None
     cpf: Optional[str] = None
     cnh: Optional[str] = None
+    
+    # Campos para vehículo de empresa (opcionales, solo si vehicle_ownership_type es EMPRESA)
+    vehicle_ownership_type: Optional[str] = "PROPIO"
+    assigned_vehicle_id: Optional[uuid.UUID] = None
 
     class Config:
         extra = "ignore" 
@@ -130,6 +135,10 @@ class RiderUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     phone: Optional[str] = None
+    
+    # Campos para vehículo de empresa (opcionales)
+    vehicle_ownership_type: Optional[str] = None
+    assigned_vehicle_id: Optional[uuid.UUID] = None
 
 class LocationUpdate(BaseModel):
     """Actualización básica de coordenadas GPS."""
@@ -249,7 +258,22 @@ def _rider_to_dict(r: Rider, include_user: bool = False) -> dict:
         "phone": phone,
         "first_name": r.user.first_name if r.user else "",
         "last_name": r.user.last_name if r.user else "",
+        # Campos de vehículo de empresa
+        "vehicle_ownership_type": r.vehicle_ownership_type if hasattr(r, 'vehicle_ownership_type') and r.vehicle_ownership_type else "PROPIO",
+        "assigned_vehicle_id": str(r.assigned_vehicle_id) if r.assigned_vehicle_id else None,
     }
+    
+    # Incluir datos del vehículo asignado si existe
+    if hasattr(r, 'assigned_vehicle') and r.assigned_vehicle:
+        d["assigned_vehicle"] = {
+            "id": str(r.assigned_vehicle.id),
+            "plate": r.assigned_vehicle.plate,
+            "model": r.assigned_vehicle.model,
+            "type": r.assigned_vehicle.type,
+            "color": r.assigned_vehicle.color,
+            "year": r.assigned_vehicle.year,
+        }
+    
     return d
 
 # ==============================================================================
@@ -557,12 +581,29 @@ async def create_rider(
     """
     [ADMIN/GERENTE] Crea un nuevo usuario con rol REPARTIDOR y su perfil asociado.
     Transaccional: si falla uno, no se guarda nada.
+    
+    Soporta dos modalidades:
+    - Vehículo Propio: body.vehicle_ownership_type="PROPIO" (default), se usan vehicle_plate/model
+    - Vehículo Empresa: body.vehicle_ownership_type="EMPRESA", se usa assigned_vehicle_id
     """
     from app.core.security import hash_password
+    from sqlalchemy import select
     
     existing_user = await db.execute(select(User).where(User.email == body.email))
     if existing_user.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="El email ya está registrado")
+
+    # Validación: Si es EMPRESA, debe proporcionar assigned_vehicle_id
+    if body.vehicle_ownership_type == "EMPRESA" and not body.assigned_vehicle_id:
+        raise HTTPException(
+            status_code=400, 
+            detail="Cuando vehicle_ownership_type es EMPRESA, debe proporcionar assigned_vehicle_id"
+        )
+    
+    # Validación: Si es PROPIO, debería tener al menos placa o modelo (opcional, pero recomendado)
+    if body.vehicle_ownership_type == "PROPIO" and not body.vehicle_plate and not body.vehicle_model:
+        # No es error crítico, solo advertencia en logs
+        logger.warning(f"Rider {body.email} creado como PROPIO sin placa ni modelo de vehículo")
 
     first_name = body.first_name
     last_name = body.last_name
@@ -579,6 +620,30 @@ async def create_rider(
     db.add(user)
     await db.flush()
     
+    # Si es EMPRESA, verificar que el vehículo existe y está disponible
+    if body.vehicle_ownership_type == "EMPRESA" and body.assigned_vehicle_id:
+        from app.models.vehicle import Vehicle, VehicleStatus
+        vehicle_result = await db.execute(
+            select(Vehicle).where(Vehicle.id == body.assigned_vehicle_id)
+        )
+        vehicle = vehicle_result.scalar_one_or_none()
+        
+        if not vehicle:
+            raise HTTPException(status_code=404, detail=f"Vehículo {body.assigned_vehicle_id} no encontrado")
+        
+        if vehicle.status != VehicleStatus.ACTIVO:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Vehículo no está disponible (estado: {vehicle.status})"
+            )
+        
+        # Verificar que el vehículo no esté ya asignado a otro rider
+        if vehicle.rider_id is not None and vehicle.rider_id != user.id:
+            raise HTTPException(
+                status_code=400, 
+                detail="El vehículo ya está asignado a otro repartidor"
+            )
+
     rider = Rider(
         user_id=user.id,
         vehicle_type=_parse_vehicle_type(body.vehicle_type),
@@ -587,14 +652,32 @@ async def create_rider(
         operating_zone=body.operating_zone,
         cpf=body.cpf,
         cnh=body.cnh,
+        vehicle_ownership_type=body.vehicle_ownership_type or "PROPIO",
+        assigned_vehicle_id=body.assigned_vehicle_id if body.vehicle_ownership_type == "EMPRESA" else None,
         status=RiderStatus.PENDIENTE
     )
     db.add(rider)
+    
+    # Si es EMPRESA, actualizar el vehículo para asignarlo al usuario
+    if body.vehicle_ownership_type == "EMPRESA" and body.assigned_vehicle_id:
+        from app.models.vehicle import Vehicle
+        vehicle_result = await db.execute(
+            select(Vehicle).where(Vehicle.id == body.assigned_vehicle_id)
+        )
+        vehicle = vehicle_result.scalar_one_or_none()
+        if vehicle:
+            vehicle.rider_id = user.id
+    
     await db.commit()
     await db.refresh(rider)
     await db.refresh(rider, attribute_names=['user'])
     
+    # Cargar el vehículo asignado si existe
+    if rider.assigned_vehicle_id:
+        await db.refresh(rider, attribute_names=['assigned_vehicle'])
+    
     return _rider_to_dict(rider, include_user=True)
+
 
 # [ADMIN/GERENTE/OPERADOR] Listar todos los repartidores con filtros
 @router.get("")
@@ -1012,6 +1095,10 @@ async def update_rider(
     """
     Actualiza datos de un repartidor específico.
     Usado por admins para corregir datos o por el propio rider (vía scope check).
+    
+    Soporta actualización de vehículo de empresa:
+    - Si vehicle_ownership_type es EMPRESA, debe proporcionar assigned_vehicle_id
+    - Si vehicle_ownership_type es PROPIO, limpia assigned_vehicle_id
     """
     result = await db.execute(
         select(Rider).options(joinedload(Rider.user)).where(Rider.id == _parse_uuid(rider_id, "rider_id"))
@@ -1022,12 +1109,63 @@ async def update_rider(
     await _ensure_rider_self_scope(db, current_user, rider)
 
     payload = body.model_dump(exclude_none=True)
+    
+    # Validar y procesar vehicle_ownership_type y assigned_vehicle_id
+    if "vehicle_ownership_type" in payload or "assigned_vehicle_id" in payload:
+        ownership_type = payload.get("vehicle_ownership_type", rider.vehicle_ownership_type)
+        assigned_vehicle_id = payload.get("assigned_vehicle_id", rider.assigned_vehicle_id)
+        
+        # Si es EMPRESA, validar que tenga assigned_vehicle_id
+        if ownership_type == "EMPRESA" and not assigned_vehicle_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Cuando vehicle_ownership_type es EMPRESA, debe proporcionar assigned_vehicle_id"
+            )
+        
+        # Si es EMPRESA, validar que el vehículo exista y esté disponible
+        if ownership_type == "EMPRESA" and assigned_vehicle_id:
+            from app.models.vehicle import Vehicle, VehicleStatus
+            vehicle_result = await db.execute(
+                select(Vehicle).where(Vehicle.id == assigned_vehicle_id)
+            )
+            vehicle = vehicle_result.scalar_one_or_none()
+            
+            if not vehicle:
+                raise HTTPException(status_code=404, detail=f"Vehículo {assigned_vehicle_id} no encontrado")
+            
+            if vehicle.status != VehicleStatus.ACTIVO:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Vehículo no está disponible (estado: {vehicle.status})"
+                )
+            
+            # Verificar que el vehículo no esté asignado a otro rider
+            if vehicle.rider_id is not None and vehicle.rider_id != rider.user_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="El vehículo ya está asignado a otro repartidor"
+                )
+            
+            # Actualizar el vehículo para asignarlo al rider
+            vehicle.rider_id = rider.user_id
+        
+        # Si cambia a PROPIO, limpiar assigned_vehicle_id
+        if ownership_type == "PROPIO":
+            payload["assigned_vehicle_id"] = None
+            rider.assigned_vehicle_id = None
+    
     if "vehicle_type" in payload:
         payload["vehicle_type"] = _parse_vehicle_type(payload["vehicle_type"])
 
     for field, value in payload.items():
         setattr(rider, field, value)
+    
     await db.commit()
+    
+    # Recargar el vehículo asignado si existe
+    if rider.assigned_vehicle_id:
+        await db.refresh(rider, attribute_names=['assigned_vehicle'])
+    
     return _rider_to_dict(rider)
 
 # [ADMIN/GERENTE] Aprobar manualmente a un repartidor

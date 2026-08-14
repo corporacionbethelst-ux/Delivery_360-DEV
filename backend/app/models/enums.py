@@ -13,6 +13,12 @@ class VehicleStatus(str, Enum):
     BAJA = "BAJA"
 
 
+class VehicleOwnershipType(str, Enum):
+    """Tipo de propiedad del vehículo utilizado por el repartidor."""
+    PROPIO = "PROPIO"
+    EMPRESA = "EMPRESA"
+
+
 def get_bonificable_causes() -> list[str]:
     """Retorna lista de valores de causas bonificables."""
     return [

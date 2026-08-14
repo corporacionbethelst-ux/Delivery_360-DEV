@@ -14,6 +14,7 @@ from app.models.payout import Payout
 from app.models.financial import Financial
 from app.models.notification import Notification
 from app.models.rider_document import RiderDocument
+from app.models.enums import VehicleOwnershipType
 
 def utc_now_naive():
     """Devuelve la hora actual en UTC sin zona horaria (naive)."""
@@ -52,6 +53,12 @@ class Rider(Base):
     zone_id = Column(UUID(as_uuid=True), ForeignKey("zones.id", ondelete="SET NULL"), nullable=True, index=True)
     cpf = Column(String(14))
     cnh = Column(String(20))
+    
+    # Tipo de propiedad del vehículo (PROPIO o EMPRESA)
+    vehicle_ownership_type: Any = Column(SQLEnum(*[e.value for e in VehicleOwnershipType], name='vehicleownershiptype', create_type=True), default=VehicleOwnershipType.PROPIO.value)
+    
+    # ID del vehículo de empresa asignado (solo si vehicle_ownership_type es EMPRESA)
+    assigned_vehicle_id = Column(UUID(as_uuid=True), ForeignKey("vehicles.id", ondelete="SET NULL"), nullable=True, index=True)
 
     status: Any = Column(SQLEnum(RiderStatus), default=RiderStatus.PENDIENTE)
     is_online = Column(Boolean, default=False)
@@ -92,6 +99,9 @@ class Rider(Base):
     transactions = relationship("Financial", back_populates="rider", cascade="all, delete-orphan", foreign_keys="Financial.rider_id")
     payouts = relationship("Payout", back_populates="rider", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="rider")
+    
+    # Relación con vehículo de empresa asignado
+    assigned_vehicle = relationship("Vehicle", foreign_keys=[assigned_vehicle_id], lazy="select")
     
     # ELIMINADA LA RELACIÓN DIRECTA CON VEHICLE PARA EVITAR CONFLICTOS CIRCULARES
     # La asignación se maneja ahora vía User.vehicles
