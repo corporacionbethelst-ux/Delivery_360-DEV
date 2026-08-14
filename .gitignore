@@ -1,55 +1,39 @@
-```
+```python
+# Compiled Python files
+*.pyc
+__pycache__/
+
 # Dependencies
-node_modules/
-
-# Package lock
-package-lock.json
-
-# Build artifacts
-dist/
-build/
-target/
-
-# Temporary files
-*.tmp
-*.temp
-*.log
-
-# Environment variables
+venv/
+.venv/
 .env
 .env.local
 *.env.*
 
-# IDE specific
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+
+# Editors
 .vscode/
 .idea/
-*.swp
-*.swo
-
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# Python specific
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.so
 
 # Coverage reports
+.coverage
 coverage/
 htmlcov/
-.coverage
+
+# Distribution / build artifacts
+dist/
+build/
+*.egg-info/
 
 # Testing
 .pytest_cache/
 .mypy_cache/
-.hypothesis/
 
-# Distribution / packaging
-*.egg
-*.egg-info/
-MANIFEST
+# OS generated files
+.DS_Store
+Thumbs.db
 ```

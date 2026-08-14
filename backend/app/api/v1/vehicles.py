@@ -8,7 +8,7 @@ import uuid
 import logging
 
 # Importación de Enums compartidos
-from app.models.enums import VehicleType, VehicleStatus
+from app.models.enums import VehicleType, VehicleStatus, VehicleOwnershipType
 from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.models.vehicle import Vehicle
@@ -170,6 +170,46 @@ def _build_vehicle_response(vehicle: Vehicle) -> dict:
 # ==============================================================================
 # ENDPOINTS
 # ==============================================================================
+
+
+@router.get("/available", response_model=List[VehicleResponse])
+async def get_available_vehicles(
+    ownership_type: Optional[str] = Query(None, description="Filtrar por tipo de propiedad (EMPRESA para vehículos de flota)"),
+    type: Optional[str] = Query(None, description="Filtrar por tipo de vehículo (MOTO, AUTO, etc.)"),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR))
+):
+    """
+    Obtiene vehículos disponibles (no asignados) para asignar a repartidores.
+    Si ownership_type=EMPRESA, retorna solo vehículos de la flota de la empresa.
+    Accesible para: SUPERADMIN, GERENTE, OPERADOR.
+    """
+    from sqlalchemy.orm import selectinload
+    
+    stmt = select(Vehicle).options(selectinload(Vehicle.rider))
+    
+    # Filtrar vehículos no asignados (disponibles)
+    stmt = stmt.where(Vehicle.rider_id.is_(None))
+    
+    # Si se especifica ownership_type EMPRESA, filtrar solo vehículos de la empresa
+    if ownership_type and ownership_type.upper() == "EMPRESA":
+        # Los vehículos de empresa son aquellos que no tienen rider_id y están activos
+        stmt = stmt.where(Vehicle.status == VehicleStatus.ACTIVO.value)
+    
+    # Filtro opcional por tipo de vehículo
+    type_enum = _safe_parse_enum(VehicleType, type)
+    if type_enum:
+        stmt = stmt.where(Vehicle.type == type_enum.value)
+    
+    # Limitar resultados
+    stmt = stmt.limit(limit).order_by(Vehicle.created_at.desc())
+    
+    result = await db.execute(stmt)
+    vehicles = result.scalars().unique().all()
+    
+    return [_build_vehicle_response(vehicle) for vehicle in vehicles]
+
 
 @router.get("", response_model=List[VehicleResponse])
 async def list_vehicles(
