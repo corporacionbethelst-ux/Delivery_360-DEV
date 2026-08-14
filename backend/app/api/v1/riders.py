@@ -302,7 +302,7 @@ async def get_my_documents(
     result = await db.execute(
         select(Rider).options(joinedload(Rider.user)).where(Rider.user_id == current_user.id)
     )
-    rider = result.scalar_one_or_none()
+    rider = result.unique().scalar_one_or_none()
     
     if not rider:
         return []
@@ -350,7 +350,7 @@ async def upload_my_document(
     result = await db.execute(
         select(Rider).options(joinedload(Rider.user)).where(Rider.user_id == current_user.id)
     )
-    rider = result.scalar_one_or_none()
+    rider = result.unique().scalar_one_or_none()
     
     if not rider:
         raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
@@ -691,7 +691,10 @@ async def list_riders(
     [ADMIN/GERENTE/OPERADOR] Lista todos los repartidores con filtros opcionales.
     Incluye datos del usuario relacionado y vehículo asignado si corresponde.
     """
-    q = select(Rider).options(joinedload(Rider.user), joinedload(Rider.assigned_vehicle))
+    q = select(Rider).options(
+        joinedload(Rider.user), 
+        joinedload(Rider.assigned_vehicle)
+    )
     
     if status_filter:
         try:
@@ -705,7 +708,7 @@ async def list_riders(
     q = q.order_by(Rider.created_at.desc())
     
     result = await db.execute(q)
-    riders = result.scalars().all()
+    riders = result.unique().scalars().all()
     
     return [_rider_to_dict(r) for r in riders]
 
@@ -717,10 +720,15 @@ async def get_my_rider_profile(
 ):
     """
     [REPARTIDOR] Obtiene el perfil completo del usuario autenticado.
+    Carga de forma asíncrona las relaciones user y assigned_vehicle.
     """
-    stmt = select(Rider).options(joinedload(Rider.user)).where(Rider.user_id == current_user.id)
+    # Usamos selectinload para carga asíncrona correcta de relaciones
+    stmt = select(Rider).options(
+        joinedload(Rider.user),
+        joinedload(Rider.assigned_vehicle)
+    ).where(Rider.user_id == current_user.id)
     result = await db.execute(stmt)
-    rider = result.scalar_one_or_none()
+    rider = result.unique().scalar_one_or_none()
     if not rider:
         raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
     return _rider_to_dict(rider)
@@ -741,7 +749,7 @@ async def update_my_rider_profile(
     result = await db.execute(
         select(Rider).options(joinedload(Rider.user)).where(Rider.user_id == current_user.id)
     )
-    rider = result.scalar_one_or_none()
+    rider = result.unique().scalar_one_or_none()
     
     if not rider:
         raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
@@ -834,9 +842,12 @@ async def update_my_rider_profile(
     await db.commit()
     
     refreshed = await db.execute(
-        select(Rider).options(joinedload(Rider.user)).where(Rider.id == rider.id)
+        select(Rider).options(
+            joinedload(Rider.user),
+            joinedload(Rider.assigned_vehicle)
+        ).where(Rider.id == rider.id)
     )
-    rider = refreshed.scalar_one()
+    rider = refreshed.unique().scalar_one()
     
     response_data = _rider_to_dict(rider)
     
@@ -1068,7 +1079,7 @@ async def get_rider(
     # Cargar rider con relación user
     stmt = select(Rider).options(joinedload(Rider.user)).where(Rider.id == rid)
     result = await db.execute(stmt)
-    rider = result.scalar_one_or_none()
+    rider = result.unique().scalar_one_or_none()
     
     if not rider:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
@@ -1103,7 +1114,7 @@ async def update_rider(
     result = await db.execute(
         select(Rider).options(joinedload(Rider.user)).where(Rider.id == _parse_uuid(rider_id, "rider_id"))
     )
-    rider = result.scalar_one_or_none()
+    rider = result.unique().scalar_one_or_none()
     if not rider:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
     await _ensure_rider_self_scope(db, current_user, rider)
@@ -1180,7 +1191,7 @@ async def approve_rider(
     [ADMIN/GERENTE] Aprueba manualmente a un repartidor (cambia estado a ACTIVO).
     """
     result = await db.execute(select(Rider).where(Rider.id == _parse_uuid(rider_id, "rider_id")))
-    rider = result.scalar_one_or_none()
+    rider = result.unique().scalar_one_or_none()
     if not rider:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
 
@@ -1214,7 +1225,7 @@ async def reject_rider(
     [ADMIN/GERENTE] Rechaza/Suspende a un repartidor con un motivo obligatorio.
     """
     result = await db.execute(select(Rider).where(Rider.id == _parse_uuid(rider_id, "rider_id")))
-    rider = result.scalar_one_or_none()
+    rider = result.unique().scalar_one_or_none()
     if not rider:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
 
@@ -1233,7 +1244,7 @@ async def delete_rider(
     [ADMIN/GERENTE] Elimina permanentemente el perfil de un repartidor.
     """
     result = await db.execute(select(Rider).where(Rider.id == _parse_uuid(rider_id, "rider_id")))
-    rider = result.scalar_one_or_none()
+    rider = result.unique().scalar_one_or_none()
     if not rider:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
 
@@ -1255,7 +1266,7 @@ async def update_heartbeat(
     Usa PostGIS para guardar la geometría espacial.
     """
     result = await db.execute(select(Rider).where(Rider.id == _parse_uuid(rider_id, "rider_id")))
-    rider = result.scalar_one_or_none()
+    rider = result.unique().scalar_one_or_none()
     
     if not rider:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
@@ -1290,7 +1301,7 @@ async def update_location(
     También actualiza la columna geoespacial.
     """
     result = await db.execute(select(Rider).where(Rider.id == _parse_uuid(rider_id, "rider_id")))
-    rider = result.scalar_one_or_none()
+    rider = result.unique().scalar_one_or_none()
     if not rider:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
     await _ensure_rider_self_scope(db, current_user, rider)
@@ -1315,7 +1326,7 @@ async def toggle_online(
     [REPARTIDOR] Cambia manualmente el estado de conexión (Online/Offline).
     """
     result = await db.execute(select(Rider).where(Rider.id == _parse_uuid(rider_id, "rider_id")))
-    rider = result.scalar_one_or_none()
+    rider = result.unique().scalar_one_or_none()
     if not rider:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
     await _ensure_rider_self_scope(db, current_user, rider)
@@ -1337,7 +1348,7 @@ async def update_rider_status(
     [ADMIN/GERENTE] Cambia el estado administrativo del repartidor (ACTIVO, SUSPENDIDO, INACTIVO).
     """
     result = await db.execute(select(Rider).where(Rider.id == _parse_uuid(rider_id, "rider_id")))
-    rider = result.scalar_one_or_none()
+    rider = result.unique().scalar_one_or_none()
     
     if not rider:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
