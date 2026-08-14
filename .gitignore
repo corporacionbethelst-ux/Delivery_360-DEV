@@ -5,12 +5,11 @@ node_modules/
 # Build outputs
 dist/
 build/
-coverage/
-htmlcov/
-.nyc_output/
+.next/
+out/
+
+# Logs
 *.log
-*.tmp
-*.swp
 
 # Environment variables
 .env
@@ -29,86 +28,43 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
-env/
-venv/
-.venv/
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
+*.so
 .coverage
+htmlcov/
 .coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
+.pytest_cache/
+.mypy_cache/
+
+# OS generated files
 .DS_Store
 Thumbs.db
 
-# Node specific
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# Temporary files
+*.tmp
+*.temp
+*.bak
 
-# Compiled and binary files
-*.exe
-*.dll
-*.so
-*.a
-*.obj
-*.out
-*.class
-*.jar
-*.war
+# Compression files
 *.zip
-*.tar.gz
-*.tgz
-*.tar
 *.gz
-*.rar
-*.7z
+*.tar
+*.tgz
 *.bz2
 *.xz
-*.Z
-*.lz
-*.lzo
+*.7z
+*.rar
+*.zst
 *.lz4
 *.lzh
 *.cab
 *.arj
 *.rpm
 *.deb
-*.zst
-
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-desktop.ini
-
-# Testing
-*.test.js
-*.spec.js
-*.test.ts
-*.spec.ts
-coverage/
-.nyc_output/
-
-# Temporary files
-*.tmp
-*.temp
-*.log
-*~
-```
-
-Wait, let me reconsider this. The only modified file is a TypeScript service file in the frontend, which suggests this might be a frontend project, but there are no build artifacts, dependency directories, or temporary files in the changes. This appears to be just source code modification.
-
-Since only a source code file was modified and there are no build artifacts, dependencies, or temporary files to ignore, the output should be empty.
-
-```gitignore
-
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
 ```
