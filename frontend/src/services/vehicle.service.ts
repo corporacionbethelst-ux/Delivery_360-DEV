@@ -19,9 +19,10 @@ export interface Vehicle {
   status: VehicleStatus;
   insurance_expiry?: string | null;
   rider_id?: string | null;
+  rider_profile_id?: string | null; // ID del perfil de rider (tabla riders)
   rider_name?: string | null;
   notes?: string | null;
-  ownership_type?: 'PROPIO' | 'EMPRESA'; // Nuevo campo para distinguir tipo de propiedad
+  ownership_type?: 'PROPIO' | 'EMPRESA';
   created_at: string;
   updated_at?: string | null;
 }
