@@ -98,6 +98,7 @@ ROLE_PERMISSIONS: Dict[UserRole, List[str]] = {
     ],
     UserRole.REPARTIDOR: ["rider_app.read"],
     UserRole.CLIENTE: ["customer_app.read"],
+    UserRole.AUDITOR: ["audit.read", "users.read", "orders.read", "deliveries.read", "financial.read"],
 }
 
 ROLE_DESCRIPTIONS: Dict[UserRole, str] = {
@@ -106,6 +107,7 @@ ROLE_DESCRIPTIONS: Dict[UserRole, str] = {
     UserRole.OPERADOR: "Operación diaria de órdenes, entregas, repartidores y alertas.",
     UserRole.REPARTIDOR: "Acceso a la experiencia de repartidor y sus recursos asignados.",
     UserRole.CLIENTE: "Acceso a experiencia de cliente y seguimiento de sus pedidos.",
+    UserRole.AUDITOR: "Consulta de auditoría, usuarios, órdenes, entregas y finanzas sin capacidad de modificación.",
 }
 
 ROLE_NAMES: Dict[UserRole, str] = {
@@ -114,6 +116,7 @@ ROLE_NAMES: Dict[UserRole, str] = {
     UserRole.OPERADOR: "Operador",
     UserRole.REPARTIDOR: "Repartidor",
     UserRole.CLIENTE: "Cliente",
+    UserRole.AUDITOR: "Auditor",
 }
 
 
