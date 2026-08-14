@@ -18,6 +18,7 @@ from app.core.security import get_password_hash
 from app.models.user import User, UserRole
 from app.models.rider import Rider, RiderStatus, VehicleType as RiderVehicleType
 from app.models.vehicle import Vehicle, VehicleType, VehicleStatus # Importamos el nuevo modelo y enums
+from app.models.enums import VehicleOwnershipType
 from app.models.zone import Zone
 from app.models.order import Order, OrderStatus, OrderPriority
 from app.models.delivery import Delivery, DeliveryStatus, ProofType
@@ -401,13 +402,22 @@ async def seed_zones_with_multipliers(db: AsyncSession):
     print(f"   ✅ {updated} zonas actualizadas / {created} zonas creadas con multiplicadores.")
 
 
-async def seed_riders(db: AsyncSession, zones: List[Zone], count: int = 15) -> List[Rider]:
-    print(f"🛵 Sembrando repartidores...")
+async def seed_riders(db: AsyncSession, zones: List[Zone], vehicles: List[Vehicle], count: int = 15) -> List[Rider]:
+    """
+    Genera repartidores con soporte para vehículos propios y de empresa.
+    
+    - 70% de repartidores usan vehículo propio (vehicle_ownership_type=PROPIO)
+    - 30% de repartidores usan vehículo de empresa (vehicle_ownership_type=EMPRESA)
+    """
+    print(f"🛵 Sembrando repartidores (con vehículos propios y de empresa)...")
     riders = []
     # Usamos los valores string directamente para evitar conflictos de enums entre modelos
     vehicle_types = ["MOTO", "MOTO", "BICICLETA", "AUTO"] 
     fallback_zone_points = [(4.668, -74.050), (4.676, -74.047), (4.600, -74.075), (4.695, -74.030)]
 
+    # Obtener vehículos disponibles de empresa (sin rider_id asignado)
+    company_vehicles = [v for v in vehicles if v.rider_id is None and v.status == "ACTIVO"]
+    
     for i in range(count):
         email = f"rider{i+1}@delivery360.com"
         exists_user = await db.execute(select(User).where(User.email == email))
@@ -438,24 +448,55 @@ async def seed_riders(db: AsyncSession, zones: List[Zone], count: int = 15) -> L
             lat, lng = get_random_location_near(base_lat, base_lng, 1.0)
             status = random.choices(["ACTIVO", "INACTIVO", "OCUPADO"], weights=[80, 10, 10])[0]
             
-            rider = Rider(
-                id=uuid.uuid4(),
-                user_id=user.id,
-                vehicle_type=random.choice(vehicle_types),
-                vehicle_plate=f"{random.choice(['ABC', 'XYZ'])}-{random.randint(100, 999)}",
-                vehicle_model=f"Yamaha NMAX {random.randint(2020, 2024)}",
-                operating_zone=selected_zone.name if selected_zone else random.choice(["Norte", "Centro", "Sur"]),
-                zone_id=selected_zone.id if selected_zone else None,
-                cpf=str(random.randint(1000000000, 9999999999)),
-                cnh=f"LIC{random.randint(100000, 999999)}",
-                status=status,
-                is_online=(status == "ACTIVO"),
-                last_lat=lat,
-                last_lng=lng,
-                last_location_at=utc_now_naive(),
-                level=random.randint(1, 10),
-                wallet_balance=Decimal(str(round(random.uniform(10, 100), 2))),
-            )
+            # Determinar tipo de propiedad del vehículo (70% propio, 30% empresa)
+            is_company_vehicle = (i % 3 == 0) and len(company_vehicles) > 0  # Cada tercer rider usa vehículo de empresa
+            
+            if is_company_vehicle:
+                # Vehículo de EMPRESA: asignar un vehículo disponible de la flota
+                assigned_vehicle = company_vehicles.pop(0)  # Tomar el primer vehículo disponible
+                rider = Rider(
+                    id=uuid.uuid4(),
+                    user_id=user.id,
+                    vehicle_type=assigned_vehicle.type,
+                    vehicle_plate=None,  # NULL para vehículo de empresa
+                    vehicle_model=None,  # NULL para vehículo de empresa
+                    operating_zone=selected_zone.name if selected_zone else random.choice(["Norte", "Centro", "Sur"]),
+                    zone_id=selected_zone.id if selected_zone else None,
+                    cpf=str(random.randint(1000000000, 9999999999)),
+                    cnh=f"LIC{random.randint(100000, 999999)}",
+                    status=status,
+                    is_online=(status == "ACTIVO"),
+                    last_lat=lat,
+                    last_lng=lng,
+                    last_location_at=utc_now_naive(),
+                    level=random.randint(1, 10),
+                    wallet_balance=Decimal(str(round(random.uniform(10, 100), 2))),
+                    vehicle_ownership_type=VehicleOwnershipType.EMPRESA.value,
+                    assigned_vehicle_id=assigned_vehicle.id,
+                )
+                print(f"   🏢 Rider {email} con vehículo de empresa: {assigned_vehicle.plate}")
+            else:
+                # Vehículo PROPIO: datos tradicionales del rider
+                rider = Rider(
+                    id=uuid.uuid4(),
+                    user_id=user.id,
+                    vehicle_type=random.choice(vehicle_types),
+                    vehicle_plate=f"{random.choice(['ABC', 'XYZ'])}-{random.randint(100, 999)}",
+                    vehicle_model=f"Yamaha NMAX {random.randint(2020, 2024)}",
+                    operating_zone=selected_zone.name if selected_zone else random.choice(["Norte", "Centro", "Sur"]),
+                    zone_id=selected_zone.id if selected_zone else None,
+                    cpf=str(random.randint(1000000000, 9999999999)),
+                    cnh=f"LIC{random.randint(100000, 999999)}",
+                    status=status,
+                    is_online=(status == "ACTIVO"),
+                    last_lat=lat,
+                    last_lng=lng,
+                    last_location_at=utc_now_naive(),
+                    level=random.randint(1, 10),
+                    wallet_balance=Decimal(str(round(random.uniform(10, 100), 2))),
+                    vehicle_ownership_type=VehicleOwnershipType.PROPIO.value,
+                    assigned_vehicle_id=None,
+                )
             db.add(rider)
             riders.append(rider)
             
@@ -463,50 +504,32 @@ async def seed_riders(db: AsyncSession, zones: List[Zone], count: int = 15) -> L
     print(f"   ✅ {len(riders)} repartidores listos.")
     return riders
 
-async def seed_vehicles(db: AsyncSession, users: List[User], riders: List[Rider], count: int = 20):
+async def seed_vehicles(db: AsyncSession, users: List[User], riders: List[Rider], count: int = 20) -> List[Vehicle]:
     """
     Genera una flota de vehículos.
     - Algunos se asignan a los riders existentes (vinculando rider_id/user_id).
     - Otros quedan disponibles (rider_id NULL) para pruebas de asignación manual.
+    
+    Retorna la lista de vehículos creados para usar en seed_riders.
     """
     print(f"🚗 Sembrando flota de vehículos...")
     vehicles_created = 0
+    vehicles_list = []
     
     # Tipos y estados disponibles
     v_types = ["MOTO", "AUTO", "FURGONETA", "BICICLETA"]
     v_statuses = ["ACTIVO", "ACTIVO", "ACTIVO", "MANTENIMIENTO", "BAJA"] # Mayor probabilidad de ACTIVO
     
     # 1. Crear vehículos para los riders existentes (simulando que su vehículo está en la flota formal)
+    #    Solo para riders con vehículo PROPIO
     for rider in riders:
-        # Obtenemos el usuario dueño del rider. Si no está en la lista local,
-        # lo consultamos en BD porque seed_users solo retorna usuarios recién creados.
-        user = next((u for u in users if u.id == rider.user_id), None)
-        if not user:
-            user = await db.get(User, rider.user_id)
-        if not user:
+        # Saltar riders con vehículo de empresa (ya tienen assigned_vehicle_id)
+        if hasattr(rider, 'vehicle_ownership_type') and rider.vehicle_ownership_type == "EMPRESA":
             continue
             
-        # Verificar si ya existe un vehículo con esa placa (por seguridad)
-        existing = await db.execute(select(Vehicle).where(Vehicle.plate == rider.vehicle_plate))
-        if existing.scalar_one_or_none():
-            continue
+        # Obtenemos el usuario dueño del rider. Si no está en la lista local,\n        # lo consultamos en BD porque seed_users solo retorna usuarios recién creados.\n        user = next((u for u in users if u.id == rider.user_id), None)\n        if not user:\n            user = await db.get(User, rider.user_id)\n        if not user:\n            continue\n            \n        # Verificar si ya existe un vehículo con esa placa (por seguridad)\n        existing = await db.execute(select(Vehicle).where(Vehicle.plate == rider.vehicle_plate))\n        if existing.scalar_one_or_none():\n            continue\n\n        vehicle = Vehicle(\n            id=uuid.uuid4(),\n            rider_id=user.id, # Vinculado al dueño (usuario)\n            plate=rider.vehicle_plate,\n            type=rider.vehicle_type, # Usa el tipo del rider\n            model=rider.vehicle_model or f\"Vehículo {rider.vehicle_type}\",\n            color=random.choice(["Rojo", "Azul", "Negro", "Blanco", "Gris"]),\n            year=random.randint(2018, 2024),\n            status="ACTIVO",\n            insurance_expiry=datetime.now().date() + timedelta(days=random.randint(30, 300)),\n            notes=f"Asignado inicialmente al rider {rider.id}"\n        )\n        db.add(vehicle)\n        vehicles_list.append(vehicle)\n        vehicles_created += 1
 
-        vehicle = Vehicle(
-            id=uuid.uuid4(),
-            rider_id=user.id, # Vinculado al dueño (usuario)
-            plate=rider.vehicle_plate,
-            type=rider.vehicle_type, # Usa el tipo del rider
-            model=rider.vehicle_model or f"Vehículo {rider.vehicle_type}",
-            color=random.choice(["Rojo", "Azul", "Negro", "Blanco", "Gris"]),
-            year=random.randint(2018, 2024),
-            status="ACTIVO",
-            insurance_expiry=datetime.now().date() + timedelta(days=random.randint(30, 300)),
-            notes=f"Asignado inicialmente al rider {rider.id}"
-        )
-        db.add(vehicle)
-        vehicles_created += 1
-
-    # 2. Crear vehículos adicionales "huérfanos" o de reserva para la flota
+    # 2. Crear vehículos adicionales \"huérfanos\" o de reserva para la flota
     extra_count = max(0, count - vehicles_created)
     for i in range(extra_count):
         v_type = random.choice(v_types)
@@ -530,10 +553,12 @@ async def seed_vehicles(db: AsyncSession, users: List[User], riders: List[Rider]
             notes="Vehículo de reserva o flotilla propia."
         )
         db.add(vehicle)
+        vehicles_list.append(vehicle)
         vehicles_created += 1
 
     await db.commit()
     print(f"   ✅ {vehicles_created} vehículos registrados en la flota.")
+    return vehicles_list
 
 async def seed_orders_and_complex_data(db: AsyncSession, riders: List[Rider], count: int = 50):
     print(f"📦 Generando órdenes, entregas y rutas...")
@@ -1432,10 +1457,15 @@ async def main():
             # FASE 3: Sembrar multiplicadores de bono en zonas
             await seed_zones_with_multipliers(db)
             
-            riders = await seed_riders(db, zones)
+            # NUEVO: Sembrar vehículos PRIMERO para que estén disponibles al crear riders
+            vehicles = await seed_vehicles(db, users, [], count=25)
             
-            # NUEVO: Sembrar vehículos después de tener usuarios y riders
+            # FASE 4: Sembrar riders con soporte para vehículos propios y de empresa
+            riders = await seed_riders(db, zones, vehicles)
+            
+            # Actualizar vehículos asignados a riders (para los que son PROPIO)
             await seed_vehicles(db, users, riders, count=25)
+            
             await seed_shifts(db, riders)
             
             orders = await seed_orders_and_complex_data(db, riders, count=60)
