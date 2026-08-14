@@ -45,6 +45,7 @@ export default function EditVehiclePage() {
     notes: string;
     rider_name?: string | null;
     rider_id?: string | null;
+    rider_profile_id?: string | null;
   }>({
     plate: '',
     type: 'MOTO',
@@ -55,7 +56,8 @@ export default function EditVehiclePage() {
     insurance_expiry: '',
     notes: '',
     rider_name: null,
-    rider_id: null
+    rider_id: null,
+    rider_profile_id: null
   });
 
   useEffect(() => {
@@ -76,7 +78,8 @@ export default function EditVehiclePage() {
           insurance_expiry: data.insurance_expiry || '',
           notes: data.notes || '',
           rider_name: data.rider_name,
-          rider_id: data.rider_id
+          rider_id: data.rider_id,
+          rider_profile_id: data.rider_profile_id || data.rider_id // Usar rider_profile_id si existe, sino fallback a rider_id
         });
       } catch (err: any) {
         console.error(err);
@@ -290,7 +293,7 @@ export default function EditVehiclePage() {
                     variant="ghost" 
                     size="sm" 
                     className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                    onClick={() => router.push(`/manager/fleet/riders/${formData.rider_id}`)}
+                    onClick={() => router.push(`/manager/fleet/riders/${formData.rider_profile_id || formData.rider_id}`)}
                   >
                     <Edit3 className="w-4 h-4 mr-1" /> Ver Rider
                   </Button>
