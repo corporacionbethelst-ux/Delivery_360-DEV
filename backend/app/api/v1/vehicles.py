@@ -74,7 +74,8 @@ class VehicleResponse(BaseModel):
     year: int
     status: str
     insurance_expiry: Optional[str] = None
-    rider_id: Optional[str] = None
+    rider_id: Optional[str] = None  # ID del usuario (users.id)
+    rider_profile_id: Optional[str] = None  # ID del perfil de rider (riders.id) - USAR ESTE PARA LLAMAR A /api/v1/riders/{id}
     rider_name: Optional[str] = None
     notes: Optional[str] = None
     created_at: str
@@ -155,7 +156,7 @@ def _build_vehicle_response(vehicle: Vehicle) -> dict:
             rider_name = rider.email
         rider_user_id = str(rider.id)
         
-        # Si el user tiene un perfil rider, obtener ese ID
+        # Si el user tiene un perfil rider, obtener ese ID (este es el ID que necesita el frontend para llamar a /api/v1/riders/{id})
         if hasattr(rider, 'rider_profile') and rider.rider_profile:
             rider_profile_id = str(rider.rider_profile.id)
 
@@ -168,7 +169,8 @@ def _build_vehicle_response(vehicle: Vehicle) -> dict:
         "year": vehicle.year,
         "status": _get_enum_value(vehicle.status),
         "insurance_expiry": _format_date(vehicle.insurance_expiry),
-        "rider_id": str(vehicle.rider_id) if vehicle.rider_id else None,
+        "rider_id": rider_user_id,  # ID del usuario (users.id)
+        "rider_profile_id": rider_profile_id,  # ID del perfil de rider (riders.id) - USAR ESTE PARA LLAMAR A /api/v1/riders/{id}
         "rider_name": rider_name,
         "notes": vehicle.notes,
         "created_at": _format_date(vehicle.created_at),
@@ -195,7 +197,7 @@ async def get_available_vehicles(
     """
     from sqlalchemy.orm import selectinload
     
-    stmt = select(Vehicle).options(selectinload(Vehicle.rider))
+    stmt = select(Vehicle).options(selectinload(Vehicle.rider).selectinload(User.rider_profile))
     
     # Filtrar vehículos no asignados (disponibles)
     stmt = stmt.where(Vehicle.rider_id.is_(None))
@@ -237,8 +239,8 @@ async def list_vehicles(
     """
     from sqlalchemy.orm import selectinload
     
-    # Usar selectinload para cargar eager la relación rider (User)
-    stmt = select(Vehicle).options(selectinload(Vehicle.rider))
+    # Usar selectinload para cargar eager la relación rider (User) y su perfil rider anidado
+    stmt = select(Vehicle).options(selectinload(Vehicle.rider).selectinload(User.rider_profile))
     
     # Convertir strings a Enums de forma segura MANUALMENTE
     type_enum = _safe_parse_enum(VehicleType, type)
@@ -289,7 +291,14 @@ async def get_vehicle(
     
     vid = _parse_uuid(vehicle_id)
     
-    stmt = select(Vehicle).options(selectinload(Vehicle.rider)).where(Vehicle.id == vid)
+    # Cargar el rider (User) y su perfil de rider (Rider) anidado
+    stmt = (
+        select(Vehicle)
+        .options(
+            selectinload(Vehicle.rider).selectinload(User.rider_profile)
+        )
+        .where(Vehicle.id == vid)
+    )
     result = await db.execute(stmt)
     vehicle = result.scalar_one_or_none()
 

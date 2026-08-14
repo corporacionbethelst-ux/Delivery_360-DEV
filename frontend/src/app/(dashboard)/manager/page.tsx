@@ -5,10 +5,43 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { orderService } from '@/services/order.service';
 import { financialService } from '@/services/financial.service';
-import { DollarSign, Package, TrendingUp, Users, AlertCircle, Loader2 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AreaChartCustom } from '@/components/charts/AreaChartCustom';
+import { 
+  DollarSign, 
+  Package, 
+  TrendingUp, 
+  Users, 
+  AlertCircle, 
+  Loader2,
+  BarChart3,
+  Activity,
+  Clock,
+  Target,
+  CheckCircle,
+  ArrowRight,
+  Zap,
+  Award,
+  Calendar,
+  PieChart as PieChartIcon
+} from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
 import { formatCurrency } from '@/lib/formatters';
+import { 
+  AreaChart, 
+  Area, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  Cell,
+  PieChart,
+  Pie
+} from 'recharts';
 
 export default function ManagerDashboard() {
   const router = useRouter();
