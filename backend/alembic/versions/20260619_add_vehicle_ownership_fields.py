@@ -1,7 +1,7 @@
 """add_vehicle_ownership_fields_to_riders
 
-Revision ID: 20260619_add_vehicle_ownership_fields
-Revises: 20260618_create_locked_bonus_type_enum
+Revision ID: 20260619
+Revises: 20260618
 Create Date: 2026-06-19 10:00:00.000000
 
 Agrega campos vehicle_ownership_type y assigned_vehicle_id a la tabla riders
@@ -13,8 +13,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = '20260619_add_vehicle_ownership_fields'
-down_revision = '20260618_create_locked_bonus_type_enum'
+revision = '20260619'
+down_revision = '20260618'
 branch_labels = None
 depends_on = None
 
