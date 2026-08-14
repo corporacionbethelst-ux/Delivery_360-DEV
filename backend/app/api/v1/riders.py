@@ -689,9 +689,9 @@ async def list_riders(
 ):
     """
     [ADMIN/GERENTE/OPERADOR] Lista todos los repartidores con filtros opcionales.
-    Incluye datos del usuario relacionado.
+    Incluye datos del usuario relacionado y vehículo asignado si corresponde.
     """
-    q = select(Rider).options(joinedload(Rider.user))
+    q = select(Rider).options(joinedload(Rider.user), joinedload(Rider.assigned_vehicle))
     
     if status_filter:
         try:

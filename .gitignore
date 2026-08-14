@@ -1,1 +1,55 @@
-Nothing needs to be added to the .gitignore file based on the provided changes. The only modified file is a Python source file (`backend/scripts/seed_data.py`), which should not be ignored.
+```
+# Dependencies
+node_modules/
+
+# Package lock
+package-lock.json
+
+# Build artifacts
+dist/
+build/
+target/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Environment variables
+.env
+.env.local
+*.env.*
+
+# IDE specific
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Python specific
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Coverage reports
+coverage/
+htmlcov/
+.coverage
+
+# Testing
+.pytest_cache/
+.mypy_cache/
+.hypothesis/
+
+# Distribution / packaging
+*.egg
+*.egg-info/
+MANIFEST
+```
