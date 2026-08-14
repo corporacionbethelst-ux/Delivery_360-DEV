@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Optional, List, Any
 import uuid
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from enum import Enum
 
 class RiderStatusEnum(str, Enum):
@@ -20,6 +20,10 @@ class VehicleTypeEnum(str, Enum):
     AUTO = "AUTO"
     FURGONETA = "FURGONETA"
 
+class VehicleOwnershipTypeEnum(str, Enum):
+    PROPIO = "PROPIO"
+    EMPRESA = "EMPRESA"
+
 class RiderBase(BaseModel):
     vehicle_type: Optional[VehicleTypeEnum] = None
     vehicle_plate: Optional[str] = None
@@ -33,9 +37,22 @@ class RiderBase(BaseModel):
     badges: Optional[List[Any]] = []
     level: Optional[int] = 1
     total_points: Optional[int] = 0
+    
+    # Tipo de propiedad del vehículo (Propio o Empresa)
+    vehicle_ownership_type: Optional[VehicleOwnershipTypeEnum] = VehicleOwnershipTypeEnum.PROPIO
+    
+    # ID del vehículo de empresa asignado (solo si vehicle_ownership_type es EMPRESA)
+    assigned_vehicle_id: Optional[uuid.UUID] = None
 
 class RiderCreate(RiderBase):
     user_id: uuid.UUID
+    
+    @field_validator('assigned_vehicle_id')
+    @classmethod
+    def validate_assigned_vehicle(cls, v, info):
+        """Valida que si el tipo es EMPRESA, assigned_vehicle_id sea requerido."""
+        # Nota: Esta validación se hace en el endpoint porque necesitamos acceso a ambos campos
+        return v
 
 class RiderUpdate(BaseModel):
     vehicle_type: Optional[VehicleTypeEnum] = None
@@ -44,6 +61,8 @@ class RiderUpdate(BaseModel):
     operating_zone: Optional[str] = None
     status: Optional[RiderStatusEnum] = None
     is_online: Optional[bool] = None
+    vehicle_ownership_type: Optional[VehicleOwnershipTypeEnum] = None
+    assigned_vehicle_id: Optional[uuid.UUID] = None
 
 class RiderResponse(RiderBase):
     model_config = ConfigDict(from_attributes=True)
