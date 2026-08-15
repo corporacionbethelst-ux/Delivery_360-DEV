@@ -3,6 +3,7 @@ import type { Rider as UserRider } from './user';
 
 export type RiderStatus = 'PENDIENTE' | 'ACTIVO' | 'INACTIVO' | 'SUSPENDIDO';
 export type RiderVehicleType = 'MOTO' | 'BICICLETA' | 'AUTO' | 'PIE' | 'NO_ESPECIFICADO';
+export type RiderTier = 'BRONCE' | 'PLATA' | 'ORO' | 'PLATINO';
 export type RiderLevel = number; 
 
 // --- Tipos Auxiliares (No conflictivos) ---
@@ -66,6 +67,7 @@ export interface RiderUpdateInput {
   vehicle?: Partial<RiderVehicle>;
   operatingZone?: string;
   status?: RiderStatus;
+  tier?: RiderTier;
   notificationsEnabled?: boolean;
   maxDailyHours?: number;
   preferredZones?: string[];

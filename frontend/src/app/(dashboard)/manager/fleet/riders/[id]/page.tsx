@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { riderService } from '@/services/rider.service'; 
 import { Rider } from '@/types/user';
+import { RiderTier } from '@/types/rider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -11,7 +12,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { 
   ArrowLeft, UserCheck, UserX, FileText, Bike, Phone, Mail, 
   MapPin, ShieldAlert, Loader2, Activity, Calendar, DollarSign,
-  AlertCircle, CheckCircle2, XCircle
+  AlertCircle, CheckCircle2, XCircle, Medal, Award
 } from 'lucide-react';
 // Asumiendo que tienes un formatter, si no, usa una función simple
 // import { formatCurrency } from '@/lib/formatters'; 
@@ -289,6 +290,35 @@ export default function ManagerRiderDetailPage() {
               <div>
                 <p className="text-sm font-semibold text-gray-900">Zona Operativa</p>
                 <p className="text-gray-600 font-medium">{rider.operating_zone || 'Todas las zonas'}</p>
+              </div>
+            </div>
+            
+            {/* Nivel/Tier del Rider (Fase 4 - Gamificación) */}
+            <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
+              <div className={`p-2 rounded-md ${
+                (rider as any).tier === 'PLATINO' ? 'bg-purple-50 text-purple-600' :
+                (rider as any).tier === 'ORO' ? 'bg-yellow-50 text-yellow-600' :
+                (rider as any).tier === 'PLATA' ? 'bg-gray-100 text-gray-600' :
+                'bg-amber-50 text-amber-600'
+              }`}>
+                <Award className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Nivel Repartidor</p>
+                <Badge className={`mt-1 px-2 py-0.5 text-xs font-bold ${
+                  (rider as any).tier === 'PLATINO' ? 'bg-purple-100 text-purple-800 border-purple-200' :
+                  (rider as any).tier === 'ORO' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
+                  (rider as any).tier === 'PLATA' ? 'bg-gray-200 text-gray-800 border-gray-300' :
+                  'bg-amber-100 text-amber-800 border-amber-200'
+                }`}>
+                  {(rider as any).tier || 'BRONCE'}
+                </Badge>
+                <p className="text-xs text-gray-500 mt-1">
+                  {((rider as any).tier === 'PLATINO' && '+15% bonificación') ||
+                   ((rider as any).tier === 'ORO' && '+10% bonificación') ||
+                   ((rider as any).tier === 'PLATA' && '+5% bonificación') ||
+                   'Sin bonificación extra'}
+                </p>
               </div>
             </div>
           </div>

@@ -27,6 +27,13 @@ class RiderStatus(str, enum.Enum):
     OCUPADO = "OCUPADO"
     SUSPENDIDO = "SUSPENDIDO"
 
+class RiderTier(str, enum.Enum):
+    """Niveles de repartidor para sistema de gamificación con bonificaciones."""
+    BRONCE = "BRONCE"      # Sin bonificación extra (0%)
+    PLATA = "PLATA"        # Bonificación 5%
+    ORO = "ORO"            # Bonificación 10%
+    PLATINO = "PLATINO"    # Bonificación 15%
+
 class VehicleType(str, enum.Enum):
     MOTO = "MOTO"
     BICICLETA = "BICICLETA"
@@ -61,6 +68,7 @@ class Rider(Base):
     assigned_vehicle_id = Column(UUID(as_uuid=True), ForeignKey("vehicles.id", ondelete="SET NULL"), nullable=True, index=True)
 
     status: Any = Column(SQLEnum(RiderStatus), default=RiderStatus.PENDIENTE)
+    tier: Any = Column(SQLEnum(RiderTier), default=RiderTier.BRONCE, nullable=False)
     is_online = Column(Boolean, default=False)
     last_location = Column(Geometry(geometry_type='POINT', srid=4326, spatial_index=True), nullable=True)
     
