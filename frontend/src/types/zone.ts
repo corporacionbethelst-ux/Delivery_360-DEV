@@ -6,6 +6,8 @@ export interface Zone {
   delivery_fee_base: number;
   cost_per_km: number;
   estimated_time_min: number;
+  // FASE 3: Multiplicador de bono para repartidores
+  bonus_multiplier?: number;
   is_priority: boolean;
   is_active: boolean;
   color_hex: string;
@@ -24,6 +26,8 @@ export interface ZoneCreateInput {
   delivery_fee_base: number;
   cost_per_km: number;
   estimated_time_min: number;
+  // FASE 3: Multiplicador de bono para repartidores (default 1.0)
+  bonus_multiplier?: number;
   is_priority?: boolean;
   is_active?: boolean;
   color_hex?: string;

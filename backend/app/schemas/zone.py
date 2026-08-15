@@ -15,6 +15,8 @@ class ZoneBase(BaseModel):
     delivery_fee_base: float = Field(0, ge=0)
     cost_per_km: float = Field(0, ge=0)
     estimated_time_min: float = Field(30, ge=1, le=240)
+    # FASE 3: Multiplicador de bono para repartidores (default 1.0 = sin cambio)
+    bonus_multiplier: float = Field(1.0, ge=0.1, le=5.0)
     is_priority: bool = False
     is_active: bool = True
     color_hex: str = Field("#6b7280", min_length=7, max_length=7)
@@ -52,6 +54,8 @@ class ZoneUpdate(BaseModel):
     delivery_fee_base: Optional[float] = Field(None, ge=0)
     cost_per_km: Optional[float] = Field(None, ge=0)
     estimated_time_min: Optional[float] = Field(None, ge=1, le=240)
+    # FASE 3: Multiplicador de bono para repartidores (opcional)
+    bonus_multiplier: Optional[float] = Field(None, ge=0.1, le=5.0)
     is_priority: Optional[bool] = None
     is_active: Optional[bool] = None
     color_hex: Optional[str] = Field(None, min_length=7, max_length=7)
@@ -87,5 +91,7 @@ class ZoneResponse(ZoneBase):
     active_orders_count: int = 0
     created_at: str
     updated_at: Optional[str] = None
+    # FASE 3: Incluir bonus_multiplier en la respuesta
+    bonus_multiplier: float = 1.0
 
     model_config = ConfigDict(from_attributes=True)
