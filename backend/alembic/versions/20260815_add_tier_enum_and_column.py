@@ -1,7 +1,7 @@
 """add_tier_column_to_riders
 
 Revision ID: 20260815_add_tier_enum_and_column
-Revises: 20260619_add_vehicle_ownership_fields
+Revises: 20260619
 Create Date: 2026-08-15
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '20260815_add_tier_enum_and_column'
-down_revision: Union[str, None] = '20260619_add_vehicle_ownership_fields'
+down_revision: Union[str, None] = '20260619'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
