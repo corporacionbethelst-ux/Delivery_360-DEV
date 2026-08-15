@@ -92,6 +92,11 @@ class DeliveryService:
         """
         Obtiene la configuración de bonos vigente y retorna el monto aplicable.
         
+        FÓRMULA DE CÁLCULO (Fase 3 - Multiplicadores por Zona):
+        - Bono Base: valor configurable en platform_settings
+        - Multiplicador Zona: valor de bonus_multiplier en la zona del rider
+        - Fórmula: Bono Final = Bono Base × Multiplicador Zona
+        
         Args:
             db: Sesión de base de datos
             bonus_type: Tipo de bono (SUCCESS o FAILED_ATTEMPT)
@@ -103,6 +108,9 @@ class DeliveryService:
             - Si la config es válida: retorna el monto y None
             - Si la config es inválida: retorna 0.0 y mensaje de alerta
         """
+        from app.models.zone import Zone
+        
+        # 1. Obtener configuración de bonos base
         result = await db.execute(
             select(PlatformSetting.key, PlatformSetting.value).where(
                 PlatformSetting.key.in_(["rider_delivery_bonus", "rider_failed_attempt_bonus"])
@@ -111,7 +119,7 @@ class DeliveryService:
         settings_rows = result.fetchall()
         settings_map = {row.key: row.value for row in settings_rows}
         
-        # Determinar qué key usar según el tipo de bono
+        # 2. Determinar qué key usar según el tipo de bono
         if bonus_type == LockedBonusType.SUCCESS:
             bonus_key = "rider_delivery_bonus"
         else:  # FAILED_ATTEMPT
@@ -126,13 +134,34 @@ class DeliveryService:
             return 0.0, warning
         
         try:
-            bonus_amount = float(bonus_value)
+            base_bonus_amount = float(bonus_value)
         except (ValueError, TypeError):
             warning = f"Configuración '{bonus_key}' tiene valor inválido '{bonus_value}'. Bono congelado en $0."
             return 0.0, warning
         
-        # Configuración válida
-        return bonus_amount, None
+        # 3. Obtener la zona del rider para aplicar multiplicador
+        rider_result = await db.execute(
+            select(Rider.zone_id).where(Rider.id == rider_id)
+        )
+        rider_zone_id = rider_result.scalar_one_or_none()
+        
+        zone_multiplier = 1.0  # Valor por defecto si no hay zona o multiplicador
+        
+        if rider_zone_id:
+            zone_result = await db.execute(
+                select(Zone.bonus_multiplier).where(Zone.id == rider_zone_id)
+            )
+            zone_multiplier_value = zone_result.scalar_one_or_none()
+            if zone_multiplier_value is not None:
+                zone_multiplier = float(zone_multiplier_value)
+        
+        # 4. Aplicar fórmula: Bono Final = Bono Base × Multiplicador Zona
+        final_bonus_amount = base_bonus_amount * zone_multiplier
+        
+        # Logging para depuración
+        print(f"[BONUS_CALC] Base: ${base_bonus_amount}, Zona multiplier: {zone_multiplier}, Final: ${final_bonus_amount}")
+        
+        return final_bonus_amount, None
 
     async def _create_financial_snapshot(
         self,
