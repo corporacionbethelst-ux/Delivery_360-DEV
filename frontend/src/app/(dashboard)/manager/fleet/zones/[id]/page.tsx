@@ -38,7 +38,7 @@ export default function EditZonePage() {
   // Usamos el tipo del servicio para mayor consistencia
   const [formData, setFormData] = useState<ZoneCreateInput>({
     name: '', code: '', description: '', delivery_fee_base: 0, cost_per_km: 0,
-    estimated_time_min: 0, is_priority: false, is_active: true, color_hex: '#3b82f6',
+    estimated_time_min: 0, bonus_multiplier: 1.0, is_priority: false, is_active: true, color_hex: '#3b82f6',
     center_lat: 0, center_lng: 0
   });
 
@@ -54,6 +54,7 @@ export default function EditZonePage() {
           delivery_fee_base: data.delivery_fee_base,
           cost_per_km: data.cost_per_km,
           estimated_time_min: data.estimated_time_min,
+          bonus_multiplier: data.bonus_multiplier ?? 1.0,
           is_priority: data.is_priority,
           is_active: data.is_active,
           color_hex: data.color_hex || '#3b82f6',
@@ -301,6 +302,37 @@ export default function EditZonePage() {
                   <Users className="w-4 h-4" /> Repartidores en zona
                 </div>
                 <div className="text-3xl font-bold text-gray-900">{currentZone?.riders_count ?? 0}</div>
+              </div>
+
+              {/* FASE 3: Multiplicador de Bono por Zona */}
+              <div className="pt-4 border-t">
+                <div className="space-y-3">
+                  <Label className="text-base flex items-center gap-2">
+                    <DollarSign className="w-4 h-4 text-indigo-600" /> Multiplicador de Bono
+                  </Label>
+                  <div className="flex items-center gap-3">
+                    <Input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      max="5.0"
+                      value={formData.bonus_multiplier ?? 1.0}
+                      onChange={(e) => handleChange('bonus_multiplier', parseFloat(e.target.value) || 1.0)}
+                      className="w-24"
+                    />
+                    <span className="text-sm text-gray-500">× (0.1 a 5.0)</span>
+                  </div>
+                  <p className="text-xs text-gray-500 leading-relaxed">
+                    Este multiplicador se aplica al bono base de entregas. 
+                    Ejemplo: Si el bono es $2.50 y el multiplicador es 1.5, el repartidor recibe $3.75 por entrega.
+                  </p>
+                  {formData.bonus_multiplier && formData.bonus_multiplier !== 1.0 && (
+                    <div className="mt-2 p-2 bg-indigo-50 border border-indigo-200 rounded text-xs text-indigo-800">
+                      <strong>Ejemplo:</strong> Con bono base de $2.50 × {formData.bonus_multiplier.toFixed(1)} = 
+                      <span className="font-bold ml-1">${(2.50 * (formData.bonus_multiplier ?? 1.0)).toFixed(2)}</span> por entrega exitosa
+                    </div>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
