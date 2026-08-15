@@ -70,6 +70,7 @@ export default function RiderEditModal({
   useEffect(() => {
     if (rider) {
       setPhone(rider.phone || '');
+      setTier((rider as any).tier || 'BRONCE');
       setVehicleOwnershipType(rider.vehicle_ownership_type || 'PROPIO');
       setAssignedVehicleId(rider.assigned_vehicle_id || '');
       setVehicleType(rider.vehicle_type || '');
@@ -119,6 +120,7 @@ export default function RiderEditModal({
       // Construir payload según el tipo de vehículo
       const updateData: any = {
         phone: phone || undefined,
+        tier: tier || undefined,  // Incluir nivel del repartidor
       };
 
       if (vehicleOwnershipType === 'PROPIO') {
@@ -190,6 +192,28 @@ export default function RiderEditModal({
               onChange={(e) => setPhone(e.target.value)}
               placeholder="+55 11 99999-9999"
             />
+          </div>
+
+          {/* Nivel del Repartidor (Gamificación) */}
+          <div>
+            <Label>Nivel del Repartidor</Label>
+            <Select
+              value={tier}
+              onValueChange={(value: RiderTier) => setTier(value)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Seleccionar nivel" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="BRONCE">🥉 Bronce (0% extra)</SelectItem>
+                <SelectItem value="PLATA">🥈 Plata (+5% extra)</SelectItem>
+                <SelectItem value="ORO">🥇 Oro (+10% extra)</SelectItem>
+                <SelectItem value="PLATINO">💎 Platino (+15% extra)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-gray-500 mt-1">
+              El nivel afecta el bono por entrega. Ej: $2.50 base × 1.10 (Oro) = $2.75
+            </p>
           </div>
 
           {/* Tipo de Vehículo */}
