@@ -19,18 +19,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Crear el tipo ENUM rider_tier
-    rider_tier_enum = sa.Enum('BRONCE', 'PLATA', 'ORO', 'PLATINO', name='rider_tier')
-    rider_tier_enum.create(op.get_bind())
+    # Crear el tipo ENUM rider_tier explícitamente
+    op.execute("CREATE TYPE rider_tier AS ENUM ('BRONCE', 'PLATA', 'ORO', 'PLATINO')")
     
     # Agregar la columna tier con valor por defecto 'BRONCE'
-    op.add_column('riders', sa.Column('tier', rider_tier_enum, nullable=False, server_default='BRONCE'))
+    # Usamos create_type=False porque ya creamos el ENUM manualmente arriba
+    op.add_column('riders', sa.Column('tier', sa.Enum('BRONCE', 'PLATA', 'ORO', 'PLATINO', name='rider_tier', create_type=False), nullable=False, server_default='BRONCE'))
 
 
 def downgrade() -> None:
     # Eliminar la columna tier
     op.drop_column('riders', 'tier')
     
-    # Eliminar el tipo ENUM
-    rider_tier_enum = sa.Enum(name='rider_tier')
-    rider_tier_enum.drop(op.get_bind())
+    # Eliminar el tipo ENUM rider_tier
+    op.execute("DROP TYPE IF EXISTS rider_tier")
