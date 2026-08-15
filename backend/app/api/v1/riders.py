@@ -139,6 +139,9 @@ class RiderUpdate(BaseModel):
     # Campos para vehículo de empresa (opcionales)
     vehicle_ownership_type: Optional[str] = None
     assigned_vehicle_id: Optional[uuid.UUID] = None
+    
+    # Campo para nivel/gamificación (Fase 4)
+    tier: Optional[str] = None
 
 class LocationUpdate(BaseModel):
     """Actualización básica de coordenadas GPS."""
@@ -824,6 +827,15 @@ async def update_my_rider_profile(
         except ValueError:
             raise HTTPException(status_code=400, detail="Tipo de vehículo inválido.")
 
+    # Manejar el campo tier (nivel) si está presente
+    if "tier" in payload:
+        try:
+            from app.models.rider import RiderTier
+            if isinstance(payload["tier"], str):
+                payload["tier"] = RiderTier(payload["tier"])
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Nivel inválido. Valores permitidos: BRONCE, PLATA, ORO, PLATINO")
+
     for field, value in payload.items():
         if hasattr(rider, field) and field not in ["first_name", "last_name", "phone", "email"]:
             setattr(rider, field, value)
@@ -1167,6 +1179,15 @@ async def update_rider(
     
     if "vehicle_type" in payload:
         payload["vehicle_type"] = _parse_vehicle_type(payload["vehicle_type"])
+
+    # Manejar el campo tier (nivel) si está presente
+    if "tier" in payload:
+        try:
+            from app.models.rider import RiderTier
+            if isinstance(payload["tier"], str):
+                payload["tier"] = RiderTier(payload["tier"])
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Nivel inválido. Valores permitidos: BRONCE, PLATA, ORO, PLATINO")
 
     for field, value in payload.items():
         setattr(rider, field, value)
