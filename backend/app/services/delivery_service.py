@@ -92,10 +92,11 @@ class DeliveryService:
         """
         Obtiene la configuración de bonos vigente y retorna el monto aplicable.
         
-        FÓRMULA DE CÁLCULO (Fase 3 - Multiplicadores por Zona):
+        FÓRMULA DE CÁLCULO COMPLETA (Fases 1-4):
         - Bono Base: valor configurable en platform_settings
         - Multiplicador Zona: valor de bonus_multiplier en la zona del rider
-        - Fórmula: Bono Final = Bono Base × Multiplicador Zona
+        - Multiplicador Nivel: valor según tier del rider (BRONCE=1.0, PLATA=1.05, ORO=1.10, PLATINO=1.15)
+        - Fórmula: Bono Final = (Bono Base × Multiplicador Zona) × Multiplicador Nivel
         
         Args:
             db: Sesión de base de datos
@@ -109,6 +110,15 @@ class DeliveryService:
             - Si la config es inválida: retorna 0.0 y mensaje de alerta
         """
         from app.models.zone import Zone
+        from app.models.rider import RiderTier
+        
+        # Mapa de multiplicadores por nivel de repartidor (Fase 4)
+        TIER_MULTIPLIERS = {
+            RiderTier.BRONCE: 1.00,    # Sin bonificación extra
+            RiderTier.PLATA: 1.05,     # +5%
+            RiderTier.ORO: 1.10,       # +10%
+            RiderTier.PLATINO: 1.15,   # +15%
+        }
         
         # 1. Obtener configuración de bonos base
         result = await db.execute(
@@ -141,9 +151,11 @@ class DeliveryService:
         
         # 3. Obtener la zona del rider para aplicar multiplicador
         rider_result = await db.execute(
-            select(Rider.zone_id).where(Rider.id == rider_id)
+            select(Rider.zone_id, Rider.tier).where(Rider.id == rider_id)
         )
-        rider_zone_id = rider_result.scalar_one_or_none()
+        rider_row = rider_result.first()
+        rider_zone_id = rider_row[0] if rider_row else None
+        rider_tier = rider_row[1] if rider_row else RiderTier.BRONCE
         
         zone_multiplier = 1.0  # Valor por defecto si no hay zona o multiplicador
         
@@ -155,11 +167,14 @@ class DeliveryService:
             if zone_multiplier_value is not None:
                 zone_multiplier = float(zone_multiplier_value)
         
-        # 4. Aplicar fórmula: Bono Final = Bono Base × Multiplicador Zona
-        final_bonus_amount = base_bonus_amount * zone_multiplier
+        # 4. Obtener multiplicador por nivel del rider (Fase 4)
+        tier_multiplier = TIER_MULTIPLIERS.get(rider_tier, 1.0)
+        
+        # 5. Aplicar fórmula completa: Bono Final = (Bono Base × Multiplicador Zona) × Multiplicador Nivel
+        final_bonus_amount = (base_bonus_amount * zone_multiplier) * tier_multiplier
         
         # Logging para depuración
-        print(f"[BONUS_CALC] Base: ${base_bonus_amount}, Zona multiplier: {zone_multiplier}, Final: ${final_bonus_amount}")
+        print(f"[BONUS_CALC] Base: ${base_bonus_amount}, Zona: {zone_multiplier}x, Tier ({rider_tier}): {tier_multiplier}x, Final: ${final_bonus_amount}")
         
         return final_bonus_amount, None
 

@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import type { Rider } from '@/types/user';
+import type { RiderTier } from '@/types/rider';
 import type { Vehicle } from '@/services/vehicle.service';
 import { vehicleService } from '@/services/vehicle.service';
 import { riderService } from '@/services/rider.service';
@@ -49,6 +50,7 @@ export default function RiderEditModal({
 
   // Estados del formulario
   const [phone, setPhone] = useState('');
+  const [tier, setTier] = useState<RiderTier>('BRONCE');
   const [vehicleOwnershipType, setVehicleOwnershipType] = useState<'PROPIO' | 'EMPRESA'>('PROPIO');
   const [assignedVehicleId, setAssignedVehicleId] = useState<string>('');
   

@@ -4,26 +4,92 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-
-# Dependencies
+.Python
+env/
 venv/
 .venv/
+.ENV
+.ENV.*
 .env
-.env.local
-*.env.*
-
-# Logs
+.env.*
+.venv.bak
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
 *.log
+.git/modules/
+.pytest_cache/
+.hypothesis/
 
-# Editor
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+node_modules/
+dist/
+build/
+.nuxt/
+.next/
+out/
+public/build/
+coverage/
+*.min.js
+*.min.css
+
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*.tmp
+*~
+.DS_Store
+Thumbs.db
 
-# Build artifacts
-dist/
-build/
+# Build and distribution
 target/
+build/
+dist/
+*.out
+*.exe
+*.dll
+*.so
+*.a
+*.obj
+
+# Compression
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
+
+# Environment
+.env
+.env.local
+.env.*
+!.env.example
 ```

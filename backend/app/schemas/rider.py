@@ -13,6 +13,12 @@ class RiderStatusEnum(str, Enum):
     OCUPADO = "OCUPADO"
     SUSPENDIDO = "SUSPENDIDO"
 
+class RiderTierEnum(str, Enum):
+    BRONCE = "BRONCE"
+    PLATA = "PLATA"
+    ORO = "ORO"
+    PLATINO = "PLATINO"
+
 class VehicleTypeEnum(str, Enum):
     MOTO = "MOTO"
     BICICLETA = "BICICLETA"
@@ -32,6 +38,7 @@ class RiderBase(BaseModel):
     cpf: Optional[str] = None
     cnh: Optional[str] = None
     status: Optional[RiderStatusEnum] = RiderStatusEnum.PENDIENTE
+    tier: Optional[RiderTierEnum] = RiderTierEnum.BRONCE
     is_online: Optional[bool] = False
     notes: Optional[str] = None
     badges: Optional[List[Any]] = []
@@ -60,6 +67,7 @@ class RiderUpdate(BaseModel):
     vehicle_model: Optional[str] = None
     operating_zone: Optional[str] = None
     status: Optional[RiderStatusEnum] = None
+    tier: Optional[RiderTierEnum] = None
     is_online: Optional[bool] = None
     vehicle_ownership_type: Optional[VehicleOwnershipTypeEnum] = None
     assigned_vehicle_id: Optional[uuid.UUID] = None
