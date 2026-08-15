@@ -1,6 +1,6 @@
 """add_tier_column_to_riders
 
-Revision ID: 20260815_add_tier_enum_and_column
+Revision ID: 20260815
 Revises: 20260619
 Create Date: 2026-08-15
 
@@ -12,10 +12,10 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '20260815_add_tier_enum_and_column'
-down_revision: Union[str, None] = '20260619'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+revision = '20260815'
+down_revision = '20260619'
+branch_labels = None
+depends_on = None
 
 
 def upgrade() -> None:
