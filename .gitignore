@@ -1,60 +1,70 @@
-```
-# Environment variables
+```markdown
+# Compiled and build artifacts
+*.pyc
+__pycache__/
+
+# Dependencies
+.venv/
+venv/
+node_modules/
+*.egg-info/
+dist/
+build/
+target/
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Environment
 .env
 .env.local
 .env.*
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-.venv/
-.venv.bak/
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
+# Editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
 .coverage
+htmlcov/
 .coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-*.pot
-*.mo
+.nyc_output/
+coverage/
+
+# Python specific
+*.py[cod]
+*$py.class
+*.so
+.Python
 build/
 develop-eggs/
 .installed.cfg
-.lib/
-.libs/
 lib/
 lib64/
 parts/
 sdist/
 var/
 wheels/
-*.egg-info/
-.installed.cfg
 *.egg
-MANIFEST
+.eggs/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.nosetests.xml
 .pytest_cache/
 .mypy_cache/
 .hypothesis/
 
 # Alembic
-alembic/versions/*.py
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
+alembic/versions/*.pyc
 ```
