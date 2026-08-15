@@ -1,9 +1,4 @@
 ```
-# Environment variables
-.env
-.env.local
-.env.*
-
 # Python
 __pycache__/
 *.pyc
@@ -13,48 +8,49 @@ __pycache__/
 env/
 venv/
 .venv/
+.ENV
 .venv.bak/
 pip-log.txt
 pip-delete-this-directory.txt
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
+
+# Alembic
+alembic/
+
+# Database
+*.sqlite
+*.db
+
+# Logs
 *.log
-*.pot
-*.mo
-build/
-develop-eggs/
-.installed.cfg
-.lib/
-.libs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+
+# Environment variables
+.env
+.env.local
+*.env
+*.env.*
+
+# Coverage
+.coverage
+coverage/
+htmlcov/
+.coverage.*
+
+# Testing
 .pytest_cache/
 .mypy_cache/
 .hypothesis/
-
-# Alembic
-alembic/versions/*.py
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# OS
+*~
 .DS_Store
 Thumbs.db
+
+# Build
+dist/
+build/
+*.egg-info/
 ```
