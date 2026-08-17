@@ -4,6 +4,7 @@ Servicio de Gestión de Entregas
 from datetime import datetime
 import uuid
 import re
+import logging
 from typing import Optional, List, Tuple
 from sqlalchemy import select
 
@@ -18,6 +19,16 @@ from app.crud.order import order as order_crud
 from app.models.platform_setting import PlatformSetting
 from app.services.financial_service import FinancialService 
 from app.models.rider import Rider
+
+# Configurar logger para asegurar que los mensajes se vean siempre
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 class DeliveryService:
     """Servicio para gestión de entregas"""
@@ -173,8 +184,9 @@ class DeliveryService:
         # 5. Aplicar fórmula completa: Bono Final = (Bono Base × Multiplicador Zona) × Multiplicador Nivel
         final_bonus_amount = (base_bonus_amount * zone_multiplier) * tier_multiplier
         
-        # Logging para depuración
-        print(f"[BONUS_CALC] Base: ${base_bonus_amount}, Zona: {zone_multiplier}x, Tier ({rider_tier}): {tier_multiplier}x, Final: ${final_bonus_amount}")
+        # Logging para depuración - USANDO LOGGER PARA ASEGURAR VISIBILIDAD
+        logger.info(f"[BONUS_CALC] Base: ${base_bonus_amount}, Zona: {zone_multiplier}x, Tier ({rider_tier}): {tier_multiplier}x, Final: ${final_bonus_amount}")
+        print(f"[BONUS_CALC] Base: ${base_bonus_amount}, Zona: {zone_multiplier}x, Tier ({rider_tier}): {tier_multiplier}x, Final: ${final_bonus_amount}", flush=True)
         
         return final_bonus_amount, None
 
@@ -418,9 +430,11 @@ class DeliveryService:
                     source_id=str(delivery_id),
                     status=PaymentStatus.PROCESADO,
                 )
-                print(f"[INFO] Bono CONGELADO de ${bonus_amount} registrado para entrega {delivery_id}")
+                logger.info(f"[INFO] Bono CONGELADO de ${bonus_amount} registrado para entrega {delivery_id}")
+                print(f"[INFO] Bono CONGELADO de ${bonus_amount} registrado para entrega {delivery_id}", flush=True)
             except Exception as e:
-                print(f"[ERROR] Fallo al registrar transacción financiera: {str(e)}")
+                logger.error(f"[ERROR] Fallo al registrar transacción financiera: {str(e)}")
+                print(f"[ERROR] Fallo al registrar transacción financiera: {str(e)}", flush=True)
                 # No lanzamos excepción para no revertir el cambio de estado
         
         # Actualizar estado del pedido asociado

@@ -91,6 +91,7 @@ def _serialize_delivery(delivery: Delivery, rider: Optional[Rider], user: Option
     """
     Serialización centralizada y segura.
     Maneja casos donde las relaciones pueden ser None sin lanzar excepciones.
+    INCLUYE LOS CAMPOS DE BLOQUEO DE BONO PARA VERIFICACIÓN.
     """
     # Datos del Rider
     rider_data = None
@@ -138,6 +139,11 @@ def _serialize_delivery(delivery: Delivery, rider: Optional[Rider], user: Option
         "issue_type": delivery.issue_type,
         "issue_description": delivery.issue_description,
         "has_issues": delivery.has_issues,
+        # CAMPOS DE BLOQUEO DE BONO - CRÍTICOS PARA AUDITORÍA
+        "locked_bonus_amount": float(delivery.locked_bonus_amount) if delivery.locked_bonus_amount is not None else None,
+        "locked_bonus_type": delivery.locked_bonus_type.value if delivery.locked_bonus_type and hasattr(delivery.locked_bonus_type, "value") else (str(delivery.locked_bonus_type) if delivery.locked_bonus_type else None),
+        "bonus_snapshot_date": delivery.bonus_snapshot_date.isoformat() if delivery.bonus_snapshot_date else None,
+        "bonus_config_warning_snapshot": delivery.bonus_config_warning_snapshot,
         "created_at": delivery.created_at.isoformat() if delivery.created_at else None,
         "updated_at": delivery.updated_at.isoformat() if delivery.updated_at else None,
     }
