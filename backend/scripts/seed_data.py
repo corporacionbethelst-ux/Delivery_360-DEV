@@ -16,7 +16,7 @@ from sqlalchemy import text, select, update, delete
 from app.core.config import settings
 from app.core.security import get_password_hash
 from app.models.user import User, UserRole
-from app.models.rider import Rider, RiderStatus, VehicleType as RiderVehicleType
+from app.models.rider import Rider, RiderStatus, VehicleType as RiderVehicleType, RiderTier
 from app.models.vehicle import Vehicle, VehicleType, VehicleStatus # Importamos el nuevo modelo y enums
 from app.models.enums import VehicleOwnershipType
 from app.models.zone import Zone
@@ -408,6 +408,8 @@ async def seed_riders(db: AsyncSession, zones: List[Zone], vehicles: List[Vehicl
     
     - 70% de repartidores usan vehículo propio (vehicle_ownership_type=PROPIO)
     - 30% de repartidores usan vehículo de empresa (vehicle_ownership_type=EMPRESA)
+    - Al menos 2 repartidores tienen nivel ORO para pruebas de bonos
+    - Algunos repartidores tienen niveles PLATA y PLATINO para variedad
     """
     print(f"🛵 Sembrando repartidores (con vehículos propios y de empresa)...")
     riders = []
@@ -417,6 +419,15 @@ async def seed_riders(db: AsyncSession, zones: List[Zone], vehicles: List[Vehicl
 
     # Obtener vehículos disponibles de empresa (sin rider_id asignado)
     company_vehicles = [v for v in vehicles if v.rider_id is None and v.status == "ACTIVO"]
+    
+    # Definir tiers para los primeros repartidores (asegurar al menos 2 ORO)
+    # Distribución: rider 0=ORO, 1=ORO, 2=PLATINO, 3=PLATA, resto aleatorio
+    tier_assignment = {
+        0: RiderTier.ORO,
+        1: RiderTier.ORO,
+        2: RiderTier.PLATINO,
+        3: RiderTier.PLATA,
+    }
     
     for i in range(count):
         email = f"rider{i+1}@delivery360.com"
@@ -448,6 +459,9 @@ async def seed_riders(db: AsyncSession, zones: List[Zone], vehicles: List[Vehicl
             lat, lng = get_random_location_near(base_lat, base_lng, 1.0)
             status = random.choices(["ACTIVO", "INACTIVO", "OCUPADO"], weights=[80, 10, 10])[0]
             
+            # Determinar tier del rider (al menos 2 ORO garantizados)
+            rider_tier = tier_assignment.get(i, random.choice([RiderTier.BRONCE, RiderTier.PLATA, RiderTier.ORO]))
+
             # Determinar tipo de propiedad del vehículo (70% propio, 30% empresa)
             is_company_vehicle = (i % 3 == 0) and len(company_vehicles) > 0  # Cada tercer rider usa vehículo de empresa
             
@@ -473,8 +487,9 @@ async def seed_riders(db: AsyncSession, zones: List[Zone], vehicles: List[Vehicl
                     wallet_balance=Decimal(str(round(random.uniform(10, 100), 2))),
                     vehicle_ownership_type=VehicleOwnershipType.EMPRESA.value,
                     assigned_vehicle_id=assigned_vehicle.id,
+                    tier=rider_tier,
                 )
-                print(f"   🏢 Rider {email} con vehículo de empresa: {assigned_vehicle.plate}")
+                print(f"   🏢 Rider {email} con vehículo de empresa: {assigned_vehicle.plate} | Tier: {rider_tier.value}")
             else:
                 # Vehículo PROPIO: datos tradicionales del rider
                 rider = Rider(
@@ -496,6 +511,7 @@ async def seed_riders(db: AsyncSession, zones: List[Zone], vehicles: List[Vehicl
                     wallet_balance=Decimal(str(round(random.uniform(10, 100), 2))),
                     vehicle_ownership_type=VehicleOwnershipType.PROPIO.value,
                     assigned_vehicle_id=None,
+                    tier=rider_tier,
                 )
             db.add(rider)
             riders.append(rider)
