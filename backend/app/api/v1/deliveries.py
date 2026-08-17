@@ -458,154 +458,33 @@ async def complete_delivery(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Marca la entrega como completada exitosamente y genera el registro financiero."""
-    result = await db.execute(select(Delivery).where(Delivery.id == _parse_uuid(delivery_id, "delivery_id")))
-    delivery = result.scalar_one_or_none()
-    if not delivery:
-        raise HTTPException(status_code=404, detail="Entrega no encontrada")
-
-    if current_user.role == UserRole.REPARTIDOR:
-        rider = await _get_rider_for_user(db, current_user.id)
-        if not rider or delivery.rider_id != rider.id:
-            raise HTTPException(status_code=403, detail="No tienes permiso")
-
-    if delivery.status not in [DeliveryStatus.EN_ROUTE, DeliveryStatus.EN_DESTINO]:
-        raise HTTPException(status_code=400, detail=f"Estado inválido para completar: {delivery.status.value}")
-
-    if body.otp_code and delivery.proof_otp and body.otp_code != delivery.proof_otp:
-        raise HTTPException(status_code=400, detail="Código OTP incorrecto")
-
-    now = datetime.now(timezone.utc)
-    delivery.status = DeliveryStatus.COMPLETADA
-    delivery.completed_at = now
-    delivery.proof_notes = body.notes
-    delivery.customer_name_received = body.customer_name_received
+    """Marca la entrega como completada exitosamente y genera el registro financiero.
     
-    if body.lat is not None:
-        delivery.current_latitude = body.lat
-    if body.lng is not None:
-        delivery.current_longitude = body.lng
-
-    if delivery.started_at:
-        elapsed_minutes = max(0, int((now - delivery.started_at).total_seconds() / 60))
-        delivery.sla_actual_minutes = elapsed_minutes
-        if delivery.sla_expected_minutes is not None:
-            delivery.sla_compliant = elapsed_minutes <= delivery.sla_expected_minutes
-
-    order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
-    order = order_result.scalar_one_or_none()
-    if order:
-        order.status = OrderStatus.ENTREGADO
-        order.delivered_at = now
-
-    idempotency_key = f"pago_entrega_{delivery.order_id}"
+    IMPORTANTE: Delega toda la lógica de cálculo de bonos y snapshot financiero
+    al método delivery_service.complete_delivery() para asegurar consistencia.
+    """
+    # Convertir datos del body al schema esperado por el servicio
+    from app.schemas.delivery import ProofOfDeliveryCreate
     
-    financial_result = await db.execute(
-        select(Financial).where(Financial.idempotency_key == idempotency_key)
+    proof_data = ProofOfDeliveryCreate(
+        photo_url=None,  # No se usa foto en este endpoint legacy
+        signature_base64=None,
+        otp_code=body.otp_code,
+        customer_name=body.customer_name_received,
+        delivery_latitude=body.lat,
+        delivery_longitude=body.lng,
+        notes=body.notes,
     )
-    existing_financial = financial_result.scalar_one_or_none()
     
-    if not existing_financial and delivery.rider_id:
-        # Obtener bono base DESDE LA BASE DE DATOS (Dinámico)
-        settings_result = await db.execute(
-            select(PlatformSetting.value).where(PlatformSetting.key == "rider_delivery_bonus")
-        )
-        bonus_value = settings_result.scalar_one_or_none()
-        
-        # VALIDACIÓN ESTRICTA: Si no hay configuración, el monto es 0
-        if bonus_value is None:
-            logger.warning(f"[VALIDACIÓN ESTRICTA] rider_delivery_bonus no configurado en DB. Pago forzado a $0 para entrega {delivery.id}")
-            base_payment = Decimal("0")
-        else:
-            try:
-                base_payment = Decimal(str(bonus_value))
-            except (ValueError, TypeError):
-                logger.error(f"[ERROR] Valor inválido en rider_delivery_bonus: {bonus_value}. Usando $0.")
-                base_payment = Decimal("0")
-        
-        # FASE 3: Aplicar multiplicador de zona
-        multiplier = Decimal("1.0")
-        rider_obj = await _get_rider_for_user(db, rider.id)
-        
-        if rider_obj and rider_obj.zone_id:
-            zone_result = await db.execute(
-                select(Zone.bonus_multiplier).where(Zone.id == rider_obj.zone_id)
-            )
-            zone_mult = zone_result.scalar_one_or_none()
-            if zone_mult is not None:
-                multiplier = Decimal(str(zone_mult))
-        
-        final_payment = base_payment * multiplier
-        
-        financial = Financial(
-            rider_id=delivery.rider_id,
-            amount=final_payment,
-            transaction_type=TransactionType.PAGO_ENTREGA,
-            description=f"Pago por entrega (Orden {order.external_id if order else delivery.order_id}) - Mult. Zona: {multiplier}",
-            reference_id=str(order.id) if order else str(delivery.order_id),
-            source_type="delivery",
-            source_id=str(delivery.id),
-            idempotency_key=idempotency_key,
-            status=PaymentStatus.PROCESADO,
-        )
-        db.add(financial)
-        logger.info(f"Pago calculado: Base {base_payment} * Mult {multiplier} = {final_payment}")
+    # Delegar toda la lógica al servicio que contiene el cálculo completo de bonos
+    delivery = await delivery_service.complete_delivery(
+        db=db,
+        delivery_id=_parse_uuid(delivery_id, "delivery_id"),
+        proof_data=proof_data,
+        completed_by=current_user.id,
+    )
     
-    await db.flush()
-    await db.commit()
-
-    try:
-        if order:
-            customer_result = await db.execute(
-                select(User).where(User.email == order.customer_email)
-            )
-            customer = customer_result.scalar_one_or_none()
-            if customer:
-                notification_service = NotificationService(db)
-                await notification_service.create_notification(
-                    user_id=customer.id,
-                    notification_type="ENTREGA_COMPLETADA",
-                    title="✅ Pedido Entregado",
-                    message=f"Tu pedido #{order.external_id or str(order.id)[:8]} ha sido entregado exitosamente",
-                    data={"order_id": str(order.id), "delivery_id": str(delivery.id)},
-                    channel="push"
-                )
-                logger.info(f"Notificación de entrega enviada al cliente {customer.id}")
-    except Exception as e:
-        logger.warning(f"No se pudo enviar notificación de entrega al cliente: {e}")
-    
-    try:
-        audit_service = get_audit_service(db)
-        await audit_service.log_action_async(
-            user_id=current_user.id,
-            action=ActionType.COMPLETE,
-            resource_type="DELIVERY",
-            resource_id=str(delivery.id),
-            description=f"Entrega {delivery.id} completada para orden {order.external_id if order else delivery.order_id}",
-            old_values={"status": DeliveryStatus.EN_ROUTE.value},
-            new_values={
-                "status": DeliveryStatus.COMPLETADA.value,
-                "completed_at": now.isoformat(),
-                "sla_compliant": delivery.sla_compliant,
-                "total_time_minutes": delivery.sla_actual_minutes,
-            },
-        )
-    except Exception as e:
-        logger.warning(f"No se pudo crear audit log en PostgreSQL: {e}")
-    
-    try:
-        redis_logger = get_redis_audit_logger()
-        if redis_logger.connected:
-            await redis_logger.log_order_completed(
-                order_id=str(delivery.order_id),
-                rider_id=str(delivery.rider_id),
-                completed_by=str(current_user.id),
-                delivery_time_minutes=delivery.sla_actual_minutes,
-                sla_compliant=delivery.sla_compliant,
-            )
-    except Exception as e:
-        logger.warning(f"No se pudo escribir audit en Redis: {e}")
-    
+    # Recargar relaciones para la respuesta
     await db.refresh(delivery, attribute_names=['rider', 'order'])
     if delivery.rider:
         await db.refresh(delivery.rider, attribute_names=['user'])
@@ -620,8 +499,8 @@ async def complete_delivery(
         .outerjoin(o_alias, Delivery.order_id == o_alias.id)
         .where(Delivery.id == delivery.id)
     )
-    res = await db.execute(final_stmt)
-    d_row, r_row, u_row, o_row = res.first()
+    result = await db.execute(final_stmt)
+    d_row, r_row, u_row, o_row = result.first()
     
     return _serialize_delivery(d_row, r_row, u_row, o_row)
 
