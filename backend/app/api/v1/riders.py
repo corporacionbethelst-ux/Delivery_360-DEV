@@ -243,6 +243,7 @@ def _rider_to_dict(r: Rider, include_user: bool = False) -> dict:
         "id": str(r.id),
         "user_id": str(r.user_id),
         "status": r.status.value if hasattr(r.status, 'value') else r.status,
+        "tier": r.tier.value if hasattr(r.tier, 'value') else r.tier,  # ✅ AGREGADO: Campo tier para gamificación
         "vehicle_type": r.vehicle_type.value if hasattr(r.vehicle_type, 'value') else r.vehicle_type,
         "vehicle_plate": r.vehicle_plate or "",
         "vehicle_model": r.vehicle_model,

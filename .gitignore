@@ -1,9 +1,1 @@
-```
-# Compiled Python files
-__pycache__/
-*.pyc
-*.pyo
-
-# Dependencies
-backend/scripts/__pycache__/
-```
+Nothing should be ignored based on the provided file changes. The only modified file is a Python source file (`backend/app/api/v1/riders.py`), which should not be added to .gitignore.
