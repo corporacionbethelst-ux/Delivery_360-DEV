@@ -9,6 +9,7 @@ node_modules/
 .next/
 out/
 .next/cache/
+.pyc
 
 # Environment variables (nunca subir secretos)
 .env*.local

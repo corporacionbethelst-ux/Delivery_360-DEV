@@ -21,8 +21,8 @@ router = APIRouter()
 class UserCreateBody(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
-    first_name: str = Field(..., min_length=2, max_length=100)
-    last_name: str = Field(..., min_length=2, max_length=100)
+    first_name: str = Field(..., min_length=1, max_length=100)
+    last_name: str = Field(..., min_length=1, max_length=100)
     phone: Optional[str] = Field(None, max_length=20)
     role: UserRole = UserRole.OPERADOR
     is_active: bool = True
@@ -30,8 +30,8 @@ class UserCreateBody(BaseModel):
 
 class UserUpdateBody(BaseModel):
     email: Optional[EmailStr] = None
-    first_name: Optional[str] = Field(None, min_length=2, max_length=100)
-    last_name: Optional[str] = Field(None, min_length=2, max_length=100)
+    first_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    last_name: Optional[str] = Field(None, min_length=1, max_length=100)
     phone: Optional[str] = Field(None, max_length=20)
     role: Optional[UserRole] = None
     is_active: Optional[bool] = None
@@ -39,8 +39,8 @@ class UserUpdateBody(BaseModel):
 
 class UserSelfUpdateBody(BaseModel):
     email: Optional[EmailStr] = None
-    first_name: Optional[str] = Field(None, min_length=2, max_length=100)
-    last_name: Optional[str] = Field(None, min_length=2, max_length=100)
+    first_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    last_name: Optional[str] = Field(None, min_length=1, max_length=100)
     phone: Optional[str] = Field(None, max_length=20)
     avatar_url: Optional[str] = Field(None, max_length=500)
 

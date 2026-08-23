@@ -21,8 +21,8 @@ class UserRole(str, Enum):
 class UserBase(BaseModel):
     """Base user schema"""
     email: EmailStr
-    first_name: str = Field(..., min_length=2, max_length=100)
-    last_name: str = Field(..., min_length=2, max_length=100)
+    first_name: str = Field(..., min_length=1, max_length=100)
+    last_name: str = Field(..., min_length=1, max_length=100)
     phone: Optional[str] = Field(None, max_length=20)
     role: UserRole = UserRole.OPERADOR
 
@@ -36,8 +36,8 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     """User update schema"""
     email: Optional[EmailStr] = None
-    first_name: Optional[str] = Field(None, min_length=2, max_length=100)
-    last_name: Optional[str] = Field(None, min_length=2, max_length=100)
+    first_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    last_name: Optional[str] = Field(None, min_length=1, max_length=100)
     phone: Optional[str] = Field(None, max_length=20)
     role: Optional[UserRole] = None
     is_active: Optional[bool] = None

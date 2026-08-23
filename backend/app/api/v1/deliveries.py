@@ -660,18 +660,21 @@ async def update_delivery_status(
     """
     Endpoint unificado para que el repartidor actualice el estado de su entrega.
     Permite transiciones: ASIGNADO→RECOLECTADO→EN_RUTA→ENTREGADO/FALLIDO
-    Incluye lógica de FASE 3 para cálculo de bonos con multiplicador de zona.
+    Incluye lógica de FASE 3 para cálculo de bonos con multiplicador de zona y Tier.
     """
+    # 1. Obtener la entrega
     result = await db.execute(select(Delivery).where(Delivery.id == _parse_uuid(delivery_id, "delivery_id")))
     delivery = result.scalar_one_or_none()
     if not delivery:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
+    # 2. Validar permisos
     if current_user.role == UserRole.REPARTIDOR:
         rider = await _get_rider_for_user(db, current_user.id)
         if not rider or delivery.rider_id != rider.id:
             raise HTTPException(status_code=403, detail="No tienes permiso para actualizar esta entrega")
     
+    # 3. Mapeo de estados
     status_mapping = {
         "EN_PICKUP": DeliveryStatus.EN_PICKUP,
         "EN_ROUTE": DeliveryStatus.EN_ROUTE,
@@ -684,6 +687,7 @@ async def update_delivery_status(
     if not new_status:
         raise HTTPException(status_code=400, detail=f"Estado inválido: {body.status}")
     
+    # 4. Validar transiciones permitidas
     allowed_transitions = {
         DeliveryStatus.INICIADA: [DeliveryStatus.EN_PICKUP, DeliveryStatus.EN_ROUTE],
         DeliveryStatus.EN_PICKUP: [DeliveryStatus.EN_ROUTE],
@@ -701,6 +705,8 @@ async def update_delivery_status(
     
     # CORRECCIÓN CRÍTICA: Usar fecha naive para compatibilidad con PostgreSQL TIMESTAMP WITHOUT TIME ZONE
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    
+    # --- Lógica por Estado ---
     
     if new_status == DeliveryStatus.EN_PICKUP:
         delivery.status = DeliveryStatus.EN_PICKUP
@@ -734,6 +740,7 @@ async def update_delivery_status(
             order.status = OrderStatus.EN_RUTA
         
     elif new_status == DeliveryStatus.COMPLETADA:
+        # Validación OTP
         if body.otp_code and delivery.proof_otp and body.otp_code != delivery.proof_otp:
             raise HTTPException(status_code=400, detail="Código OTP incorrecto")
         
@@ -745,8 +752,8 @@ async def update_delivery_status(
             delivery.current_latitude = body.lat
             delivery.current_longitude = body.lng
         
+        # Cálculo SLA
         if delivery.started_at:
-            # Asegurar que started_at sea naive si viene con tzinfo para la resta
             start_time = delivery.started_at
             if start_time.tzinfo is not None:
                 start_time = start_time.replace(tzinfo=None)
@@ -762,21 +769,20 @@ async def update_delivery_status(
             order.status = OrderStatus.ENTREGADO
             order.delivered_at = now
         
-        # FASE 1 + FASE 3: Crear registro financiero con multiplicador de zona
+        # ✅ CÁLCULO DE BONO COMPLETO (BASE × ZONA × TIER)
         idempotency_key = f"pago_entrega_{delivery.order_id}"
         financial_result = await db.execute(select(Financial).where(Financial.idempotency_key == idempotency_key))
         existing_financial = financial_result.scalar_one_or_none()
         
         if not existing_financial and delivery.rider_id:
-            # Obtener bono base DESDE LA BASE DE DATOS (Dinámico)
+            # 1. Obtener bono base de configuración
             settings_result = await db.execute(
                 select(PlatformSetting.value).where(PlatformSetting.key == "rider_delivery_bonus")
             )
             bonus_value = settings_result.scalar_one_or_none()
             
-            # VALIDACIÓN ESTRICTA: Si no hay configuración, el monto es 0
             if bonus_value is None:
-                logger.warning(f"[VALIDACIÓN ESTRICTA] rider_delivery_bonus no configurado en DB. Pago forzado a $0 para entrega {delivery.id}")
+                logger.warning(f"[VALIDACIÓN ESTRICTA] rider_delivery_bonus no configurado. Pago $0.")
                 base_payment = Decimal("0")
             else:
                 try:
@@ -785,25 +791,49 @@ async def update_delivery_status(
                     logger.error(f"[ERROR] Valor inválido en rider_delivery_bonus: {bonus_value}. Usando $0.")
                     base_payment = Decimal("0")
             
-            # FASE 3: Obtener multiplicador de la zona del rider
-            multiplier = Decimal("1.0")
-            rider_obj = await _get_rider_for_user(db, rider.id)
+            # 2. ⚠️ CORRECCIÓN CRÍTICA: Obtener Rider directamente por su ID (no por user_id)
+            # Antes usábamos _get_rider_for_user(db, delivery.rider_id) lo cual fallaba porque 
+            # esa función busca por user_id, no por rider_id.
+            rider_query = await db.execute(select(Rider).where(Rider.id == delivery.rider_id))
+            rider_obj = rider_query.scalar_one_or_none()
             
+            # 3. Calcular Multiplicador de Zona
+            zone_multiplier = Decimal("1.0")
             if rider_obj and rider_obj.zone_id:
                 zone_result = await db.execute(
                     select(Zone.bonus_multiplier).where(Zone.id == rider_obj.zone_id)
                 )
-                zone_mult = zone_result.scalar_one_or_none()
-                if zone_mult is not None:
-                    multiplier = Decimal(str(zone_mult))
+                zone_val = zone_result.scalar_one_or_none()
+                if zone_val is not None:
+                    zone_multiplier = Decimal(str(zone_val))
             
-            final_payment = base_payment * multiplier
+            # 4. Calcular Multiplicador de Tier (NIVEL)
+            from app.models.rider import RiderTier
+            TIER_MULTIPLIERS = {
+                RiderTier.BRONCE: Decimal("1.00"),
+                RiderTier.PLATA: Decimal("1.05"),
+                RiderTier.ORO: Decimal("1.10"),
+                RiderTier.PLATINO: Decimal("1.15"),
+            }
             
+            # Ahora rider_obj tendrá el tier correcto porque la consulta es correcta
+            rider_tier = rider_obj.tier if rider_obj and rider_obj.tier else RiderTier.BRONCE
+            tier_multiplier = TIER_MULTIPLIERS.get(rider_tier, Decimal("1.00"))
+            
+            # 5. APLICAR FÓRMULA COMPLETA
+            final_payment = base_payment * zone_multiplier * tier_multiplier
+            
+            # 6. PERSISTIR EN LOCKED_BONUS_AMOUNT (CRÍTICO PARA AUDITORÍA)
+            delivery.locked_bonus_amount = float(final_payment)
+            delivery.locked_bonus_type = "SUCCESS"
+            delivery.bonus_snapshot_date = now
+            
+            # 7. Crear registro financiero
             financial = Financial(
                 rider_id=delivery.rider_id,
                 amount=final_payment,
                 transaction_type=TransactionType.PAGO_ENTREGA,
-                description=f"Pago por entrega (Orden {order.external_id if order else delivery.order_id}) - Mult. Zona: {multiplier}",
+                description=f"Pago por entrega (Orden {order.external_id if order else delivery.order_id}) - Zona: {zone_multiplier}x, Tier: {tier_multiplier}x",
                 reference_id=str(order.id) if order else str(delivery.order_id),
                 source_type="delivery",
                 source_id=str(delivery.id),
@@ -811,10 +841,13 @@ async def update_delivery_status(
                 status=PaymentStatus.PROCESADO,
             )
             db.add(financial)
-            logger.info(f"Pago calculado: Base {base_payment} * Mult {multiplier} = {final_payment}")
+            
+            # LOG DE DEPURACIÓN CRÍTICO
+            logger.info(f"[BONUS_CALC] Base: ${base_payment}, Zona: {zone_multiplier}x, Tier ({rider_tier}): {tier_multiplier}x, Final: ${final_payment}")
+            print(f"[BONUS_CALC] Base: ${base_payment}, Zona: {zone_multiplier}x, Tier ({rider_tier}): {tier_multiplier}x, Final: ${final_payment}", flush=True)
             
     elif new_status == DeliveryStatus.FALLIDA:
-        # Validar que la causa sea un ENUM válido si se proporciona
+        # Validar causa de fallo
         failure_cause = None
         is_bonificable = False
         
@@ -823,7 +856,6 @@ async def update_delivery_status(
                 failure_cause = DeliveryFailureCause(body.issue_type)
                 is_bonificable = failure_cause.is_bonificable
             except ValueError:
-                # Si no es un ENUM válido, usar el analizador de texto como fallback
                 analysis = DeliveryIssueAnalyzer.analyze(body.issue_description)
                 is_bonificable = analysis["is_external_fault"]
         
@@ -845,7 +877,7 @@ async def update_delivery_status(
             order.failure_reason = body.issue_type if body.issue_type else "OTRO"
             order.failure_notes = body.issue_description or ""
         
-        # FASE 2: Crear registro financiero por intento fallido si corresponde
+        # FASE 2: Registro financiero por intento fallido si corresponde
         bonus_applied = False
         bonus_amount = Decimal("0.00")
         
@@ -855,15 +887,13 @@ async def update_delivery_status(
             existing_financial = financial_result.scalar_one_or_none()
             
             if not existing_financial:
-                # Obtener bono por intento fallido DESDE LA BASE DE DATOS (Dinámico)
                 settings_result = await db.execute(
                     select(PlatformSetting.value).where(PlatformSetting.key == "rider_failed_attempt_bonus")
                 )
                 bonus_value = settings_result.scalar_one_or_none()
                 
-                # VALIDACIÓN ESTRICTA: Si no hay configuración, el monto es 0
                 if bonus_value is None:
-                    logger.warning(f"[VALIDACIÓN ESTRICTA] rider_failed_attempt_bonus no configurado en DB. Bono forzado a $0 para entrega fallida {delivery.id}")
+                    logger.warning(f"[VALIDACIÓN ESTRICTA] rider_failed_attempt_bonus no configurado. Bono $0.")
                     failed_payment = Decimal("0")
                 else:
                     try:
@@ -886,11 +916,13 @@ async def update_delivery_status(
                 db.add(financial)
                 bonus_applied = True
                 bonus_amount = failed_payment
-                logger.info(f"Registro financiero creado para entrega fallida {delivery.id} - Rider {delivery.rider_id} - Bono: {failed_payment}")
+                logger.info(f"Registro financiero creado para entrega fallida {delivery.id} - Bono: {failed_payment}")
     
+    # Commit final
     await db.flush()
     await db.commit()
     
+    # Recargar datos para la respuesta
     await db.refresh(delivery, attribute_names=['rider', 'order'])
     if delivery.rider:
         await db.refresh(delivery.rider, attribute_names=['user'])
@@ -908,11 +940,13 @@ async def update_delivery_status(
     res = await db.execute(final_stmt)
     d_row, r_row, u_row, o_row = res.first()
     
-    # Serializar y agregar información del bono aplicado si es estado FALLIDA
+    # Serializar respuesta
     response_data = _serialize_delivery(d_row, r_row, u_row, o_row)
     if new_status == DeliveryStatus.FALLIDA:
         response_data["bonus_applied"] = bonus_applied
         response_data["bonus_amount"] = float(bonus_amount) if bonus_applied else 0.0
-        response_data["issue_analysis"] = analysis if 'analysis' in locals() else None
+        # Nota: 'analysis' solo existe si entró en el bloque except de arriba, manejamos con cuidado
+        if 'analysis' in locals():
+            response_data["issue_analysis"] = analysis
     
     return response_data
