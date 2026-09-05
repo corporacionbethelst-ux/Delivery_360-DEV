@@ -10,11 +10,13 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress'; // Asumo que tienes este componente de shadcn
+import { Progress } from '@/components/ui/progress';
 import { formatCurrency } from '@/lib/formatters';
 import { financialService } from '@/services/financial.service';
 import { orderService, Order } from '@/services/order.service';
 import { riderService } from '@/services/rider.service';
+import { deliveriesService } from '@/services/deliveries.service';
+import { BonusBreakdownCard } from '@/components/productivity/BonusBreakdownCard';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   BarChart, Bar, Cell, PieChart, Pie 
@@ -31,6 +33,21 @@ interface ProductivityStats {
   nextLevelPoints: number;
   dailyDeliveries: { day: string; count: number }[];
   statusDistribution: { name: string; value: number; color: string }[];
+}
+
+interface RecentDelivery {
+  id: string;
+  customer_name: string;
+  completed_at: string;
+  status: string;
+  locked_bonus_amount: number | null;
+  bonus_breakdown: {
+    base: number | null;
+    zone_multiplier: number | null;
+    tier_multiplier: number | null;
+    tier_level: string | null;
+    total: number;
+  } | null;
 }
 
 const LEVEL_THRESHOLDS = [0, 500, 1500, 3000, 5000, 8000]; // Puntos necesarios por nivel
