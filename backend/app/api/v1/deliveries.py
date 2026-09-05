@@ -92,6 +92,7 @@ def _serialize_delivery(delivery: Delivery, rider: Optional[Rider], user: Option
     Serialización centralizada y segura.
     Maneja casos donde las relaciones pueden ser None sin lanzar excepciones.
     INCLUYE LOS CAMPOS DE BLOQUEO DE BONO PARA VERIFICACIÓN.
+    INCLUYE FASE 5: bonus_breakdown para desglose visual en frontend.
     """
     # Datos del Rider
     rider_data = None
@@ -102,7 +103,8 @@ def _serialize_delivery(delivery: Delivery, rider: Optional[Rider], user: Option
             "last_name": user.last_name or "",
             "vehicle_type": rider.vehicle_type.value if rider.vehicle_type else None,
             "status": rider.status.value if rider.status else None,
-            "is_online": getattr(rider, 'is_online', False)
+            "is_online": getattr(rider, 'is_online', False),
+            "tier": rider.tier.value if rider.tier and hasattr(rider.tier, "value") else (str(rider.tier) if rider.tier else None)
         }
 
     # Datos de la Orden/Cliente
@@ -111,6 +113,20 @@ def _serialize_delivery(delivery: Delivery, rider: Optional[Rider], user: Option
     if order:
         customer_name = order.customer_name or "Desconocido"
         external_id = order.external_id
+
+    # FASE 5: Calcular desglose del bono si hay locked_bonus_amount
+    bonus_breakdown = None
+    if delivery.locked_bonus_amount is not None:
+        total_bonus = float(delivery.locked_bonus_amount)
+        
+        # Usar los campos guardados en la DB para el desglose exacto (FASE 5)
+        bonus_breakdown = {
+            "base": float(delivery.locked_bonus_base) if delivery.locked_bonus_base is not None else None,
+            "zone_multiplier": float(delivery.locked_bonus_zone_multiplier) if delivery.locked_bonus_zone_multiplier is not None else None,
+            "tier_multiplier": float(delivery.locked_bonus_tier_multiplier) if delivery.locked_bonus_tier_multiplier is not None else None,
+            "tier_level": delivery.locked_bonus_tier_level or (rider_data["tier"] if rider_data else None),
+            "total": total_bonus
+        }
 
     return {
         "id": str(delivery.id),
@@ -144,6 +160,13 @@ def _serialize_delivery(delivery: Delivery, rider: Optional[Rider], user: Option
         "locked_bonus_type": delivery.locked_bonus_type.value if delivery.locked_bonus_type and hasattr(delivery.locked_bonus_type, "value") else (str(delivery.locked_bonus_type) if delivery.locked_bonus_type else None),
         "bonus_snapshot_date": delivery.bonus_snapshot_date.isoformat() if delivery.bonus_snapshot_date else None,
         "bonus_config_warning_snapshot": delivery.bonus_config_warning_snapshot,
+        # FASE 5: Campos de desglose para visualización frontend
+        "locked_bonus_base": float(delivery.locked_bonus_base) if delivery.locked_bonus_base is not None else None,
+        "locked_bonus_zone_multiplier": float(delivery.locked_bonus_zone_multiplier) if delivery.locked_bonus_zone_multiplier is not None else None,
+        "locked_bonus_tier_multiplier": float(delivery.locked_bonus_tier_multiplier) if delivery.locked_bonus_tier_multiplier is not None else None,
+        "locked_bonus_tier_level": delivery.locked_bonus_tier_level,
+        # FASE 5: Desglose detallado del bono para visualización frontend
+        "bonus_breakdown": bonus_breakdown,
         "created_at": delivery.created_at.isoformat() if delivery.created_at else None,
         "updated_at": delivery.updated_at.isoformat() if delivery.updated_at else None,
     }
@@ -823,10 +846,15 @@ async def update_delivery_status(
             # 5. APLICAR FÓRMULA COMPLETA
             final_payment = base_payment * zone_multiplier * tier_multiplier
             
-            # 6. PERSISTIR EN LOCKED_BONUS_AMOUNT (CRÍTICO PARA AUDITORÍA)
+            # 6. PERSISTIR EN LOCKED_BONUS_AMOUNT Y CAMPOS DE DESGLOSE (FASE 5)
             delivery.locked_bonus_amount = float(final_payment)
             delivery.locked_bonus_type = "SUCCESS"
             delivery.bonus_snapshot_date = now
+            # Campos para desglose visual en frontend
+            delivery.locked_bonus_base = float(base_payment)
+            delivery.locked_bonus_zone_multiplier = float(zone_multiplier)
+            delivery.locked_bonus_tier_multiplier = float(tier_multiplier)
+            delivery.locked_bonus_tier_level = rider_tier.value if rider_tier and hasattr(rider_tier, "value") else str(rider_tier) if rider_tier else "BRONCE"
             
             # 7. Crear registro financiero
             financial = Financial(

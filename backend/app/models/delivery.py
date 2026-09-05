@@ -164,6 +164,12 @@ class Delivery(Base):
     # Alerta de configuración faltante en el momento del snapshot (para auditoría)
     bonus_config_warning_snapshot = Column(Text, nullable=True, comment='Mensaje de alerta sobre configuración faltante en el momento del snapshot. Para auditoría.')
     
+    # FASE 5: Componentes del cálculo del bono para desglose visual
+    locked_bonus_base = Column(Numeric(10, 2), nullable=True, comment='Bono base configurado al momento del cálculo. Para desglose frontend.')
+    locked_bonus_zone_multiplier = Column(Numeric(4, 2), nullable=True, comment='Multiplicador de zona aplicado. Para desglose frontend.')
+    locked_bonus_tier_multiplier = Column(Numeric(4, 2), nullable=True, comment='Multiplicador de tier aplicado. Para desglose frontend.')
+    locked_bonus_tier_level = Column(String(20), nullable=True, comment='Nivel del rider (BRONCE/PLATA/ORO/PLATINO) al momento del cálculo.')
+    
     created_at = Column(DateTime, default=utc_now_naive)
     updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
     
