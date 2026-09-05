@@ -8,7 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertTriangle, CheckCircle, Loader2, Save, Settings } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Loader2, Save, Settings, TrendingUp } from 'lucide-react';
+import { BonusSimulator } from '@/components/admin/BonusSimulator';
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
@@ -229,6 +230,9 @@ export default function SettingsPage() {
             />
           </CardContent>
         </Card>
+
+        {/* FASE 6: Simulador What-If */}
+        <BonusSimulator />
 
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 pt-2">
           <p className="text-xs text-gray-500">
