@@ -136,8 +136,8 @@ async def _get_historical_bonus_metrics(db: AsyncSession, days: int = 30) -> Dic
     
     total_deliveries = success_row.total_deliveries or 0
     total_failed_deliveries = failed_row.total_failed_deliveries or 0
-    total_success_bonus = float(success_row.total_success_bonus) if success_row.total_success_bonus else Decimal('0')
-    total_failed_bonus = float(failed_row.total_failed_bonus) if failed_row.total_failed_bonus else Decimal('0')
+    total_success_bonus = float(success_row.total_success_bonus) if success_row.total_success_bonus else 0.0
+    total_failed_bonus = float(failed_row.total_failed_bonus) if failed_row.total_failed_bonus else 0.0
     total_bonus_paid = total_success_bonus + total_failed_bonus
     
     return {
