@@ -167,6 +167,32 @@ export interface Delivery {
   // Mensaje de alerta sobre configuración faltante en el momento del snapshot (para auditoría)
   bonus_config_warning_snapshot?: string | null;
 
+  // =============================================================================
+  // FASE 5: DESGLOSE DEL BONO PARA VISUALIZACIÓN FRONTEND
+  // =============================================================================
+  // Campos para mostrar al repartidor exactamente cómo se calculó su pago
+  
+  // Bono base configurado al momento del cálculo
+  locked_bonus_base?: number | string | null;
+  
+  // Multiplicador de zona aplicado (ej: 1.0, 1.5, 2.0)
+  locked_bonus_zone_multiplier?: number | string | null;
+  
+  // Multiplicador de tier/nivel aplicado (ej: 1.0, 1.05, 1.10, 1.15)
+  locked_bonus_tier_multiplier?: number | string | null;
+  
+  // Nivel del rider al momento del cálculo (BRONCE, PLATA, ORO, PLATINO)
+  locked_bonus_tier_level?: string | null;
+  
+  // Objeto con desglose completo para visualización directa
+  bonus_breakdown?: {
+    base: number | null;
+    zone_multiplier: number | null;
+    tier_multiplier: number | null;
+    tier_level: string | null;
+    total: number;
+  } | null;
+
   // Campos adicionales para compatibilidad con otras partes del sistema
   type?: DeliveryType;
   priority?: 'NORMAL' | 'ALTA' | 'URGENTE';
