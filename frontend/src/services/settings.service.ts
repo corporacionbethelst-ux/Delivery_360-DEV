@@ -16,36 +16,16 @@ export interface PlatformSettings {
 export type PlatformSettingsUpdate = Partial<Omit<PlatformSettings, 'updated_at' | 'updated_by_user_id'>>;
 
 export interface BonusSimulationRequest {
-  new_rider_delivery_bonus?: number;
-  new_failed_attempt_bonus?: number;
-  days_lookback?: number;
+  new_base_bonus?: number;
+  days_projection?: number;
 }
 
 export interface BonusSimulationResponse {
-  current_base_bonus: number | null;
-  proposed_base_bonus: number | null;
-  current_failed_bonus: number | null;
-  proposed_failed_bonus: number | null;
-  historical_metrics: {
-    days_analyzed: number;
-    total_deliveries: number;
-    total_failed_bonus_deliveries: number;
-    total_combined_deliveries: number;
-    total_bonus_paid: number;
-    avg_daily_deliveries: number;
-    avg_daily_failed_deliveries: number;
-    avg_daily_bonus_paid: number;
-    avg_bonus_per_delivery: number;
-  };
-  projected_impact: {
-    current_monthly_cost: number;
-    projected_monthly_cost: number;
-    monthly_difference: number;
-    projected_30day_impact: number;
-    percentage_change: number;
-    interpretation: string;
-  };
-  simulation_date: string;
+  current_monthly_cost: number;
+  projected_monthly_cost: number;
+  difference: number;
+  percentage_increase: number;
+  message: string;
 }
 
 const normalizeSettings = (settings: PlatformSettings): PlatformSettings => ({

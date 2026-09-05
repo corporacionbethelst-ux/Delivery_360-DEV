@@ -77,20 +77,17 @@ class PlatformSettingsUpdate(BaseModel):
 
 class BonusSimulationRequest(BaseModel):
     """Solicitud para simulación What-If de bonos."""
-    new_rider_delivery_bonus: Optional[float] = Field(None, ge=0, description="Nuevo valor propuesto para bono por entrega")
-    new_failed_attempt_bonus: Optional[float] = Field(None, ge=0, description="Nuevo valor propuesto para bono por intento fallido")
-    days_lookback: int = Field(30, ge=1, le=90, description="Días hacia atrás para calcular promedio histórico")
+    new_base_bonus: Optional[float] = Field(None, ge=0, description="Nuevo valor propuesto para bono por entrega")
+    days_projection: int = Field(30, ge=1, le=90, description="Días hacia atrás para calcular promedio histórico")
 
 
 class BonusSimulationResponse(BaseModel):
     """Respuesta de simulación What-If de bonos."""
-    current_base_bonus: Optional[float]
-    proposed_base_bonus: Optional[float]
-    current_failed_bonus: Optional[float]
-    proposed_failed_bonus: Optional[float]
-    historical_metrics: Dict[str, Any]
-    projected_impact: Dict[str, Any]
-    simulation_date: str
+    current_monthly_cost: float
+    projected_monthly_cost: float
+    difference: float
+    percentage_increase: float
+    message: str
 
 
 async def _get_historical_bonus_metrics(db: AsyncSession, days: int = 30) -> Dict[str, Any]:
@@ -172,56 +169,45 @@ async def simulate_bonus_impact(
     rows = await _ensure_default_settings(db)
     current_settings = _coerce_settings(rows)
     
-    current_base_bonus = current_settings.get('rider_delivery_bonus')
-    current_failed_bonus = current_settings.get('rider_failed_attempt_bonus')
+    current_base_bonus = current_settings.get('rider_delivery_bonus') or 0
+    proposed_base_bonus = body.new_base_bonus if body.new_base_bonus is not None else current_base_bonus
     
-    proposed_base_bonus = body.new_rider_delivery_bonus if body.new_rider_delivery_bonus is not None else current_base_bonus
-    proposed_failed_bonus = body.new_failed_attempt_bonus if body.new_failed_attempt_bonus is not None else current_failed_bonus
-    
-    # Obtener métricas históricas
-    historical_metrics = await _get_historical_bonus_metrics(db, body.days_lookback)
+    # Obtener métricas históricas (últimos 30 días por defecto)
+    days_lookback = body.days_projection or 30
+    historical_metrics = await _get_historical_bonus_metrics(db, days_lookback)
     
     # Calcular proyección de impacto
-    # Escenario: ¿Cuánto costaría más/menos por mes con los nuevos valores?
     total_deliveries = historical_metrics['total_deliveries']
-    total_failed = historical_metrics['total_failed_bonus_deliveries']
-    days = body.days_lookback
+    days = historical_metrics['days_analyzed'] or 1
     
     # Costo actual con valores históricos
     current_monthly_cost = historical_metrics['total_bonus_paid']
     
-    # Costo proyectado con nuevos valores
-    # Asumimos que el volumen de entregas se mantiene igual
-    base_bonus_delta = (proposed_base_bonus or 0) - (current_base_bonus or 0)
-    failed_bonus_delta = (proposed_failed_bonus or 0) - (current_failed_bonus or 0)
-    
-    projected_additional_cost = (base_bonus_delta * total_deliveries) + (failed_bonus_delta * total_failed)
+    # Costo proyectado con nuevo valor
+    base_bonus_delta = proposed_base_bonus - current_base_bonus
+    projected_additional_cost = base_bonus_delta * total_deliveries
     projected_monthly_cost = current_monthly_cost + projected_additional_cost
     
-    # Proyección a 30 días basada en promedios diarios
-    daily_additional_cost = projected_additional_cost / days if days > 0 else 0
-    projected_30day_impact = daily_additional_cost * 30
+    # Diferencia neta
+    difference = projected_monthly_cost - current_monthly_cost
     
     # Porcentaje de cambio
-    pct_change = ((projected_monthly_cost - current_monthly_cost) / current_monthly_cost * 100) if current_monthly_cost > 0 else 0
+    percentage_increase = ((difference / current_monthly_cost) * 100) if current_monthly_cost > 0 else 0
     
-    projected_impact = {
-        'current_monthly_cost': round(current_monthly_cost, 2),
-        'projected_monthly_cost': round(projected_monthly_cost, 2),
-        'monthly_difference': round(projected_additional_cost, 2),
-        'projected_30day_impact': round(projected_30day_impact, 2),
-        'percentage_change': round(pct_change, 2),
-        'interpretation': f"Si mantienes estos valores por 30 días, el costo mensual de bonos {'aumentaría' if projected_additional_cost > 0 else 'disminuiría' if projected_additional_cost < 0 else 'se mantendría'} en ${abs(round(projected_30day_impact, 2))} ({abs(round(pct_change, 2))}%).",
-    }
+    # Mensaje interpretativo
+    if difference > 0:
+        message = f"Un aumento del bono base a ${proposed_base_bonus} incrementaría el costo mensual en ${abs(difference):,.2f} ({percentage_increase:.2f}%). Esto representa un mayor incentivo para los riders pero reduce el margen operativo."
+    elif difference < 0:
+        message = f"Una reducción del bono base a ${proposed_base_bonus} disminuiría el costo mensual en ${abs(difference):,.2f} ({abs(percentage_increase):.2f}%). Esto mejora el margen pero puede afectar la satisfacción de los riders."
+    else:
+        message = "No hay cambio en el costo operativo. El valor propuesto es igual al actual."
     
     return BonusSimulationResponse(
-        current_base_bonus=current_base_bonus,
-        proposed_base_bonus=proposed_base_bonus,
-        current_failed_bonus=current_failed_bonus,
-        proposed_failed_bonus=proposed_failed_bonus,
-        historical_metrics=historical_metrics,
-        projected_impact=projected_impact,
-        simulation_date=datetime.now(timezone.utc).isoformat(),
+        current_monthly_cost=round(current_monthly_cost, 2),
+        projected_monthly_cost=round(projected_monthly_cost, 2),
+        difference=round(difference, 2),
+        percentage_increase=round(percentage_increase, 2),
+        message=message,
     )
 
 
