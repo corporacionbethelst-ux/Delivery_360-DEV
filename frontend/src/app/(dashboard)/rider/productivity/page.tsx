@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { 
   TrendingUp, Award, Clock, Target, Activity, Loader2, AlertCircle, 
-  ArrowUpRight, ArrowDownRight, Medal, Star, Zap, Calendar, ChevronRight 
+  ArrowUpRight, ArrowDownRight, Medal, Star, Zap, Calendar, ChevronRight,
+  DollarSign, MapPin, Shield
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,7 @@ import { orderService, Order } from '@/services/order.service';
 import { riderService } from '@/services/rider.service';
 import { deliveriesService } from '@/services/deliveries.service';
 import { BonusBreakdownCard } from '@/components/productivity/BonusBreakdownCard';
+import { deliveryService, type Delivery as DeliveryType } from '@/services/delivery.service';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   BarChart, Bar, Cell, PieChart, Pie 
@@ -48,6 +50,9 @@ interface RecentDelivery {
     tier_level: string | null;
     total: number;
   } | null;
+  delivery_address?: string;
+  distance_total?: number;
+  total_time?: number;
 }
 
 const LEVEL_THRESHOLDS = [0, 500, 1500, 3000, 5000, 8000]; // Puntos necesarios por nivel
@@ -77,6 +82,7 @@ export default function RiderProductivityPage() {
   const { user, isAuthenticated } = useAuthStore();
 
   const [stats, setStats] = useState<ProductivityStats | null>(null);
+  const [recentDeliveries, setRecentDeliveries] = useState<RecentDelivery[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
@@ -99,10 +105,11 @@ export default function RiderProductivityPage() {
     setError(null);
 
     try {
-      const [profile, earnings, orders] = await Promise.all([
+      const [profile, earnings, orders, deliveriesResponse] = await Promise.all([
         riderService.getProfile(),
         financialService.getMyEarnings(),
         orderService.getAll({ limit: 200 }), // Últimas 200 órdenes para análisis
+        deliveryService.getAll({ status: 'COMPLETADA', limit: 10 }), // Últimas 10 entregas completadas
       ]);
 
       const completedOrders = orders.filter((o) => o.status === 'ENTREGADO');
@@ -145,6 +152,20 @@ export default function RiderProductivityPage() {
           { name: 'Retraso', value: slaResults.length - slaResults.filter(Boolean).length, color: '#f43f5e' },
         ]
       });
+
+      // Transformar entregas recientes con desglose de bonos
+      const recentDeliveriesData: RecentDelivery[] = (deliveriesResponse.items || []).map((d: any) => ({
+        id: d.id,
+        customer_name: d.customer_name || 'Cliente',
+        completed_at: d.completed_at || '',
+        status: d.status,
+        locked_bonus_amount: d.locked_bonus_amount,
+        bonus_breakdown: d.bonus_breakdown || null,
+        delivery_address: d.delivery_address,
+        distance_total: d.distance_total,
+        total_time: d.total_time,
+      }));
+      setRecentDeliveries(recentDeliveriesData);
     } catch (err) {
       console.error('Error loading productivity:', err);
       setError('No se pudo cargar tu productividad. Verifica tu conexión.');
@@ -374,6 +395,65 @@ export default function RiderProductivityPage() {
         </Card>
       </div>
 
+      {/* Sección de Entregas Recientes con Desglose de Bonos (FASE 5) */}
+      <Card className="shadow-sm border-gray-100">
+        <CardHeader>
+          <CardTitle className="text-base font-bold text-gray-800 flex items-center gap-2">
+            <DollarSign className="w-5 h-5 text-green-600" /> Últimas Entregas - Desglose de Pagos
+          </CardTitle>
+          <CardDescription>Visualiza exactamente cómo se calculó el bono de cada entrega.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {recentDeliveries.length > 0 ? (
+            <div className="space-y-4">
+              {recentDeliveries.map((delivery) => (
+                <div 
+                  key={delivery.id} 
+                  className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <p className="font-semibold text-gray-900">{delivery.customer_name}</p>
+                      <p className="text-xs text-gray-500">
+                        {new Date(delivery.completed_at).toLocaleDateString('es-ES', { 
+                          weekday: 'short', 
+                          year: 'numeric', 
+                          month: 'short', 
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                      Completada
+                    </Badge>
+                  </div>
+                  
+                  {/* Componente de desglose del bono */}
+                  <BonusBreakdownCard 
+                    breakdown={delivery.bonus_breakdown}
+                    locked_bonus_base={delivery.bonus_breakdown?.base}
+                    locked_bonus_zone_multiplier={delivery.bonus_breakdown?.zone_multiplier}
+                    locked_bonus_tier_multiplier={delivery.bonus_breakdown?.tier_multiplier}
+                    locked_bonus_tier_level={delivery.bonus_breakdown?.tier_level}
+                    locked_bonus_amount={delivery.locked_bonus_amount}
+                    compact={true}
+                    hideIfEmpty={false}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-400">
+              <DollarSign className="w-12 h-12 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No hay entregas completadas recientes</p>
+              <p className="text-xs mt-1">Completa una entrega para ver el desglose de tu bono</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Consejos y Badges */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="border-l-4 border-l-indigo-500 shadow-sm bg-gradient-to-br from-indigo-50/50 to-white">
@@ -452,7 +532,4 @@ function BadgeItem({ icon: Icon, label, desc, color }: any) {
   );
 }
 
-// Icono auxiliar si no está importado
-const Shield = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-);
+// Icono auxiliar Shield ya no es necesario pues se importa de lucide-react
