@@ -15,6 +15,39 @@ export interface PlatformSettings {
 
 export type PlatformSettingsUpdate = Partial<Omit<PlatformSettings, 'updated_at' | 'updated_by_user_id'>>;
 
+export interface BonusSimulationRequest {
+  new_rider_delivery_bonus?: number;
+  new_failed_attempt_bonus?: number;
+  days_lookback?: number;
+}
+
+export interface BonusSimulationResponse {
+  current_base_bonus: number | null;
+  proposed_base_bonus: number | null;
+  current_failed_bonus: number | null;
+  proposed_failed_bonus: number | null;
+  historical_metrics: {
+    days_analyzed: number;
+    total_deliveries: number;
+    total_failed_bonus_deliveries: number;
+    total_combined_deliveries: number;
+    total_bonus_paid: number;
+    avg_daily_deliveries: number;
+    avg_daily_failed_deliveries: number;
+    avg_daily_bonus_paid: number;
+    avg_bonus_per_delivery: number;
+  };
+  projected_impact: {
+    current_monthly_cost: number;
+    projected_monthly_cost: number;
+    monthly_difference: number;
+    projected_30day_impact: number;
+    percentage_change: number;
+    interpretation: string;
+  };
+  simulation_date: string;
+}
+
 const normalizeSettings = (settings: PlatformSettings): PlatformSettings => ({
   ...settings,
   delivery_fee_base: Number(settings.delivery_fee_base ?? 0),
@@ -71,6 +104,16 @@ export const settingsService = {
     } catch (error: any) {
       console.error('[SettingsService] Error updating platform settings:', error);
       throw new Error(error.response?.data?.detail || error.message || 'No se pudo guardar la configuración');
+    }
+  },
+
+  /** FASE 6: Simular impacto de cambios en bonos sobre costos operativos. */
+  simulateBonusImpact: async (request: BonusSimulationRequest): Promise<BonusSimulationResponse> => {
+    try {
+      return await api.post<BonusSimulationResponse>('/settings/simulate-bonus', request);
+    } catch (error: any) {
+      console.error('[SettingsService] Error simulating bonus impact:', error);
+      throw new Error(error.response?.data?.detail || error.message || 'No se pudo realizar la simulación');
     }
   },
 };
