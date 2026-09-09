@@ -51,7 +51,7 @@ export function BonusSimulator() {
   };
 
   return (
-    <Card className="w-full max-w-2xl mx-auto border-blue-100 shadow-md">
+    <Card className="w-full border-blue-100 shadow-md">
       <CardHeader className="bg-blue-50/50">
         <CardTitle className="flex items-center gap-2 text-blue-900">
           <DollarSign className="w-5 h-5" />
