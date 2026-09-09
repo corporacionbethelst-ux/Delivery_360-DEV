@@ -1,25 +1,88 @@
-```
-# Compiled and build artifacts
-*.pyc
-__pycache__/
-*.o
-*.obj
-
+```gitignore
 # Dependencies
-.venv/
-venv/
+node_modules/
+.pnpm-store/
+.yarn/
+.yarn-cache/
 
-# Logs and temp files
+# Build outputs
+dist/
+build/
+.next/
+.nuxt/
+out/
+public/build/
+frontend/dist/
+frontend/build/
+
+# TypeScript/JavaScript
+*.tsbuildinfo
+*.js.map
+*.jsx.map
+*.ts.map
+*.tsx.map
+
+# Logs
 *.log
-*.tmp
-*.swp
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Environment
+# Environment variables
 .env
 .env.local
-*.env.*
+.env.*
+!.env.example
 
-# Editors
+# IDE files
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+Thumbs.db
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Icon?
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Coverage directory used by tools like istanbul
+coverage/
+.nyc_output/
+
+# Temporary folders
+tmp/
+temp/
+
+# Compiled JavaScript
+lib-cov/
+*.lcov
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Debug log
+debug.log
+
+# Production
+*.min.js
+*.min.css
+
+# Testing
+testem.log
 ```
+
+Wait, I need to reconsider. The only modified file is a TypeScript React component (`frontend/src/components/admin/BonusSimulator.tsx`), which is a source code file. There are no build artifacts, dependency directories, or temporary files in the changes. According to rule 6, if the changes contain only source or config files and no build artifacts, dependencies, or temp files, I should output an empty .gitignore.
+
+(empty)
