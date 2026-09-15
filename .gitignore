@@ -1,26 +1,28 @@
-```gitignore
+```
 # Dependencies
 node_modules/
-.pnpm-store/
-.yarn/
-.yarn-cache/
 
 # Build outputs
 dist/
 build/
-.next/
-.nuxt/
-out/
-public/build/
-frontend/dist/
-frontend/build/
+target/
 
-# TypeScript/JavaScript
-*.tsbuildinfo
-*.js.map
-*.jsx.map
-*.ts.map
-*.tsx.map
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.py.class
+.Python
+env/
+venv/
+.venv/
+.ENV
+.python-version
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage/
 
 # Logs
 *.log
@@ -34,55 +36,100 @@ yarn-error.log*
 .env.*
 !.env.example
 
-# IDE files
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS generated files
+# OS
 .DS_Store
 Thumbs.db
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
 ehthumbs.db
 Icon?
-Network Trash Folder
-Temporary Items
-.apdisk
-
-# Coverage directory used by tools like istanbul
-coverage/
-.nyc_output/
-
-# Temporary folders
-tmp/
-temp/
-
-# Compiled JavaScript
-lib-cov/
-*.lcov
-
-# Runtime data
-pids/
-*.pid
-*.seed
-*.pid.lock
-
-# Debug log
-debug.log
-
-# Production
-*.min.js
-*.min.css
+.directory
+.Trashes
+*.nib
 
 # Testing
-testem.log
+coverage/
+htmlcov/
+.pytest_cache/
+.hypothesis/
+
+# Distribution / packaging
+.Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.egg-info/
+.installed.cfg
+*.egg
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+jspm_packages/
+
+# Bower
+bower_components/
+
+# Grunt
+.grunt
+grunt/
+Gruntfile.js
+
+# Gulp
+gulp/
+.Gulpfile.js
+
+# Webpack
+webpack.config.js
+.webpack.config.js
+
+# JSHint
+.jshintrc
+
+# ESLint
+.eslintcache
+.eslintignore
+
+# Editor temporary files
+*.tmp
+*.temp
+
+# Compressed files
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
+
+# Julia
+julia-*/
+
+# Zig
+zig*/
 ```
-
-Wait, I need to reconsider. The only modified file is a TypeScript React component (`frontend/src/components/admin/BonusSimulator.tsx`), which is a source code file. There are no build artifacts, dependency directories, or temporary files in the changes. According to rule 6, if the changes contain only source or config files and no build artifacts, dependencies, or temp files, I should output an empty .gitignore.
-
-(empty)
