@@ -1,107 +1,38 @@
-```
+```markdown
+# Compiled and build artifacts
+*.pyc
+__pycache__/
+*.o
+*.obj
+*.class
+*.exe
+*.dll
+*.so
+*.a
+*.out
+
 # Dependencies
 node_modules/
-
-# Build outputs
-dist/
-build/
-target/
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.py.class
-.Python
-env/
 venv/
 .venv/
-.ENV
-.python-version
-.pytest_cache/
-.mypy_cache/
-.coverage
-coverage/
-
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Environment variables
 .env
 .env.local
 .env.*
-!.env.example
 
-# IDE
-.vscode/
-.idea/
+# Logs and temp files
+*.log
+*.tmp
 *.swp
 *.swo
-*~
 
-# OS
-.DS_Store
-Thumbs.db
-ehthumbs.db
-Icon?
-.directory
-.Trashes
-*.nib
+# Editors
+.vscode/
+.idea/
 
-# Testing
+# Coverage
 coverage/
 htmlcov/
-.pytest_cache/
-.hypothesis/
-
-# Distribution / packaging
-.Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-*.egg-info/
-.egg-info/
-.installed.cfg
-*.egg
-
-# Node
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-jspm_packages/
-
-# Bower
-bower_components/
-
-# Grunt
-.grunt
-grunt/
-Gruntfile.js
-
-# Gulp
-gulp/
-.Gulpfile.js
-
-# Webpack
-webpack.config.js
-.webpack.config.js
-
-# JSHint
-.jshintrc
-
-# ESLint
-.eslintcache
-.eslintignore
-
-# Editor temporary files
-*.tmp
-*.temp
+.coverage
 
 # Compressed files
 *.zip
@@ -127,9 +58,7 @@ webpack.config.js
 *.tar.xz
 *.tar.zst
 
-# Julia
-julia-*/
-
-# Zig
-zig*/
+# System files
+.DS_Store
+Thumbs.db
 ```
