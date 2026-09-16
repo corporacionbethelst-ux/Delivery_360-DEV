@@ -20,7 +20,7 @@ from app.api.v1 import (
     auth, users, roles, riders, orders, deliveries,
     shifts, productivity, financial, dashboard,
     routes, alerts, integrations, audit, settings as settings_router, payouts,
-    vehicles, zones
+    vehicles, zones, wallet
 )
 from app.middleware import RateLimitMiddleware, AuditLogMiddleware
 from app.monitoring.health_check import health_router
@@ -117,6 +117,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router, prefix="/health", tags=["Health"])
     app.include_router(metrics_router, prefix="/metrics", tags=["Metrics"])
     app.include_router(payouts.router, prefix="/api/v1", tags=["Payouts"])
+    app.include_router(wallet.router, prefix="/api/v1", tags=["Wallet"])
 
     # --- ARCHIVOS ESTÁTICOS (DOCUMENTOS E IMÁGENES) ---
     uploads_path = Path("uploads")
