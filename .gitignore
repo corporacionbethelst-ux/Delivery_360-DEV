@@ -28,7 +28,7 @@ ENV/
 .env/
 
 # Alembic
-alembic/
+#alembic/
 
 # Environment variables
 .env
