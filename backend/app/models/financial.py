@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Optional
 from sqlalchemy import Column, DateTime, Enum as SQLEnum, ForeignKey, Numeric, String, Text, Integer, Boolean
 from sqlalchemy.orm import relationship
