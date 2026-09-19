@@ -1,58 +1,36 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+```
+# Dependencies
+backend/alembic/versions/
 
-# Virtual environments
-venv/
-env/
-ENV/
-.venv/
-.env/
+# Logs and temp files
+*.log
+*.tmp
 
-# Alembic
-#alembic/
-
-# Environment variables
+# Environment
 .env
 .env.local
-*.env
+*.env.*
 
-# IDE
+# Editors
 .vscode/
 .idea/
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-
-# Coverage
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+.env
 .coverage
 htmlcov/
-.coverage.*
-
-# MyPy
+.pytest_cache/
 .mypy_cache/
 
-# Pytest
-.pytest_cache/
+# Build artifacts
+dist/
+build/
+*.egg-info/
+```
