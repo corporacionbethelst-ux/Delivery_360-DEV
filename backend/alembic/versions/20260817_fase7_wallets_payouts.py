@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+import uuid
 
 
 # revision identifiers, used by Alembic.
@@ -20,36 +21,46 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade():
-    # === 1. Crear ENUM types ===
+    # === 1. Crear ENUM types (IDEMPOTENTE) ===
+    # Usamos execute() con SQL crudo para verificar existencia antes de crear
     
     # TransactionType enum
-    transaction_type_enum = PG_ENUM(
-        'PAGO_ENTREGA', 'PAGO_INTENTO_FALLIDO', 'BONO_RENDIMIENTO',
-        'PENALIZACION', 'AJUSTE_MANUAL', 'INGRESO', 'RETIRO',
-        'BONO', 'DESCUENTO', 'AJUSTE',
-        'DELIVERY_BONUS', 'FAILED_ATTEMPT_BONUS',
-        'WITHDRAWAL_REQUEST', 'WITHDRAWAL_COMPLETION',
-        'STRIPE_PAYOUT', 'STRIPE_INSTANT', 'BANK_TRANSFER', 'WALLET_ADJUSTMENT',
-        name='transactiontype_fase7',
-        create_type=True
-    )
-    transaction_type_enum.create(op.get_bind())
+    op.execute("""
+        DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'transactiontype_fase7') THEN
+                CREATE TYPE transactiontype_fase7 AS ENUM (
+                    'PAGO_ENTREGA', 'PAGO_INTENTO_FALLIDO', 'BONO_RENDIMIENTO',
+                    'PENALIZACION', 'AJUSTE_MANUAL', 'INGRESO', 'RETIRO',
+                    'BONO', 'DESCUENTO', 'AJUSTE',
+                    'DELIVERY_BONUS', 'FAILED_ATTEMPT_BONUS',
+                    'WITHDRAWAL_REQUEST', 'WITHDRAWAL_COMPLETION',
+                    'STRIPE_PAYOUT', 'STRIPE_INSTANT', 'BANK_TRANSFER', 'WALLET_ADJUSTMENT'
+                );
+            END IF;
+        END $$;
+    """)
 
     # TransactionStatus enum
-    transaction_status_enum = PG_ENUM(
-        'PENDING', 'COMPLETED', 'FAILED', 'CANCELLED', 'PROCESSING',
-        name='transactionstatus_fase7',
-        create_type=True
-    )
-    transaction_status_enum.create(op.get_bind())
+    op.execute("""
+        DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'transactionstatus_fase7') THEN
+                CREATE TYPE transactionstatus_fase7 AS ENUM (
+                    'PENDING', 'COMPLETED', 'FAILED', 'CANCELLED', 'PROCESSING'
+                );
+            END IF;
+        END $$;
+    """)
 
     # PayoutStatus enum
-    payout_status_enum = PG_ENUM(
-        'PENDING', 'APPROVED', 'PROCESSING', 'COMPLETED', 'REJECTED', 'FAILED',
-        name='payoutstatus_fase7',
-        create_type=True
-    )
-    payout_status_enum.create(op.get_bind())
+    op.execute("""
+        DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payoutstatus_fase7') THEN
+                CREATE TYPE payoutstatus_fase7 AS ENUM (
+                    'PENDING', 'APPROVED', 'PROCESSING', 'COMPLETED', 'REJECTED', 'FAILED'
+                );
+            END IF;
+        END $$;
+    """)
 
     # === 2. Crear tabla rider_wallets ===
     op.create_table(
@@ -69,12 +80,12 @@ def upgrade():
         'financial_transactions',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
         sa.Column('wallet_id', UUID(as_uuid=True), sa.ForeignKey('rider_wallets.id', ondelete='CASCADE'), nullable=False, index=True),
-        sa.Column('transaction_type', transaction_type_enum, nullable=False),
+        sa.Column('transaction_type', sa.Enum('PAGO_ENTREGA', 'PAGO_INTENTO_FALLIDO', 'BONO_RENDIMIENTO', 'PENALIZACION', 'AJUSTE_MANUAL', 'INGRESO', 'RETIRO', 'BONO', 'DESCUENTO', 'AJUSTE', 'DELIVERY_BONUS', 'FAILED_ATTEMPT_BONUS', 'WITHDRAWAL_REQUEST', 'WITHDRAWAL_COMPLETION', 'STRIPE_PAYOUT', 'STRIPE_INSTANT', 'BANK_TRANSFER', 'WALLET_ADJUSTMENT', name='transactiontype_fase7'), nullable=False),
         sa.Column('amount_cents', sa.Integer, nullable=False),
         sa.Column('description', sa.Text, nullable=True),
         sa.Column('reference_id', sa.String(255), nullable=True),
         sa.Column('metadata_json', sa.Text, nullable=True),
-        sa.Column('status', transaction_status_enum, default='PENDING', nullable=False),
+        sa.Column('status', sa.Enum('PENDING', 'COMPLETED', 'FAILED', 'CANCELLED', 'PROCESSING', name='transactionstatus_fase7'), default='PENDING', nullable=False),
         sa.Column('balance_after_cents', sa.Integer, nullable=False),
         sa.Column('created_by_user_id', UUID(as_uuid=True), sa.ForeignKey('users.id'), nullable=True),
         sa.Column('idempotency_key', sa.String(100), unique=True, index=True, nullable=True),
@@ -94,7 +105,7 @@ def upgrade():
         sa.Column('account_holder_name', sa.String(255), nullable=True),
         sa.Column('provider_payout_id', sa.String(255), nullable=True),
         sa.Column('provider_response_json', sa.Text, nullable=True),
-        sa.Column('status', payout_status_enum, default='PENDING', nullable=False, index=True),
+        sa.Column('status', sa.Enum('PENDING', 'APPROVED', 'PROCESSING', 'COMPLETED', 'REJECTED', 'FAILED', name='payoutstatus_fase7'), default='PENDING', nullable=False, index=True),
         sa.Column('rejection_reason', sa.Text, nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column('approved_at', sa.DateTime(timezone=True), nullable=True),
