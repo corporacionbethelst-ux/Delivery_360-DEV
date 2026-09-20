@@ -4,19 +4,36 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.Python
+*.so
+*.egg-info/
+.eggs/
 
-# Dependencies
-venv/
-.venv/
+# Build and distribution
+dist/
+build/
+*.egg
+*.whl
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Environment
 .env
 .env.local
 *.env.*
 
-# Logs and temporary files
-*.log
-*.tmp
-
-# Editors
+# IDE and editor files
 .vscode/
 .idea/
+*.swp
+*.swo
+*.tmp
+
+# Logs
+*.log
+
+# Coverage
+.coverage
+coverage/
+htmlcov/
 ```
