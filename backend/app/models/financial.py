@@ -62,13 +62,13 @@ class TransactionStatus(str, enum.Enum):
 
 
 class PayoutStatus(str, enum.Enum):
-    """Estados de solicitud de retiro."""
-    PENDING = "PENDING"
-    APPROVED = "APPROVED"
-    PROCESSING = "PROCESSING"
-    COMPLETED = "COMPLETED"
-    REJECTED = "REJECTED"
-    FAILED = "FAILED"
+    """Estados de solicitud de retiro (en español para Fase 7 Enterprise)."""
+    PENDIENTE = "PENDIENTE"
+    APROBADO = "APROBADO"
+    EN_PROCESO = "EN_PROCESO"
+    COMPLETADO = "COMPLETADO"
+    RECHAZADO = "RECHAZADO"
+    FALLIDO = "FALLIDO"
 
 
 class RiderWallet(Base):
