@@ -1,4 +1,4 @@
-```
+```gitignore
 # Python
 __pycache__/
 *.py[cod]
@@ -21,36 +21,24 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual environments
-venv/
-env/
-ENV/
+# Environment
+.env
+.env.local
+.env.*
 .venv/
-.env/
-
-# Alembic
-alembic/
-
-# Dependencies
-pip-wheel-metadata/
-requirements.txt.bak
-.tox/
-.coverage
-htmlcov/
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-.pytest_cache/
-.hypothesis/
-.DS_Store
+venv/
+ENV/
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
+*.tmp
+
+# Logs
+*.log
+
+# Alembic
+alembic/versions/*.py
 ```

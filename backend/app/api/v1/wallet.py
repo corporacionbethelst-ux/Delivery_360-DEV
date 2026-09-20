@@ -220,7 +220,7 @@ async def get_my_payout_requests(
 
 @router.get("/admin/payout-requests/pending", response_model=List[PayoutRequestResponse], tags=["Admin - Payouts"])
 async def get_pending_payout_requests(
-    current_user: User = Depends(RoleChecker([UserRole.SUPERADMIN, UserRole.ADMIN])),
+    current_user: User = Depends(RoleChecker([UserRole.SUPERADMIN, UserRole.GERENTE])),
     wallet_service: WalletService = Depends(get_wallet_service)
 ):
     """
@@ -257,7 +257,7 @@ async def get_pending_payout_requests(
 async def approve_payout_request(
     payout_id: UUID,
     approval_data: Optional[PayoutApprovalRequest] = None,
-    current_user: User = Depends(RoleChecker([UserRole.SUPERADMIN, UserRole.ADMIN])),
+    current_user: User = Depends(RoleChecker([UserRole.SUPERADMIN, UserRole.GERENTE])),
     wallet_service: WalletService = Depends(get_wallet_service)
 ):
     """
@@ -304,7 +304,7 @@ async def approve_payout_request(
 async def complete_payout_request(
     payout_id: UUID,
     provider_response: Optional[Dict[str, Any]] = None,
-    current_user: User = Depends(RoleChecker([UserRole.SUPERADMIN, UserRole.ADMIN])),
+    current_user: User = Depends(RoleChecker([UserRole.SUPERADMIN, UserRole.GERENTE])),
     wallet_service: WalletService = Depends(get_wallet_service)
 ):
     """
@@ -353,7 +353,7 @@ async def complete_payout_request(
 async def reject_payout_request(
     payout_id: UUID,
     rejection_data: Dict[str, str],
-    current_user: User = Depends(RoleChecker([UserRole.SUPERADMIN, UserRole.ADMIN])),
+    current_user: User = Depends(RoleChecker([UserRole.SUPERADMIN, UserRole.GERENTE])),
     wallet_service: WalletService = Depends(get_wallet_service)
 ):
     """

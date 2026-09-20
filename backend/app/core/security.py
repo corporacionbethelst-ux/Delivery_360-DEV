@@ -1,12 +1,12 @@
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Optional, List
 import uuid
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from app.core.config import settings
@@ -14,6 +14,11 @@ import secrets
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+
+
+# Alias para compatibilidad con código existente (se definirá después)
+get_current_user = None  
+RoleChecker = None  
 
 
 def verify_password(plain: str, hashed: str) -> bool:
@@ -310,3 +315,28 @@ async def get_current_active_user(
         )
     # Retornar usuario autenticado para usar en el endpoint
     return current_user
+
+
+# Definir alias y clases que dependen de get_current_active_user
+get_current_user = get_current_active_user
+
+
+class RoleChecker:
+    """
+    Dependencia de FastAPI para verificar roles de usuario.
+    
+    Uso:
+        @router.get("/admin", dependencies=[Depends(RoleChecker([UserRole.ADMIN]))])
+        async def admin_endpoint():
+            ...
+    """
+    def __init__(self, allowed_roles: List[UserRole]):
+        self.allowed_roles = allowed_roles
+
+    async def __call__(self, current_user: User = Depends(get_current_active_user)) -> User:
+        if current_user.role not in self.allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permisos para acceder a este recurso"
+            )
+        return current_user
