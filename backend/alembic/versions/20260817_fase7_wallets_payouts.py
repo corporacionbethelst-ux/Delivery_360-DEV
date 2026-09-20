@@ -63,57 +63,60 @@ def upgrade():
         END $$;
     """)
 
-    # === 2. Crear tabla rider_wallets ===
-    op.create_table(
-        'rider_wallets',
-        sa.Column('id', UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-        sa.Column('rider_id', UUID(as_uuid=True), sa.ForeignKey('riders.id', ondelete='CASCADE'), unique=True, nullable=False, index=True),
-        sa.Column('balance_cents', sa.Integer, default=0, nullable=False),
-        sa.Column('currency', sa.String(3), default='USD', nullable=False),
-        sa.Column('is_active', sa.Boolean, default=True, nullable=False),
-        sa.Column('last_transaction_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), onupdate=sa.func.now(), nullable=False),
-    )
+    # === 2. Crear tabla rider_wallets (usando SQL crudo para evitar auto-creación de ENUMs) ===
+    op.execute("""
+        CREATE TABLE rider_wallets (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            rider_id UUID UNIQUE NOT NULL REFERENCES riders(id) ON DELETE CASCADE,
+            balance_cents INTEGER NOT NULL DEFAULT 0,
+            currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            last_transaction_at TIMESTAMP WITH TIME ZONE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+    """)
 
     # === 3. Crear tabla financial_transactions ===
-    op.create_table(
-        'financial_transactions',
-        sa.Column('id', UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-        sa.Column('wallet_id', UUID(as_uuid=True), sa.ForeignKey('rider_wallets.id', ondelete='CASCADE'), nullable=False, index=True),
-        sa.Column('transaction_type', sa.Enum('PAGO_ENTREGA', 'PAGO_INTENTO_FALLIDO', 'BONO_RENDIMIENTO', 'PENALIZACION', 'AJUSTE_MANUAL', 'INGRESO', 'RETIRO', 'BONO', 'DESCUENTO', 'AJUSTE', 'DELIVERY_BONUS', 'FAILED_ATTEMPT_BONUS', 'WITHDRAWAL_REQUEST', 'WITHDRAWAL_COMPLETION', 'STRIPE_PAYOUT', 'STRIPE_INSTANT', 'BANK_TRANSFER', 'WALLET_ADJUSTMENT', name='transactiontype_fase7'), nullable=False),
-        sa.Column('amount_cents', sa.Integer, nullable=False),
-        sa.Column('description', sa.Text, nullable=True),
-        sa.Column('reference_id', sa.String(255), nullable=True),
-        sa.Column('metadata_json', sa.Text, nullable=True),
-        sa.Column('status', sa.Enum('PENDING', 'COMPLETED', 'FAILED', 'CANCELLED', 'PROCESSING', name='transactionstatus_fase7'), default='PENDING', nullable=False),
-        sa.Column('balance_after_cents', sa.Integer, nullable=False),
-        sa.Column('created_by_user_id', UUID(as_uuid=True), sa.ForeignKey('users.id'), nullable=True),
-        sa.Column('idempotency_key', sa.String(100), unique=True, index=True, nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False, index=True),
-    )
+    op.execute("""
+        CREATE TABLE financial_transactions (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            wallet_id UUID NOT NULL REFERENCES rider_wallets(id) ON DELETE CASCADE,
+            transaction_type transactiontype_fase7 NOT NULL,
+            amount_cents INTEGER NOT NULL,
+            description TEXT,
+            reference_id VARCHAR(255),
+            metadata_json TEXT,
+            status transactionstatus_fase7 NOT NULL DEFAULT 'PENDING',
+            balance_after_cents INTEGER NOT NULL,
+            created_by_user_id UUID REFERENCES users(id),
+            idempotency_key VARCHAR(100) UNIQUE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+    """)
 
     # === 4. Crear tabla payout_requests ===
-    op.create_table(
-        'payout_requests',
-        sa.Column('id', UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-        sa.Column('wallet_id', UUID(as_uuid=True), sa.ForeignKey('rider_wallets.id', ondelete='CASCADE'), nullable=False, index=True),
-        sa.Column('rider_id', UUID(as_uuid=True), sa.ForeignKey('riders.id', ondelete='CASCADE'), nullable=False, index=True),
-        sa.Column('amount_cents', sa.Integer, nullable=False),
-        sa.Column('currency', sa.String(3), default='USD', nullable=False),
-        sa.Column('bank_account_last4', sa.String(4), nullable=True),
-        sa.Column('bank_name', sa.String(100), nullable=True),
-        sa.Column('account_holder_name', sa.String(255), nullable=True),
-        sa.Column('provider_payout_id', sa.String(255), nullable=True),
-        sa.Column('provider_response_json', sa.Text, nullable=True),
-        sa.Column('status', sa.Enum('PENDING', 'APPROVED', 'PROCESSING', 'COMPLETED', 'REJECTED', 'FAILED', name='payoutstatus_fase7'), default='PENDING', nullable=False, index=True),
-        sa.Column('rejection_reason', sa.Text, nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column('approved_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('processed_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('completed_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('failed_at', sa.DateTime(timezone=True), nullable=True),
-    )
+    op.execute("""
+        CREATE TABLE payout_requests (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            wallet_id UUID NOT NULL REFERENCES rider_wallets(id) ON DELETE CASCADE,
+            rider_id UUID NOT NULL REFERENCES riders(id) ON DELETE CASCADE,
+            amount_cents INTEGER NOT NULL,
+            currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+            bank_account_last4 VARCHAR(4),
+            bank_name VARCHAR(100),
+            account_holder_name VARCHAR(255),
+            provider_payout_id VARCHAR(255),
+            provider_response_json TEXT,
+            status payoutstatus_fase7 NOT NULL DEFAULT 'PENDING',
+            rejection_reason TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+            approved_at TIMESTAMP WITH TIME ZONE,
+            processed_at TIMESTAMP WITH TIME ZONE,
+            completed_at TIMESTAMP WITH TIME ZONE,
+            failed_at TIMESTAMP WITH TIME ZONE
+        )
+    """)
 
     # === 5. Índices adicionales para performance ===
     op.create_index('ix_rider_wallets_rider_id', 'rider_wallets', ['rider_id'])
