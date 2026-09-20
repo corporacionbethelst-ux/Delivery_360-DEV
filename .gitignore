@@ -1,36 +1,22 @@
 ```
-# Dependencies
-backend/alembic/versions/
-
-# Logs and temp files
-*.log
-*.tmp
-
-# Environment
-.env
-.env.local
-*.env.*
-
-# Editors
-.vscode/
-.idea/
-
 # Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.Python
+
+# Dependencies
 venv/
 .venv/
 .env
-.coverage
-htmlcov/
-.pytest_cache/
-.mypy_cache/
+.env.local
+*.env.*
 
-# Build artifacts
-dist/
-build/
-*.egg-info/
+# Logs and temporary files
+*.log
+*.tmp
+
+# Editors
+.vscode/
+.idea/
 ```
