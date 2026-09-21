@@ -173,7 +173,7 @@ class PayoutRequest(Base):
     provider_response_json = Column(Text, nullable=True)
 
     # Estados
-    status: Any = Column(SQLEnum(PayoutStatus), default=PayoutStatus.PENDING, nullable=False, index=True)
+    status: Any = Column(SQLEnum(PayoutStatus), default=PayoutStatus.PENDIENTE, nullable=False, index=True)
     rejection_reason = Column(Text, nullable=True)
 
     # Timestamps
