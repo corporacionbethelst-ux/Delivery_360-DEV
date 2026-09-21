@@ -1184,9 +1184,24 @@ async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
         print("   ⚠️ No hay superadmin para trazar retiros demo.")
         return
 
-    candidates = [rider for rider in riders if money(getattr(rider, "wallet_balance", 0)) > Decimal("20.00")]
+    # Cargar riders con sus relaciones user y wallet explícitamente para evitar lazy loading
+    from sqlalchemy.orm import selectinload
+    rider_ids = [r.id for r in riders]
+    result = await db.execute(
+        select(Rider)
+        .where(Rider.id.in_(rider_ids))
+        .options(selectinload(Rider.user), selectinload(Rider.wallet))
+    )
+    candidates = list(result.scalars().all())
+    candidates = [rider for rider in candidates if money(getattr(rider, "wallet_balance", 0)) > Decimal("20.00")]
+    
     if not candidates:
-        result = await db.execute(select(Rider).where(Rider.wallet_balance > 20).limit(5))
+        result = await db.execute(
+            select(Rider)
+            .where(Rider.wallet_balance > 20)
+            .options(selectinload(Rider.user), selectinload(Rider.wallet))
+            .limit(5)
+        )
         candidates = list(result.scalars().all())
 
     statuses = [PayoutRequestStatus.PENDIENTE, PayoutRequestStatus.APROBADO, PayoutRequestStatus.RECHAZADO]
@@ -1218,6 +1233,8 @@ async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
             db.add(wallet)
             await db.flush()
 
+        account_holder_name = getattr(getattr(rider, 'user', None), 'name', None) or "Rider"
+
         payout_req = PayoutRequest(
             id=payout_id,
             wallet_id=wallet.id,
@@ -1227,7 +1244,7 @@ async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
             status=status_value,
             bank_account_last4=str(random.randint(1000, 9999)),
             bank_name="Banco Demo",
-            account_holder_name=rider.user.name if rider.user else "Rider",
+            account_holder_name=account_holder_name,
             rejection_reason="Datos bancarios pendientes de validación" if status_value == PayoutRequestStatus.RECHAZADO else None,
             created_at=requested_at,
             approved_at=processed_at if status_value == PayoutRequestStatus.APROBADO else None,
