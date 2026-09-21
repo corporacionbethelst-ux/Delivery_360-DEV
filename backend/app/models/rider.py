@@ -130,6 +130,9 @@ class Rider(Base):
         overlaps="rider,transactions",
     )
     
+    # Relación con Wallet (Fase 7)
+    wallet = relationship("RiderWallet", uselist=False, back_populates="rider", cascade="all, delete-orphan")
+    
     # Relación inversa para productivity_metrics (sin back_populates para evitar conflicto, overlaps para silenciar warning)
     productivity_metrics = relationship("ProductivityRecord", foreign_keys="ProductivityRecord.rider_id", overlaps="rider")
 
