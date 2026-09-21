@@ -23,8 +23,9 @@ from app.models.zone import Zone
 from app.models.order import Order, OrderStatus, OrderPriority
 from app.models.delivery import Delivery, DeliveryStatus, ProofType
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
-from app.models.financial import Financial, TransactionType, PaymentStatus
+from app.models.financial import Financial, TransactionType, PaymentStatus, RiderWallet, FinancialTransaction, TransactionStatus as FinTransactionStatus
 from app.models.payout import Payout, PayoutStatus, PayoutMethod, PayoutStatusHistory
+from app.models.financial import PayoutRequest, PayoutStatus as PayoutRequestStatus
 from app.models.audit_log import AuditLog, ActionType
 from app.models.platform_setting import PlatformSetting
 from app.services.financial_service import FinancialService, money
@@ -1188,7 +1189,7 @@ async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
         result = await db.execute(select(Rider).where(Rider.wallet_balance > 20).limit(5))
         candidates = list(result.scalars().all())
 
-    statuses = [PayoutStatus.PENDIENTE, PayoutStatus.PROCESADO, PayoutStatus.RECHAZADO]
+    statuses = [PayoutRequestStatus.PENDIENTE, PayoutRequestStatus.APROBADO, PayoutRequestStatus.RECHAZADO]
     created = 0
     now = utc_now_naive()
 
@@ -1204,84 +1205,35 @@ async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
             continue
 
         amount = min(Decimal("30000.00"), max(Decimal("10.00"), money(current_balance * Decimal("0.30"))))
-        balance_after = current_balance - amount if status_value in [PayoutStatus.PENDIENTE, PayoutStatus.PROCESADO] else current_balance
+        balance_after = current_balance - amount if status_value in [PayoutRequestStatus.PENDIENTE, PayoutRequestStatus.APROBADO] else current_balance
         payout_id = uuid.uuid4()
         requested_at = now - timedelta(hours=8 + index)
-        processed_at = requested_at + timedelta(hours=2) if status_value != PayoutStatus.PENDIENTE else None
+        processed_at = requested_at + timedelta(hours=2) if status_value != PayoutRequestStatus.PENDIENTE else None
 
-        payout = Payout(
+        # Crear wallet si no existe
+        result = await db.execute(select(RiderWallet).where(RiderWallet.rider_id == rider.id))
+        wallet = result.scalar_one_or_none()
+        if not wallet:
+            wallet = RiderWallet(rider_id=rider.id, balance_cents=int(current_balance * 100))
+            db.add(wallet)
+            await db.flush()
+
+        payout_req = PayoutRequest(
             id=payout_id,
+            wallet_id=wallet.id,
             rider_id=rider.id,
-            amount=amount,
+            amount_cents=int(amount * 100),
+            currency="USD",
             status=status_value,
-            method=random.choice([PayoutMethod.TRANSFERENCIA, PayoutMethod.BILLETERA_DIGITAL]),
             bank_account_last4=str(random.randint(1000, 9999)),
-            reference_code=f"SEED-PAY-{str(payout_id)[:8].upper()}" if status_value == PayoutStatus.PROCESADO else None,
-            rejection_reason="Datos bancarios pendientes de validación" if status_value == PayoutStatus.RECHAZADO else None,
-            idempotency_key=idempotency_key,
-            balance_before=current_balance,
-            balance_after=balance_after,
-            requested_by_user_id=rider.user_id,
-            processed_by_user_id=admin_user.id if status_value != PayoutStatus.PENDIENTE else None,
-            requested_at=requested_at,
-            processed_at=processed_at,
-            updated_at=processed_at or requested_at,
+            bank_name="Banco Demo",
+            account_holder_name=rider.user.name if rider.user else "Rider",
+            rejection_reason="Datos bancarios pendientes de validación" if status_value == PayoutRequestStatus.RECHAZADO else None,
+            created_at=requested_at,
+            approved_at=processed_at if status_value == PayoutRequestStatus.APROBADO else None,
+            processed_at=processed_at if status_value == PayoutRequestStatus.APROBADO else None,
         )
-        db.add(payout)
-        db.add(
-            PayoutStatusHistory(
-                payout_id=payout_id,
-                old_status=None,
-                new_status=PayoutStatus.PENDIENTE.value,
-                reason="Solicitud demo creada desde seed_data",
-                changed_by_user_id=rider.user_id,
-                balance_before=current_balance,
-                balance_after=current_balance - amount,
-                created_at=requested_at,
-            )
-        )
-
-        if status_value == PayoutStatus.PROCESADO:
-            db.add(
-                PayoutStatusHistory(
-                    payout_id=payout_id,
-                    old_status=PayoutStatus.PENDIENTE.value,
-                    new_status=PayoutStatus.PROCESADO.value,
-                    reason="Retiro demo aprobado",
-                    changed_by_user_id=admin_user.id,
-                    balance_before=current_balance,
-                    balance_after=balance_after,
-                    created_at=processed_at,
-                )
-            )
-            await FinancialService(db).create_ledger_entry(
-                rider_id=rider.id,
-                amount=amount,
-                balance_before=current_balance,
-                transaction_type=TransactionType.RETIRO,
-                status=PaymentStatus.PROCESADO,
-                description=f"Retiro demo aprobado: {payout.reference_code}",
-                reference_id=str(payout_id),
-                source_type="PAYOUT",
-                source_id=str(payout_id),
-                idempotency_key=f"seed-payout-ledger-{payout_id}",
-                created_by_user_id=admin_user.id,
-                commit=False,
-            )
-            rider.wallet_balance = balance_after
-        elif status_value == PayoutStatus.RECHAZADO:
-            db.add(
-                PayoutStatusHistory(
-                    payout_id=payout_id,
-                    old_status=PayoutStatus.PENDIENTE.value,
-                    new_status=PayoutStatus.RECHAZADO.value,
-                    reason=payout.rejection_reason,
-                    changed_by_user_id=admin_user.id,
-                    balance_before=current_balance - amount,
-                    balance_after=current_balance,
-                    created_at=processed_at,
-                )
-            )
+        db.add(payout_req)
 
         created += 1
 
