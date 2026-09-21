@@ -62,13 +62,13 @@ class TransactionStatus(str, enum.Enum):
 
 
 class PayoutStatus(str, enum.Enum):
-    """Estados de solicitud de retiro."""
-    PENDING = "PENDING"
-    APPROVED = "APPROVED"
-    PROCESSING = "PROCESSING"
-    COMPLETED = "COMPLETED"
-    REJECTED = "REJECTED"
-    FAILED = "FAILED"
+    """Estados de solicitud de retiro (en español para Fase 7 Enterprise)."""
+    PENDIENTE = "PENDIENTE"
+    APROBADO = "APROBADO"
+    EN_PROCESO = "EN_PROCESO"
+    COMPLETADO = "COMPLETADO"
+    RECHAZADO = "RECHAZADO"
+    FALLIDO = "FALLIDO"
 
 
 class RiderWallet(Base):
@@ -173,7 +173,7 @@ class PayoutRequest(Base):
     provider_response_json = Column(Text, nullable=True)
 
     # Estados
-    status: Any = Column(SQLEnum(PayoutStatus), default=PayoutStatus.PENDING, nullable=False, index=True)
+    status: Any = Column(SQLEnum(PayoutStatus), default=PayoutStatus.PENDIENTE, nullable=False, index=True)
     rejection_reason = Column(Text, nullable=True)
 
     # Timestamps

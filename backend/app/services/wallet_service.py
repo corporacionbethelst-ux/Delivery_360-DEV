@@ -256,7 +256,7 @@ class WalletService:
             bank_account_last4=bank_account_last4,
             bank_name=bank_name,
             account_holder_name=account_holder_name,
-            status=PayoutStatus.PENDING
+            status=PayoutStatus.PENDIENTE
         )
 
         self.db.add(payout_request)
@@ -274,10 +274,10 @@ class WalletService:
         if not payout:
             raise NotFoundError("Solicitud de retiro no encontrada")
 
-        if payout.status != PayoutStatus.PENDING:
+        if payout.status != PayoutStatus.PENDIENTE:
             raise ValidationError(f"No se puede aprobar retiro en estado {payout.status}")
 
-        payout.status = PayoutStatus.APPROVED
+        payout.status = PayoutStatus.APROBADO
         payout.approved_at = datetime.utcnow()
         if provider_payout_id:
             payout.provider_payout_id = provider_payout_id
@@ -296,10 +296,10 @@ class WalletService:
         if not payout:
             raise NotFoundError("Solicitud de retiro no encontrada")
 
-        if payout.status not in [PayoutStatus.APPROVED, PayoutStatus.PROCESSING]:
+        if payout.status not in [PayoutStatus.APROBADO, PayoutStatus.EN_PROCESO]:
             raise ValidationError(f"No se puede completar retiro en estado {payout.status}")
 
-        payout.status = PayoutStatus.COMPLETED
+        payout.status = PayoutStatus.COMPLETADO
         payout.completed_at = datetime.utcnow()
         if provider_response_json:
             payout.provider_response_json = provider_response_json
@@ -318,7 +318,7 @@ class WalletService:
         if not payout:
             raise NotFoundError("Solicitud de retiro no encontrada")
 
-        if payout.status != PayoutStatus.PENDING:
+        if payout.status != PayoutStatus.PENDIENTE:
             raise ValidationError(f"No se puede rechazar retiro en estado {payout.status}")
 
         # Devolver fondos a la wallet
@@ -327,7 +327,7 @@ class WalletService:
             wallet.balance_cents += payout.amount_cents
             wallet.last_transaction_at = datetime.utcnow()
 
-        payout.status = PayoutStatus.REJECTED
+        payout.status = PayoutStatus.RECHAZADO
         payout.rejection_reason = reason
         payout.failed_at = datetime.utcnow()
 
@@ -365,5 +365,5 @@ class WalletService:
     def get_pending_payouts(self) -> List[PayoutRequest]:
         """Obtiene todas las solicitudes de retiro pendientes de aprobación."""
         return self.db.query(PayoutRequest).filter(
-            PayoutRequest.status == PayoutStatus.PENDING
+            PayoutRequest.status == PayoutStatus.PENDIENTE
         ).order_by(PayoutRequest.created_at).all()
