@@ -72,14 +72,29 @@ def upgrade():
         USING transaction_type::text::transactiontype;
     """)
 
-    # Actualizar financial_transactions.status
+    # Actualizar financial_transactions.status (primero quitar default, luego cambiar tipo, luego restaurar default)
+    op.execute("""
+        ALTER TABLE financial_transactions 
+        ALTER COLUMN status DROP DEFAULT;
+    """)
+    
     op.execute("""
         ALTER TABLE financial_transactions 
         ALTER COLUMN status TYPE transactionstatus 
         USING status::text::transactionstatus;
     """)
+    
+    op.execute("""
+        ALTER TABLE financial_transactions 
+        ALTER COLUMN status SET DEFAULT 'PENDING'::transactionstatus;
+    """)
 
-    # Actualizar payout_requests.status con traducción al español
+    # Actualizar payout_requests.status con traducción al español (primero quitar default)
+    op.execute("""
+        ALTER TABLE payout_requests 
+        ALTER COLUMN status DROP DEFAULT;
+    """)
+    
     op.execute("""
         ALTER TABLE payout_requests 
         ALTER COLUMN status TYPE payoutstatus 
@@ -92,6 +107,11 @@ def upgrade():
             WHEN status::text = 'FAILED' THEN 'FALLIDO'
             ELSE 'PENDIENTE'
         END::payoutstatus;
+    """)
+    
+    op.execute("""
+        ALTER TABLE payout_requests 
+        ALTER COLUMN status SET DEFAULT 'PENDIENTE'::payoutstatus;
     """)
 
     # === 3. Eliminar ENUMs antiguos (_fase7) ===
