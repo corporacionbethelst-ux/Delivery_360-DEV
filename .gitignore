@@ -9,6 +9,8 @@ venv/
 
 # Logs
 *.log
+.git/refs/original/
+**/.pytest_cache/
 
 # Environment files
 .env
