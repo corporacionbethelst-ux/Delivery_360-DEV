@@ -21,9 +21,9 @@ except ImportError:
     shift = None
 
 try:
-    from app.models import financial, productivity, audit_log, notification, integration
+    from app.models import financial, productivity, audit_log, notification, integration, payout
 except ImportError:
-    financial = productivity = audit_log = notification = integration = None
+    financial = productivity = audit_log = notification = integration = payout = None
 
 config = context.config
 # Usar DATABASE_URL_SYNC para Alembic (conexión síncrona)

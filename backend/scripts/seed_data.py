@@ -1175,7 +1175,12 @@ async def seed_shifts(db: AsyncSession, riders: List[Rider], target_count: int =
 
 
 async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
-    """Seed payout requests with status history for manager/rider finance demos."""
+    """Seed payout requests with status history for manager/rider finance demos.
+    
+    Usa selectinload para cargar relaciones y evitar errores MissingGreenlet.
+    Usa getattr seguro para acceder a rider.user.name.
+    Usa los valores del enum PayoutStatus en español.
+    """
     print("💸 Sembrando retiros demo con historial...")
 
     admin_result = await db.execute(select(User).where(User.role == UserRole.SUPERADMIN))
@@ -1186,6 +1191,8 @@ async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
 
     # Cargar riders con sus relaciones user y wallet explícitamente para evitar lazy loading
     from sqlalchemy.orm import selectinload
+    from app.models.financial import PayoutRequest, PayoutStatus as PayoutRequestStatus
+    
     rider_ids = [r.id for r in riders]
     result = await db.execute(
         select(Rider)
@@ -1193,17 +1200,19 @@ async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
         .options(selectinload(Rider.user), selectinload(Rider.wallet))
     )
     candidates = list(result.scalars().all())
+    
+    # Filtrar riders con balance suficiente usando getattr seguro
     candidates = [rider for rider in candidates if money(getattr(rider, "wallet_balance", 0)) > Decimal("20.00")]
     
     if not candidates:
         result = await db.execute(
             select(Rider)
-            .where(Rider.wallet_balance > 20)
             .options(selectinload(Rider.user), selectinload(Rider.wallet))
             .limit(5)
         )
         candidates = list(result.scalars().all())
 
+    # Estados de payout en español (usando el enum correcto)
     statuses = [PayoutRequestStatus.PENDIENTE, PayoutRequestStatus.APROBADO, PayoutRequestStatus.RECHAZADO]
     created = 0
     now = utc_now_naive()
@@ -1233,7 +1242,9 @@ async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
             db.add(wallet)
             await db.flush()
 
-        account_holder_name = getattr(getattr(rider, 'user', None), 'name', None) or "Rider"
+        # Usar getattr seguro para acceder al nombre del usuario
+        user_obj = getattr(rider, 'user', None)
+        account_holder_name = getattr(user_obj, 'name', None) or getattr(user_obj, 'first_name', 'Rider') or "Rider"
 
         payout_req = PayoutRequest(
             id=payout_id,
