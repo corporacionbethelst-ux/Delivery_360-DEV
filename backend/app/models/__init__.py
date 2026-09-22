@@ -8,8 +8,8 @@ from app.models.order import Order, OrderStatus, OrderPriority
 from app.models.delivery import Delivery, DeliveryStatus, ProofType
 from app.models.route import Route, RoutePoint, RouteDeviation, RouteStatus
 from app.models.shift import Shift, ShiftStatus, CheckInOut
-from app.models.financial import Financial, FinancialTransaction, TransactionType, PaymentStatus
-from app.models.payout import Payout, PayoutStatus, PayoutMethod, PayoutStatusHistory
+from app.models.financial import Financial, FinancialTransaction, TransactionType, PaymentStatus, RiderWallet, PayoutRequest
+from app.models.payout import Payout, PayoutStatus as LegacyPayoutStatus, PayoutMethod, PayoutStatusHistory
 from app.models.productivity import ProductivityRecord, MetricType
 from app.models.audit_log import AuditLog, AuditAction, ActionType
 from app.models.notification import Notification, NotificationType, NotificationPriority, Alert
@@ -26,7 +26,8 @@ __all__ = [
     "Route", "RoutePoint", "RouteDeviation", "RouteStatus",
     "Shift", "ShiftStatus", "CheckInOut",
     "Financial", "FinancialTransaction", "TransactionType", "PaymentStatus",
-    "Payout", "PayoutStatus", "PayoutMethod", "PayoutStatusHistory",
+    "RiderWallet", "PayoutRequest",
+    "Payout", "LegacyPayoutStatus", "PayoutMethod", "PayoutStatusHistory",
     "ProductivityRecord", "MetricType",
     "AuditLog", "AuditAction", "ActionType",
     "Notification", "NotificationType", "NotificationPriority", "Alert",

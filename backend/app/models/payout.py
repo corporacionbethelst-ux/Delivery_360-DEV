@@ -15,6 +15,7 @@ def utc_now_naive():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 class PayoutStatus(str, enum.Enum):
+    """Estados de pago legacy (tabla payouts antigua)."""
     PENDIENTE = "PENDIENTE"
     PROCESADO = "PROCESADO"
     RECHAZADO = "RECHAZADO"
