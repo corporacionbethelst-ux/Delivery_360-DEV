@@ -1229,7 +1229,7 @@ async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
     for index, rider in enumerate(candidates[:12]):  # Permitir hasta 12 payouts (2 por estado)
         status_value = statuses[index % len(statuses)]
         idempotency_key = f"seed-payout-{status_value.value.lower()}-{rider.id}-{index // len(statuses)}"
-        existing = await db.execute(select(Payout).where(Payout.idempotency_key == idempotency_key))
+        existing = await db.execute(select(PayoutRequest).where(PayoutRequest.idempotency_key == idempotency_key))
         if existing.scalar_one_or_none():
             continue
 
@@ -1306,6 +1306,7 @@ async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
             account_holder_name=account_holder_name,
             rejection_reason="Datos bancarios pendientes de validación" if status_value == PayoutRequestStatus.RECHAZADO else None,
             failure_reason="Error en procesamiento bancario" if status_value == PayoutRequestStatus.FALLIDO else None,
+            idempotency_key=idempotency_key,
             created_at=requested_at,
             approved_at=approved_at,
             processed_at=processed_at,

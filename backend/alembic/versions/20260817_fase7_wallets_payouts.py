@@ -110,6 +110,8 @@ def upgrade():
             provider_response_json TEXT,
             status payoutstatus_fase7 NOT NULL DEFAULT 'PENDING',
             rejection_reason TEXT,
+            failure_reason TEXT,
+            idempotency_key VARCHAR(100) UNIQUE,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
             approved_at TIMESTAMP WITH TIME ZONE,
             processed_at TIMESTAMP WITH TIME ZONE,
