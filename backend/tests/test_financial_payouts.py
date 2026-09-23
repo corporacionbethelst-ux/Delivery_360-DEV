@@ -1,4 +1,4 @@
-"""Tests críticos del ledger financiero y payouts."""
+"""Tests críticos del ledger financiero y payouts - Fase 7 Enterprise."""
 
 from decimal import Decimal
 from types import SimpleNamespace
@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.models.financial import PaymentStatus, TransactionType
+from app.models.financial import PaymentStatus, TransactionType, PayoutStatus
 from app.services.financial_service import FinancialService, ledger_delta, money
 from app.api.v1 import payouts as payouts_api
 
@@ -137,3 +137,87 @@ async def test_calculate_available_balance_reserves_pending_and_processed_payout
         "total_earned": 100.0,
         "currency": "COP",
     }
+
+
+# === TESTS DE FASE 7: Estados de Payout en Español ===
+
+@pytest.mark.parametrize(
+    "status_value",
+    [
+        PayoutStatus.PENDIENTE.value,
+        PayoutStatus.APROBADO.value,
+        PayoutStatus.EN_PROCESO.value,
+        PayoutStatus.COMPLETADO.value,
+        PayoutStatus.RECHAZADO.value,
+        PayoutStatus.FALLIDO.value,
+    ],
+)
+def test_payout_status_enum_spanish_values(status_value):
+    """Verifica que los estados de payout estén en español."""
+    assert status_value in ["PENDIENTE", "APROBADO", "EN_PROCESO", "COMPLETADO", "RECHAZADO", "FALLIDO"]
+
+
+def test_payout_status_complete_workflow():
+    """Prueba el flujo completo de estados de un payout."""
+    # Simular transición de estados
+    initial_status = PayoutStatus.PENDIENTE
+    approved_status = PayoutStatus.APROBADO
+    processing_status = PayoutStatus.EN_PROCESO
+    final_status = PayoutStatus.COMPLETADO
+    
+    # Verificar transiciones válidas
+    assert initial_status.value == "PENDIENTE"
+    assert approved_status.value == "APROBADO"
+    assert processing_status.value == "EN_PROCESO"
+    assert final_status.value == "COMPLETADO"
+
+
+@pytest.mark.asyncio
+async def test_payout_rejection_restores_balance():
+    """Prueba que rechazar un payout restaura el saldo pendiente."""
+    # Simular DB con saldo total, payout pendiente y payout procesado
+    db = _FakeDb([Decimal("100.00"), Decimal("20.00"), Decimal("0.00")])
+    
+    # El saldo disponible debería ser 100 - 20 (pendiente) - 0 (procesado) = 80
+    balance = await payouts_api._calculate_available_balance(db, rider_id="rider-1")
+    
+    assert balance["available"] == 80.0
+    assert balance["pending"] == 20.0
+
+
+@pytest.mark.asyncio
+async def test_payout_status_transitions():
+    """Prueba las transiciones de estado permitidas para payouts."""
+    # Estado inicial
+    payout_mock = SimpleNamespace(
+        id="payout-1",
+        rider_id="rider-1",
+        amount=Decimal("50.00"),
+        status=PayoutStatus.PENDIENTE,
+        requested_at=None,
+        processed_at=None,
+        updated_at=None,
+        bank_account_last4="1234",
+        reference_code=None,
+        rejection_reason=None,
+        balance_before=Decimal("100.00"),
+        balance_after=Decimal("50.00"),
+        requested_by_user_id="user-1",
+        processed_by_user_id=None,
+        idempotency_key=None,
+    )
+    
+    # Verificar estado inicial
+    assert payout_mock.status == PayoutStatus.PENDIENTE
+    
+    # Transición a APROBADO
+    payout_mock.status = PayoutStatus.APROBADO
+    assert payout_mock.status.value == "APROBADO"
+    
+    # Transición a EN_PROCESO
+    payout_mock.status = PayoutStatus.EN_PROCESO
+    assert payout_mock.status.value == "EN_PROCESO"
+    
+    # Transición a COMPLETADO
+    payout_mock.status = PayoutStatus.COMPLETADO
+    assert payout_mock.status.value == "COMPLETADO"

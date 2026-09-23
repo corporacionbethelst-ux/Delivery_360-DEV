@@ -25,6 +25,12 @@ try:
 except ImportError:
     financial = productivity = audit_log = notification = integration = payout = None
 
+# Importar explícitamente modelos de Fase 7 para asegurar detección en migraciones
+try:
+    from app.models.financial import RiderWallet, FinancialTransaction, PayoutRequest  # noqa: F401
+except ImportError:
+    pass
+
 config = context.config
 # Usar DATABASE_URL_SYNC para Alembic (conexión síncrona)
 db_url_sync = settings.DATABASE_URL_SYNC or f"postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
