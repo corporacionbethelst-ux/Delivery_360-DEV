@@ -176,6 +176,7 @@ class PayoutRequest(Base):
     status: Any = Column(SQLEnum(PayoutStatus), default=PayoutStatus.PENDIENTE, nullable=False, index=True)
     rejection_reason = Column(Text, nullable=True)
     failure_reason = Column(Text, nullable=True)  # Razón del fallo cuando status=FALLIDO
+    idempotency_key = Column(String(100), unique=True, index=True, nullable=True)
 
     # Timestamps
     created_at = Column(DateTime, default=utc_now_naive)

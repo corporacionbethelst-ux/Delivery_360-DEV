@@ -114,7 +114,47 @@ def upgrade():
         ALTER COLUMN status SET DEFAULT 'PENDIENTE'::payoutstatus;
     """)
 
-    # === 3. Eliminar ENUMs antiguos (_fase7) ===
+    # === 3. Agregar columnas faltantes en payout_requests ===
+    
+    # Agregar failure_reason si no existe
+    op.execute("""
+        DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'payout_requests' AND column_name = 'failure_reason'
+            ) THEN
+                ALTER TABLE payout_requests ADD COLUMN failure_reason TEXT;
+            END IF;
+        END $$;
+    """)
+    
+    # Agregar idempotency_key si no existe
+    op.execute("""
+        DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'payout_requests' AND column_name = 'idempotency_key'
+            ) THEN
+                ALTER TABLE payout_requests ADD COLUMN idempotency_key VARCHAR(100);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_payout_requests_idempotency_key ON payout_requests(idempotency_key);
+            END IF;
+        END $$;
+    """)
+    
+    # Agregar approved_at, processed_at, completed_at, failed_at si no existen
+    for col_name in ['approved_at', 'processed_at', 'completed_at', 'failed_at']:
+        op.execute(f"""
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'payout_requests' AND column_name = '{col_name}'
+                ) THEN
+                    ALTER TABLE payout_requests ADD COLUMN {col_name} TIMESTAMP;
+                END IF;
+            END $$;
+        """)
+
+    # === 4. Eliminar ENUMs antiguos (_fase7) ===
     op.execute("DROP TYPE IF EXISTS payoutstatus_fase7")
     op.execute("DROP TYPE IF EXISTS transactionstatus_fase7")
     op.execute("DROP TYPE IF EXISTS transactiontype_fase7")
@@ -184,7 +224,11 @@ def downgrade():
         END::payoutstatus_fase7;
     """)
 
-    # === 3. Eliminar ENUMs nuevos ===
+    # === 3. Eliminar columnas agregadas (solo si existen) ===
+    # Nota: No eliminamos las columnas en downgrade para preservar datos,
+    # solo revertimos los ENUMs
+    
+    # === 4. Eliminar ENUMs nuevos ===
     op.execute("DROP TYPE IF EXISTS payoutstatus")
     op.execute("DROP TYPE IF EXISTS transactionstatus")
     op.execute("DROP TYPE IF EXISTS transactiontype")
