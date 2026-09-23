@@ -1,13 +1,24 @@
-"""Schemas financieros alineados con el ledger canónico."""
+"""Schemas financieros alineados con el ledger canónico y Fase 7 Enterprise."""
 
 from datetime import datetime
 from decimal import Decimal
 from typing import Dict, List, Optional
 from uuid import UUID
+from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models.financial import PaymentStatus, TransactionType
+from app.models.financial import PaymentStatus, TransactionType, PayoutStatus
+
+
+class PayoutStatusEnum(str, Enum):
+    """Enum de estados de retiro en español para validación Pydantic."""
+    PENDIENTE = "PENDIENTE"
+    APROBADO = "APROBADO"
+    EN_PROCESO = "EN_PROCESO"
+    COMPLETADO = "COMPLETADO"
+    RECHAZADO = "RECHAZADO"
+    FALLIDO = "FALLIDO"
 
 
 class FinancialTransactionBase(BaseModel):
@@ -192,3 +203,94 @@ class LiquidationUpdate(BaseModel):
 
 class LiquidationResponse(LiquidationBase):
     model_config = ConfigDict(from_attributes=True)
+
+
+# === NUEVOS SCHEMAS PARA WALLET Y PAYOUTS - FASE 7 ===
+
+class RiderWalletResponse(BaseModel):
+    """Respuesta de información de wallet del rider."""
+    id: UUID
+    rider_id: UUID
+    balance_cents: int
+    balance_decimal: Decimal
+    currency: str
+    is_active: bool
+    last_transaction_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FinancialTransactionDetail(BaseModel):
+    """Detalle de transacción financiera."""
+    id: UUID
+    wallet_id: UUID
+    transaction_type: TransactionType
+    amount_cents: int
+    amount_decimal: Decimal
+    description: Optional[str] = None
+    reference_id: Optional[str] = None
+    status: str
+    balance_after_cents: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PayoutRequestCreateSchema(BaseModel):
+    """Schema para crear solicitud de retiro."""
+    amount_cents: int = Field(..., gt=0, description="Monto en centavos (debe ser positivo)")
+    bank_account_last4: str = Field(..., min_length=4, max_length=4, description="Últimos 4 dígitos de la cuenta")
+    bank_name: str = Field(..., min_length=1, max_length=100, description="Nombre del banco")
+    account_holder_name: str = Field(..., min_length=1, max_length=255, description="Nombre del titular")
+
+    @field_validator('bank_account_last4')
+    @classmethod
+    def validate_bank_account(cls, v: str) -> str:
+        if not v.isdigit():
+            raise ValueError('Los últimos 4 dígitos deben ser numéricos')
+        return v
+
+
+class PayoutRequestResponseSchema(BaseModel):
+    """Respuesta de solicitud de retiro con estados en español."""
+    id: UUID
+    wallet_id: UUID
+    rider_id: UUID
+    amount_cents: int
+    amount_decimal: Decimal
+    currency: str
+    bank_account_last4: Optional[str] = None
+    bank_name: Optional[str] = None
+    account_holder_name: Optional[str] = None
+    provider_payout_id: Optional[str] = None
+    provider_response_json: Optional[str] = None
+    status: PayoutStatusEnum  # Usa el enum en español
+    rejection_reason: Optional[str] = None
+    failure_reason: Optional[str] = None
+    created_at: datetime
+    approved_at: Optional[datetime] = None
+    processed_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    failed_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PayoutApprovalSchema(BaseModel):
+    """Schema para aprobar retiro con ID de proveedor."""
+    provider_payout_id: Optional[str] = Field(None, max_length=255, description="ID del payout en la pasarela")
+
+
+class WalletSummarySchema(BaseModel):
+    """Resumen de wallet para dashboard."""
+    total_balance_cents: int
+    total_balance_decimal: Decimal
+    pending_payouts_cents: int
+    pending_payouts_decimal: Decimal
+    available_balance_cents: int
+    available_balance_decimal: Decimal
+    currency: str
+    transactions_count: int
+    last_transaction_at: Optional[datetime] = None

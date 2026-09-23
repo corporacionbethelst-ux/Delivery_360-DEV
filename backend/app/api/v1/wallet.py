@@ -1,6 +1,7 @@
 """
 API Endpoints para Wallet y Pagos - Fase 7 Enterprise
 Gestión de billeteras, transacciones y retiros para riders.
+Sincronizado con enums de estado en español.
 """
 from typing import List, Optional, Dict, Any
 from uuid import UUID
@@ -19,7 +20,8 @@ from app.schemas.wallet import (
     TransactionResponse,
     PayoutRequestCreate,
     PayoutRequestResponse,
-    PayoutApprovalRequest
+    PayoutApprovalRequest,
+    PayoutStatusEnum
 )
 from app.core.exceptions import NotFoundError, ValidationError, InsufficientFundsError
 

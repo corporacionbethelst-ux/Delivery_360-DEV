@@ -1,12 +1,26 @@
 """
 Pydantic Schemas para Wallet y Pagos - Fase 7 Enterprise
+Sincronizado con enums de estado en español.
 """
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional, Dict, Any, List
 from uuid import UUID
+from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator
+
+from app.models.financial import PayoutStatus
+
+
+class PayoutStatusEnum(str, Enum):
+    """Enum de estados de retiro en español para validación Pydantic."""
+    PENDIENTE = "PENDIENTE"
+    APROBADO = "APROBADO"
+    EN_PROCESO = "EN_PROCESO"
+    COMPLETADO = "COMPLETADO"
+    RECHAZADO = "RECHAZADO"
+    FALLIDO = "FALLIDO"
 
 
 class WalletResponse(BaseModel):
@@ -64,7 +78,7 @@ class PayoutApprovalRequest(BaseModel):
 
 
 class PayoutRequestResponse(BaseModel):
-    """Respuesta de solicitud de retiro."""
+    """Respuesta de solicitud de retiro con estados en español."""
     id: UUID
     wallet_id: UUID
     rider_id: UUID
@@ -76,8 +90,9 @@ class PayoutRequestResponse(BaseModel):
     account_holder_name: Optional[str] = None
     provider_payout_id: Optional[str] = None
     provider_response_json: Optional[str] = None
-    status: str
+    status: PayoutStatusEnum  # Usa enum en español
     rejection_reason: Optional[str] = None
+    failure_reason: Optional[str] = None  # Razón del fallo cuando status=FALLIDO
     created_at: datetime
     approved_at: Optional[datetime] = None
     processed_at: Optional[datetime] = None

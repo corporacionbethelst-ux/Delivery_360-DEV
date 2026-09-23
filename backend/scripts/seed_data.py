@@ -1175,13 +1175,15 @@ async def seed_shifts(db: AsyncSession, riders: List[Rider], target_count: int =
 
 
 async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
-    """Seed payout requests with status history for manager/rider finance demos.
+    """Seed payout requests with all 6 PayoutStatus values for comprehensive demos.
     
     Usa selectinload para cargar relaciones y evitar errores MissingGreenlet.
     Usa getattr seguro para acceder a rider.user.name.
-    Usa los valores del enum PayoutStatus en español.
+    Usa TODOS los valores del enum PayoutStatus en español: PENDIENTE, APROBADO, 
+    EN_PROCESO, COMPLETADO, RECHAZADO, FALLIDO.
+    Crea wallets automáticamente si no existen.
     """
-    print("💸 Sembrando retiros demo con historial...")
+    print("💸 Sembrando retiros demo con los 6 estados de PayoutStatus...")
 
     admin_result = await db.execute(select(User).where(User.role == UserRole.SUPERADMIN))
     admin_user = admin_result.scalar_one_or_none()
@@ -1212,14 +1214,21 @@ async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
         )
         candidates = list(result.scalars().all())
 
-    # Estados de payout en español (usando el enum correcto)
-    statuses = [PayoutRequestStatus.PENDIENTE, PayoutRequestStatus.APROBADO, PayoutRequestStatus.RECHAZADO]
+    # TODOS los 6 estados de payout en español (usando el enum correcto)
+    statuses = [
+        PayoutRequestStatus.PENDIENTE,
+        PayoutRequestStatus.APROBADO,
+        PayoutRequestStatus.EN_PROCESO,
+        PayoutRequestStatus.COMPLETADO,
+        PayoutRequestStatus.RECHAZADO,
+        PayoutRequestStatus.FALLIDO
+    ]
     created = 0
     now = utc_now_naive()
 
-    for index, rider in enumerate(candidates[:6]):
+    for index, rider in enumerate(candidates[:12]):  # Permitir hasta 12 payouts (2 por estado)
         status_value = statuses[index % len(statuses)]
-        idempotency_key = f"seed-payout-{status_value.value.lower()}-{rider.id}"
+        idempotency_key = f"seed-payout-{status_value.value.lower()}-{rider.id}-{index // len(statuses)}"
         existing = await db.execute(select(Payout).where(Payout.idempotency_key == idempotency_key))
         if existing.scalar_one_or_none():
             continue
@@ -1229,10 +1238,49 @@ async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
             continue
 
         amount = min(Decimal("30000.00"), max(Decimal("10.00"), money(current_balance * Decimal("0.30"))))
-        balance_after = current_balance - amount if status_value in [PayoutRequestStatus.PENDIENTE, PayoutRequestStatus.APROBADO] else current_balance
+        
+        # Calcular balance_after según el estado
+        if status_value in [PayoutRequestStatus.PENDIENTE, PayoutRequestStatus.APROBADO, PayoutRequestStatus.EN_PROCESO]:
+            balance_after = current_balance - amount
+        elif status_value == PayoutRequestStatus.COMPLETADO:
+            balance_after = current_balance - amount
+        else:  # RECHAZADO o FALLIDO
+            balance_after = current_balance
+        
         payout_id = uuid.uuid4()
         requested_at = now - timedelta(hours=8 + index)
-        processed_at = requested_at + timedelta(hours=2) if status_value != PayoutRequestStatus.PENDIENTE else None
+        
+        # Determinar timestamps según el estado
+        if status_value == PayoutRequestStatus.PENDIENTE:
+            approved_at = None
+            processed_at = None
+            completed_at = None
+            failed_at = None
+        elif status_value == PayoutRequestStatus.APROBADO:
+            approved_at = requested_at + timedelta(hours=2)
+            processed_at = None
+            completed_at = None
+            failed_at = None
+        elif status_value == PayoutRequestStatus.EN_PROCESO:
+            approved_at = requested_at + timedelta(hours=1)
+            processed_at = requested_at + timedelta(hours=3)
+            completed_at = None
+            failed_at = None
+        elif status_value == PayoutRequestStatus.COMPLETADO:
+            approved_at = requested_at + timedelta(hours=1)
+            processed_at = requested_at + timedelta(hours=2)
+            completed_at = requested_at + timedelta(hours=4)
+            failed_at = None
+        elif status_value == PayoutRequestStatus.RECHAZADO:
+            approved_at = None
+            processed_at = None
+            completed_at = None
+            failed_at = None
+        else:  # FALLIDO
+            approved_at = requested_at + timedelta(hours=1)
+            processed_at = requested_at + timedelta(hours=2)
+            completed_at = None
+            failed_at = requested_at + timedelta(hours=5)
 
         # Crear wallet si no existe
         result = await db.execute(select(RiderWallet).where(RiderWallet.rider_id == rider.id))
@@ -1257,16 +1305,19 @@ async def seed_demo_payouts(db: AsyncSession, riders: List[Rider]):
             bank_name="Banco Demo",
             account_holder_name=account_holder_name,
             rejection_reason="Datos bancarios pendientes de validación" if status_value == PayoutRequestStatus.RECHAZADO else None,
+            failure_reason="Error en procesamiento bancario" if status_value == PayoutRequestStatus.FALLIDO else None,
             created_at=requested_at,
-            approved_at=processed_at if status_value == PayoutRequestStatus.APROBADO else None,
-            processed_at=processed_at if status_value == PayoutRequestStatus.APROBADO else None,
+            approved_at=approved_at,
+            processed_at=processed_at,
+            completed_at=completed_at,
+            failed_at=failed_at,
         )
         db.add(payout_req)
 
         created += 1
 
     await db.commit()
-    print(f"   ✅ {created} retiros demo creados con historial.")
+    print(f"   ✅ {created} retiros demo creados con los 6 estados (PENDIENTE, APROBADO, EN_PROCESO, COMPLETADO, RECHAZADO, FALLIDO).")
 
 
 async def seed_audit_logs(db: AsyncSession):

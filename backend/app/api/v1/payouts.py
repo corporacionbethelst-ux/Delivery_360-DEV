@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/payouts", tags=["Payouts"])
 
 
+def _enum_value(value):
+    """Obtiene el valor del enum (soporta enums de SQLAlchemy y strings)."""
+    return value.value if hasattr(value, "value") else value
+
+
 def _order_earning_amount_expr():
     return case(
         (Order.delivery_fee > 0, Order.delivery_fee),
@@ -59,9 +64,6 @@ async def _get_rider_from_user(db: AsyncSession, user: User) -> Rider:
         raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
     return rider
 
-
-def _enum_value(value):
-    return value.value if hasattr(value, "value") else value
 
 
 def _money(value) -> Decimal:
