@@ -15,11 +15,13 @@ def utc_now_naive():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 class PayoutStatus(str, enum.Enum):
-    """Estados de pago legacy (tabla payouts antigua)."""
+    """Estados de solicitud de retiro (Fase 7 Enterprise - 6 estados en español)."""
     PENDIENTE = "PENDIENTE"
-    PROCESADO = "PROCESADO"
+    APROBADO = "APROBADO"
+    EN_PROCESO = "EN_PROCESO"
+    COMPLETADO = "COMPLETADO"
     RECHAZADO = "RECHAZADO"
-    CANCELADO = "CANCELADO"
+    FALLIDO = "FALLIDO"
 
 class PayoutMethod(str, enum.Enum):
     TRANSFERENCIA = "TRANSFERENCIA"

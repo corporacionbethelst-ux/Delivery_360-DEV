@@ -149,7 +149,7 @@ async def _calculate_available_balance(db: AsyncSession, rider_id, exclude_payou
     )
     processed_stmt = select(func.sum(Payout.amount)).where(
         Payout.rider_id == rider_id,
-        Payout.status == PayoutStatus.PROCESADO,
+        Payout.status == PayoutStatus.EN_PROCESO,
     )
 
     if exclude_payout_id:
@@ -441,7 +441,7 @@ async def approve_payout(
 
     balance_after = balance_before - payout_amount
     old_status = payout.status
-    payout.status = PayoutStatus.PROCESADO
+    payout.status = PayoutStatus.EN_PROCESO
     payout.processed_at = utc_now_naive()
     payout.updated_at = payout.processed_at
     payout.processed_by_user_id = current_user.id
@@ -467,7 +467,7 @@ async def approve_payout(
         db,
         payout,
         old_status,
-        PayoutStatus.PROCESADO,
+        PayoutStatus.EN_PROCESO,
         current_user,
         f"Retiro aprobado: {payout.reference_code}",
         balance_before,
