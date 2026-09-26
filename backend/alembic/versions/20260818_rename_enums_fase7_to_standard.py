@@ -53,6 +53,62 @@ def upgrade():
     """)
 
     # PayoutStatus (sin _fase7, con valores TRADUCIDOS AL ESPAÑOL)
+    # FIX FASE 7: Si ya existe un tipo 'payoutstatus' LEGACY heredado del esquema
+    # inicial (a617d286d3d0 / schema_completo.sql) con los 4 valores antiguos
+    # ('PENDIENTE','PROCESADO','RECHAZADO','CANCELADO'), debe ser REEMPLAZADO por
+    # el estándar de Fase 7 con los 6 valores en español. Esto corrige el error:
+    #   asyncpg.exceptions.InvalidTextRepresentationError:
+    #   invalid input value for enum payoutstatus: "APROBADO"
+    op.execute("""
+        DO $$
+        DECLARE
+            legacy_dependents INTEGER;
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payoutstatus') THEN
+                -- Detectar si el tipo existente NO es el estándar de Fase 7
+                IF (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder)
+                    FROM pg_type t JOIN pg_enum e ON t.oid = e.enumtypid
+                    WHERE t.typname = 'payoutstatus')
+                   IS DISTINCT FROM
+                   ARRAY['PENDIENTE','APROBADO','EN_PROCESO','COMPLETADO','RECHAZADO','FALLIDO']::text[]
+                THEN
+                    -- Contar dependencias fuera de payout_requests (vistas, otras tablas).
+                    -- Nota: COUNT(*) sobre 0 filas devuelve 0, nunca NULL.
+                    SELECT COUNT(*) INTO legacy_dependents
+                    FROM pg_depend d
+                    JOIN pg_class rel ON rel.oid = d.refobjid
+                    WHERE d.classid = 'pg_type'::regclass
+                      AND d.objid = 'payoutstatus'::regtype
+                      AND d.deptype IN ('n', 'a')
+                      AND rel.relname <> 'payout_requests';
+
+                    IF legacy_dependents > 0 THEN
+                        RAISE EXCEPTION
+                            'El enum legacy payoutstatus tiene dependencias externas (%) en la tabla %. '
+                            'Refuérzalas manualmente antes de ejecutar esta migración.',
+                            legacy_dependents,
+                            (SELECT string_agg(DISTINCT rel.relname, ', ')
+                             FROM pg_depend d
+                             JOIN pg_class rel ON rel.oid = d.refobjid
+                             WHERE d.classid = 'pg_type'::regclass
+                               AND d.objid = 'payoutstatus'::regtype
+                               AND d.deptype IN ('n', 'a')
+                               AND rel.relname <> 'payout_requests');
+                    END IF;
+
+                    -- Eliminar el enum legacy y TODAS sus columnas legacy asociadas
+                    DROP TYPE payoutstatus CASCADE;
+                END IF;
+            ELSE
+                CREATE TYPE payoutstatus AS ENUM (
+                    'PENDIENTE', 'APROBADO', 'EN_PROCESO', 'COMPLETADO', 'RECHAZADO', 'FALLIDO'
+                );
+            END IF;
+        END $$;
+    """)
+
+    # Asegurar que el tipo payoutstatus exista con los 6 valores en español
+    # (cubre el caso en que existía legacy y fue eliminado arriba con CASCADE)
     op.execute("""
         DO $$ BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payoutstatus') THEN
@@ -89,24 +145,57 @@ def upgrade():
         ALTER COLUMN status SET DEFAULT 'PENDING'::transactionstatus;
     """)
 
-    # Actualizar payout_requests.status con traducción al español (primero quitar default)
+    # Actualizar payout_requests.status con traducción al español.
+    # FIX FASE 7: si la columna 'status' no existe (porque el enum legacy fue
+    # eliminado arriba con CASCADE), recrearla como TEXT antes de manipularla.
+    op.execute("""
+        DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'payout_requests' AND column_name = 'status'
+            ) THEN
+                ALTER TABLE payout_requests ADD COLUMN status TEXT;
+            END IF;
+        END $$;
+    """)
+
     op.execute("""
         ALTER TABLE payout_requests 
         ALTER COLUMN status DROP DEFAULT;
     """)
-    
+
+    # FIX FASE 7: Normalizar valores a los 6 estados estándar en español.
+    # Se hace SIEMPRE vía reconversión a TEXT porque la columna puede venir de:
+    #   a) payoutstatus_fase7 (flujo normal 20260817 -> 20260818), o
+    #   b) payoutstatus legacy de 4 valores ya eliminado con CASCADE (columna recreada TEXT), o
+    #   c) TEXT por re-ejecuciones parciales anteriores.
+    op.execute("""
+        ALTER TABLE payout_requests 
+        ALTER COLUMN status TYPE TEXT 
+        USING CASE status::text
+            WHEN 'PENDING'     THEN 'PENDIENTE'
+            WHEN 'PENDIENTE'   THEN 'PENDIENTE'
+            WHEN 'APPROVED'    THEN 'APROBADO'
+            WHEN 'APROBADO'    THEN 'APROBADO'
+            WHEN 'PROCESSING'  THEN 'EN_PROCESO'
+            WHEN 'EN_PROCESO'  THEN 'EN_PROCESO'
+            WHEN 'PROCESADO'   THEN 'EN_PROCESO'
+            WHEN 'COMPLETED'   THEN 'COMPLETADO'
+            WHEN 'COMPLETADO'  THEN 'COMPLETADO'
+            WHEN 'REJECTED'    THEN 'RECHAZADO'
+            WHEN 'RECHAZADO'   THEN 'RECHAZADO'
+            WHEN 'FAILED'      THEN 'FALLIDO'
+            WHEN 'FALLIDO'     THEN 'FALLIDO'
+            WHEN 'CANCELADO'   THEN 'RECHAZADO'
+            WHEN 'CANCELLED'   THEN 'RECHAZADO'
+            ELSE 'PENDIENTE'
+        END;
+    """)
+
     op.execute("""
         ALTER TABLE payout_requests 
         ALTER COLUMN status TYPE payoutstatus 
-        USING CASE 
-            WHEN status::text = 'PENDING' THEN 'PENDIENTE'
-            WHEN status::text = 'APPROVED' THEN 'APROBADO'
-            WHEN status::text = 'PROCESSING' THEN 'EN_PROCESO'
-            WHEN status::text = 'COMPLETED' THEN 'COMPLETADO'
-            WHEN status::text = 'REJECTED' THEN 'RECHAZADO'
-            WHEN status::text = 'FAILED' THEN 'FALLIDO'
-            ELSE 'PENDIENTE'
-        END::payoutstatus;
+        USING status::text::payoutstatus;
     """)
     
     op.execute("""
@@ -159,6 +248,17 @@ def upgrade():
     op.execute("DROP TYPE IF EXISTS transactionstatus_fase7")
     op.execute("DROP TYPE IF EXISTS transactiontype_fase7")
 
+    # === 5. FIX FASE 7: Reconstruir el índice UNIQUE de status ===
+    # El índice 'ix_payout_requests_status' creado en 20260817 era UNIQUE (por la
+    # constraint del esquema inicial). Con los 6 estados actuales eso provoca
+    # "duplicate key value violates unique constraint" al sembrar varios payouts
+    # con el mismo estado (p. ej. dos 'PENDIENTE'). Se reemplaza por un índice NO
+    # UNIQUE, que es lo correcto para una columna de estado.
+    op.execute("DROP INDEX IF EXISTS ix_payout_requests_status")
+    op.create_index(
+        'ix_payout_requests_status', 'payout_requests', ['status'], unique=False
+    )
+
 
 def downgrade():
     # === 1. Recrear ENUMs antiguos (_fase7) ===
@@ -198,6 +298,10 @@ def downgrade():
     """)
 
     # === 2. Revertir columnas a ENUMs antiguos ===
+    # FIX: quitar defaults antes de reconvertir (PG no puede castear defaults
+    # entre tipos enum automáticamente)
+    op.execute("ALTER TABLE financial_transactions ALTER COLUMN status DROP DEFAULT;")
+
     op.execute("""
         ALTER TABLE financial_transactions 
         ALTER COLUMN transaction_type TYPE transactiontype_fase7 
@@ -211,6 +315,13 @@ def downgrade():
     """)
 
     op.execute("""
+        ALTER TABLE financial_transactions 
+        ALTER COLUMN status SET DEFAULT 'PENDING'::transactionstatus_fase7;
+    """)
+
+    op.execute("ALTER TABLE payout_requests ALTER COLUMN status DROP DEFAULT;")
+
+    op.execute("""
         ALTER TABLE payout_requests 
         ALTER COLUMN status TYPE payoutstatus_fase7 
         USING CASE 
@@ -222,6 +333,12 @@ def downgrade():
             WHEN status::text = 'FALLIDO' THEN 'FAILED'
             ELSE 'PENDING'
         END::payoutstatus_fase7;
+    """)
+
+    # Restaurar default en inglés para el enum antiguo (era 'PENDING')
+    op.execute("""
+        ALTER TABLE payout_requests 
+        ALTER COLUMN status SET DEFAULT 'PENDING'::payoutstatus_fase7;
     """)
 
     # === 3. Eliminar columnas agregadas (solo si existen) ===

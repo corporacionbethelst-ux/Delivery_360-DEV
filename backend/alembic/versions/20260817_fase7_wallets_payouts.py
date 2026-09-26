@@ -108,6 +108,9 @@ def upgrade():
             account_holder_name VARCHAR(255),
             provider_payout_id VARCHAR(255),
             provider_response_json TEXT,
+            /* FIX FASE 7: el default debe ser un valor válido del enum
+               payoutstatus_fase7 (inglés). Antes usaba 'PENDIENTE' (español),
+               lo que provocaba: invalid input value for enum payoutstatus_fase7: "PENDIENTE" */
             status payoutstatus_fase7 NOT NULL DEFAULT 'PENDING',
             rejection_reason TEXT,
             failure_reason TEXT,
