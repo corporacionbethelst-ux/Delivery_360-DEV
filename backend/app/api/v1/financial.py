@@ -277,7 +277,9 @@ async def get_financial_summary(
         select(func.coalesce(func.sum(Payout.amount), 0)).where(
             payout_period_date >= period_start,
             payout_period_date <= period_end,
-            Payout.status == PayoutStatus.PROCESADO,
+            # FIX FASE 7: 'PROCESADO' ya no existe en PayoutStatus (enum estándar en español).
+            # Los retiros efectivamente procesados/saldos son EN_PROCESO y COMPLETADO.
+            Payout.status.in_([PayoutStatus.EN_PROCESO, PayoutStatus.COMPLETADO]),
         )
     )
     processed_cash_payouts = float(processed_payouts_result.scalar() or 0)
@@ -448,7 +450,8 @@ async def get_financial_reconciliation(
 
     payouts_stmt = select(
         func.coalesce(func.sum(case((Payout.status == PayoutStatus.PENDIENTE, Payout.amount), else_=0)), 0).label("pending_payouts"),
-        func.coalesce(func.sum(case((Payout.status == PayoutStatus.PROCESADO, Payout.amount), else_=0)), 0).label("processed_payouts"),
+        # FIX FASE 7: estados estándar en español (EN_PROCESO + COMPLETADO reemplazan a PROCESADO)
+        func.coalesce(func.sum(case((Payout.status.in_([PayoutStatus.EN_PROCESO, PayoutStatus.COMPLETADO]), Payout.amount), else_=0)), 0).label("processed_payouts"),
         func.coalesce(func.sum(case((Payout.status == PayoutStatus.RECHAZADO, Payout.amount), else_=0)), 0).label("rejected_payouts"),
         func.count(Payout.id).label("payout_count"),
     ).where(*payout_filters)

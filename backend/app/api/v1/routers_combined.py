@@ -357,7 +357,7 @@ async def rider_earnings(
     payouts_result = await db.execute(
         select(func.sum(Payout.amount)).where(
             Payout.rider_id == rider_uuid,
-            Payout.status.in_([PayoutStatus.PROCESADO, PayoutStatus.PAGADO])
+            Payout.status.in_([PayoutStatus.EN_PROCESO, PayoutStatus.COMPLETADO])
         )
     )
     total_withdrawn = float(payouts_result.scalar() or 0)
@@ -410,7 +410,7 @@ async def get_available_balance(
     pay_res = await db.execute(
         select(func.sum(Payout.amount)).where(
             Payout.rider_id == rider.id,
-            Payout.status.in_([PayoutStatus.PROCESADO, PayoutStatus.PAGADO])
+            Payout.status.in_([PayoutStatus.EN_PROCESO, PayoutStatus.COMPLETADO])
         )
     )
     total_withdrawn = float(pay_res.scalar() or 0)
@@ -491,7 +491,7 @@ async def request_payout(
     pay_res = await db.execute(
         select(func.sum(Payout.amount)).where(
             Payout.rider_id == rider.id,
-            Payout.status.in_([PayoutStatus.PROCESADO, PayoutStatus.PAGADO])
+            Payout.status.in_([PayoutStatus.EN_PROCESO, PayoutStatus.COMPLETADO])
         )
     )
     total_withdrawn = float(pay_res.scalar() or 0)
@@ -529,7 +529,7 @@ async def approve_payout(
     if not payout:
         raise HTTPException(status_code=404, detail="Retiro no encontrado")
 
-    payout.status = PayoutStatus.PROCESADO
+    payout.status = PayoutStatus.EN_PROCESO
     payout.processed_at = utc_now_naive()
     # Generar código de referencia simple
     payout.reference_code = f"PAY-{uuid.uuid4().hex[:8].upper()}"
