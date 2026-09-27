@@ -121,11 +121,27 @@ def upgrade():
 
     # === 2. Migrar datos: Actualizar columnas para usar nuevos ENUMs ===
     
+    # FIX FASE 7 (bug reproducido en PG real): el DEFAULT antiguo debe quitarse
+    # ANTES de reconvertir la columna; si no, PG lanza:
+    #   "default for column ... cannot be cast automatically to type ..."
+    op.execute("ALTER TABLE financial_transactions ALTER COLUMN transaction_type DROP DEFAULT;")
+
     # Actualizar financial_transactions.transaction_type
     op.execute("""
         ALTER TABLE financial_transactions 
         ALTER COLUMN transaction_type TYPE transactiontype 
         USING transaction_type::text::transactiontype;
+    """)
+
+    # Restaurar default válido para el nuevo tipo
+    op.execute("""
+        DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid
+                       WHERE t.typname='transactiontype' AND e.enumlabel='RETIRO') THEN
+                ALTER TABLE financial_transactions
+                ALTER COLUMN transaction_type SET DEFAULT 'RETIRO'::transactiontype;
+            END IF;
+        END $$;
     """)
 
     # Actualizar financial_transactions.status (primero quitar default, luego cambiar tipo, luego restaurar default)
@@ -259,6 +275,70 @@ def upgrade():
         'ix_payout_requests_status', 'payout_requests', ['status'], unique=False
     )
 
+    # === 6. FIX FASE 7: Normalizar la tabla LEGACY 'payouts' (API /api/v1/payouts) ===
+    # El endpoint de payouts usa el modelo Payout (tabla legacy 'payouts'), que en
+    # runtime exige las columnas 'status' y 'failure_reason'. En BD creadas desde el
+    # esquema inicial (a617d286d3d0) esas columnas NO existen, lo que provocaba:
+    #   UndefinedColumnError: column payouts.status does not exist
+    # Se agregan de forma idempotente y se mapean al tipo estándar 'payoutstatus'
+    # (6 valores en español), traduciéndolas si venían del enum legacy de 4 valores.
+    op.execute("""
+        DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'payouts' AND column_name = 'status'
+            ) THEN
+                ALTER TABLE payouts ADD COLUMN status payoutstatus DEFAULT 'PENDIENTE';
+            ELSIF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'payouts' AND column_name = 'status'
+                  AND udt_name <> 'payoutstatus'
+            ) THEN
+                -- Venía del enum legacy (PENDIENTE/PROCESADO/RECHAZADO/CANCELADO):
+                ALTER TABLE payouts ALTER COLUMN status DROP DEFAULT;
+                ALTER TABLE payouts
+                    ALTER COLUMN status TYPE TEXT
+                    USING CASE status::text
+                        WHEN 'PENDING'    THEN 'PENDIENTE'
+                        WHEN 'APPROVED'   THEN 'APROBADO'
+                        WHEN 'PROCESSING' THEN 'EN_PROCESO'
+                        WHEN 'PROCESADO'  THEN 'EN_PROCESO'
+                        WHEN 'COMPLETED'  THEN 'COMPLETADO'
+                        WHEN 'REJECTED'   THEN 'RECHAZADO'
+                        WHEN 'CANCELADO'  THEN 'RECHAZADO'
+                        WHEN 'FAILED'     THEN 'FALLIDO'
+                        ELSE status::text
+                    END;
+                ALTER TABLE payouts
+                    ALTER COLUMN status TYPE payoutstatus USING status::payoutstatus;
+                ALTER TABLE payouts ALTER COLUMN status SET DEFAULT 'PENDIENTE';
+            END IF;
+        END $$;
+    """)
+
+    op.execute("""
+        DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'payouts' AND column_name = 'failure_reason'
+            ) THEN
+                ALTER TABLE payouts ADD COLUMN failure_reason TEXT;
+            END IF;
+        END $$;
+    """)
+
+    # Asegurar columna 'updated_at' (la usa el modelo Payout en UPDATEs)
+    op.execute("""
+        DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'payouts' AND column_name = 'updated_at'
+            ) THEN
+                ALTER TABLE payouts ADD COLUMN updated_at TIMESTAMP;
+            END IF;
+        END $$;
+    """)
+
 
 def downgrade():
     # === 1. Recrear ENUMs antiguos (_fase7) ===
@@ -345,6 +425,21 @@ def downgrade():
     # Nota: No eliminamos las columnas en downgrade para preservar datos,
     # solo revertimos los ENUMs
     
+    # FIX FASE 7: la tabla legacy 'payouts' ahora también referencia el tipo
+    # 'payoutstatus'. Para poder dropearlo, primero se convierte su columna a TEXT.
+    op.execute("""
+        DO $$ BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'payouts' AND column_name = 'status'
+                  AND udt_name = 'payoutstatus'
+            ) THEN
+                ALTER TABLE payouts ALTER COLUMN status DROP DEFAULT;
+                ALTER TABLE payouts ALTER COLUMN status TYPE TEXT USING status::text;
+            END IF;
+        END $$;
+    """)
+
     # === 4. Eliminar ENUMs nuevos ===
     op.execute("DROP TYPE IF EXISTS payoutstatus")
     op.execute("DROP TYPE IF EXISTS transactionstatus")
