@@ -173,7 +173,14 @@ class PayoutRequest(Base):
     provider_response_json = Column(Text, nullable=True)
 
     # Estados
-    status: Any = Column(SQLEnum(PayoutStatus), default=PayoutStatus.PENDIENTE, nullable=False, index=True)
+    # FIX FASE 7: se fija explícitamente name="payoutstatus" y create_type=False para
+    # que SQLAlchemy SIEMPRE referencie el tipo PG estándar 'payoutstatus' (6 valores en
+    # español, normalizado por la migración 20260818) y nunca intente crear tipos con
+    # otros nombres ni colisione con definiciones duplicadas del enum.
+    status: Any = Column(
+        SQLEnum(PayoutStatus, name="payoutstatus", create_type=False),
+        default=PayoutStatus.PENDIENTE, nullable=False, index=True,
+    )
     rejection_reason = Column(Text, nullable=True)
     failure_reason = Column(Text, nullable=True)  # Razón del fallo cuando status=FALLIDO
     idempotency_key = Column(String(100), unique=True, index=True, nullable=True)
