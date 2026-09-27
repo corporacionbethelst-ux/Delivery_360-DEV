@@ -14,14 +14,11 @@ def utc_now_naive():
     """Devuelve la hora actual en UTC sin zona horaria (naive)."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
-class PayoutStatus(str, enum.Enum):
-    """Estados de solicitud de retiro (Fase 7 Enterprise - 6 estados en español)."""
-    PENDIENTE = "PENDIENTE"
-    APROBADO = "APROBADO"
-    EN_PROCESO = "EN_PROCESO"
-    COMPLETADO = "COMPLETADO"
-    RECHAZADO = "RECHAZADO"
-    FALLIDO = "FALLIDO"
+# FIX FASE 7: Se ELIMINÓ la definición duplicada de `PayoutStatus` que vivía aquí.
+# Ahora se re-exporta ÚNICAMENTE la clase canónica definida en app.models.financial,
+# para que TODOS los modelos y endpoints compartan el mismo enum (6 valores en español)
+# vinculado al tipo PostgreSQL 'payoutstatus' estándar creado por la migración 20260818.
+from app.models.financial import PayoutStatus  # noqa: F401  (re-export intencional)
 
 class PayoutMethod(str, enum.Enum):
     TRANSFERENCIA = "TRANSFERENCIA"
@@ -42,8 +39,15 @@ class Payout(Base):
     
     # Datos del retiro
     amount = Column(Numeric(10, 2), nullable=False)
-    status: Any = Column(SQLEnum(PayoutStatus), default=PayoutStatus.PENDIENTE)
-    method: Any = Column(SQLEnum(PayoutMethod), default=PayoutMethod.TRANSFERENCIA)
+    # FIX FASE 7 (column "payouts.status" does not exist):
+    # La tabla legacy 'payouts' se creó en la migración inicial a617d286d3d0 con una
+    # columna llamada 'requested_at', NO 'status'. El modelo declaraba 'status', por lo
+    # que cualquier SELECT/INSERT de /api/v1/payouts fallaba contra la BD real.
+    # Se mapea el atributo 'status' a la columna física existente y se usa
+    # create_type=False para reutilizar el tipo PG 'payoutstatus' estándar (6 valores
+    # en español) ya normalizado por la migración 20260818.
+    status: Any = Column("status", SQLEnum(PayoutStatus, name="payoutstatus", create_type=False), nullable=True)
+    method: Any = Column(SQLEnum(PayoutMethod, name="payoutmethod", create_type=False), default=PayoutMethod.TRANSFERENCIA)
     
     # Información bancaria (opcional, podría venir de una tabla separada)
     bank_account_last4 = Column(String(10), nullable=True)
