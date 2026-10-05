@@ -1,2 +1,8 @@
+# Python bytecode
 __pycache__/
 *.pyc
+
+# Environment files (excluding examples)
+.env
+.env.local
+.env.*.local
