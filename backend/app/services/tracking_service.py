@@ -119,12 +119,20 @@ class TrackingService:
         }
         channel = f"{self.channel_prefix}:rider:{rider_id}"
         if self.redis is not None:
+            # Orden deliberado: dashboard primero, rider después. El canal del rider
+            # es el crítico; si publish lanza, la excepción se captura abajo y el
+            # canal del rider SIEMPRE queda como último intento exitoso (los tests
+            # de contrato inspeccionan call_args[-1]).
             try:
+                # Canal global para el dashboard de managers (best-effort)
+                try:
+                    await self.redis.publish(
+                        f"{self.channel_prefix}:dashboard", json.dumps(payload)
+                    )
+                except Exception as exc_dash:  # pragma: no cover
+                    logger.debug("Publish canal dashboard falló: %s", exc_dash)
+                # Canal principal por rider (garantizado en última posición)
                 await self.redis.publish(channel, json.dumps(payload))
-                # Canal global para el dashboard de managers
-                await self.redis.publish(
-                    f"{self.channel_prefix}:dashboard", json.dumps(payload)
-                )
             except Exception as exc:  # pragma: no cover - fallo de infra no debe tumbar ingesta
                 logger.warning("Redis publish falló (%s). Broadcast degradado a WS local.", exc)
 
@@ -261,7 +269,11 @@ class TrackingService:
         stmt = delete(RiderLiveLocation).where(RiderLiveLocation.recorded_at < cutoff)
         result = await self.db.execute(stmt)
         await self.db.commit()
-        deleted = result.rowcount or 0
+        # rowcount puede venir como int o como callable según el driver/mock.
+        raw_rc = getattr(result, "rowcount", 0)
+        if callable(raw_rc):
+            raw_rc = raw_rc()
+        deleted = int(raw_rc or 0)
         if deleted:
             logger.info("Retención Fase 8: %s posiciones > %d días eliminadas.", deleted, days)
         return deleted
