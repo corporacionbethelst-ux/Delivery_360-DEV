@@ -54,8 +54,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
+    # Fase 8: scheduler interno (VRP batch cada 5 min + purga de ubicaciones diaria)
+    fase8_scheduler_started = False
+    try:
+        from app.services.tracking_scheduler import tracking_scheduler
+        await tracking_scheduler.start()
+        fase8_scheduler_started = True
+    except Exception as exc:  # noqa: BLE001 - no bloquear el arranque de la API
+        logger.warning("Fase 8 scheduler no pudo iniciarse: %s", exc)
+
     logger.info("Delivery360 API started successfully")
     yield
+
+    if fase8_scheduler_started:
+        try:
+            await tracking_scheduler.shutdown()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Error al apagar el scheduler de Fase 8: %s", exc)
 
     logger.info("Shutting down Delivery360 API...")
     await engine.dispose()

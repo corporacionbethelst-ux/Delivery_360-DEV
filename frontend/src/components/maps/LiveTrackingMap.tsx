@@ -122,3 +122,6 @@ export default function LiveTrackingMap({
     </Card>
   );
 }
+
+// Export nombrado para imports dinámicos con feature flag (NEXT_PUBLIC_MAP_PROVIDER)
+export { LiveTrackingMap };

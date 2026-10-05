@@ -112,6 +112,7 @@ class Settings(BaseSettings):
     LIVE_LOCATION_RETENTION_DAYS: int = 7
     ROUTE_SNAPSHOT_EXPIRY_HOURS: int = 24
     VRP_CACHE_TTL_MINUTES: int = 30
+    ROUTE_OPTIMIZATION_INTERVAL_SEC: int = 300  # cron interno VRP: 5 min
     MAX_POSITION_UPDATES_PER_MINUTE: int = 20
     AVG_RIDER_SPEED_KMH: float = 18.0  # fallback ETA sin Google Distance Matrix
     EMAILS_ENABLED: bool = False
