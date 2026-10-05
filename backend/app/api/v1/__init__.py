@@ -1,6 +1,12 @@
 from app.api.v1 import auth
 from app.api.v1 import orders
 from app.api.v1 import riders
+from app.api.v1 import telemetry as telemetry_module  # Fase 8: telemetría de alta frecuencia
+# Fase 8: Mapas & Tracking en tiempo real (REST + WebSocket)
+try:
+    from app.api.v1 import tracking as tracking_module
+except ImportError:  # pragma: no cover - entorno sin Fase 8 instalada
+    tracking_module = None
 from app.api.v1 import users as users_module
 from app.api.v1 import roles as roles_module
 from app.api.v1 import audit as audit_module
@@ -46,6 +52,8 @@ vehicles = vehicles_module # <--- ASIGNAR EL MÓDULO REAL DE VEHÍCULOS AQUÍ
 zones = zones_module
 
 # Los demás siguen siendo wrappers hacia routers_combined
+telemetry = telemetry_module
+tracking = tracking_module  # puede ser None si la Fase 8 no está instalada
 # Shifts uses the real module because main.py mounts it at /api/v1/shifts.
 # Using routers_combined.shifts_router here would double-prefix the route
 # as /api/v1/shifts/shifts and make /api/v1/shifts return 404.
@@ -86,5 +94,7 @@ __all__ = [
     "users",
     "roles",
     "audit",
-    "settings"
+    "settings",
+    "telemetry",
+    "tracking",
 ]

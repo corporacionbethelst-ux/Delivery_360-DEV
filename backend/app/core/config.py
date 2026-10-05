@@ -104,6 +104,16 @@ class Settings(BaseSettings):
     # --- CONFIGURACIONES OPCIONALES ---
     GOOGLE_MAPS_API_KEY: Optional[str] = None
     MAPBOX_API_KEY: Optional[str] = None
+
+    # --- FASE 8: MAPAS & TRACKING REAL-TIME ---
+    WS_HEARTBEAT_INTERVAL_SEC: int = 30
+    WS_MAX_CONNECTIONS: int = 1000
+    REDIS_PUBSUB_CHANNEL_PREFIX: str = "rider_location_updates"
+    LIVE_LOCATION_RETENTION_DAYS: int = 7
+    ROUTE_SNAPSHOT_EXPIRY_HOURS: int = 24
+    VRP_CACHE_TTL_MINUTES: int = 30
+    MAX_POSITION_UPDATES_PER_MINUTE: int = 20
+    AVG_RIDER_SPEED_KMH: float = 18.0  # fallback ETA sin Google Distance Matrix
     EMAILS_ENABLED: bool = False
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
