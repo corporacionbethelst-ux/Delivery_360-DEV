@@ -11,6 +11,68 @@ import {
 import { riderService } from '@/services/rider.service';
 import { orderService } from '@/services/order.service';
 import { DeliveryMap, MapRider, MapOrder } from '@/components/maps/DeliveryMap';
+import dynamic from 'next/dynamic';
+
+// Feature-flag provider: Google Maps se carga SOLO si NEXT_PUBLIC_MAP_PROVIDER=google_maps.
+// LiveTrackingMap es tolerante: si @react-google-maps/api o la API key faltan, reenvía a Leaflet.
+const GoogleTrackingMap = dynamic(
+  () => import('@/components/maps/LiveTrackingMap'),
+  { ssr: false, loading: () => <div className="h-full w-full animate-pulse bg-slate-200" /> }
+);
+import { trackingService } from '@/services/tracking.service';
+import { useTrackingWebSocket } from '@/hooks/useTrackingWebSocket';
+
+// ============================================================
+// FEATURE FLAGS — Fase 8 (Mapas & Tracking)
+//   NEXT_PUBLIC_MAP_PROVIDER: 'leaflet' (default) | 'google_maps'
+//     Google Maps exige @react-google-maps/api + NEXT_PUBLIC_GOOGLE_MAPS_API_KEY.
+//     Sin esos requisitos instalados, se degrada elegantemente a Leaflet.
+//   NEXT_PUBLIC_TRACKING_WS: 'true' (default) | 'false'
+//     false => solo polling REST legacy (modo compatibilidad).
+// ============================================================
+const MAP_PROVIDER = (process.env.NEXT_PUBLIC_MAP_PROVIDER || 'leaflet').toLowerCase();
+const WS_ACTIVE = (process.env.NEXT_PUBLIC_TRACKING_WS || 'true').toLowerCase() !== 'false';
+
+/** Fusiona posiciones del WebSocket sobre la lista base (polling REST). */
+function mergeWsPositions(
+  base: MapRider[],
+  positions: { riderId: string; lat: number; lng: number }[]
+): MapRider[] {
+  if (!positions.length) return base;
+  const byId = new Map(positions.map((pos) => [pos.riderId, pos]));
+  const merged = base.map((r) => {
+    const live = byId.get(r.id);
+    if (!live) return r;
+    return {
+      ...r,
+      lat: live.lat,
+      lng: live.lng,
+      lastUpdate: new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }),
+    };
+  });
+  // Riders nuevos reportados por WS pero ausentes en el snapshot REST
+  for (const pos of positions) {
+    if (!base.some((r) => r.id === pos.riderId)) {
+      merged.push({
+        id: pos.riderId,
+        name: 'Repartidor',
+        lat: pos.lat,
+        lng: pos.lng,
+        status: 'ONLINE',
+        lastUpdate: new Date().toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        }),
+      });
+    }
+  }
+  return merged;
+}
 
 export default function LiveMapPage() {
   const [isLoadingInitial, setIsLoadingInitial] = useState(true);
@@ -24,6 +86,19 @@ export default function LiveMapPage() {
   
   const [riders, setRiders] = useState<MapRider[]>([]);
   const [orders, setOrders] = useState<MapOrder[]>([]);
+  // === FASE 8: métricas del endpoint nativo de tracking (KPIs en vivo) ===
+  const [liveStats, setLiveStats] = useState<{ activeCount: number; onlineTotal: number; staleOver15Min: number } | null>(null);
+
+  // === FASE 8: WebSocket real-time (canal 'dashboard') ===
+  // Los POSITION_UPDATE del WS sobrescriben las posiciones del polling.
+  // Si el WS falla o WS_ACTIVE=false, el polling REST sigue funcionando (fallback).
+  const {
+    positions: wsPositions,
+    isConnected: wsConnected,
+    latencyMs: wsLatency,
+    error: wsError,
+    reconnect: wsReconnect,
+  } = useTrackingWebSocket('dashboard', { enabled: WS_ACTIVE });
 
   // Función principal de carga de datos
   const fetchData = useCallback(async (isManual = false, simulateMovement = false) => {
@@ -107,6 +182,14 @@ export default function LiveMapPage() {
       
       setOrders(mappedOrders);
 
+      // 3. FASE 8: KPIs del endpoint nativo de tracking (si falla, seguimos con los legacy)
+      try {
+        const live = await trackingService.getActiveRiders();
+        setLiveStats(live.stats);
+      } catch {
+        /* endpoint no disponible aún: mantener fallback */
+      }
+
     } catch (error) {
       console.error('❌ Error cargando datos del mapa:', error);
       // No detenemos la app si falla una petición, solo logueamos
@@ -116,14 +199,22 @@ export default function LiveMapPage() {
     }
   }, []);
 
+  // === FASE 8: fusión de posiciones en tiempo real (WS) sobre el snapshot REST ===
+  useEffect(() => {
+    if (!WS_ACTIVE || wsPositions.length === 0) return;
+    setRiders((prev) => mergeWsPositions(prev, wsPositions));
+  }, [wsPositions]);
+
   useEffect(() => {
     // Carga inicial
     fetchData();
 
-    // Intervalo de actualización normal (cada 10s para no saturar)
+    // Polling como FALLBACK: cada 10s con WS desconectado/legacy,
+    // cada 60s cuando el WebSocket está sano (el WS entrega deltas <1s).
+    const pollMs = WS_ACTIVE ? 60000 : 10000;
     const interval = setInterval(() => {
       fetchData(false, false);
-    }, 10000);
+    }, pollMs);
 
     return () => clearInterval(interval);
   }, [fetchData]);
@@ -187,6 +278,22 @@ export default function LiveMapPage() {
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             {riders.length} repartidores • {orders.length} órdenes activas
+            {WS_ACTIVE && (
+              <span
+                className={`ml-2 inline-flex items-center gap-1 font-semibold ${wsConnected ? 'text-green-600' : 'text-amber-600'}`}
+                title={wsError || 'Estado de la conexión WebSocket de tracking'}
+              >
+                <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-500 animate-pulse' : 'bg-amber-500'}`} />
+                {wsConnected
+                  ? `EN VIVO${wsLatency != null ? ` (${wsLatency}ms)` : ''}`
+                  : 'POLLING (WS caído)'}
+              </span>
+            )}
+            {liveStats && !wsConnected && (
+              <span className="ml-2 text-gray-500">
+                • {liveStats.activeCount} activos · {liveStats.staleOver15Min} inactivos &gt;15min
+              </span>
+            )}
             {isSimulationActive && <span className="ml-2 text-red-500 font-bold animate-pulse">(SIMULACIÓN ACTIVA)</span>}
             {onlineWithoutLocation > 0 && (
               <span className="ml-2 text-amber-600 font-semibold">
@@ -308,11 +415,27 @@ export default function LiveMapPage() {
         <div className="flex-1 relative bg-slate-200">
           {/* Ya no necesitamos el componente RiderSimulator separado, la lógica está arriba */}
           
-          <DeliveryMap 
-            riders={riders} 
-            orders={orders} 
-            onContactRider={handleContactRider}
-          />
+          {MAP_PROVIDER === 'google_maps' ? (
+            <GoogleTrackingMap
+              center={[4.60971, -74.08175]}
+              height="h-full"
+              riders={riders.map((r) => ({
+                id: r.id,
+                first_name: r.name.split(' ')[0] || r.name,
+                last_name: r.name.split(' ').slice(1).join(' '),
+                status: r.status as any,
+                lat: r.lat,
+                lng: r.lng,
+                isOnline: r.status !== 'OFFLINE',
+              }))}
+            />
+          ) : (
+            <DeliveryMap
+              riders={riders}
+              orders={orders}
+              onContactRider={handleContactRider}
+            />
+          )}
         </div>
       </div>
     </div>
