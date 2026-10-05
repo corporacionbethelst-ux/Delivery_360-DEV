@@ -50,7 +50,11 @@ def cached_haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> floa
 class OptimizationResult(dict):
     """Resultado del VRP: assignments + métricas de eficiencia.
 
-    Subclase de dict para acceso tanto por atributo como serializable directo.
+    Subclase de dict (serializable directo por FastAPI/JSON) con acceso por
+    atributo para TODAS las claves que consumen tests, scheduler y servicios:
+      assignments, total_distance_km, baseline_distance_km,
+      estimated_time_reduction_pct, savings_percentage,
+      unassigned_delivery_ids, solved_in_ms.
     """
 
     @property
@@ -62,8 +66,31 @@ class OptimizationResult(dict):
         return self["total_distance_km"]
 
     @property
+    def baseline_distance_km(self) -> float:
+        return self["baseline_distance_km"]
+
+    @property
     def estimated_time_reduction_pct(self) -> float:
         return self["estimated_time_reduction_pct"]
+
+    @property
+    def savings_percentage(self) -> float:
+        """Alias de la métrica de ahorro (nombre usado por el esquema Fase 8)."""
+        return self["estimated_time_reduction_pct"]
+
+    @property
+    def unassigned_delivery_ids(self) -> List[str]:
+        return self["unassigned_delivery_ids"]
+
+    @property
+    def solved_in_ms(self) -> float:
+        return self["solved_in_ms"]
+
+    def __getattr__(self, item):
+        try:
+            return self[item]
+        except KeyError:
+            raise AttributeError(item) from None
 
 
 class RouteOptimizer:
