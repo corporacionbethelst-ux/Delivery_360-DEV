@@ -7,6 +7,8 @@ from app.models.zone import Zone
 from app.models.order import Order, OrderStatus, OrderPriority
 from app.models.delivery import Delivery, DeliveryStatus, ProofType
 from app.models.route import Route, RoutePoint, RouteDeviation, RouteStatus
+# Fase 8: Mapas & Tracking (live locations + route optimization snapshots)
+from app.models.location import RiderLiveLocation, DeliveryRouteSnapshot
 from app.models.shift import Shift, ShiftStatus, CheckInOut
 from app.models.financial import Financial, FinancialTransaction, TransactionType, PaymentStatus, RiderWallet, PayoutRequest
 from app.models.payout import Payout, PayoutStatus as LegacyPayoutStatus, PayoutMethod, PayoutStatusHistory
@@ -24,6 +26,8 @@ __all__ = [
     "Order", "OrderStatus", "OrderPriority",
     "Delivery", "DeliveryStatus", "ProofType",
     "Route", "RoutePoint", "RouteDeviation", "RouteStatus",
+    # Fase 8: Mapas & Tracking
+    "RiderLiveLocation", "DeliveryRouteSnapshot",
     "Shift", "ShiftStatus", "CheckInOut",
     "Financial", "FinancialTransaction", "TransactionType", "PaymentStatus",
     "RiderWallet", "PayoutRequest",

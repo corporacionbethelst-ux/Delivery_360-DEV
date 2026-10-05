@@ -22,6 +22,15 @@ from app.api.v1 import (
     routes, alerts, integrations, audit, settings as settings_router, payouts,
     vehicles, zones, wallet
 )
+# Fase 8: Mapas & Tracking (telemetría REST + WebSocket handler). Import defensivo.
+try:
+    from app.api.v1 import telemetry as telemetry_module
+except ImportError:
+    telemetry_module = None
+try:
+    from app.api.v1 import tracking as tracking_module
+except ImportError:
+    tracking_module = None
 from app.middleware import RateLimitMiddleware, AuditLogMiddleware
 from app.monitoring.health_check import health_router
 from app.monitoring.metrics import metrics_router
@@ -118,6 +127,16 @@ def create_app() -> FastAPI:
     app.include_router(metrics_router, prefix="/metrics", tags=["Metrics"])
     app.include_router(payouts.router, prefix="/api/v1", tags=["Payouts"])
     app.include_router(wallet.router, prefix="/api/v1", tags=["Wallet"])
+
+    # --- FASE 8: MAPAS & TRACKING ---
+    if telemetry_module is not None:
+        app.include_router(telemetry_module.router, prefix="/api/v1", tags=["Telemetría (Fase 8)"])
+    if tracking_module is not None:
+        app.include_router(tracking_module.router, prefix="/api/v1", tags=["Tracking (Fase 8)"])
+        # WebSocket de tracking: /api/v1/tracking/ws/{channel}?token=<jwt>
+        @app.websocket("/api/v1/tracking/ws/{channel}")
+        async def tracking_ws(websocket, channel: str):
+            await tracking_module.tracking_websocket(websocket, channel)
 
     # --- ARCHIVOS ESTÁTICOS (DOCUMENTOS E IMÁGENES) ---
     uploads_path = Path("uploads")
