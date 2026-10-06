@@ -55,6 +55,16 @@ function getToken(): string | null {
 }
 
 function getWsBaseUrl(): string {
+  // Prioridad 1: NEXT_PUBLIC_TRACKING_WS (puede venir con o sin sufijo /tracking/ws)
+  const explicit = process.env.NEXT_PUBLIC_TRACKING_WS;
+  if (explicit) {
+    return explicit.replace(/\/tracking\/ws\/?$/, '').replace(/\/$/, '');
+  }
+  // Prioridad 2: WS_BASE_URL genérico
+  if (process.env.WS_BASE_URL) {
+    return process.env.WS_BASE_URL.replace(/\/$/, '');
+  }
+  // Fallback: derivar de la API REST
   const api = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
   return api.replace(/^http/, 'ws').replace(/\/$/, '');
 }
@@ -79,7 +89,7 @@ export function useTrackingWebSocket(
   const wsRef = useRef<WebSocket | null>(null);
   const retriesRef = useRef(0);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const heartbeatRef = useRef<NodeJS.Interval | null>(null);
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pingSentAtRef = useRef<number | null>(null);
 
   const updateOrAddPosition = useCallback((pos: RiderPosition) => {
