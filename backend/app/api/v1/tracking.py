@@ -99,11 +99,13 @@ async def update_location(
 
     _check_location_rate(str(rider_id))
 
+    # `accuracy` es opcional en LocationUpdate (app/schemas/rider_location.py);
+    # usar getattr para no romper si el cliente envía payloads mínimos.
     location = await service.record_location_update(
         rider_id=rider_id,
         lat=payload.lat,
         lng=payload.lng,
-        accuracy_meters=payload.accuracy,
+        accuracy_meters=getattr(payload, "accuracy", None),
         speed_kmh=speed_kmh,
         heading_degrees=heading,
     )

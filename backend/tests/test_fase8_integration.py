@@ -52,6 +52,39 @@ def _exec_result(scalars_list=None, scalar_one=None):
     return res
 
 
+class _RecordingDB:
+    """AsyncSession fake que registra objetos add() y los refleja en execute().
+
+    El servicio real hace: db.add(location) -> select(Rider) -> commit -> refresh.
+    Con un side_effect estático, `db.add` no se puede inspeccionar de forma fiable
+    (MagicMock lo expone como wrapper), por eso este doble explícito.
+    """
+
+    def __init__(self, rider):
+        self._rider = rider
+        self.added: list = []
+        self.commits = 0
+        self.refreshes = 0
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def execute(self, *a, **k):
+        return _exec_result(scalar_one=self._rider, scalars_list=[self._rider])
+
+    async def commit(self):
+        self.commits += 1
+
+    async def rollback(self):
+        pass
+
+    async def flush(self):
+        pass
+
+    async def refresh(self, obj):
+        self.refreshes += 1
+
+
 def _fake_db(execute_side_effect):
     db = MagicMock()
     db.add = MagicMock()
@@ -93,8 +126,14 @@ def client(monkeypatch):
 
     app_obj = mainmod.app
 
+    # Holder mutable: cada test puede inyectar su propio db fake sin parchar
+    # el nombre get_db (que FastAPI ya resolvió al construir las dependencias).
+    current_test_db = {"db": None}
+
     async def _fake_get_db():
-        yield _fake_db(lambda *a, **k: _exec_result(scalars_list=[], scalar_one=None))
+        yield current_test_db["db"] or _fake_db(
+            lambda *a, **k: _exec_result(scalars_list=[], scalar_one=None)
+        )
 
     def _user_with_role(role_value: str):
         async def _dep():
@@ -138,6 +177,7 @@ def client(monkeypatch):
         )
 
     app_obj.dependency_overrides[get_current_user] = _cu_dep
+    app_obj._fase8_test_db_holder = current_test_db
     try:
         yield TestClient(app_obj)
     finally:
@@ -147,7 +187,8 @@ def client(monkeypatch):
 
 # ---------------------------------------------------------------- 1. SMOKE
 def test_smoke_app_boots_and_tracking_routes_mounted(client):
-    assert client.get("/health").status_code == 200
+    # Rutas health REALES del proyecto (app/main.py:35,141 + monitoring/health_check)
+    assert client.get("/health/check").status_code == 200
     spec = client.get("/openapi.json").json()["paths"]
     for p in (
         "/api/v1/tracking/update-location",
@@ -160,7 +201,8 @@ def test_smoke_app_boots_and_tracking_routes_mounted(client):
     from app.main import app
 
     ws_paths = [r.path for r in app.routes if type(r).__name__ == "APIWebSocketRoute"]
-    assert any("/tracking/ws" in p for p in ws_paths), f"WS tracking ausente: {ws_paths}"
+    # Ruta WS REAL montada en main.py: /api/v1/tracking/ws/{channel}
+    assert any(p.startswith("/api/v1/tracking/ws") for p in ws_paths), f"WS tracking ausente: {ws_paths}"
 
 
 # ------------------------------------------------- 2. update-location OK (200)
@@ -172,11 +214,10 @@ def test_update_location_returns_200_and_persists(client, monkeypatch):
         last_location_at=None, is_online=False, status="ACTIVO",
     )
 
-    async def fake_execute(*a, **k):
-        return _exec_result(scalar_one=rider, scalars_list=[rider])
-
-    db = _fake_db(fake_execute)
-    monkeypatch.setattr(trk, "get_db", lambda: db)
+    db = _RecordingDB(rider)
+    client.app_state  # noqa: solo documentación del acceso real abajo
+    from app.main import app as _app
+    _app._fase8_test_db_holder["db"] = db
     monkeypatch.setattr(trk, "build_redis_client", AsyncMock(return_value=None))
     trk._update_windows.clear()
 
@@ -189,9 +230,11 @@ def test_update_location_returns_200_and_persists(client, monkeypatch):
     assert r.status_code == 200, r.text
     data = r.json()
     assert data["status"] == "ok" and "recorded_at" in data
-    db.add.assert_called_once()          # RiderLiveLocation insertado
-    db.commit.assert_awaited()           # persistido
-    assert rider.last_lat == PO_LAT      # snapshot última posición actualizado
+    assert len(db.added) == 1                 # exactamente 1 RiderLiveLocation insertado
+    from app.models.location import RiderLiveLocation
+    assert isinstance(db.added[0], RiderLiveLocation)
+    assert db.commits >= 1                    # persistido
+    assert rider.last_lat == PO_LAT           # snapshot última posición actualizado
     assert rider.is_online is True
     trk._update_windows.clear()
 
@@ -206,11 +249,9 @@ def test_update_location_rate_limit_429_on_request_21(client, monkeypatch):
         last_location_at=None, is_online=False, status="ACTIVO",
     )
 
-    async def fake_execute(*a, **k):
-        return _exec_result(scalar_one=rider, scalars_list=[rider])
-
-    db = _fake_db(fake_execute)
-    monkeypatch.setattr(trk, "get_db", lambda: db)
+    db = _RecordingDB(rider)
+    from app.main import app as _app
+    _app._fase8_test_db_holder["db"] = db
     monkeypatch.setattr(trk, "build_redis_client", AsyncMock(return_value=None))
     trk._update_windows.clear()
 
@@ -233,13 +274,18 @@ def test_dashboard_active_riders_contract(client, monkeypatch):
         status=SimpleNamespace(value="ACTIVO"),
         last_lat=PO_LAT, last_lng=PO_LNG,
         last_location_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        is_online=True,
     )
 
     async def fake_execute(*a, **k):
         return _exec_result(scalars_list=[rider], scalar_one=rider)
 
     db = _fake_db(fake_execute)
-    monkeypatch.setattr(trk, "get_db", lambda: db)
+    # El dashboard resuelve Depends(get_db) desde la tabla de overrides de la app;
+    # se inyecta vía holder mutable del fixture (no parchando el símbolo del módulo,
+    # que FastAPI ya capturó al construir la ruta).
+    from app.main import app as _app
+    _app._fase8_test_db_holder["db"] = db
     monkeypatch.setattr(trk, "build_redis_client", AsyncMock(return_value=None))
 
     r = client.get(
