@@ -107,6 +107,10 @@ class Settings(BaseSettings):
 
     # --- FASE 8: MAPAS & TRACKING REAL-TIME ---
     WS_HEARTBEAT_INTERVAL_SEC: int = 30
+    # Alias con nombre de especificación (WEBSOCKET_...) para compatibilidad.
+    WEBSOCKET_HEARTBEAT_INTERVAL_SEC: int = 30
+    # Límite de tiempo del solver VRP (ms) usado por route_optimizer.
+    ROUTE_OPTIMIZER_TIME_LIMIT_MS: int = 5000
     WS_MAX_CONNECTIONS: int = 1000
     REDIS_PUBSUB_CHANNEL_PREFIX: str = "rider_location_updates"
     LIVE_LOCATION_RETENTION_DAYS: int = 7

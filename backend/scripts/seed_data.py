@@ -1491,6 +1491,171 @@ async def seed_alerts(db: AsyncSession, orders: List[Order], riders: List[Rider]
 # MAIN
 # ==========================================
 
+# ==========================================
+# FASE 8: MAPAS & TRACKING (Puerto Ordaz, Venezuela)
+# ==========================================
+
+# Coordenadas reales de Puerto Ordaz / Ciudad Guayana, estado Bolívar, Venezuela
+PO_CENTER_LAT = 8.3106   # Puerto Ordaz (plaza central aprox.)
+PO_CENTER_LNG = -62.6549
+
+PO_ZONES = [
+    {"code": "PO-01", "name": "Puerto Ordaz Centro", "color_hex": "#3b82f6",
+     "center_lat": 8.3106, "center_lng": -62.6549, "is_priority": True},
+    {"code": "PO-02", "name": "Alta Vista", "color_hex": "#22c55e",
+     "center_lat": 8.2930, "center_lng": -62.6380, "is_priority": False},
+    {"code": "PO-03", "name": "Unare / Villa Asia", "color_hex": "#f97316",
+     "center_lat": 8.3350, "center_lng": -62.6800, "is_priority": False},
+    {"code": "PO-04", "name": "Chirica / La Florencia", "color_hex": "#a855f7",
+     "center_lat": 8.2780, "center_lng": -62.6700, "is_priority": False},
+]
+
+
+async def seed_fase8_tracking(db: AsyncSession):
+    """Fase 8: zonas PO-01..PO-04 (Puerto Ordaz), riders con wallet, GPS histórico y snapshots VRP.
+
+    Idempotente: UPSERT/skip por claves naturales (zone.code, rider.user_id,
+    marca temporal determinista en rider_live_locations, delivery_id único por snapshot).
+    """
+    print("🛰️  Sembrando datos Fase 8 (Mapas & Tracking — Puerto Ordaz, Venezuela)...")
+
+    # ---------------- 1) Zonas PO-01..PO-04 (UPSERT por code) ----------------
+    zones_by_code: dict[str, Zone] = {}
+    zone_created = 0
+    for zdef in PO_ZONES:
+        existing = (await db.execute(select(Zone).where(Zone.code == zdef["code"]))).scalar_one_or_none()
+        if existing:
+            zones_by_code[zdef["code"]] = existing
+        else:
+            zone = Zone(
+                id=uuid.uuid4(), is_active=True,
+                name=zdef["name"], code=zdef["code"], description=f"Zona operativa Fase 8 — {zdef['name']}, Puerto Ordaz.",
+                delivery_fee_base=15000.0, cost_per_km=2500.0, estimated_time_min=30.0,
+                bonus_multiplier=1.2 if zdef["is_priority"] else 1.0,
+                is_priority=zdef["is_priority"], color_hex=zdef["color_hex"],
+                center_lat=zdef["center_lat"], center_lng=zdef["center_lng"],
+            )
+            db.add(zone)
+            zones_by_code[zdef["code"]] = zone
+            zone_created += 1
+    await db.flush()
+    print(f"   ✅ Zonas PO: {zone_created} creadas / {len(zones_by_code)} disponibles.")
+
+    # ---------------- 2) Riders activos en PO con wallet ----------------
+    from sqlalchemy.orm import selectinload as _selectinload
+
+    po_zone_ids = [z.id for z in zones_by_code.values()]
+    riders = (await db.execute(
+        select(Rider)
+        .options(_selectinload(Rider.user))
+        .where(Rider.zone_id.in_(po_zone_ids), Rider.status == RiderStatus.ACTIVO)
+    )).scalars().all()
+
+    if not riders:
+        # Crear riders PO sobre usuarios existentes — skip por user_id ya asignado a otro rider
+        users_pool = (await db.execute(select(User).limit(50))).scalars().all()
+        taken_user_ids = {r.user_id for r in (await db.execute(select(Rider))).scalars().all()}
+        available_users = [u for u in users_pool if u.id not in taken_user_ids]
+        rider_names = ["Yoiner", "Andreina", "Carlos", "Luisana", "Jose", "Maireth"]
+        created_riders = 0
+        for idx, user in enumerate(available_users[:6]):
+            zdef = PO_ZONES[idx % len(PO_ZONES)]
+            first_name = rider_names[idx % len(rider_names)]
+            lat, lng = get_random_location_near(zdef["center_lat"], zdef["center_lng"], radius_km=1.0)
+            rider = Rider(
+                id=uuid.uuid4(), user_id=user.id,
+                vehicle_type=RiderVehicleType.MOTO, vehicle_plate=f"PO{800 + created_riders}",
+                operating_zone=zdef["name"], zone_id=zones_by_code[zdef["code"]].id,
+                status=RiderStatus.ACTIVO, is_online=True, tier=RiderTier.BRONCE,
+                last_lat=lat, last_lng=lng, last_location_at=utc_now_naive(),
+            )
+            db.add(rider)
+            created_riders += 1
+            print(f"   👤 Rider PO '{first_name}' ({user.email}) → zona {zdef['code']}")
+        await db.flush()
+        if created_riders:
+            print(f"   ✅ {created_riders} riders PO creados.")
+        riders = (await db.execute(
+            select(Rider).options(_selectinload(Rider.user)).where(Rider.zone_id.in_(po_zone_ids))
+        )).scalars().all()
+
+    # Wallets (RiderWallet, esquema Fase 7: balance_cents Integer) — skip si ya existe por rider_id
+    wallets_created = 0
+    for rider in riders:
+        has_wallet = (await db.execute(
+            select(RiderWallet).where(RiderWallet.rider_id == rider.id)
+        )).scalar_one_or_none()
+        if not has_wallet:
+            db.add(RiderWallet(id=uuid.uuid4(), rider_id=rider.id, balance_cents=0, currency="USD", is_active=True))
+            wallets_created += 1
+        # Posición última conocida anclada a la zona PO correspondiente
+        if rider.last_lat is None or rider.last_lng is None:
+            z = await db.get(Zone, rider.zone_id) if rider.zone_id else None
+            lat, lng = get_random_location_near(*(z.center_lat, z.center_lng) if z and z.center_lat else (PO_CENTER_LAT, PO_CENTER_LNG), radius_km=1.5)
+            rider.last_lat, rider.last_lng, rider.last_location_at = lat, lng, utc_now_naive()
+    await db.flush()
+    print(f"   ✅ Wallets: {wallets_created} creados / {len(riders)} riders en PO.")
+
+    # ---------------- 3) GPS histórico simulado (últimas 24 h, cada 5 min) ----------------
+    locations_inserted = 0
+    now = utc_now_naive()
+    for rider in riders[:8]:
+        z = await db.get(Zone, rider.zone_id) if rider.zone_id else None
+        base = (z.center_lat, z.center_lng) if z and z.center_lat else (PO_CENTER_LAT, PO_CENTER_LNG)
+        seed_key = f"fase8-seed::{rider.id}"
+        for i in range(288):  # 24h * 12 samples/h
+            ts = now - timedelta(minutes=5 * (288 - i))
+            exists = (await db.execute(
+                text("SELECT 1 FROM rider_live_locations WHERE rider_id = :r AND recorded_at = :t LIMIT 1"),
+                {"r": str(rider.id), "t": ts},
+            )).first()
+            if exists:
+                continue
+            jitter = i / 288.0 * 1.2  # deriva suave dentro de ~1.2 km
+            lat, lng = get_random_location_near(base[0], base[1], radius_km=0.6 + jitter)
+            db.add(RiderLiveLocation(
+                id=uuid.uuid4(), rider_id=rider.id, latitude=lat, longitude=lng,
+                accuracy_meters=random.uniform(5.0, 25.0), speed_kmh=random.uniform(0.0, 45.0),
+                heading_degrees=random.uniform(0.0, 359.0), recorded_at=ts, created_at=ts,
+            ))
+            locations_inserted += 1
+        _ = seed_key  # clave de idempotencia lógica (marca temporal determinista por rider+slot)
+    await db.flush()
+    print(f"   ✅ GPS histórico PO: {locations_inserted} posiciones nuevas (skip duplicados).")
+
+    # ---------------- 4) Snapshots de rutas VRP (skip por delivery_id) ----------------
+    import json as _json
+
+    deliveries = (await db.execute(
+        select(Delivery).options(_selectinload(Delivery.order)).where(
+            Delivery.status.in_([DeliveryStatus.EN_ROUTE, DeliveryStatus.INICIADA])
+        ).limit(10)
+    )).scalars().all()
+    snapshots_created = 0
+    for dlv in deliveries:
+        exists = (await db.execute(
+            select(DeliveryRouteSnapshot.id).where(DeliveryRouteSnapshot.delivery_id == dlv.id)
+        )).first()
+        if exists:
+            continue
+        original_km = round(random.uniform(3.5, 9.0), 2)
+        optimized_km = round(original_km * random.uniform(0.72, 0.90), 2)
+        db.add(DeliveryRouteSnapshot(
+            id=uuid.uuid4(), delivery_id=dlv.id,
+            optimized_sequence_json=_json.dumps([
+                {"seq": 1, "type": "pick_up", "lat": PO_CENTER_LAT, "lng": PO_CENTER_LNG},
+                {"seq": 2, "type": "drop_off", "lat": 8.2930, "lng": -62.6380},
+            ]),
+            original_distance_km=original_km, optimized_distance_km=optimized_km,
+            savings_percentage=round((1 - optimized_km / original_km) * 100, 1),
+            calculated_at=now, expires_at=now + timedelta(hours=int(getattr(settings, "ROUTE_SNAPSHOT_EXPIRY_HOURS", 24))),
+        ))
+        snapshots_created += 1
+    await db.commit()
+    print(f"   ✅ Snapshots VRP: {snapshots_created} creados / {len(deliveries)} entregas evaluadas.")
+    print("🛰️  Fase 8 seed OK — Puerto Ordaz (PO-01..PO-04).")
+
+
 async def main():
     print("🚀 INICIANDO SEED DATA AVANZADO (CON ZONAS, VEHÍCULOS Y ALERTAS)")
     async with AsyncSessionLocal() as db:
@@ -1522,6 +1687,10 @@ async def main():
             await seed_demo_payouts(db, riders)
             await seed_alerts(db, orders, riders)
             await seed_audit_logs(db)
+
+            # FASE 8: Mapas & Tracking — zonas Puerto Ordaz (PO-01..PO-04),
+            # GPS histórico simulado y snapshots VRP (idempotente)
+            await seed_fase8_tracking(db)
             
             print("\n✅ ¡SEED COMPLETADO CON ÉXITO!")
             print("\n🔐 CREDENCIALES:")
