@@ -1,1 +1,15 @@
-(empty)
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage/
+
+# Environment & Config
+.env
+.env.local
+.env.*.local

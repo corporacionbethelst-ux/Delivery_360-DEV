@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 from datetime import datetime, timedelta, timezone, time
 from typing import List, Optional, Tuple
@@ -8,7 +9,10 @@ from decimal import Decimal
 import math
 
 # Ajusta el path según tu estructura real
-sys.path.insert(0, "/app")
+_BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .../backend (funciona con /app en Docker y rutas locales)
+for _p in ("/app", _BACKEND_ROOT):
+    if _p not in sys.path and os.path.isdir(_p):
+        sys.path.insert(0, _p)
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -25,6 +29,7 @@ from app.models.delivery import Delivery, DeliveryStatus, ProofType
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
 from app.models.financial import Financial, TransactionType, PaymentStatus, RiderWallet, FinancialTransaction, TransactionStatus as FinTransactionStatus
 from app.models.payout import Payout, PayoutStatus, PayoutMethod, PayoutStatusHistory
+from app.models.location import RiderLiveLocation, DeliveryRouteSnapshot
 from app.models.financial import PayoutRequest, PayoutStatus as PayoutRequestStatus
 from app.models.audit_log import AuditLog, ActionType
 from app.models.platform_setting import PlatformSetting
@@ -1519,6 +1524,13 @@ async def seed_fase8_tracking(db: AsyncSession):
     """
     print("🛰️  Sembrando datos Fase 8 (Mapas & Tracking — Puerto Ordaz, Venezuela)...")
 
+    # Resolución defensiva de modelos (evita NameError si el módulo no quedó cargado
+    # por diferencias de sys.path entre Docker (/app) y ejecución local).
+    try:
+        RiderLiveLocation
+    except NameError:
+        from app.models.location import RiderLiveLocation, DeliveryRouteSnapshot  # type: ignore
+
     # ---------------- 1) Zonas PO-01..PO-04 (UPSERT por code) ----------------
     zones_by_code: dict[str, Zone] = {}
     zone_created = 0
@@ -1598,13 +1610,15 @@ async def seed_fase8_tracking(db: AsyncSession):
 
     # ---------------- 3) GPS histórico simulado (últimas 24 h, cada 5 min) ----------------
     locations_inserted = 0
-    now = utc_now_naive()
+    # Ancla determinista: slot redondeado a la ventana de 5 min del último cierre de hora UTC.
+    # Esto hace la serie temporal IDEMPOTENTE entre ejecuciones del seed (aunque cambie "now").
+    anchor = utc_now_naive().replace(minute=(utc_now_naive().minute // 5) * 5, second=0, microsecond=0)
+    now = utc_now_naive()  # timestamp real para snapshots (calculated_at/expira en +24h)
     for rider in riders[:8]:
         z = await db.get(Zone, rider.zone_id) if rider.zone_id else None
         base = (z.center_lat, z.center_lng) if z and z.center_lat else (PO_CENTER_LAT, PO_CENTER_LNG)
-        seed_key = f"fase8-seed::{rider.id}"
         for i in range(288):  # 24h * 12 samples/h
-            ts = now - timedelta(minutes=5 * (288 - i))
+            ts = anchor - timedelta(minutes=5 * (288 - i))
             exists = (await db.execute(
                 text("SELECT 1 FROM rider_live_locations WHERE rider_id = :r AND recorded_at = :t LIMIT 1"),
                 {"r": str(rider.id), "t": ts},
@@ -1619,7 +1633,6 @@ async def seed_fase8_tracking(db: AsyncSession):
                 heading_degrees=random.uniform(0.0, 359.0), recorded_at=ts, created_at=ts,
             ))
             locations_inserted += 1
-        _ = seed_key  # clave de idempotencia lógica (marca temporal determinista por rider+slot)
     await db.flush()
     print(f"   ✅ GPS histórico PO: {locations_inserted} posiciones nuevas (skip duplicados).")
 
