@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 from datetime import datetime, timedelta, timezone, time
 from typing import List, Optional, Tuple
@@ -8,7 +9,10 @@ from decimal import Decimal
 import math
 
 # Ajusta el path según tu estructura real
-sys.path.insert(0, "/app")
+_BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .../backend (funciona con /app en Docker y rutas locales)
+for _p in ("/app", _BACKEND_ROOT):
+    if _p not in sys.path and os.path.isdir(_p):
+        sys.path.insert(0, _p)
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -1519,6 +1523,13 @@ async def seed_fase8_tracking(db: AsyncSession):
     marca temporal determinista en rider_live_locations, delivery_id único por snapshot).
     """
     print("🛰️  Sembrando datos Fase 8 (Mapas & Tracking — Puerto Ordaz, Venezuela)...")
+
+    # Resolución defensiva de modelos (evita NameError si el módulo no quedó cargado
+    # por diferencias de sys.path entre Docker (/app) y ejecución local).
+    try:
+        RiderLiveLocation
+    except NameError:
+        from app.models.location import RiderLiveLocation, DeliveryRouteSnapshot  # type: ignore
 
     # ---------------- 1) Zonas PO-01..PO-04 (UPSERT por code) ----------------
     zones_by_code: dict[str, Zone] = {}
