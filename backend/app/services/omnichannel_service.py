@@ -150,16 +150,21 @@ class OmnichannelNotificationService:
     # Redis helpers (todo tolerante a fallos: Redis caído nunca rompe envío)
     # ------------------------------------------------------------------
     async def _get_redis(self):
-        if self._redis is not None:
+        # -1 centinela: ya se intentó conectar y falló → no reintentar por request
+        if self._redis is not None and self._redis is not False:
             return self._redis
-        if not REDIS_LIB_AVAILABLE:
+        if self._redis is False or not REDIS_LIB_AVAILABLE:
             return None
         try:
-            self._redis = aioredis.from_url(settings.REDIS_URL, encoding="utf-8",
-                                            decode_responses=True)
-            return self._redis
+            client = aioredis.from_url(settings.REDIS_URL, encoding="utf-8",
+                                       decode_responses=True,
+                                       socket_connect_timeout=2)
+            await client.ping()
+            self._redis = client
+            return client
         except Exception as exc:
             logger.warning("Redis no disponible para notificaciones: %s", exc)
+            self._redis = False  # degrade suave: no reintenta en cada envío
             return None
 
     async def _get_template(self, code: str) -> Optional[NotificationTemplate]:

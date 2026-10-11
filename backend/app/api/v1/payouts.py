@@ -498,10 +498,12 @@ async def approve_payout(
         )
         recipient_user_id = await resolve_payout_recipient(db, payout)
         if recipient_user_id:
-            await notify_event(
+            # Sesión en uso por el request → dispatch propio DESPUÉS del commit
+            # (asyncio.create_task no bloquea la respuesta; notify_event jamás propaga)
+            asyncio.create_task(notify_event(
                 "payout_aprobado", recipient_user_id,
-                payout_context(payout), db=db, payout_id=payout.id,
-            )
+                payout_context(payout), payout_id=payout.id,
+            ))
     except Exception as e:
         logger.warning(f"Hook Fase 9 payout_aprobado omitido: {e}")
     
@@ -584,17 +586,18 @@ async def reject_payout(
         logger.warning(f"No se pudo enviar notificación de rechazo de retiro: {e}")
 
     # FASE 9 (hook omnicanal): payout RECHAZADO → plantilla 'payout_rechazado'.
+    # Se resuelve el destinatario AHÍ (antes del commit) pero el dispatch se
+    # lanza DESPUÉS de commitear, con sesión propia efímera: un fallo de
+    # notificación jamás revierte la operación de negocio.
+    _fase9_reject_ctx = None
     try:
         from app.services.notification_hooks import (
             notify_event, resolve_payout_recipient, payout_context,
         )
         recipient_user_id = await resolve_payout_recipient(db, payout)
         if recipient_user_id:
-            await notify_event(
-                "payout_rechazado", recipient_user_id,
-                payout_context(payout, extra={"reason": reason}),
-                db=db, payout_id=payout.id,
-            )
+            _fase9_reject_ctx = (recipient_user_id,
+                                 payout_context(payout, extra={"reason": reason}))
     except Exception as e:
         logger.warning(f"Hook Fase 9 payout_rechazado omitido: {e}")
     
