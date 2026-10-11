@@ -975,6 +975,17 @@ async def update_delivery_status(
     await db.flush()
     await db.commit()
     
+    # ── FASE 10: Facturación electrónica + split de ingresos (post-commit,
+    # fire-and-forget). Un fallo fiscal NUNCA revierte la entrega ya commiteada.
+    if new_status == DeliveryStatus.COMPLETADA and delivery.order_id:
+        try:
+            from app.services.invoicing_engine import issue_invoice_for_order_safe
+            from app.services.split_payment_service import settle_order_safe
+            asyncio.create_task(issue_invoice_for_order_safe(delivery.order_id))
+            asyncio.create_task(settle_order_safe(delivery.order_id))
+        except Exception:
+            logger.exception("Hook Fase 10 (factura/split) no pudo programarse")
+
     # Recargar datos para la respuesta
     await db.refresh(delivery, attribute_names=['rider', 'order'])
     if delivery.rider:

@@ -22,6 +22,11 @@ from app.models.notification import (
 from app.models.integration import Integration, IntegrationType, IntegrationStatus
 from app.models.platform_setting import PlatformSetting
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
+from app.models.fiscal import (
+    CountryTaxRegime, InvoiceType, InvoiceStatus, ReconciliationStatus,
+    ElectronicInvoice, InvoiceResolution, PaymentDistributionSnapshot,
+    FiscalConfiguration, BankReconciliationRecord,
+)
 
 __all__ = [
     "User", "UserRole",

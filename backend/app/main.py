@@ -167,6 +167,16 @@ def create_app() -> FastAPI:
         async def notifications_ws(websocket: WebSocket):
             await notifications.notifications_websocket(websocket)
 
+    # --- FASE 10: FACTURACIÓN ELECTRÓNICA & MOTOR FISCAL ---
+    fiscal = None
+    try:
+        from app.api.v1 import fiscal as fiscal_module
+        fiscal = fiscal_module
+    except ImportError:  # pragma: no cover - entorno sin Fase 10 instalada
+        fiscal = None
+    if fiscal is not None:
+        app.include_router(fiscal.router, prefix="/api/v1", tags=["Fiscal (Fase 10)"])
+
     # --- ARCHIVOS ESTÁTICOS (DOCUMENTOS E IMÁGENES) ---
     uploads_path = Path("uploads")
     uploads_path.mkdir(exist_ok=True)
