@@ -153,6 +153,20 @@ def create_app() -> FastAPI:
         async def tracking_ws(websocket, channel: str):
             await tracking_module.tracking_websocket(websocket, channel)
 
+    # --- FASE 9: NOTIFICACIONES OMNICANAL ---
+    notifications = None
+    try:
+        from app.api.v1 import notifications as notifications_module
+        notifications = notifications_module
+    except ImportError:  # pragma: no cover - entorno sin Fase 9 instalada
+        notifications = None
+    if notifications is not None:
+        app.include_router(notifications.router, prefix="/api/v1", tags=["Notificaciones (Fase 9)"])
+        # WebSocket de notificaciones: /api/v1/notifications/ws?token=<jwt> (JWT manual, close 1008 si inválido)
+        @app.websocket("/api/v1/notifications/ws")
+        async def notifications_ws(websocket):
+            await notifications.notifications_websocket(websocket)
+
     # --- ARCHIVOS ESTÁTICOS (DOCUMENTOS E IMÁGENES) ---
     uploads_path = Path("uploads")
     uploads_path.mkdir(exist_ok=True)
