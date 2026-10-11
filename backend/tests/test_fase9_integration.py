@@ -33,6 +33,24 @@ from app.models.notification import (
 )
 
 
+def _run_coro(coro):
+    """Ejecuta un coro SIN cerrar el event loop global.
+
+    `asyncio.run()` cierra el loop al terminar; bajo pytest-asyncio 0.23.x
+    (asyncio_mode=auto) eso deja sin loop vigente a los tests async que se
+    ejecutan despues en la misma sesion -> RuntimeError('There is no current
+    event loop in thread MainThread') observado en la auditoria de Fase 9.
+    Este helper crea un loop propio, lo cierra y RESTAURA uno nuevo como
+    loop global, de forma que la suite completa es orden-independiente.
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
+
 def _make_token(role: str, sub: str | None = None, expired: bool = False) -> str:
     now = datetime.now(timezone.utc)
     exp = now - timedelta(minutes=5) if expired else now + timedelta(minutes=30)
@@ -267,7 +285,7 @@ def test_payout_approved_hook_creates_log():
     orig = osvc.OmnichannelNotificationService
     osvc.OmnichannelNotificationService = _Svc
     try:
-        asyncio.run(hooks.notify_event(
+        _run_coro(hooks.notify_event(
             "payout_aprobado", str(rider_uid),
             {"amount_cents": 15000, "bank_last4": "4321"},
             payout_id=uuid.uuid4(),
@@ -426,8 +444,11 @@ def test_dedupe_same_window_skips_second_send():
 
     from app.services.omnichannel_service import OmnichannelNotificationService
     svc = OmnichannelNotificationService(db=_fake_db(_se), redis_client=False)
-    logs = asyncio.run(svc.send(user.id, "payout_aprobado",
-                                {"amount_cents": 1, "status": "X"}))
+
+    logs = _run_coro(svc.send(user.id, "payout_aprobado",
+                              {"amount_cents": 1, "status": "X"}))
+    # NOTE: no asyncio.run aqui: cerrar el loop global roto pytest-asyncio
+    # para los tests async posteriores (falla observada en auditoria Fase 9).
     assert logs == []
 
 
@@ -450,8 +471,8 @@ def test_flag_disabled_forces_in_app_only(monkeypatch):
 
     db = _fake_db(_se)
     svc = osvc.OmnichannelNotificationService(db=db, redis_client=False)
-    logs = asyncio.run(svc.send(user.id, "resumen_diario_manager",
-                                {"manager_name": "M"},
-                                channels=[NotificationChannel.EMAIL]))
+    logs = _run_coro(svc.send(user.id, "resumen_diario_manager",
+                              {"manager_name": "M"},
+                              channels=[NotificationChannel.EMAIL]))
     assert len(logs) == 1
     assert logs[0].channel == NotificationChannel.IN_APP  # fallback al flag off
