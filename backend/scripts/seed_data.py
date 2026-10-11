@@ -1667,6 +1667,181 @@ async def seed_fase8_tracking(db: AsyncSession):
     await db.commit()
     print(f"   ✅ Snapshots VRP: {snapshots_created} creados / {len(deliveries)} entregas evaluadas.")
     print("🛰️  Fase 8 seed OK — Puerto Ordaz (PO-01..PO-04).")
+    # Fuente unica de verdad: TEMPLATES_SEED definida en la migracion Fase 9
+    templates_seed = [
+        ("payout_aprobado", "PUSH", None,
+         "Tu retiro de ${{amount_cents}} fue APROBADO. Se procesara a tu cuenta ****{{bank_last4}}."),
+        ("payout_rechazado", "PUSH", None,
+         "Tu solicitud de retiro de ${{amount_cents}} fue RECHAZADA. Motivo: {{reason}}"),
+        ("payout_fallido", "PUSH", None,
+         "El pago de tu retiro de ${{amount_cents}} FALLO. Motivo: {{reason}}. Soporte te contactara."),
+        ("nuevo_pedido_asignado", "PUSH", None,
+         "Nuevo pedido asignado: entrega {{delivery_code}} de {{customer_name}}. Pago estimado: ${{payment_cents}}."),
+        ("alerta_desviacion_ruta", "EMAIL", "Alerta de desviacion de ruta - Delivery360",
+         "El rider {{rider_name}} se desvio {{deviation_km}} km de la ruta planificada. "
+         "Posicion actual: ({{lat}}, {{lng}}). Ultima actualizacion: {{last_seen}}."),
+        ("resumen_diario_manager", "EMAIL", "Resumen diario de operaciones - Delivery360",
+         "Buen dia {{manager_name}}. Resumen de ayer: {{total_deliveries}} entregas, "
+         "{{completed_count}} completadas, {{failed_count}} falladas, "
+         "{{on_time_pct}}% a tiempo."),
+    ]
+    tpl_created = tpl_updated = 0
+    for code, channel, subject, body in templates_seed:
+        existing = (await db.execute(
+            select(NotificationTemplate).where(NotificationTemplate.code == code)
+        )).scalar_one_or_none()
+        if existing is None:
+            db.add(NotificationTemplate(
+                id=uuid.uuid4(), code=code, channel=NotificationChannel(channel),
+                subject=subject, body_template=body, language="es", is_active=True,
+            ))
+            tpl_created += 1
+        else:
+            # UPSERT suave: reactivar/actualizar solo si el contenido divergio
+            changed = (existing.body_template != body or existing.subject != subject
+                       or not existing.is_active)
+            if changed:
+                existing.channel = NotificationChannel(channel)
+                existing.subject = subject
+                existing.body_template = body
+                existing.is_active = True
+                tpl_updated += 1
+    await db.commit()
+    print(f"   Plantillas: {tpl_created} creadas, {tpl_updated} actualizadas, "
+          f"{len(templates_seed)} totales evaluadas.")
+
+    # ---------------- 2) Usuarios demo por rol ----------------
+    demo_users = {}
+    for role, email in [
+        (UserRole.SUPERADMIN, "super@delivery360.com"),
+        (UserRole.GERENTE, "gerente@delivery360.com"),
+        (UserRole.OPERADOR, "ops@delivery360.com"),
+    ]:
+        u = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+        if u:
+            demo_users[role] = u
+    riders_u = (await db.execute(
+        select(User).join(Rider, Rider.user_id == User.id).limit(3)
+    )).scalars().all()
+    if riders_u:
+        demo_users[UserRole.REPARTIDOR] = riders_u[0]
+
+    # ---------------- 3) Preferencias demo evento x canal ----------------
+    pref_events = ["payout_aprobado", "nuevo_pedido_asignado", "alerta_desviacion_ruta"]
+    role_channels = {
+        UserRole.REPARTIDOR: [NotificationChannel.PUSH, NotificationChannel.IN_APP],
+        UserRole.GERENTE: [NotificationChannel.PUSH, NotificationChannel.EMAIL],
+        UserRole.SUPERADMIN: [NotificationChannel.PUSH, NotificationChannel.EMAIL],
+        UserRole.OPERADOR: [NotificationChannel.IN_APP],
+    }
+    prefs_created = 0
+    for role, user in demo_users.items():
+        for event in pref_events:
+            for ch in role_channels.get(role, [NotificationChannel.IN_APP]):
+                exists = (await db.execute(
+                    select(NotificationPreference.id).where(
+                        NotificationPreference.user_id == user.id,
+                        NotificationPreference.event_code == event,
+                        NotificationPreference.channel == ch,
+                    )
+                )).first()
+                if exists:
+                    continue
+                db.add(NotificationPreference(
+                    id=uuid.uuid4(), user_id=user.id, event_code=event,
+                    channel=ch, enabled=True,
+                ))
+                prefs_created += 1
+    await db.commit()
+    print(f"   Preferencias demo: {prefs_created} creadas.")
+
+    # ---------------- 4) Device tokens dummy (web) ----------------
+    tokens_created = 0
+    for role, user in demo_users.items():
+        fake_token = f"seed-fcm-{str(user.id)[:8]}-web"
+        exists = (await db.execute(
+            select(UserDeviceToken.id).where(UserDeviceToken.device_token == fake_token)
+        )).first()
+        if exists:
+            continue
+        db.add(UserDeviceToken(
+            id=uuid.uuid4(), user_id=user.id, device_token=fake_token,
+            platform="web", failure_count=0, is_active=True,
+            last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        ))
+        tokens_created += 1
+    await db.commit()
+    print(f"   Device tokens dummy: {tokens_created} creados.")
+
+    # ---------------- 5) Logs historicos (mezcla ENVIADO/LEIDO/FALLIDO) ----------------
+    now9 = datetime.now(timezone.utc).replace(tzinfo=None)
+    log_specs = []
+    if UserRole.REPARTIDOR in demo_users:
+        ru = demo_users[UserRole.REPARTIDOR]
+        log_specs += [
+            ("payout_aprobado", ru, NotificationChannel.PUSH, OmnichannelStatus.ENVIADO, 1,
+             {"amount_cents": 15000, "bank_last4": "4321", "status": "APROBADO"}),
+            ("payout_rechazado", ru, NotificationChannel.PUSH, OmnichannelStatus.LEIDO, 2,
+             {"amount_cents": 8000, "reason": "Cuenta bancaria no verificada"}),
+            ("nuevo_pedido_asignado", ru, NotificationChannel.IN_APP, OmnichannelStatus.LEIDO, 3,
+             {"delivery_code": "DLV-SEED-001", "customer_name": "Ana Perez", "payment_cents": 12000}),
+            ("nuevo_pedido_asignado", ru, NotificationChannel.PUSH, OmnichannelStatus.FALLIDO, 4,
+             {"delivery_code": "DLV-SEED-002", "customer_name": "Luis Gomez", "payment_cents": 9000}),
+        ]
+    if UserRole.GERENTE in demo_users:
+        gu = demo_users[UserRole.GERENTE]
+        log_specs += [
+            ("alerta_desviacion_ruta", gu, NotificationChannel.EMAIL, OmnichannelStatus.ENVIADO, 5,
+             {"rider_name": "Rider Demo", "deviation_km": 0.8, "lat": 8.29, "lng": -62.73,
+              "last_seen": "hace 12 min"}),
+            ("resumen_diario_manager", gu, NotificationChannel.EMAIL, OmnichannelStatus.LEIDO, 6,
+             {"manager_name": "Gerente General", "total_deliveries": 42, "completed_count": 38,
+              "failed_count": 2, "on_time_pct": 91.5}),
+        ]
+    if UserRole.SUPERADMIN in demo_users:
+        su = demo_users[UserRole.SUPERADMIN]
+        log_specs += [
+            ("resumen_diario_manager", su, NotificationChannel.IN_APP, OmnichannelStatus.ENVIADO, 7,
+             {"manager_name": "Super Admin", "total_deliveries": 42, "completed_count": 38,
+              "failed_count": 2, "on_time_pct": 91.5}),
+            ("payout_aprobado", su, NotificationChannel.IN_APP, OmnichannelStatus.LEIDO, 8,
+             {"amount_cents": 25000, "bank_last4": "9876", "status": "APROBADO"}),
+        ]
+
+    logs_created = logs_skipped = 0
+    for code, user, ch, status_, seq, ctx in log_specs:
+        raw = f"seed-fase9|{code}|{user.id}|{ch.value}|{seq}"
+        dedupe = "seed:" + _hl.sha256(raw.encode()).hexdigest()[:100]
+        exists = (await db.execute(
+            select(NotificationLog.id).where(NotificationLog.dedupe_key == dedupe)
+        )).first()
+        if exists:
+            logs_skipped += 1
+            continue
+        created = now9 - timedelta(days=(seq % 7) + 1, hours=seq)
+        title = code.replace("_", " ").capitalize()
+        db.add(NotificationLog(
+            id=uuid.uuid4(), user_id=user.id, template_code=code,
+            channel=ch, status=status_,
+            payload_json=_json9.dumps(ctx, default=str),
+            dedupe_key=dedupe, title=title[:255],
+            body=f"[seed] {title}",
+            retry_count=1 if status_ == OmnichannelStatus.FALLIDO else 0,
+            error_message="Provider stub reporto fallo (dato historico demo)"
+                          if status_ == OmnichannelStatus.FALLIDO else None,
+            provider_message_id=f"stub-{seq:04d}" if status_ != OmnichannelStatus.FALLIDO else None,
+            created_at=created,
+            sent_at=created if status_ != OmnichannelStatus.PENDIENTE else None,
+            delivered_at=created if status_ in (OmnichannelStatus.ENVIADO, OmnichannelStatus.LEIDO,
+                                                OmnichannelStatus.ENTREGADO) else None,
+            read_at=created + timedelta(hours=1) if status_ == OmnichannelStatus.LEIDO else None,
+        ))
+        logs_created += 1
+    await db.commit()
+    print(f"   Logs historicos: {logs_created} creados, {logs_skipped} omitidos (dedupe).")
+    print("\U0001f514 Fase 9 seed OK — Notificaciones omnicanal.")
+
+
 
 
 async def main():
@@ -1705,6 +1880,11 @@ async def main():
             # GPS histórico simulado y snapshots VRP (idempotente)
             await seed_fase8_tracking(db)
             
+
+            # FASE 9: Notificaciones omnicanal — plantillas UPSERT por code,
+            # preferencias demo por rol, logs históricos y device tokens dummy
+            # (idempotente: skip por dedupe_key / unique constraints)
+            await seed_fase9_notifications(db)
             print("\n✅ ¡SEED COMPLETADO CON ÉXITO!")
             print("\n🔐 CREDENCIALES:")
             print("   Superadmin: super@delivery360.com / Admin123!")
