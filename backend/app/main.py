@@ -164,7 +164,7 @@ def create_app() -> FastAPI:
         app.include_router(notifications.router, prefix="/api/v1", tags=["Notificaciones (Fase 9)"])
         # WebSocket de notificaciones: /api/v1/notifications/ws?token=<jwt> (JWT manual, close 1008 si inválido)
         @app.websocket("/api/v1/notifications/ws")
-        async def notifications_ws(websocket):
+        async def notifications_ws(websocket: WebSocket):
             await notifications.notifications_websocket(websocket)
 
     # --- ARCHIVOS ESTÁTICOS (DOCUMENTOS E IMÁGENES) ---

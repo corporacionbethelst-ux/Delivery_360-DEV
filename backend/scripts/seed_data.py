@@ -1802,6 +1802,14 @@ async def seed_fase9_notifications(db: AsyncSession):
     # Nota auditoría: NO hacer commit aquí — el script puede correr con sesiones
     # expire_on_commit=True y expiraría user.id (lazy IO → MissingGreenlet).
     # El commit de la sección 3 persiste usuarios+prefs atómicamente.
+    # CORRECCIÓN AUDITORÍA FASE 9 (UnboundLocalError): demo_ids debe definirse
+    # ANTES de su primer uso en la sección 3. uid_map ya captura los ids como str
+    # durante _ensure_demo_user (pre-commit), así que esto es seguro incluso con
+    # expire_on_commit=True.
+    import hashlib as _hl9
+    from uuid import UUID as _UUID9
+    demo_ids = {role: _UUID9(uid_map.get(role) or str(u.id))
+                for role, u in demo_users.items()}
 
     # ---------------- 3) Preferencias demo evento x canal ----------------
     pref_events = ["payout_aprobado", "nuevo_pedido_asignado", "alerta_desviacion_ruta"]
@@ -1834,17 +1842,13 @@ async def seed_fase9_notifications(db: AsyncSession):
     print(f"   Preferencias demo: {prefs_created} creadas.")
 
     # ---------------- 4) Device tokens dummy (web) ----------------
-    # Corrección auditoría: capturar ids ANTES del commit de la sección 3; con
-    # sesiones expire_on_commit=True, str(user.id) post-commit dispara lazy IO
-    # síncrono → MissingGreenlet.
-    # ids capturados ANTES de commits posteriores (seguro con expire_on_commit=True);
-    # FKs son UUID(as_uuid=True) => convertir a objeto uuid.UUID para asyncpg.
-    from uuid import UUID as _UUID9
-    demo_ids = {role: _UUID9(uid_map.get(role) or str(u.id))
-                for role, u in demo_users.items()}
+    # demo_ids ya definido al inicio de la sección 3 (corrección UnboundLocalError);
+    # ids capturados pre-commit (seguro con expire_on_commit=True); FKs son
+    # UUID(as_uuid=True) => objetos uuid.UUID para asyncpg.
     tokens_created = 0
     for role, uid in demo_ids.items():
-        fake_token = f"seed-fcm-{uid[:8]}-web"
+        # CORRECCIÓN AUDITORÍA: UUID no es subcriptable -> usar str(uid)
+        fake_token = f"seed-fcm-{str(uid)[:8]}-web"
         exists = (await db.execute(
             select(UserDeviceToken.id).where(UserDeviceToken.device_token == fake_token)
         )).first()
