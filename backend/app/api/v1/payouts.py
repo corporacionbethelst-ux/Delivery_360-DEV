@@ -491,23 +491,20 @@ async def approve_payout(
         logger.warning(f"No se pudo enviar notificación de aprobación de retiro: {e}")
 
     # FASE 9 (hook omnicanal): payout → plantilla 'payout_aprobado'.
-    # notify_event NUNCA propaga excepciones: un fallo de notificación
-    # jamás revierte el pago (regla anti-error Fase 4).
+    # Se resuelve el destinatario AHÍ (antes del commit) pero el dispatch se
+    # lanza DESPUÉS de commitear, con sesión propia efímera dentro de
+    # notify_event: un fallo de notificación jamás revierte la operación.
+    _fase9_approve_ctx = None
     try:
         from app.services.notification_hooks import (
             notify_event, resolve_payout_recipient, payout_context,
         )
         recipient_user_id = await resolve_payout_recipient(db, payout)
         if recipient_user_id:
-            # Sesión en uso por el request → dispatch propio DESPUÉS del commit
-            # (asyncio.create_task no bloquea la respuesta; notify_event jamás propaga)
-            asyncio.create_task(notify_event(
-                "payout_aprobado", recipient_user_id,
-                payout_context(payout), payout_id=payout.id,
-            ))
+            _fase9_approve_ctx = (recipient_user_id, payout_context(payout))
     except Exception as e:
         logger.warning(f"Hook Fase 9 payout_aprobado omitido: {e}")
-    
+
     # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
     try:
         redis_logger = get_redis_audit_logger()
@@ -519,7 +516,24 @@ async def approve_payout(
             )
     except Exception as e:
         logger.warning(f"No se pudo escribir audit en Redis: {e}")
-    
+
+    await db.commit()
+    await db.refresh(payout)
+
+    # FASE 9: dispatch post-commit (asyncio.create_task no bloquea la respuesta;
+    # notify_event jamás propaga excepciones al caller).
+    if _fase9_approve_ctx is not None:
+        try:
+            asyncio.create_task(notify_event(
+                "payout_aprobado", _fase9_approve_ctx[0], _fase9_approve_ctx[1],
+                payout_id=payout.id,
+            ))
+        except Exception as e:
+            logger.warning(f"Dispatch Fase 9 payout_aprobado omitido: {e}")
+
+    return _serialize_payout(payout)
+
+
 @router.patch("/{payout_id}/reject")
 async def reject_payout(
     payout_id: str,

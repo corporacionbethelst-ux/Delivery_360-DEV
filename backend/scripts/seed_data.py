@@ -1667,6 +1667,22 @@ async def seed_fase8_tracking(db: AsyncSession):
     await db.commit()
     print(f"   ✅ Snapshots VRP: {snapshots_created} creados / {len(deliveries)} entregas evaluadas.")
     print("🛰️  Fase 8 seed OK — Puerto Ordaz (PO-01..PO-04).")
+
+
+async def seed_fase9_notifications(db: AsyncSession):
+    """Fase 9 — Seed idempotente de notificaciones omnicanal.
+
+    Plantillas UPSERT por code, preferencias demo por rol, device tokens dummy
+    y logs historicos (skip por dedupe_key). Reusa imports locales por seguridad
+    de entorno.
+    """
+    import hashlib as _hl
+    import json as _json9
+    from app.models.notification import (
+        NotificationChannel, NotificationTemplate, NotificationLog,
+        UserDeviceToken, NotificationPreference, OmnichannelStatus,
+    )
+
     # Fuente unica de verdad: TEMPLATES_SEED definida en la migracion Fase 9
     templates_seed = [
         ("payout_aprobado", "PUSH", None,
@@ -1840,8 +1856,6 @@ async def seed_fase8_tracking(db: AsyncSession):
     await db.commit()
     print(f"   Logs historicos: {logs_created} creados, {logs_skipped} omitidos (dedupe).")
     print("\U0001f514 Fase 9 seed OK — Notificaciones omnicanal.")
-
-
 
 
 async def main():
