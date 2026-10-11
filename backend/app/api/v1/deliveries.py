@@ -373,6 +373,12 @@ async def get_delivery(
 
     return _serialize_delivery(delivery, rider, user, order)
 
+import asyncio
+from datetime import datetime, timezone
+
+from app.services.notification_hooks import notify_event
+
+
 @router.post("/{delivery_id}/assign")
 async def assign_delivery(
     delivery_id: str,
@@ -418,6 +424,25 @@ async def assign_delivery(
     u_alias = aliased(User)
     o_alias = aliased(Order)
     
+    # FASE 9 (hook omnicanal): rider asignado -> 'nuevo_pedido_asignado'.
+    # Destinatario: user del rider. Dispatch post-commit con sesion efimera;
+    # notify_event nunca propaga excepciones al flujo de negocio.
+    try:
+        _notif_ctx = {
+            "delivery_code": str(delivery.id)[:8].upper(),
+            "customer_name": order.customer_name if order else "",
+            "payment_cents": int(round(float(order.total) * 100)) if (order and order.total is not None) else 0,
+            "pickup_address": order.pickup_address if order else "",
+            "delivery_address": order.delivery_address if order else "",
+        }
+        asyncio.create_task(notify_event(
+            "nuevo_pedido_asignado", rider.user_id, _notif_ctx,
+            delivery_id=delivery.id,
+        ))
+    except Exception as e:
+        logger.warning(f"Hook Fase 9 nuevo_pedido_asignado omitido: {e}")
+
+
     final_stmt = (
         select(Delivery, r_alias, u_alias, o_alias)
         .outerjoin(r_alias, Delivery.rider_id == r_alias.id)

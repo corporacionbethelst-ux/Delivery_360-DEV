@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, case
 from typing import Optional
 from decimal import Decimal
+import asyncio
 import uuid
 import logging
 
@@ -519,12 +520,6 @@ async def approve_payout(
     except Exception as e:
         logger.warning(f"No se pudo escribir audit en Redis: {e}")
     
-    await db.commit()
-    await db.refresh(payout)
-
-    return _serialize_payout(payout)
-
-
 @router.patch("/{payout_id}/reject")
 async def reject_payout(
     payout_id: str,
@@ -621,5 +616,15 @@ async def reject_payout(
     
     await db.commit()
     await db.refresh(payout)
+
+    # FASE 9: dispatch post-commit (sesión propia efímera dentro de notify_event).
+    if _fase9_reject_ctx is not None:
+        try:
+            asyncio.create_task(notify_event(
+                "payout_rechazado", _fase9_reject_ctx[0], _fase9_reject_ctx[1],
+                payout_id=payout.id,
+            ))
+        except Exception as e:
+            logger.warning(f"Dispatch Fase 9 payout_rechazado omitido: {e}")
 
     return _serialize_payout(payout)
