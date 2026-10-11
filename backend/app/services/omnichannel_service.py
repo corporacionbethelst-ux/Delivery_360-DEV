@@ -329,7 +329,15 @@ class OmnichannelNotificationService:
             effective = [NotificationChannel.IN_APP]
 
         logs: List[NotificationLog] = []
+        created_keys: set = set()  # dedupe intra-call (mismo canal para varias entidades)
         for ch in effective:
+            key = f"{dedupe_key}:{ch.value}"  # dedupe por canal
+            if key in created_keys:
+                # send() NUNCA debe estallar: si otra entidad del mismo batch ya
+                # ocupó la clave, se omite el duplicado en vez de violar el UNIQUE.
+                logger.info("Dedupe intra-lote: %s ya encolado en esta ventana (skip)", key[:16])
+                continue
+            created_keys.add(key)
             log = NotificationLog(
                 id=uuid.uuid4(),
                 user_id=user.id,
@@ -339,7 +347,7 @@ class OmnichannelNotificationService:
                 channel=ch,
                 status=OmnichannelStatus.PENDIENTE,
                 payload_json=json.dumps(context, default=str),
-                dedupe_key=f"{dedupe_key}:{ch.value}",  # dedupe por canal
+                dedupe_key=key,
                 title=notif_title[:255],
                 body=body,
                 created_at=utc_now_naive(),
@@ -347,7 +355,39 @@ class OmnichannelNotificationService:
             self.db.add(log)
             logs.append(log)
 
-        await self.db.commit()
+        if not logs:
+            return []
+
+        try:
+            await self.db.commit()
+        except Exception as exc:
+            # Carrera real entre workers/requests contra uq_notiflogs_dedupe_key.
+            # CRÍTICO (auditoría): si el UNIQUE explotó, SQLAlchemy revierte la
+            # transacción automáticamente; cualquier sentencia siguiente sobre la
+            # misma sesión sin rollback previo cae en PendingRollbackError y
+            # send() devolvería [] silenciosamente (notificación perdida).
+            await self.db.rollback()
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            inserted_any = False
+            for log in logs:
+                stmt = pg_insert(NotificationLog).values(
+                    id=log.id, user_id=log.user_id, template_code=log.template_code,
+                    delivery_id=log.delivery_id, payout_id=log.payout_id,
+                    channel=log.channel, status=OmnichannelStatus.PENDIENTE,
+                    payload_json=log.payload_json, dedupe_key=log.dedupe_key,
+                    title=log.title, body=log.body, created_at=log.created_at,
+                ).on_conflict_do_nothing(index_elements=["dedupe_key"])
+                res = await self.db.execute(stmt)
+                if res.rowcount:
+                    inserted_any = True
+            if not inserted_any:
+                logger.info("Dedupe (carrera): %s ya existía (skip)", template_code)
+                return []
+            await self.db.commit()
+            logs = (await self.db.execute(
+                select(NotificationLog).where(NotificationLog.dedupe_key.in_(created_keys))
+            )).scalars().all()
+
         for log in logs:
             await self.db.refresh(log)
 
