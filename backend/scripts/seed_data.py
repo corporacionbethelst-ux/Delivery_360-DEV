@@ -1864,7 +1864,19 @@ async def seed_fase9_notifications(db: AsyncSession):
     print(f"   Device tokens dummy: {tokens_created} creados.")
 
     # ---------------- 5) Logs historicos (mezcla ENVIADO/LEIDO/FALLIDO) ----------------
+    # CORRECCIÓN AUDITORÍA FASE 9 (idempotencia entre ejecuciones): los dedupe_keys
+    # de producción dependen de la ventana de 5 min del reloj (time.time()//300),
+    # por lo que un seed en otra ventana recreaba filas duplicadas. Estrategia:
+    #   - clave canónica de la VENTANA ACTUAL (mismo algoritmo exacto de send()) =>
+    #     bloquea el test-send duplicado inmediato exigido por el smoke test;
+    #   - además se calcula la clave de una ventana histórica FIJA (época anclada,
+    #     estable entre ejecuciones) => si ya existe, se omite el log (dedupe
+    #     inter-seed determinista). En repositorios nuevos se insertan las 8 filas
+    #     históricas; en repositorios ya sembrados se reportan "8 omitidos".
     now9 = datetime.now(timezone.utc).replace(tzinfo=None)
+    import time as _time9  # seed_data importa solo `datetime`; evitar sombra de datetime.time
+    _f9_fixed_window_ts = (1_700_000_400.0 // 300) * 300  # ventana histórica fija
+    _f9_current_window_ts = (_time9.time() // 300) * 300  # ventana activa (smoke dedupe)
     log_specs = []
     if UserRole.REPARTIDOR in demo_users:
         ru_id = demo_ids[UserRole.REPARTIDOR]
@@ -1906,18 +1918,32 @@ async def seed_fase9_notifications(db: AsyncSession):
     # dentro de la ventana activa de 5 min, las plantillas repetidas en la misma
     # ventana se desplazan a la ventana anterior (mantiene 8 filas históricas y
     # sigue bloqueando el test-send duplicado inmediato).
-    from app.services.omnichannel_service import build_dedupe_key as _f9_build_dedupe
+    from app.services.omnichannel_service import (
+        build_dedupe_key as _f9_build_dedupe,
+        render_template as render_template,
+    )
 
     logs_created = logs_skipped = 0
     _f9_used_keys = set()
+    _f9_tpl_body = {c: b for c, _ch, _s, b in templates_seed}
+    _f9_tpl_subj = {c: s for c, _ch, s, _b in templates_seed}
     for code, uid, ch, status_, seq, ctx in log_specs:
-        base_key = _f9_build_dedupe(code, None)
-        dedupe = f"{base_key}:{ch.value}"
+        # Clave histórica FIJA (estable entre ejecuciones del seed) — si ya fue
+        # sembrada en una corrida anterior, se omite (idempotencia real).
+        fixed_key = f"{_f9_build_dedupe(code, None, window_ts=_f9_fixed_window_ts)}:{ch.value}"
+        if fixed_key in _f9_used_keys or (await db.execute(
+            select(NotificationLog.id).where(NotificationLog.dedupe_key == fixed_key)
+        )).first():
+            logs_skipped += 1
+            continue
+        # Clave canónica de la VENTANA ACTUAL con el algoritmo EXACTO de send():
+        # bloquea el test-send duplicado inmediato (smoke dedupe). Si colisiona
+        # con otra fila del lote, se desplaza a la ventana previa.
+        dedupe = f"{_f9_build_dedupe(code, None, window_ts=_f9_current_window_ts)}:{ch.value}"
         if dedupe in _f9_used_keys:
-            prev_window = int(time.time() // 300) - 1
-            base_key = _f9_build_dedupe(code, None, window_ts=prev_window * 300.0)
-            dedupe = f"{base_key}:{ch.value}"
+            dedupe = f"{_f9_build_dedupe(code, None, window_ts=_f9_current_window_ts - 300)}:{ch.value}"
         _f9_used_keys.add(dedupe)
+        _f9_used_keys.add(fixed_key)
         exists = (await db.execute(
             select(NotificationLog.id).where(NotificationLog.dedupe_key == dedupe)
         )).first()
@@ -1925,13 +1951,18 @@ async def seed_fase9_notifications(db: AsyncSession):
             logs_skipped += 1
             continue
         created = now9 - timedelta(days=(seq % 7) + 1, hours=seq)
-        title = code.replace("_", " ").capitalize()
+        # Render con el MISMO motor de producción: body legible en el inbox
+        # (no JSON crudo) y title = subject renderizado si existe.
+        _f9_body = render_template(_f9_tpl_body.get(code, ""), ctx)
+        _f9_subj = _f9_tpl_subj.get(code)
+        title = (render_template(_f9_subj, ctx) if _f9_subj
+                 else code.replace("_", " ").capitalize())
         db.add(NotificationLog(
             id=uuid.uuid4(), user_id=uid, template_code=code,
             channel=ch, status=status_,
             payload_json=_json9.dumps(ctx, default=str),
             dedupe_key=dedupe, title=title[:255],
-            body=f"[seed] {title}",
+            body=_f9_body,
             retry_count=1 if status_ == OmnichannelStatus.FALLIDO else 0,
             error_message="Provider stub reporto fallo (dato historico demo)"
                           if status_ == OmnichannelStatus.FALLIDO else None,
