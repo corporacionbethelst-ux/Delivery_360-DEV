@@ -1727,20 +1727,89 @@ async def seed_fase9_notifications(db: AsyncSession):
           f"{len(templates_seed)} totales evaluadas.")
 
     # ---------------- 2) Usuarios demo por rol ----------------
+    # Corrección auditoría Fase 9: los emails hardcodeados no coincidían con el
+    # seed principal (admin@delivery360.com / manager1@...) ni con roles reales
+    # (SUPERADMIN no existía), por lo que prefs/tokens/logs quedaban en 0.
+    # Estrategia robusta: detectar usuarios ya sembrados; si la DB está vacía,
+    # crear usuarios demo mínimos idempotentes (email unique como clave natural).
     demo_users = {}
-    for role, email in [
-        (UserRole.SUPERADMIN, "super@delivery360.com"),
-        (UserRole.GERENTE, "gerente@delivery360.com"),
-        (UserRole.OPERADOR, "ops@delivery360.com"),
-    ]:
-        u = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
-        if u:
-            demo_users[role] = u
-    riders_u = (await db.execute(
+
+    async def _find_user_by_roles(emails, roles):
+        q = select(User).where(User.email.in_(emails))
+        if roles:
+            q = q.where(User.role.in_(roles))
+        return (await db.execute(q.limit(1))).scalars().first()
+
+    mgr = await _find_user_by_roles(
+        ["manager1@delivery360.com", "gerente@delivery360.com"], [UserRole.GERENTE])
+    ops = await _find_user_by_roles(
+        ["operador1@delivery360.com", "ops@delivery360.com"], None)
+    adm = await _find_user_by_roles(
+        ["admin@delivery360.com", "super@delivery360.com"],
+        [UserRole.SUPERADMIN]) or mgr  # fallback: gerente ejerce de admin-demo
+
+    # Riders con cuenta de usuario (Rider.user_id -> User)
+    rider_user = None
+    ru_rows = (await db.execute(
         select(User).join(Rider, Rider.user_id == User.id).limit(3)
     )).scalars().all()
-    if riders_u:
-        demo_users[UserRole.REPARTIDOR] = riders_u[0]
+    if ru_rows:
+        rider_user = ru_rows[0]
+
+    import hashlib as _hl_seed
+    from app.core.security import get_password_hash as _get_pwd_hash
+
+    async def _ensure_demo_user(email, role, first_name, last_name):
+        """Idempotente por email (unique). Devuelve (User, uid_str) capturado AHORA."""
+        nonlocal rider_user
+        u = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+        if u:
+            return u, str(u.id)
+        new_id = uuid.uuid4()
+        u = User(
+            id=new_id, email=email,
+            hashed_password=_get_pwd_hash("SeedFase9!2026"),
+            first_name=first_name, last_name=last_name,
+            role=role, is_active=True,
+            phone=f"+57300{str(abs(hash(email)) % 9000000 + 1000000)}",
+        )
+        db.add(u)
+        await db.flush()
+        if role == UserRole.REPARTIDOR and rider_user is None:
+            rider_user = u
+        return u, str(new_id)
+
+    uid_map = {}
+    if mgr is None:
+        mgr, uid_map[UserRole.GERENTE] = await _ensure_demo_user(
+            "fase9.manager@delivery360.com", UserRole.GERENTE, "Manager", "Demo F9")
+    if ops is None:
+        ops, uid_map[UserRole.OPERADOR] = await _ensure_demo_user(
+            "fase9.ops@delivery360.com", UserRole.OPERADOR, "Operador", "Demo F9")
+    if adm is None:
+        adm, uid_map[UserRole.SUPERADMIN] = await _ensure_demo_user(
+            "fase9.super@delivery360.com", UserRole.SUPERADMIN, "Superadmin", "Demo F9")
+    if rider_user is None:
+        rider_user, uid_map[UserRole.REPARTIDOR] = await _ensure_demo_user(
+            "fase9.rider@delivery360.com", UserRole.REPARTIDOR, "Rider", "Demo F9")
+
+    demo_users[UserRole.GERENTE] = mgr
+    if ops is not mgr:
+        demo_users[UserRole.OPERADOR] = ops
+    if adm is not None:
+        demo_users[UserRole.SUPERADMIN] = adm
+    demo_users[UserRole.REPARTIDOR] = rider_user
+    # Nota auditoría: NO hacer commit aquí — el script puede correr con sesiones
+    # expire_on_commit=True y expiraría user.id (lazy IO → MissingGreenlet).
+    # El commit de la sección 3 persiste usuarios+prefs atómicamente.
+    # CORRECCIÓN AUDITORÍA FASE 9 (UnboundLocalError): demo_ids debe definirse
+    # ANTES de su primer uso en la sección 3. uid_map ya captura los ids como str
+    # durante _ensure_demo_user (pre-commit), así que esto es seguro incluso con
+    # expire_on_commit=True.
+    import hashlib as _hl9
+    from uuid import UUID as _UUID9
+    demo_ids = {role: _UUID9(uid_map.get(role) or str(u.id))
+                for role, u in demo_users.items()}
 
     # ---------------- 3) Preferencias demo evento x canal ----------------
     pref_events = ["payout_aprobado", "nuevo_pedido_asignado", "alerta_desviacion_ruta"]
@@ -1752,11 +1821,12 @@ async def seed_fase9_notifications(db: AsyncSession):
     }
     prefs_created = 0
     for role, user in demo_users.items():
+        uid_pref = demo_ids.get(role) or _UUID9(str(user.id))
         for event in pref_events:
             for ch in role_channels.get(role, [NotificationChannel.IN_APP]):
                 exists = (await db.execute(
                     select(NotificationPreference.id).where(
-                        NotificationPreference.user_id == user.id,
+                        NotificationPreference.user_id == uid_pref,
                         NotificationPreference.event_code == event,
                         NotificationPreference.channel == ch,
                     )
@@ -1764,7 +1834,7 @@ async def seed_fase9_notifications(db: AsyncSession):
                 if exists:
                     continue
                 db.add(NotificationPreference(
-                    id=uuid.uuid4(), user_id=user.id, event_code=event,
+                    id=uuid.uuid4(), user_id=uid_pref, event_code=event,
                     channel=ch, enabled=True,
                 ))
                 prefs_created += 1
@@ -1772,16 +1842,20 @@ async def seed_fase9_notifications(db: AsyncSession):
     print(f"   Preferencias demo: {prefs_created} creadas.")
 
     # ---------------- 4) Device tokens dummy (web) ----------------
+    # demo_ids ya definido al inicio de la sección 3 (corrección UnboundLocalError);
+    # ids capturados pre-commit (seguro con expire_on_commit=True); FKs son
+    # UUID(as_uuid=True) => objetos uuid.UUID para asyncpg.
     tokens_created = 0
-    for role, user in demo_users.items():
-        fake_token = f"seed-fcm-{str(user.id)[:8]}-web"
+    for role, uid in demo_ids.items():
+        # CORRECCIÓN AUDITORÍA: UUID no es subcriptable -> usar str(uid)
+        fake_token = f"seed-fcm-{str(uid)[:8]}-web"
         exists = (await db.execute(
             select(UserDeviceToken.id).where(UserDeviceToken.device_token == fake_token)
         )).first()
         if exists:
             continue
         db.add(UserDeviceToken(
-            id=uuid.uuid4(), user_id=user.id, device_token=fake_token,
+            id=uuid.uuid4(), user_id=uid, device_token=fake_token,
             platform="web", failure_count=0, is_active=True,
             last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
         ))
@@ -1793,40 +1867,40 @@ async def seed_fase9_notifications(db: AsyncSession):
     now9 = datetime.now(timezone.utc).replace(tzinfo=None)
     log_specs = []
     if UserRole.REPARTIDOR in demo_users:
-        ru = demo_users[UserRole.REPARTIDOR]
+        ru_id = demo_ids[UserRole.REPARTIDOR]
         log_specs += [
-            ("payout_aprobado", ru, NotificationChannel.PUSH, OmnichannelStatus.ENVIADO, 1,
+            ("payout_aprobado", ru_id, NotificationChannel.PUSH, OmnichannelStatus.ENVIADO, 1,
              {"amount_cents": 15000, "bank_last4": "4321", "status": "APROBADO"}),
-            ("payout_rechazado", ru, NotificationChannel.PUSH, OmnichannelStatus.LEIDO, 2,
+            ("payout_rechazado", ru_id, NotificationChannel.PUSH, OmnichannelStatus.LEIDO, 2,
              {"amount_cents": 8000, "reason": "Cuenta bancaria no verificada"}),
-            ("nuevo_pedido_asignado", ru, NotificationChannel.IN_APP, OmnichannelStatus.LEIDO, 3,
+            ("nuevo_pedido_asignado", ru_id, NotificationChannel.IN_APP, OmnichannelStatus.LEIDO, 3,
              {"delivery_code": "DLV-SEED-001", "customer_name": "Ana Perez", "payment_cents": 12000}),
-            ("nuevo_pedido_asignado", ru, NotificationChannel.PUSH, OmnichannelStatus.FALLIDO, 4,
+            ("nuevo_pedido_asignado", ru_id, NotificationChannel.PUSH, OmnichannelStatus.FALLIDO, 4,
              {"delivery_code": "DLV-SEED-002", "customer_name": "Luis Gomez", "payment_cents": 9000}),
         ]
     if UserRole.GERENTE in demo_users:
-        gu = demo_users[UserRole.GERENTE]
+        gu_id = demo_ids[UserRole.GERENTE]
         log_specs += [
-            ("alerta_desviacion_ruta", gu, NotificationChannel.EMAIL, OmnichannelStatus.ENVIADO, 5,
+            ("alerta_desviacion_ruta", gu_id, NotificationChannel.EMAIL, OmnichannelStatus.ENVIADO, 5,
              {"rider_name": "Rider Demo", "deviation_km": 0.8, "lat": 8.29, "lng": -62.73,
               "last_seen": "hace 12 min"}),
-            ("resumen_diario_manager", gu, NotificationChannel.EMAIL, OmnichannelStatus.LEIDO, 6,
+            ("resumen_diario_manager", gu_id, NotificationChannel.EMAIL, OmnichannelStatus.LEIDO, 6,
              {"manager_name": "Gerente General", "total_deliveries": 42, "completed_count": 38,
               "failed_count": 2, "on_time_pct": 91.5}),
         ]
     if UserRole.SUPERADMIN in demo_users:
-        su = demo_users[UserRole.SUPERADMIN]
+        su_id = demo_ids[UserRole.SUPERADMIN]
         log_specs += [
-            ("resumen_diario_manager", su, NotificationChannel.IN_APP, OmnichannelStatus.ENVIADO, 7,
+            ("resumen_diario_manager", su_id, NotificationChannel.IN_APP, OmnichannelStatus.ENVIADO, 7,
              {"manager_name": "Super Admin", "total_deliveries": 42, "completed_count": 38,
               "failed_count": 2, "on_time_pct": 91.5}),
-            ("payout_aprobado", su, NotificationChannel.IN_APP, OmnichannelStatus.LEIDO, 8,
+            ("payout_aprobado", su_id, NotificationChannel.IN_APP, OmnichannelStatus.LEIDO, 8,
              {"amount_cents": 25000, "bank_last4": "9876", "status": "APROBADO"}),
         ]
 
     logs_created = logs_skipped = 0
-    for code, user, ch, status_, seq, ctx in log_specs:
-        raw = f"seed-fase9|{code}|{user.id}|{ch.value}|{seq}"
+    for code, uid, ch, status_, seq, ctx in log_specs:
+        raw = f"seed-fase9|{code}|{uid}|{ch.value}|{seq}"
         dedupe = "seed:" + _hl.sha256(raw.encode()).hexdigest()[:100]
         exists = (await db.execute(
             select(NotificationLog.id).where(NotificationLog.dedupe_key == dedupe)
@@ -1837,7 +1911,7 @@ async def seed_fase9_notifications(db: AsyncSession):
         created = now9 - timedelta(days=(seq % 7) + 1, hours=seq)
         title = code.replace("_", " ").capitalize()
         db.add(NotificationLog(
-            id=uuid.uuid4(), user_id=user.id, template_code=code,
+            id=uuid.uuid4(), user_id=uid, template_code=code,
             channel=ch, status=status_,
             payload_json=_json9.dumps(ctx, default=str),
             dedupe_key=dedupe, title=title[:255],
