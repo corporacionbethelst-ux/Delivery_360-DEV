@@ -1898,10 +1898,26 @@ async def seed_fase9_notifications(db: AsyncSession):
              {"amount_cents": 25000, "bank_last4": "9876", "status": "APROBADO"}),
         ]
 
+    # CORRECCIÓN AUDITORÍA FASE 9 (smoke test dedupe): los logs semilla usaban un
+    # prefijo "seed:" con hash propio que NO colisionaba con la clave de producción
+    # build_dedupe_key(template_code, entity='global') + ":canal", por lo que un
+    # test-send inmediato tras el seed creaba un segundo log (dedupe roto).
+    # Ahora se replica EXACTAMENTE la clave de send(). Como send() solo dedupea
+    # dentro de la ventana activa de 5 min, las plantillas repetidas en la misma
+    # ventana se desplazan a la ventana anterior (mantiene 8 filas históricas y
+    # sigue bloqueando el test-send duplicado inmediato).
+    from app.services.omnichannel_service import build_dedupe_key as _f9_build_dedupe
+
     logs_created = logs_skipped = 0
+    _f9_used_keys = set()
     for code, uid, ch, status_, seq, ctx in log_specs:
-        raw = f"seed-fase9|{code}|{uid}|{ch.value}|{seq}"
-        dedupe = "seed:" + _hl.sha256(raw.encode()).hexdigest()[:100]
+        base_key = _f9_build_dedupe(code, None)
+        dedupe = f"{base_key}:{ch.value}"
+        if dedupe in _f9_used_keys:
+            prev_window = int(time.time() // 300) - 1
+            base_key = _f9_build_dedupe(code, None, window_ts=prev_window * 300.0)
+            dedupe = f"{base_key}:{ch.value}"
+        _f9_used_keys.add(dedupe)
         exists = (await db.execute(
             select(NotificationLog.id).where(NotificationLog.dedupe_key == dedupe)
         )).first()
