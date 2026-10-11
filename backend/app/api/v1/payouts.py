@@ -488,6 +488,22 @@ async def approve_payout(
         logger.info(f"Notificación de aprobación de retiro enviada al rider {payout.rider_id}")
     except Exception as e:
         logger.warning(f"No se pudo enviar notificación de aprobación de retiro: {e}")
+
+    # FASE 9 (hook omnicanal): payout → plantilla 'payout_aprobado'.
+    # notify_event NUNCA propaga excepciones: un fallo de notificación
+    # jamás revierte el pago (regla anti-error Fase 4).
+    try:
+        from app.services.notification_hooks import (
+            notify_event, resolve_payout_recipient, payout_context,
+        )
+        recipient_user_id = await resolve_payout_recipient(db, payout)
+        if recipient_user_id:
+            await notify_event(
+                "payout_aprobado", recipient_user_id,
+                payout_context(payout), db=db, payout_id=payout.id,
+            )
+    except Exception as e:
+        logger.warning(f"Hook Fase 9 payout_aprobado omitido: {e}")
     
     # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
     try:
@@ -566,6 +582,21 @@ async def reject_payout(
         logger.info(f"Notificación de rechazo de retiro enviada al rider {payout.rider_id}")
     except Exception as e:
         logger.warning(f"No se pudo enviar notificación de rechazo de retiro: {e}")
+
+    # FASE 9 (hook omnicanal): payout RECHAZADO → plantilla 'payout_rechazado'.
+    try:
+        from app.services.notification_hooks import (
+            notify_event, resolve_payout_recipient, payout_context,
+        )
+        recipient_user_id = await resolve_payout_recipient(db, payout)
+        if recipient_user_id:
+            await notify_event(
+                "payout_rechazado", recipient_user_id,
+                payout_context(payout, extra={"reason": reason}),
+                db=db, payout_id=payout.id,
+            )
+    except Exception as e:
+        logger.warning(f"Hook Fase 9 payout_rechazado omitido: {e}")
     
     # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
     try:

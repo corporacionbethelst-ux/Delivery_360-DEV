@@ -14,7 +14,11 @@ from app.models.financial import Financial, FinancialTransaction, TransactionTyp
 from app.models.payout import Payout, PayoutStatus as LegacyPayoutStatus, PayoutMethod, PayoutStatusHistory
 from app.models.productivity import ProductivityRecord, MetricType
 from app.models.audit_log import AuditLog, AuditAction, ActionType
-from app.models.notification import Notification, NotificationType, NotificationPriority, Alert
+from app.models.notification import (
+    Notification, NotificationType, NotificationPriority, Alert,
+    NotificationChannel, OmnichannelStatus, NotificationTemplate,
+    NotificationLog, UserDeviceToken, NotificationPreference,
+)
 from app.models.integration import Integration, IntegrationType, IntegrationStatus
 from app.models.platform_setting import PlatformSetting
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
@@ -35,6 +39,8 @@ __all__ = [
     "ProductivityRecord", "MetricType",
     "AuditLog", "AuditAction", "ActionType",
     "Notification", "NotificationType", "NotificationPriority", "Alert",
+    "NotificationChannel", "OmnichannelStatus", "NotificationTemplate",
+    "NotificationLog", "UserDeviceToken", "NotificationPreference",
     "Integration", "IntegrationType", "IntegrationStatus",
     "PlatformSetting",
     "rider_document", "RiderDocument", "DocumentType", "DocumentStatus"
