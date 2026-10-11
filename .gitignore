@@ -1,15 +1,5 @@
-# Python
 __pycache__/
-*.py[cod]
-*$py.class
-
-# Testing & Coverage
-.pytest_cache/
-.coverage
-htmlcov/
-coverage/
-
-# Environment & Config
+*.pyc
 .env
 .env.local
-.env.*.local
+.env.*
