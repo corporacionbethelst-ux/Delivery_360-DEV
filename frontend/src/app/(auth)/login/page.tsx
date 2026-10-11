@@ -10,6 +10,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/stores/authStore';
 import { authService } from '@/services/auth.service';
+import { registerDeviceAfterLogin } from '@/lib/deviceRegistration';
 import { Mail, Lock, Loader2, AlertCircle, Truck, ArrowLeft, CheckCircle } from 'lucide-react';
 
 export default function LoginPage() {
@@ -85,6 +86,9 @@ export default function LoginPage() {
       await storeLogin({ email: formData.email, password: formData.password });
       
       console.log('✅ Login completado en el store.');
+
+      // 2.5 Fase 9: registrar dispositivo para PUSH (best-effort, nunca bloquea el login)
+      registerDeviceAfterLogin();
 
       // 3. LECTURA MANUAL DE LOCALSTORAGE
       const userStr = localStorage.getItem('user');
