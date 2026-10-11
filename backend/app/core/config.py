@@ -126,6 +126,31 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: Optional[str] = None
     EMAIL_FROM: str = "noreply@delivery360.com"
 
+    # --- FASE 9: NOTIFICACIONES & COMUNICACIÓN OMNICANAL ---
+    # Feature flag maestro: sin credenciales reales los dispatchers caen a
+    # IN_APP/stub (provider='stub'), nunca revientan en desarrollo.
+    NOTIFICATIONS_ENABLED: bool = True
+    NOTIFICATION_MAX_RETRIES: int = 3
+    NOTIFICATION_RETRY_BACKOFF_SEC: int = 60      # base exponencial: 60,120,240s
+    NOTIFICATION_RETENTION_DAYS: int = 30         # purge_old_logs
+    NOTIFICATION_TEMPLATE_CACHE_TTL_SEC: int = 3600  # cache Redis plantillas 1h
+    NOTIFICATION_RATE_LIMIT_PER_MIN: int = 10     # eventos/min por usuario
+    # Canal Pub/Sub de fan-out WS: notifications:user:{id}
+    REDIS_NOTIF_CHANNEL_PREFIX: str = "notifications:user"
+    # Push (FCM) — opcionales
+    FCM_PROJECT_ID: Optional[str] = None
+    FCM_CREDENTIALS_JSON_PATH: Optional[str] = None
+    # SMS (Twilio) — opcionales
+    TWILIO_ACCOUNT_SID: Optional[str] = None
+    TWILIO_AUTH_TOKEN: Optional[str] = None
+    TWILIO_FROM_NUMBER: Optional[str] = None
+    # Email transaccional Fase 9 — reutiliza SMTP_*; FROM propio con fallback
+    NOTIFICATION_EMAIL_FROM: Optional[str] = None
+
+    @property
+    def notification_email_from_computed(self) -> str:
+        return self.NOTIFICATION_EMAIL_FROM or self.EMAIL_FROM
+
     class Config:
         env_file = ".env"
         case_sensitive = True

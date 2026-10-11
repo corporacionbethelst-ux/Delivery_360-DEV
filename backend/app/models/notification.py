@@ -38,10 +38,22 @@ class NotificationPriority(str, enum.Enum):
     CRITICA = "CRITICA"
 
 class NotificationStatus(str, enum.Enum):
+    """Estado de notificación (convención Fase 7: nombres en ESPAÑOL).
+
+    Valores explícitos conservados en inglés por compatibilidad hacia atrás
+    con la columna `notifications.status` existente (enum PG histórico) y con
+    los llamadores previos (NotificationStatus.PENDING/.SENT/.FAILED).
+    Se añaden alias equivalentes en español para código nuevo de Fase 9.
+    """
     PENDING = "PENDING"
     SENT = "SENT"
     FAILED = "FAILED"
     READ = "READ"
+    # Alias en español (misma identidad de miembro → mismo valor PG)
+    PENDIENTE = PENDING
+    ENVIADO = SENT
+    FALLIDO = FAILED
+    LEIDO = READ
 
 class Notification(Base):
     """Tabla de notificaciones para usuarios y riders."""
@@ -154,3 +166,128 @@ class Alert(Base):
 
     def __repr__(self):
         return f"<Alert(id={self.id}, type={self.alert_type}, status={self.status})>"
+
+# ═══════════════════════════════════════════════════════════════════
+# FASE 9 — Notificaciones & Comunicación Omnicanal
+# Tablas nuevas (notification_templates, notification_logs,
+# user_device_tokens, notification_preferences). La tabla legacy
+# `notifications` NO se modifica (decision documentada en migración
+# 20260915_fase9).
+# ═══════════════════════════════════════════════════════════════════
+
+class NotificationChannel(str, enum.Enum):
+    """Canales de entrega omnicanal (Fase 9)."""
+    PUSH = "PUSH"
+    SMS = "SMS"
+    EMAIL = "EMAIL"
+    IN_APP = "IN_APP"
+
+
+class OmnichannelStatus(str, enum.Enum):
+    """Estados del log omnicanal — convención Fase 7: nombres EN ESPAÑOL.
+
+    Nombre de clase distinto a NotificationStatus (legacy) para no romper
+    importaciones existentes; valores alfanuméricos limpios para PG.
+    """
+    PENDIENTE = "PENDIENTE"
+    ENVIADO = "ENVIADO"
+    ENTREGADO = "ENTREGADO"
+    FALLIDO = "FALLIDO"
+    LEIDO = "LEIDO"
+
+
+class NotificationTemplate(Base):
+    """Plantilla renderizable de notificación (código estable + canal base)."""
+    __tablename__ = "notification_templates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code = Column(String(50), unique=True, nullable=False, index=True)  # ej 'payout_aprobado'
+    channel = Column(SQLEnum(NotificationChannel, name="notificationchannel",
+                               values_callable=lambda e: [m.value for m in e]),
+                     nullable=False)
+    subject = Column(String(200), nullable=True)  # null para push/sms
+    body_template = Column(Text, nullable=False)  # sintaxis {{variable}}
+    language = Column(String(5), nullable=False, default="es")
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
+
+    def __repr__(self):
+        return f"<NotificationTemplate(code={self.code}, channel={self.channel})>"
+
+
+class NotificationLog(Base):
+    """Bitácora omnicanal de envíos con reintentos y dedupe."""
+    __tablename__ = "notification_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    template_code = Column(String(50), nullable=True)
+    delivery_id = Column(UUID(as_uuid=True), ForeignKey("deliveries.id"), nullable=True)
+    payout_id = Column(UUID(as_uuid=True), ForeignKey("payouts.id"), nullable=True)
+    channel = Column(SQLEnum(NotificationChannel, name="notificationchannel",
+                             values_callable=lambda e: [m.value for m in e]),
+                     nullable=False)
+    status = Column(SQLEnum(OmnichannelStatus, name="notificationstatus_fase9",
+                           values_callable=lambda e: [m.value for m in e]),
+                   nullable=False, default=OmnichannelStatus.PENDIENTE)
+    payload_json = Column(Text, nullable=True)          # datos renderizados
+    provider_message_id = Column(String(200), nullable=True)
+    error_message = Column(Text, nullable=True)
+    retry_count = Column(Integer, nullable=False, default=0)
+    next_retry_at = Column(DateTime, nullable=True)
+    dedupe_key = Column(String(120), unique=True, nullable=True)  # evita reenvío <5min
+    title = Column(String(255), nullable=True)   # para campana IN_APP
+    body = Column(Text, nullable=True)
+    read_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive, index=True)
+    sent_at = Column(DateTime, nullable=True)
+    delivered_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("idx_notiflogs_user_created", "user_id", sa.text("created_at DESC")),
+        Index("idx_notiflogs_status_retry", "status", "next_retry_at"),
+    )
+
+    def __repr__(self):
+        return f"<NotificationLog(id={self.id}, template={self.template_code}, status={self.status})>"
+
+
+class UserDeviceToken(Base):
+    """Tokens FCM/APNs por usuario con auto-desactivación por fallos."""
+    __tablename__ = "user_device_tokens"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    device_token = Column(String(255), unique=True, nullable=False)
+    platform = Column(String(10), nullable=False, default="web")  # 'android'|'ios'|'web'
+    failure_count = Column(Integer, nullable=False, default=0)     # auto-disable tras 3
+    is_active = Column(Boolean, nullable=False, default=True)
+    last_seen_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+
+    def __repr__(self):
+        return f"<UserDeviceToken(user={self.user_id}, platform={self.platform})>"
+
+
+class NotificationPreference(Base):
+    """Preferencia granular evento×canal por usuario."""
+    __tablename__ = "notification_preferences"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    event_code = Column(String(50), nullable=False)   # ej 'payout_aprobado'
+    channel = Column(SQLEnum(NotificationChannel, name="notificationchannel",
+                             values_callable=lambda e: [m.value for m in e]),
+                     nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    updated_at = Column(DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
+
+    __table_args__ = (
+        sa.UniqueConstraint("user_id", "event_code", "channel",
+                            name="uq_notifpref_user_event_channel"),
+    )
+
+    def __repr__(self):
+        return f"<NotificationPreference(user={self.user_id}, {self.event_code}/{self.channel}={self.enabled})>"
