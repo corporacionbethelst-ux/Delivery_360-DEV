@@ -3,7 +3,7 @@ Delivery360 - Main Application Entry Point
 FastAPI application with full configuration
 """
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
