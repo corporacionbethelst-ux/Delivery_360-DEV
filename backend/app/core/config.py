@@ -151,6 +151,37 @@ class Settings(BaseSettings):
     def notification_email_from_computed(self) -> str:
         return self.NOTIFICATION_EMAIL_FROM or self.EMAIL_FROM
 
+    # ════════════════════════════════════════════════════════════
+    # FASE 10 — Facturación Electrónica & Motor Fiscal
+    # Defaults seguros para dev: facturación en modo STUB (sin credenciales
+    # reales de DIAN/SAT se simula ACEPTADA localmente, jamás crash).
+    # ════════════════════════════════════════════════════════════
+    ENABLE_ELECTRONIC_INVOICING: bool = True   # feature flag maestro del flujo
+    FISCAL_DEFAULT_COUNTRY: str = "CO"         # régimen por defecto (ISO alfa-2)
+    COMPANY_NIT: str = "900000000-1"           # NIT/RFC emisor demo
+    COMPANY_NAME: str = "Delivery360 S.A.S."
+    COMPANY_ADDRESS: str = "Bogotá D.C., Colombia"
+    COMPANY_CITY_CODE: str = "11001"           # código DANE Bogotá
+    INVOICE_DAILY_LIMIT: int = 500             # protección anti-fraude emisión/día
+    # Proveedores fiscales (opcionales → stub sandbox)
+    DIAN_API_KEY: Optional[str] = None
+    DIAN_CERTIFICATE_PATH: Optional[str] = None
+    DIAN_PASSWORD: Optional[str] = None
+    SAT_API_ENDPOINT: Optional[str] = None
+    SAT_CERT_FILE: Optional[str] = None
+    SAT_KEY_FILE: Optional[str] = None
+    # Multi-moneda / FX
+    EXCHANGE_RATE_PROVIDER: str = "stub"       # stub | openexchangerates
+    OPEN_EXCHANGE_RATES_APP_ID: Optional[str] = None
+    FX_CACHE_TTL_MINUTES: int = 60
+    FX_FALLBACK_RATES_JSON: str = '{"COP":3900.0,"MXN":17.0,"CLP":950.0,"PEN":3.75,"USD":1.0}'
+    # Split payments (regla global; override por zona vía platform_settings)
+    PLATFORM_COMMISSION_PCT: float = 20.0      # % de la tarifa de envío para plataforma
+    # Reconciliación bancaria
+    RECONCILIATION_VARIANCE_ALERT_CENTS: int = 100   # variance > 1.00 → VARIANCIA
+    # Cifrado de secretos locales (AES-256-GCM); dev default NO es seguro
+    ENCRYPTION_MASTER_KEY: Optional[str] = None
+
     class Config:
         env_file = ".env"
         case_sensitive = True
