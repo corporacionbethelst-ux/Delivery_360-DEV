@@ -13,14 +13,16 @@ class TestAuth:
 
     def test_login_success(self, client: TestClient, test_user: User):
         """Prueba login exitoso."""
+        # El endpoint /auth/login usa OAuth2PasswordRequestForm (form-urlencoded),
+        # con credenciales en username/password.
         response = client.post(
             "/api/v1/auth/login",
-            json={
-                "email": test_user.email,
+            data={
+                "username": test_user.email,
                 "password": "testpassword123"
             }
         )
-        assert response.status_code == 200
+        assert response.status_code == 200, response.text
         data = response.json()
         assert "access_token" in data
         assert "refresh_token" in data
@@ -39,23 +41,33 @@ class TestAuth:
         assert response.status_code == 400  # 400 para credenciales incorrectas
 
     def test_register_new_user(self, client: TestClient):
-        """Prueba registro de nuevo repartidor (endpoint disponible)."""
-        # El endpoint register-rider espera parámetros específicos
+        """Prueba registro de nuevo repartidor (endpoint disponible).
+
+        El endpoint /auth/register-rider es multipart/form-data con 4 archivos
+        obligatorios (license, id_card, vehicle_registration, insurance); se
+        envían stubs mínimos para validar el flujo de registro.
+        """
         import random
         counter = random.randint(1000, 9999)
+        files = {
+            name: (f"{name}_{counter}.pdf", b"%PDF-1.4 stub", "application/pdf")
+            for name in ("license_file", "id_card_file",
+                         "vehicle_registration_file", "insurance_file")
+        }
         response = client.post(
             "/api/v1/auth/register-rider",
-            json={
+            data={
                 "email": f"newuser_{counter}@example.com",
                 "password": "newpassword123",
                 "first_name": "Nuevo",
                 "last_name": "Usuario Repartidor",
                 "phone": "+1234567890",
                 "vehicle_type": "MOTO",
-                "vehicle_plate": f"ABC{counter}"
-            }
+                "vehicle_plate": f"ABC{counter}",
+            },
+            files=files,
         )
-        assert response.status_code == 201
+        assert response.status_code == 201, response.text
         data = response.json()
         assert "user" in data or "id" in data
 

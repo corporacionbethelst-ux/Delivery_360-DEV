@@ -72,8 +72,22 @@ def parse_statement_csv(csv_text: str) -> List[StatementLine]:
             logger.warning("CSV sin columnas date/amount reconocibles: %s", reader.fieldnames)
             return lines
 
+        amount_idx = reader.fieldnames.index(colmap["amount"])
+        n_cols = len(reader.fieldnames)
+        last_idx = n_cols - 1
         for row in reader:
             try:
+                # CSV latino sin comillas: "01/10/2026,1234,56" → csv.DictReader
+                # parte el decimal en celdas ('monto'='1234', restkey=None=['56']).
+                # Si la columna monto es la última y el overflow son SOLO dígitos
+                # (1-2 decimales), se reconstruye: 1234 + ,56 → '1234.56'
+                overflow = [str(o or "").strip() for o in (row.get(None) or [])]
+                amt_val = str(row.get(colmap["amount"]) or "").strip()
+                if (overflow and amount_idx == last_idx
+                        and all(t.isdigit() for t in overflow)
+                        and len(overflow[0]) <= 2):
+                    row[colmap["amount"]] = f"{amt_val}.{overflow[0]}"
+                    row.pop(None, None)
                 raw_date = (row.get(colmap["date"]) or "").strip()
                 d: Optional[date] = None
                 for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y%m%d"):
