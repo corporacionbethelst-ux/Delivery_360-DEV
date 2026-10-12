@@ -41,10 +41,34 @@ async def test_engine():
     # Create only the tables needed for tests (excluding PostGIS-dependent ones)
     from sqlalchemy import MetaData
     from app.models.user import User
-    
-    async with engine.begin() as conn:
-        # Create user table manually
-        await conn.run_sync(User.__table__.create)
+    from app.models.vehicle import Vehicle  # FK riders.assigned_vehicle_id
+    from app.models.rider import Rider
+    from app.models.rider_document import RiderDocument
+
+    # SQLite no soporta PostGIS: se registran funciones SQL vacías vía connect
+    # event y riders.last_location se degrada a TEXT solo para el DDL de test.
+    from sqlalchemy import event as _sa_event
+
+    def _register_geo_stub(dbapi_conn, _rec):
+        dbapi_conn.create_function("GeomFromEWKT", 1, lambda x: None)
+        dbapi_conn.create_function("ST_AsEWKT", 1, lambda x: None)
+
+    _sa_event.listen(engine.sync_engine, "connect", _register_geo_stub)
+
+    geo_col = Rider.__table__.c.last_location
+    from sqlalchemy import Text as _Text
+    old_type = geo_col.type
+    geo_col.type = _Text()
+    try:
+        async with engine.begin() as conn:
+            def _create_tables(sync_conn):
+                User.__table__.create(sync_conn, checkfirst=True)
+                Vehicle.__table__.create(sync_conn, checkfirst=True)
+                Rider.__table__.create(sync_conn, checkfirst=True)
+                RiderDocument.__table__.create(sync_conn, checkfirst=True)
+            await conn.run_sync(_create_tables)
+    finally:
+        geo_col.type = old_type
     
     yield engine
     
