@@ -86,7 +86,7 @@ class ElectronicInvoice(Base):
         nullable=False, index=True,
     )
     invoice_type: Any = Column(
-        SQLEnum(InvoiceType, values_callable=lambda e: [m.value for m in e]),
+        SQLEnum(InvoiceType, values_callable=lambda e: [m.value for m in e], create_type=False),
         nullable=False, default=InvoiceType.VENTA,
     )
 
@@ -102,7 +102,7 @@ class ElectronicInvoice(Base):
 
     # Datos tributarios
     provider_type: Any = Column(
-        SQLEnum(CountryTaxRegime, values_callable=lambda e: [m.value for m in e]),
+        SQLEnum(CountryTaxRegime, values_callable=lambda e: [m.value for m in e], create_type=False),
         nullable=False,
     )
     currency_code = Column(String(3), nullable=False, default="COP")
@@ -117,7 +117,7 @@ class ElectronicInvoice(Base):
 
     # Estado del proceso
     status: Any = Column(
-        SQLEnum(InvoiceStatus, values_callable=lambda e: [m.value for m in e]),
+        SQLEnum(InvoiceStatus, values_callable=lambda e: [m.value for m in e], create_type=False),
         nullable=False, default=InvoiceStatus.PENDIENTE, index=True,
     )
     error_message = Column(Text, nullable=True)
@@ -165,7 +165,7 @@ class InvoiceResolution(Base):
     password_encrypted = Column(Text, nullable=True)
 
     country_code: Any = Column(
-        SQLEnum(CountryTaxRegime, values_callable=lambda e: [m.value for m in e]),
+        SQLEnum(CountryTaxRegime, values_callable=lambda e: [m.value for m in e], create_type=False),
         nullable=False, default=CountryTaxRegime.COLOMBIA,
     )
 
@@ -206,7 +206,7 @@ class FiscalConfiguration(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     country_code: Any = Column(
-        SQLEnum(CountryTaxRegime, values_callable=lambda e: [m.value for m in e]),
+        SQLEnum(CountryTaxRegime, values_callable=lambda e: [m.value for m in e], create_type=False),
         nullable=False,
     )
     zone_id = Column(UUID(as_uuid=True), ForeignKey("zones.id", ondelete="CASCADE"), nullable=True)
@@ -244,7 +244,7 @@ class BankReconciliationRecord(Base):
     variance_cents = Column(BigInteger, nullable=False, default=0)
     match_confidence_score = Column(Numeric(3, 2), nullable=True)  # 0.00–1.00
     status: Any = Column(
-        SQLEnum(ReconciliationStatus, values_callable=lambda e: [m.value for m in e]),
+        SQLEnum(ReconciliationStatus, values_callable=lambda e: [m.value for m in e], create_type=False),
         nullable=False, default=ReconciliationStatus.SIN_RELACIONAR, index=True,
     )
     resolved_manually = Column(Boolean, nullable=False, default=False)
