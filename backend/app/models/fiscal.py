@@ -26,8 +26,27 @@ from sqlalchemy import (
     Enum as SQLEnum,
     ForeignKey,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, ENUM as PGEnum
 import enum
+
+
+def _pg_enum(python_enum, name):
+    """FIX CRÍTICO FASE 10 (3ra auditoría): SQLAlchemy 2.0.x adapta
+    sa.Enum(..., create_type=False) a postgresql.ENUM vía dialect_impl() y
+    PIERDE el flag create_type (queda True). Resultado: op.create_table /
+    metadata.create_all re-emiten CREATE TYPE <name> sobre tipos que ya
+    fueron creados por la migración con _create_enum_tolerant(), causando
+    asyncpg DuplicateObjectError: type "countrytaxregime" already exists.
+
+    Solución: construir SIEMPRE el tipo con postgresql.ENUM nativo del
+    dialecto + create_type=False, que sí respeta el flag (verificado:
+    dialect_impl(ENUM(create_type=False)) conserva create_type=False)."""
+    return PGEnum(
+        python_enum,
+        values_callable=lambda e: [m.value for m in e],
+        name=name,
+        create_type=False,
+    )
 
 from app.core.database import Base
 
@@ -86,7 +105,7 @@ class ElectronicInvoice(Base):
         nullable=False, index=True,
     )
     invoice_type: Any = Column(
-        SQLEnum(InvoiceType, values_callable=lambda e: [m.value for m in e], create_type=False),
+        _pg_enum(InvoiceType, "invoicetype"),
         nullable=False, default=InvoiceType.VENTA,
     )
 
@@ -102,7 +121,7 @@ class ElectronicInvoice(Base):
 
     # Datos tributarios
     provider_type: Any = Column(
-        SQLEnum(CountryTaxRegime, values_callable=lambda e: [m.value for m in e], create_type=False),
+        _pg_enum(CountryTaxRegime, "countrytaxregime"),
         nullable=False,
     )
     currency_code = Column(String(3), nullable=False, default="COP")
@@ -117,7 +136,7 @@ class ElectronicInvoice(Base):
 
     # Estado del proceso
     status: Any = Column(
-        SQLEnum(InvoiceStatus, values_callable=lambda e: [m.value for m in e], create_type=False),
+        _pg_enum(InvoiceStatus, "invoicestatus"),
         nullable=False, default=InvoiceStatus.PENDIENTE, index=True,
     )
     error_message = Column(Text, nullable=True)
@@ -165,7 +184,7 @@ class InvoiceResolution(Base):
     password_encrypted = Column(Text, nullable=True)
 
     country_code: Any = Column(
-        SQLEnum(CountryTaxRegime, values_callable=lambda e: [m.value for m in e], create_type=False),
+        _pg_enum(CountryTaxRegime, "countrytaxregime"),
         nullable=False, default=CountryTaxRegime.COLOMBIA,
     )
 
@@ -206,7 +225,7 @@ class FiscalConfiguration(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     country_code: Any = Column(
-        SQLEnum(CountryTaxRegime, values_callable=lambda e: [m.value for m in e], create_type=False),
+        _pg_enum(CountryTaxRegime, "countrytaxregime"),
         nullable=False,
     )
     zone_id = Column(UUID(as_uuid=True), ForeignKey("zones.id", ondelete="CASCADE"), nullable=True)
@@ -244,7 +263,7 @@ class BankReconciliationRecord(Base):
     variance_cents = Column(BigInteger, nullable=False, default=0)
     match_confidence_score = Column(Numeric(3, 2), nullable=True)  # 0.00–1.00
     status: Any = Column(
-        SQLEnum(ReconciliationStatus, values_callable=lambda e: [m.value for m in e], create_type=False),
+        _pg_enum(ReconciliationStatus, "reconciliationstatus"),
         nullable=False, default=ReconciliationStatus.SIN_RELACIONAR, index=True,
     )
     resolved_manually = Column(Boolean, nullable=False, default=False)

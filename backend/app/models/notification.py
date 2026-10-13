@@ -4,6 +4,16 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum, Text, ForeignKey, Index, Integer
+
+
+def _pg_enum(python_enum, name):
+    """FIX CRÍTICO FASE 10 (3ra auditoría): sa.Enum(..., create_type=False)
+    pierde el flag al adaptarse a postgresql.ENUM en SQLAlchemy 2.0.x y los
+    create_all/residuals re-emiten CREATE TYPE -> DuplicateObjectError.
+    Usar postgresql.ENUM nativo del dialecto con create_type=False."""
+    from sqlalchemy.dialects.postgresql import ENUM as PGEnum
+    return PGEnum(python_enum, values_callable=lambda e: [m.value for m in e],
+                  name=name, create_type=False)
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
@@ -202,8 +212,7 @@ class NotificationTemplate(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     code = Column(String(50), unique=True, nullable=False, index=True)  # ej 'payout_aprobado'
-    channel = Column(SQLEnum(NotificationChannel, name="notificationchannel",
-                               values_callable=lambda e: [m.value for m in e]),
+    channel = Column(_pg_enum(NotificationChannel, "notificationchannel"),
                      nullable=False)
     subject = Column(String(200), nullable=True)  # null para push/sms
     body_template = Column(Text, nullable=False)  # sintaxis {{variable}}
@@ -225,11 +234,9 @@ class NotificationLog(Base):
     template_code = Column(String(50), nullable=True)
     delivery_id = Column(UUID(as_uuid=True), ForeignKey("deliveries.id"), nullable=True)
     payout_id = Column(UUID(as_uuid=True), ForeignKey("payouts.id"), nullable=True)
-    channel = Column(SQLEnum(NotificationChannel, name="notificationchannel",
-                             values_callable=lambda e: [m.value for m in e]),
+    channel = Column(_pg_enum(NotificationChannel, "notificationchannel"),
                      nullable=False)
-    status = Column(SQLEnum(OmnichannelStatus, name="notificationstatus_fase9",
-                           values_callable=lambda e: [m.value for m in e]),
+    status = Column(_pg_enum(OmnichannelStatus, "notificationstatus_fase9"),
                    nullable=False, default=OmnichannelStatus.PENDIENTE)
     payload_json = Column(Text, nullable=True)          # datos renderizados
     provider_message_id = Column(String(200), nullable=True)
@@ -277,8 +284,7 @@ class NotificationPreference(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     event_code = Column(String(50), nullable=False)   # ej 'payout_aprobado'
-    channel = Column(SQLEnum(NotificationChannel, name="notificationchannel",
-                             values_callable=lambda e: [m.value for m in e]),
+    channel = Column(_pg_enum(NotificationChannel, "notificationchannel"),
                      nullable=False)
     enabled = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=utc_now_naive)
