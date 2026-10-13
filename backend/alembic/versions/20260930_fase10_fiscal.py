@@ -70,11 +70,18 @@ def _create_enum_tolerant(name: str, values: list) -> None:
 
 
 # Tipos ENUM nativos de Postgres (creados tolerante a fallos mas abajo;
-# aqui solo se referencian como tipo de columna — sa.Enum con create_type=False)
-CTRT = sa.Enum("CO", "MX", "CL", "PE", name="countrytaxregime", create_type=False)
-IVT = sa.Enum("VENTA", "COMPRA", "NOTA_CREDITO", "NOTA_DEBITO", name="invoicetype", create_type=False)
-IVS = sa.Enum("PENDIENTE", "ENVIADA", "ACEPTADA", "RECHAZADA", "CANCELADA", name="invoicestatus", create_type=False)
-RCS = sa.Enum("SIN_RELACIONAR", "RELACIONADO", "VARIANCIA", "RESUELTO_MANUAL", name="reconciliationstatus", create_type=False)
+# aqui solo se referencian como tipo de columna).
+# FIX CRITICO FASE 10: usar postgresql.ENUM(...) EXPLICITO con
+# create_type=False. Motivo: sa.Enum(..., create_type=False) pierde el flag
+# al adaptarse internamente al dialecto postgresql (la clase adaptada queda
+# sin el atributo), por lo que op.create_table re-emite CREATE TYPE y revienta
+# con DuplicateObjectError ("type countrytaxregime already exists") incluso en
+# DB limpia tras el pre-check. postgresql.ENUM es la clase NATIVA del dialecto
+# (no se adapta) y respeta create_type=False de forma garantizada.
+CTRT = postgresql.ENUM("CO", "MX", "CL", "PE", name="countrytaxregime", create_type=False)
+IVT = postgresql.ENUM("VENTA", "COMPRA", "NOTA_CREDITO", "NOTA_DEBITO", name="invoicetype", create_type=False)
+IVS = postgresql.ENUM("PENDIENTE", "ENVIADA", "ACEPTADA", "RECHAZADA", "CANCELADA", name="invoicestatus", create_type=False)
+RCS = postgresql.ENUM("SIN_RELACIONAR", "RELACIONADO", "VARIANCIA", "RESUELTO_MANUAL", name="reconciliationstatus", create_type=False)
 
 
 def upgrade() -> None:
