@@ -1,4 +1,1 @@
-.env
-.env.local
-*.env.*
-backend/uploads/
+*.bundle
