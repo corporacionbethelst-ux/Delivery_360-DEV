@@ -59,7 +59,17 @@ async def test_engine():
     from sqlalchemy import Text as _Text
     old_type = geo_col.type
     geo_col.type = _Text()
+    # rider_documents usa server_default=sa.text('NOW()') (valido en PG, no en
+    # SQLite). Se sustituye temporalmente por CURRENT_TIMESTAMP para el DDL de
+    # tests; se restaura despues para no afectar la app real.
+    rd_cols = [RiderDocument.__table__.c.created_at,
+               RiderDocument.__table__.c.updated_at]
+    old_defaults = [c.server_default for c in rd_cols]
     try:
+        from sqlalchemy import func as _func
+        for c in rd_cols:
+            import sqlalchemy as sa
+            c.server_default = sa.schema.DefaultClause(_func.now())
         async with engine.begin() as conn:
             def _create_tables(sync_conn):
                 User.__table__.create(sync_conn, checkfirst=True)
@@ -69,6 +79,8 @@ async def test_engine():
             await conn.run_sync(_create_tables)
     finally:
         geo_col.type = old_type
+        for c, d in zip(rd_cols, old_defaults):
+            c.server_default = d
     
     yield engine
     

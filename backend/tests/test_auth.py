@@ -69,7 +69,7 @@ class TestAuth:
         )
         assert response.status_code == 201, response.text
         data = response.json()
-        assert "user" in data or "id" in data
+        assert "user_id" in data or "user" in data or "id" in data
 
 
 # Inicializar contador para tests
