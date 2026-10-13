@@ -36,11 +36,26 @@ async def seed_database():
     
     print("🌱 Iniciando seed de la base de datos...")
     
-    # Crear tablas si no existen
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    
-    print("✅ Tablas creadas verificadas")
+    # FIX FASE 10 (auditoría): se ELIMINÓ Base.metadata.create_all() del seed.
+    # Motivo: create_all emite CREATE TYPE para los ENUMs de Postgres y puede dejar
+    # tablas/tipos huérfanos que rompen `alembic upgrade head`
+    # (DuplicateObjectError: type "countrytaxregime" already exists).
+    # El esquema es responsabilidad EXCLUSIVA de Alembic; el seed solo verifica.
+    async with engine.connect() as _conn:
+        from sqlalchemy import text as _text
+
+        _exists = await _conn.execute(
+            _text(
+                "SELECT EXISTS(SELECT 1 FROM information_schema.tables "
+                "WHERE table_name='users')"
+            )
+        )
+        if not _exists.scalar():
+            raise RuntimeError(
+                "Tablas inexistentes: ejecuta primero 'alembic upgrade head' antes del seed."
+            )
+
+    print("✅ Esquema verificado (gestionado por Alembic)")
     
     # Obtener sesión de base de datos
     async with AsyncSessionLocal() as session:
