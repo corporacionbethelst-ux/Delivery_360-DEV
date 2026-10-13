@@ -49,10 +49,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Gestor del ciclo de vida de la aplicación (startup/shutdown)."""
     logger.info("Starting Delivery360 API...")
 
-    if settings.ENVIRONMENT == "development":
-        logger.info("Creating database tables...")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+    # FIX FASE 10: se ELIMINO Base.metadata.create_all() del arranque.
+    # Motivo: create_all creaba los tipos ENUM de Postgres (countrytaxregime,
+    # invoicetype, ...) FUERA del control de Alembic; al ejecutar despues la
+    # migracion 20260930_fase10, el CREATE TYPE tolerante colisionaba con el
+    # tipo ya existente y abortaba la transaccion (DuplicateObjectError).
+    # La fuente de verdad del esquema es EXCLUSIVAMENTE alembic upgrade head.
 
     # Fase 8: scheduler interno (VRP batch cada 5 min + purga de ubicaciones diaria)
     fase8_scheduler_started = False

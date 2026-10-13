@@ -42,15 +42,31 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def _create_enum_tolerant(name: str, values: list) -> None:
-    """CREATE TYPE ... vía savepoint (patrón tolerante Fase 8/9)."""
+    """CREATE TYPE IF NOT EXISTS via savepoint (patron tolerante Fase 8/9).
+
+    FIX FASE 10: antes el `except Exception` capturaba el error de asyncpg en
+    nivel DRIVER y dejaba la transaccion PG abortada; cualquier statement
+    posterior fallaba con InFailedSQLTransaction o DuplicateObjectError.
+    Ahora se consulta pg_type PRIMERO (no lanza, no aborta) y solo se ejecuta
+    CREATE TYPE si el tipo realmente no existe. El savepoint se conserva como
+    red de seguridad para reintentos parciales.
+    """
     bind = op.get_bind()
+    exists = bind.execute(
+        sa.text("SELECT 1 FROM pg_type WHERE typname = :n"), {"n": name}
+    ).scalar()
+    if exists:
+        return
     bind.execute(sa.text(f"SAVEPOINT sp_enum_{name}"))
     try:
         value_list = ", ".join(f"'{v}'" for v in values)
         bind.execute(sa.text(f"CREATE TYPE {name} AS ENUM ({value_list})"))
         bind.execute(sa.text(f"RELEASE SAVEPOINT sp_enum_{name}"))
     except Exception:
+        # Solo llega aqui si otro usuario creo el tipo entre la consulta y el
+        # CREATE (condicion de carrera): rollback al savepoint y continuar.
         bind.execute(sa.text(f"ROLLBACK TO SAVEPOINT sp_enum_{name}"))
+        bind.execute(sa.text(f"RELEASE SAVEPOINT sp_enum_{name}"))
 
 
 # Tipos ENUM nativos de Postgres (creados tolerante a fallos mas abajo;
@@ -89,7 +105,7 @@ def upgrade() -> None:
         sa.Column("private_key_path", sa.Text, nullable=True),
         sa.Column("certificate_path", sa.Text, nullable=True),
         sa.Column("password_encrypted", sa.Text, nullable=True),
-        sa.Column("country_code", CTRT, nullable=False, server_default="'CO'"),
+        sa.Column("country_code", CTRT, nullable=False, server_default="CO"),
         sa.Column("created_at", sa.DateTime, nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime, nullable=False, server_default=sa.func.now()),
         sa.UniqueConstraint("prefix", "start_range", "end_range", name="uq_resolution_prefix_range"),
@@ -103,7 +119,7 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("order_id", postgresql.UUID(as_uuid=True),
                   sa.ForeignKey("orders.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("invoice_type", IVT, nullable=False, server_default="'VENTA'"),
+        sa.Column("invoice_type", IVT, nullable=False, server_default="VENTA"),
         sa.Column("resolution_number", sa.Integer, nullable=False),
         sa.Column("sequence_number", sa.Integer, nullable=False),
         sa.Column("unique_identifier", sa.String(100), nullable=True),
@@ -111,14 +127,14 @@ def upgrade() -> None:
         sa.Column("issue_time", sa.Time, nullable=False),
         sa.Column("cancellation_date", sa.DateTime, nullable=True),
         sa.Column("provider_type", CTRT, nullable=False),
-        sa.Column("currency_code", sa.String(3), nullable=False, server_default="'COP'"),
+        sa.Column("currency_code", sa.String(3), nullable=False, server_default="COP"),
         sa.Column("exchange_rate", sa.Numeric(10, 4), nullable=False, server_default="1"),
         sa.Column("subtotal_cents", sa.BigInteger, nullable=False),
         sa.Column("tax_total_cents", sa.BigInteger, nullable=False, server_default="0"),
         sa.Column("retention_total_cents", sa.BigInteger, nullable=False, server_default="0"),
         sa.Column("discount_total_cents", sa.BigInteger, nullable=False, server_default="0"),
         sa.Column("grand_total_cents", sa.BigInteger, nullable=False),
-        sa.Column("status", IVS, nullable=False, server_default="'PENDIENTE'"),
+        sa.Column("status", IVS, nullable=False, server_default="PENDIENTE"),
         sa.Column("error_message", sa.Text, nullable=True),
         sa.Column("signed_xml_content", sa.Text, nullable=True),
         sa.Column("pdf_url", sa.Text, nullable=True),
@@ -170,7 +186,7 @@ def upgrade() -> None:
         sa.Column("tax_name", sa.String(100), nullable=False),
         sa.Column("rate", sa.Numeric(5, 4), nullable=False),
         sa.Column("applicability_condition", sa.Text, nullable=True),
-        sa.Column("taxable_base_type", sa.String(20), nullable=False, server_default="'gross'"),
+        sa.Column("taxable_base_type", sa.String(20), nullable=False, server_default="gross"),
         sa.Column("included_in_price", sa.Boolean, nullable=False, server_default=sa.false()),
         sa.Column("priority", sa.Integer, nullable=False, server_default="0"),
         sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.true()),
@@ -195,7 +211,7 @@ def upgrade() -> None:
         sa.Column("variance_cents", sa.BigInteger, nullable=False, server_default="0"),
         sa.Column("match_confidence_score", sa.Numeric(3, 2), nullable=True),
         sa.Column("status", RCS, nullable=False,
-                  server_default="'SIN_RELACIONAR'"),
+                  server_default="SIN_RELACIONAR"),
         sa.Column("resolved_manually", sa.Boolean, nullable=False, server_default=sa.false()),
         sa.Column("notes", sa.Text, nullable=True),
         sa.Column("created_at", sa.DateTime, nullable=False, server_default=sa.func.now()),
