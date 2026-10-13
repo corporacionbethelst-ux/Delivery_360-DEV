@@ -349,8 +349,15 @@ async def test_send(
 ):
     target_user_id = body.user_id or str(current_user.id)
     parsed = _parse_uuid(target_user_id, "user_id")
+    # FIX FASE 9/10 (test-send): el dedupe usa hash(template+entity_id+ventana_5min).
+    # Sin entity_id, dos test-send del MISMO template caen en la misma ventana
+    # (o compiten con un evento real ya notificado) y el segundo devuelve sent=0.
+    # Un test-send es por definicion una prueba manual => entity_id unico por
+    # llamada para saltar el dedupe sin relajar la proteccion anti-spam real.
+    context = dict(body.context or {})
+    context.setdefault("entity_id", f"testsend:{uuid.uuid4().hex}")
     logs = await service.send(
-        parsed, body.template_code, body.context or {},
+        parsed, body.template_code, context,
         channels=body.channels,
     )
     return {
