@@ -35,7 +35,8 @@ from app.models.audit_log import AuditLog, ActionType
 from app.models.platform_setting import PlatformSetting
 from app.services.financial_service import FinancialService, money
 from app.models.productivity import ProductivityRecord, MetricType
-from app.models.notification import Notification, NotificationType, NotificationPriority 
+from app.models.notification import Notification, NotificationType, NotificationPriority
+from app.models.fiscal import CountryTaxRegime 
 from app.models.route import Route, RoutePoint, RouteStatus
 from app.models.shift import Shift, ShiftStatus, CheckInOut
 
@@ -1979,6 +1980,143 @@ async def seed_fase9_notifications(db: AsyncSession):
     print("\U0001f514 Fase 9 seed OK — Notificaciones omnicanal.")
 
 
+async def seed_fase10_fiscal(db: AsyncSession):
+    """FASE 10: Facturación Electrónica & Motor Fiscal — demo dataset idempotente.
+
+    Nota: las 2 resoluciones y las 6 reglas fiscales YA existen porque la
+    migración alembic 20260930_fase10 las siembra con ON CONFLICT DO NOTHING.
+    Aquí solo se generan datos DEMO de las tablas transaccionales:
+      - electronic_invoices            (facturas sobre órdenes entregadas)
+      - payment_distribution_snapshots (split plataforma/rider por orden)
+      - bank_reconciliation_records    (extracto bancario demo)
+    Idempotencia: UNIQUE constraints + chequeos previos; correr 2x deja los
+    mismos conteos. Montos SIEMPRE en centavos (BigInteger)."""
+    print("\n🧾 Sembrando datos Fase 10 (Facturación Electrónica — demo)...")
+
+    # 1) Verificar prerequisitos creados por la migración (no duplicar seeds)
+    res_count = (await db.execute(text(
+        "SELECT count(*) FROM invoice_resolutions WHERE is_active = TRUE"
+    ))).scalar() or 0
+    cfg_count = (await db.execute(text(
+        "SELECT count(*) FROM fiscal_configurations WHERE is_active = TRUE"
+    ))).scalar() or 0
+    if res_count == 0 or cfg_count == 0:
+        print("   ⚠️  Faltan resoluciones/reglas fiscales — ejecuta primero: alembic upgrade head")
+        return
+    print(f"   ✔ Prerrequisitos migración: {res_count} resoluciones, {cfg_count} reglas fiscales activas.")
+
+    # 2) Contadores de secuencia por resolución (evita colisión con el stub DIAN)
+    resolutions = (await db.execute(text(
+        "SELECT id::text, prefix, current_counter, start_range, end_range "
+        "FROM invoice_resolutions WHERE country_code = 'CO' AND is_active = TRUE "
+        "ORDER BY created_at LIMIT 1"
+    ))).mappings().first()
+    if not resolutions:
+        print("   ⚠️  Sin resolución CO activa; se omite facturación demo.")
+        return
+    seq = max(int(resolutions["current_counter"] or 0), 0)
+
+    # 3) Órdenes ENTREGADAS sin factura → generar hasta 10 facturas demo ACEPTADA
+    orders_missing = (await db.execute(text(
+        "SELECT o.id::text AS oid, o.total "
+        "FROM orders o "
+        "JOIN deliveries d ON d.order_id = o.id "
+        "WHERE d.status = 'COMPLETADA' "
+        "  AND NOT EXISTS (SELECT 1 FROM electronic_invoices ei WHERE ei.order_id = o.id) "
+        "ORDER BY o.created_at LIMIT 10"
+    ))).mappings().all()
+
+    invoices_created = 0
+    for row in orders_missing:
+        total_cents = int(round(row["total"] * 100)) if row["total"] is not None else 0
+        if total_cents <= 0:
+            continue
+        seq += 1
+        if seq > int(resolutions["end_range"]):
+            break
+        # Desgaste CO: IVA 19% incluido implícito -> neto = total / 1.19 (centavos exactos)
+        tax_cents = total_cents - round(total_cents / 1.19)
+        subtotal_cents = total_cents - tax_cents
+        await db.execute(text(
+            "INSERT INTO electronic_invoices "
+            "(id, order_id, invoice_type, resolution_number, sequence_number, unique_identifier, "
+            " issue_date, issue_time, provider_type, currency_code, exchange_rate, "
+            " subtotal_cents, tax_total_cents, retention_total_cents, discount_total_cents, "
+            " grand_total_cents, status, customer_info_json, created_at, updated_at) "
+            "VALUES (gen_random_uuid(), CAST(:oid AS uuid), 'VENTA', :resnum, :seq, :uid, "
+            " CURRENT_DATE, LOCALTIME, 'CO', 'COP', 1, "
+            " :sub, :tax, 0, 0, :tot, 'ACEPTADA', '{}', NOW() AT TIME ZONE 'UTC', NOW() AT TIME ZONE 'UTC') "
+            "ON CONFLICT (provider_type, resolution_number, sequence_number) DO NOTHING"
+        ), {
+            "oid": row["oid"], "resnum": 1, "seq": seq,
+            "uid": f"SEED-{resolutions['prefix']}{seq:08d}",
+            "sub": subtotal_cents, "tax": tax_cents, "tot": total_cents,
+        })
+        invoices_created += 1
+
+    # Avanzar el contador de la resolución para no re-usar secuencias en runtime
+    if invoices_created:
+        await db.execute(text(
+            "UPDATE invoice_resolutions SET current_counter = :c, updated_at = NOW() AT TIME ZONE 'UTC' "
+            "WHERE id = CAST(:rid AS uuid) AND current_counter < :c"
+        ), {"rid": resolutions["id"], "c": seq})
+
+    # 4) Snapshots de distribución (split plataforma/rider) para las mismas órdenes
+    dist_created = 0
+    for row in orders_missing[:invoices_created]:
+        gross = int(round(row["total"] * 100)) if row["total"] is not None else 0
+        if gross <= 0:
+            continue
+        rider_share = round(gross * 0.70)   # demo: 70% rider / 30% plataforma
+        platform_share = gross - rider_share
+        r = await db.execute(text(
+            "INSERT INTO payment_distribution_snapshots "
+            "(id, order_id, gross_amount_cents, platform_share_cents, restaurant_share_cents, "
+            " rider_share_cents, applied_rule_json, settled_at) "
+            "VALUES (gen_random_uuid(), CAST(:oid AS uuid), :gross, :plat, 0, :rider, "
+            " '{\"demo_seed\":true,\"rule\":\"70/30\"}', NOW() AT TIME ZONE 'UTC') "
+            "ON CONFLICT (order_id) DO NOTHING"
+        ), {"oid": row["oid"], "gross": gross, "plat": platform_share, "rider": rider_share})
+        dist_created += r.rowcount
+
+    # 5) Registros de conciliación bancaria demo (mezcla de estados)
+    recon_created = 0
+    tx_rows = (await db.execute(text(
+        "SELECT ft.id::text AS tid, ft.amount_cents, ft.created_at "
+        "FROM financial_transactions ft "
+        "WHERE ft.amount_cents > 0 "
+        "  AND NOT EXISTS (SELECT 1 FROM bank_reconciliation_records brr "
+        "                  WHERE brr.internal_transaction_id = ft.id) "
+        "ORDER BY ft.created_at DESC LIMIT 6"
+    ))).mappings().all()
+    statuses = ["RELACIONADO", "SIN_RELACIONAR", "VARIANCIA"]
+    for i, tx in enumerate(tx_rows):
+        amount_cents = int(tx["amount_cents"])
+        status = statuses[i % len(statuses)]
+        matched = amount_cents if status == "RELACIONADO" else (
+            amount_cents - 500 if status == "VARIANCIA" else None)
+        variance = (amount_cents - matched) if matched is not None else amount_cents
+        r = await db.execute(text(
+            "INSERT INTO bank_reconciliation_records "
+            "(id, statement_date, bank_reference, internal_transaction_id, statement_amount_cents, "
+            " matched_amount_cents, variance_cents, match_confidence_score, status, resolved_manually, "
+            " notes, created_at) "
+            "VALUES (gen_random_uuid(), CURRENT_DATE - INTERVAL '1 day', :ref, CAST(:tid AS uuid), "
+            " :stmt, :matched, :var, :conf, CAST(:st AS reconciliationstatus), FALSE, "
+            " 'Demo seed Fase 10', NOW() AT TIME ZONE 'UTC')"
+        ), {
+            "ref": f"SEED-BANK-{uuid.uuid4().hex[:10].upper()}", "tid": tx["tid"],
+            "stmt": amount_cents, "matched": matched, "var": variance,
+            "conf": 0.95 if status != "SIN_RELACIONAR" else None, "st": status,
+        })
+        recon_created += r.rowcount
+
+    await db.commit()
+    print(f"   ✅ Facturas demo: {invoices_created} nuevas. Splits: {dist_created} nuevos. "
+          f"Conciliaciones: {recon_created} nuevas.")
+    print("🧾 Fase 10 seed OK — Facturación electrónica demo.")
+
+
 async def main():
     print("🚀 INICIANDO SEED DATA AVANZADO (CON ZONAS, VEHÍCULOS Y ALERTAS)")
     async with AsyncSessionLocal() as db:
@@ -2020,6 +2158,11 @@ async def main():
             # preferencias demo por rol, logs históricos y device tokens dummy
             # (idempotente: skip por dedupe_key / unique constraints)
             await seed_fase9_notifications(db)
+
+            # FASE 10: Facturación Electrónica & Motor Fiscal — facturas/splits/
+            # conciliaciones demo sobre órdenes entregadas (idempotente; los
+            # seeds maestros de resoluciones y reglas ya están en la migración)
+            await seed_fase10_fiscal(db)
             print("\n✅ ¡SEED COMPLETADO CON ÉXITO!")
             print("\n🔐 CREDENCIALES:")
             print("   Superadmin: super@delivery360.com / Admin123!")
