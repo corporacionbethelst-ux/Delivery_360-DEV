@@ -602,6 +602,28 @@ async def seed_orders_and_complex_data(db: AsyncSession, riders: List[Rider], co
     # Esto evita UniqueViolationError en external_id y permite re-ejecutar el script sin errores
     print("   🧹 Limpiando datos previos de seed (órdenes, deliveries, financials)...")
     try:
+        # FASE 10: huérfanos fiscales de seeds previos. La limpieza de abajo
+        # borra las órdenes ORD-% (FK electronic_invoices.order_id tiene
+        # ON DELETE CASCADE), pero los payment_distribution_snapshots y las
+        # conciliaciones que apuntaban a transacciones internas ya no existen.
+        # Se purgan solo los demo del seed; se re-siembran al final del run.
+        await db.execute(text(
+            "DELETE FROM bank_reconciliation_records "
+            "WHERE notes = 'Demo seed Fase 10' OR bank_reference LIKE 'SEED-BANK-%'"
+        ))
+        await db.execute(text(
+            "DELETE FROM payment_distribution_snapshots "
+            "WHERE applied_rule_json::text LIKE '%demo_seed%'"
+        ))
+        # (el contador lo avanza seed_fase10_fiscal al re-sembrar; reset solo
+        # si quedó desincronizado por la purga de facturas demo)
+        await db.execute(text(
+            "UPDATE invoice_resolutions r SET current_counter = COALESCE(("
+            "  SELECT max(ei.sequence_number) FROM electronic_invoices ei"
+            "  WHERE ei.provider_type = r.country_code"
+            "), 0) "
+            "WHERE r.country_code = 'CO'"
+        ))
         # Eliminar financials asociados a seed previo
         await db.execute(text("DELETE FROM financials WHERE source_type LIKE 'SEED%'"))
         # Eliminar deliveries asociados a órdenes de seed
