@@ -2028,7 +2028,7 @@ async def seed_fase10_fiscal(db: AsyncSession):
 
     invoices_created = 0
     for row in orders_missing:
-        total_cents = int(round(row["total"] * 100)) if row["total_amount"] is not None else 0
+        total_cents = int(round(row["total"] * 100)) if row["total"] is not None else 0
         if total_cents <= 0:
             continue
         seq += 1
@@ -2064,7 +2064,7 @@ async def seed_fase10_fiscal(db: AsyncSession):
     # 4) Snapshots de distribución (split plataforma/rider) para las mismas órdenes
     dist_created = 0
     for row in orders_missing[:invoices_created]:
-        gross = int(round(row["total"] * 100)) if row["total_amount"] is not None else 0
+        gross = int(round(row["total"] * 100)) if row["total"] is not None else 0
         if gross <= 0:
             continue
         rider_share = round(gross * 0.70)   # demo: 70% rider / 30% plataforma
