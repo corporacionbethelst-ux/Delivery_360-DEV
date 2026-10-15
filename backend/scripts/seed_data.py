@@ -2110,10 +2110,14 @@ async def seed_fase10_fiscal(db: AsyncSession):
             "INSERT INTO payment_distribution_snapshots "
             "(id, order_id, gross_amount_cents, platform_share_cents, restaurant_share_cents, "
             " rider_share_cents, applied_rule_json, settled_at) "
+            # FIX: el JSON literal '{"demo_seed":true,...} contiene ':' que SQLAlchemy text()
+            # parsea como bind param -> "A value is required for bind parameter 'true'".
+            # Se pasa el JSON como parámetro vinculado con cast jsonb.
             "VALUES (gen_random_uuid(), CAST(:oid AS uuid), :gross, :plat, 0, :rider, "
-            " '{\"demo_seed\":true,\"rule\":\"70/30\"}', NOW() AT TIME ZONE 'UTC') "
+            " CAST(:rule_json AS jsonb), NOW() AT TIME ZONE 'UTC') "
             "ON CONFLICT (order_id) DO NOTHING"
-        ), {"oid": row["oid"], "gross": gross, "plat": platform_share, "rider": rider_share})
+        ), {"oid": row["oid"], "gross": gross, "plat": platform_share, "rider": rider_share,
+            "rule_json": '{"demo_seed": true, "rule": "70/30"}'})
         dist_created += r.rowcount
 
     # 5) Registros de conciliación bancaria demo (mezcla de estados)
