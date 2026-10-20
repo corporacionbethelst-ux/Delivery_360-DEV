@@ -2121,14 +2121,36 @@ async def seed_fase10_fiscal(db: AsyncSession):
         dist_created += r.rowcount
 
     # 5) Registros de conciliación bancaria demo (mezcla de estados)
+    # FIX CAUSA #5 (doble):
+    #  (a) La fuente anterior era financial_transactions (Fase 7), tabla que el
+    #      seed NUNCA llena (solo WalletService.add_funds/withdraw_funds escribe
+    #      en ella y no tiene llamadores) y que además quedaba vaciada por
+    #      ON DELETE CASCADE tras la purga FK-safe de órdenes (fix #3) => el
+    #      SELECT siempre devolvía 0 filas => "Conciliaciones: 0 nuevas" SIEMPRE.
+    #      Nueva fuente: financials (ledger Fase 3+, sobrevive la purga porque
+    #      se re-siembra cada corrida con idempotency_key estable).
+    #  (b) bank_reference usaba uuid4 aleatorio (SEED-BANK-<random>) y la
+    #      limpieza Fase 3 borra todo 'SEED-BANK-%' en cada corrida => refs
+    #      nunca coincidían => dedupe imposible => idempotencia rota.
+    #      Ahora refs ESTABLES SEED-BANK-0001..NNNN + dedupe NOT EXISTS sobre
+    #      refs previos. NO se usa ON CONFLICT porque bank_reference solo tiene
+    #      índice NO-único (idx_reconciliation_bank_ref) y NO se agrega UNIQUE
+    #      para no modificar la migración Fase 10 ya aplicada.
+    # Conversión exacta a centavos BIGINT (regla dura: nunca floats):
+    #      round(abs(f.amount)::numeric*100)::bigint — abs() porque PENALIZACION
+    #      / AJUSTE_MANUAL viajan como débito pero ledger_delta las aplica con
+    #      signo; el extracto bancario demo modela montos absolutos.
+    # internal_transaction_id = NULL a propósito: su FK apunta a
+    #      financial_transactions.id (poner ids de financials causaría
+    #      ForeignKeyViolation); la columna es nullable por diseño.
     recon_created = 0
     tx_rows = (await db.execute(text(
-        "SELECT ft.id::text AS tid, ft.amount_cents, ft.created_at "
-        "FROM financial_transactions ft "
-        "WHERE ft.amount_cents > 0 "
-        "  AND NOT EXISTS (SELECT 1 FROM bank_reconciliation_records brr "
-        "                  WHERE brr.internal_transaction_id = ft.id) "
-        "ORDER BY ft.created_at DESC LIMIT 6"
+        "SELECT round(abs(f.amount)::numeric * 100)::bigint AS amount_cents, "
+        "       f.created_at "
+        "FROM financials f "
+        "WHERE f.source_type LIKE 'SEED%' "
+        "  AND f.status IN ('PROCESADO', 'PAGADO') "
+        "ORDER BY f.created_at DESC LIMIT 6"
     ))).mappings().all()
     statuses = ["RELACIONADO", "SIN_RELACIONAR", "VARIANCIA"]
     for i, tx in enumerate(tx_rows):
@@ -2137,16 +2159,19 @@ async def seed_fase10_fiscal(db: AsyncSession):
         matched = amount_cents if status == "RELACIONADO" else (
             amount_cents - 500 if status == "VARIANCIA" else None)
         variance = (amount_cents - matched) if matched is not None else amount_cents
+        ref = f"SEED-BANK-{i + 1:04d}"
         r = await db.execute(text(
             "INSERT INTO bank_reconciliation_records "
             "(id, statement_date, bank_reference, internal_transaction_id, statement_amount_cents, "
             " matched_amount_cents, variance_cents, match_confidence_score, status, resolved_manually, "
             " notes, created_at) "
-            "VALUES (gen_random_uuid(), CURRENT_DATE - INTERVAL '1 day', :ref, CAST(:tid AS uuid), "
-            " :stmt, :matched, :var, :conf, CAST(:st AS reconciliationstatus), FALSE, "
-            " 'Demo seed Fase 10', NOW() AT TIME ZONE 'UTC')"
+            "SELECT gen_random_uuid(), CURRENT_DATE - INTERVAL '1 day', :ref, NULL, "
+            "       :stmt, :matched, :var, :conf, CAST(:st AS reconciliationstatus), FALSE, "
+            "       'Demo seed Fase 10', NOW() AT TIME ZONE 'UTC' "
+            "WHERE NOT EXISTS (SELECT 1 FROM bank_reconciliation_records brr "
+            "                  WHERE brr.bank_reference = :ref)"
         ), {
-            "ref": f"SEED-BANK-{uuid.uuid4().hex[:10].upper()}", "tid": tx["tid"],
+            "ref": ref,
             "stmt": amount_cents, "matched": matched, "var": variance,
             "conf": 0.95 if status != "SIN_RELACIONAR" else None, "st": status,
         })
