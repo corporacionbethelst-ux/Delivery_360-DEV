@@ -2143,6 +2143,12 @@ async def seed_fase10_fiscal(db: AsyncSession):
     # internal_transaction_id = NULL a propósito: su FK apunta a
     #      financial_transactions.id (poner ids de financials causaría
     #      ForeignKeyViolation); la columna es nullable por diseño.
+    # FIX runtime asyncpg: :ref viaja DOS veces en el SQL (columna bank_reference
+    #      => varchar y comparación NOT EXISTS => text). asyncpg deduce tipos en
+    #      prepare() y aborta con AmbiguousParameterError "text versus character
+    #      varying" si un mismo $N aparece con tipos inconsistentes. Solución:
+    #      CAST(:ref AS varchar) en AMBOS usos para fijar el tipo del parámetro.
+    # (Mismo patrón aplicado a :st: CAST(... AS reconciliationstatus) fija su tipo.)
     recon_created = 0
     tx_rows = (await db.execute(text(
         "SELECT round(abs(f.amount)::numeric * 100)::bigint AS amount_cents, "
@@ -2165,11 +2171,11 @@ async def seed_fase10_fiscal(db: AsyncSession):
             "(id, statement_date, bank_reference, internal_transaction_id, statement_amount_cents, "
             " matched_amount_cents, variance_cents, match_confidence_score, status, resolved_manually, "
             " notes, created_at) "
-            "SELECT gen_random_uuid(), CURRENT_DATE - INTERVAL '1 day', :ref, NULL, "
+            "SELECT gen_random_uuid(), CURRENT_DATE - INTERVAL '1 day', CAST(:ref AS varchar), NULL, "
             "       :stmt, :matched, :var, :conf, CAST(:st AS reconciliationstatus), FALSE, "
             "       'Demo seed Fase 10', NOW() AT TIME ZONE 'UTC' "
             "WHERE NOT EXISTS (SELECT 1 FROM bank_reconciliation_records brr "
-            "                  WHERE brr.bank_reference = :ref)"
+            "                  WHERE brr.bank_reference = CAST(:ref AS varchar))"
         ), {
             "ref": ref,
             "stmt": amount_cents, "matched": matched, "var": variance,
