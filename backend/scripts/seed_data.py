@@ -2054,11 +2054,19 @@ async def seed_fase10_fiscal(db: AsyncSession):
     seq = max(int(resolutions["current_counter"] or 0), 0)
 
     # 3) Órdenes ENTREGADAS sin factura → generar hasta 10 facturas demo ACEPTADA
+    # FIX CAUSA #7: el JOIN original exigiía d.status='COMPLETADA' en deliveries.
+    # Las órdenes seed se crean con status aleatorio y solo reciben Delivery si
+    # tienen rider asignado Y status mapeable; además la purga Fase 3 (#3) borra
+    # deliveries/orders cada corrida, dejando órdenes ENTREGADO huérfanas de
+    # delivery => el JOIN devolvía 0 filas SIEMPRE => "Facturas demo: N nuevas"
+    # era mentira (el contador sumaba intentos, no rowcount) y electronic_invoices
+    # quedaba en 0 pese al log "Fase 10 seed OK". Ahora: fuente directa orders
+    # (status='ENTREGADO' o delivered_at presente), sin depender de deliveries.
     orders_missing = (await db.execute(text(
         "SELECT o.id::text AS oid, o.total "
         "FROM orders o "
-        "JOIN deliveries d ON d.order_id = o.id "
-        "WHERE d.status = 'COMPLETADA' "
+        "WHERE (o.status = 'ENTREGADO' OR o.delivered_at IS NOT NULL) "
+        "  AND o.total > 0 "
         "  AND NOT EXISTS (SELECT 1 FROM electronic_invoices ei WHERE ei.order_id = o.id) "
         "ORDER BY o.created_at LIMIT 10"
     ))).mappings().all()
@@ -2074,7 +2082,7 @@ async def seed_fase10_fiscal(db: AsyncSession):
         # Desgaste CO: IVA 19% incluido implícito -> neto = total / 1.19 (centavos exactos)
         tax_cents = total_cents - round(total_cents / 1.19)
         subtotal_cents = total_cents - tax_cents
-        await db.execute(text(
+        r_inv = await db.execute(text(
             "INSERT INTO electronic_invoices "
             "(id, order_id, invoice_type, resolution_number, sequence_number, unique_identifier, "
             " issue_date, issue_time, provider_type, currency_code, exchange_rate, "
@@ -2089,7 +2097,7 @@ async def seed_fase10_fiscal(db: AsyncSession):
             "uid": f"SEED-{resolutions['prefix']}{seq:08d}",
             "sub": subtotal_cents, "tax": tax_cents, "tot": total_cents,
         })
-        invoices_created += 1
+        invoices_created += r_inv.rowcount  # rowcount real: no inflar si ON CONFLICT DO NOTHING
 
     # Avanzar el contador de la resolución para no re-usar secuencias en runtime
     if invoices_created:
@@ -2149,12 +2157,17 @@ async def seed_fase10_fiscal(db: AsyncSession):
     #      varying" si un mismo $N aparece con tipos inconsistentes. Solución:
     #      CAST(:ref AS varchar) en AMBOS usos para fijar el tipo del parámetro.
     # (Mismo patrón aplicado a :st: CAST(... AS reconciliationstatus) fija su tipo.)
+    # FIX CAUSA #7b: la fuente LIKE 'SEED%' traía las 6 transacciones Fase-3 extra
+    #   (PAGO_INTENTO_FALLIDO/BONO_RENDIMIENTO/PENALIZACION/AJUSTE_MANUAL/INGRESO,
+    #   source_type SEED_DEMO) mezcladas con el batch de órdenes -> rotación de 6
+    #   sobre 3 statuses seguía dando 2/2/2 PERO los montos dependían del orden de
+    #   created_at entre dos batches. Fuente determinista: SOLO SEED_ORDER_BATCH.
     recon_created = 0
     tx_rows = (await db.execute(text(
         "SELECT round(abs(f.amount)::numeric * 100)::bigint AS amount_cents, "
         "       f.created_at "
         "FROM financials f "
-        "WHERE f.source_type LIKE 'SEED%' "
+        "WHERE f.source_type = 'SEED_ORDER_BATCH' "
         "  AND f.status IN ('PROCESADO', 'PAGADO') "
         "ORDER BY f.created_at DESC LIMIT 6"
     ))).mappings().all()
