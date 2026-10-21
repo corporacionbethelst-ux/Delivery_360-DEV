@@ -2157,12 +2157,17 @@ async def seed_fase10_fiscal(db: AsyncSession):
     #      varying" si un mismo $N aparece con tipos inconsistentes. Solución:
     #      CAST(:ref AS varchar) en AMBOS usos para fijar el tipo del parámetro.
     # (Mismo patrón aplicado a :st: CAST(... AS reconciliationstatus) fija su tipo.)
+    # FIX CAUSA #7b: la fuente LIKE 'SEED%' traía las 6 transacciones Fase-3 extra
+    #   (PAGO_INTENTO_FALLIDO/BONO_RENDIMIENTO/PENALIZACION/AJUSTE_MANUAL/INGRESO,
+    #   source_type SEED_DEMO) mezcladas con el batch de órdenes -> rotación de 6
+    #   sobre 3 statuses seguía dando 2/2/2 PERO los montos dependían del orden de
+    #   created_at entre dos batches. Fuente determinista: SOLO SEED_ORDER_BATCH.
     recon_created = 0
     tx_rows = (await db.execute(text(
         "SELECT round(abs(f.amount)::numeric * 100)::bigint AS amount_cents, "
         "       f.created_at "
         "FROM financials f "
-        "WHERE f.source_type LIKE 'SEED%' "
+        "WHERE f.source_type = 'SEED_ORDER_BATCH' "
         "  AND f.status IN ('PROCESADO', 'PAGADO') "
         "ORDER BY f.created_at DESC LIMIT 6"
     ))).mappings().all()

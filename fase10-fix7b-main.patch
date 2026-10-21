@@ -1,0 +1,108 @@
+diff --git a/backend/scripts/seed_data.py b/backend/scripts/seed_data.py
+index 300c617..1ab7d4f 100644
+--- a/backend/scripts/seed_data.py
++++ b/backend/scripts/seed_data.py
+@@ -2054,13 +2054,19 @@ async def seed_fase10_fiscal(db: AsyncSession):
+     seq = max(int(resolutions["current_counter"] or 0), 0)
+ 
+     # 3) Órdenes ENTREGADAS sin factura → generar hasta 10 facturas demo ACEPTADA
++    # FIX CAUSA #7: el JOIN original exigía d.status='COMPLETADA' en deliveries.
++    # La purga Fase 3 (#3) borra deliveries cada corrida y re-siembra solo algunas,
++    # dejando órdenes ENTREGADO huérfanas de delivery => el JOIN devolvía 0 filas
++    # SIEMPRE => electronic_invoices quedaba en 0 pese al log "Fase 10 seed OK".
++    # Ahora: fuente directa orders (status='ENTREGADO' o delivered_at presente),
++    # sin depender de deliveries. Contador honesto por rowcount.
+     orders_missing = (await db.execute(text(
+         "SELECT o.id::text AS oid, o.total "
+         "FROM orders o "
+-        "JOIN deliveries d ON d.order_id = o.id "
+-        "WHERE d.status = 'COMPLETADA' "
++        "WHERE (o.status = 'ENTREGADO' OR o.delivered_at IS NOT NULL) "
++        "  AND o.total > 0 "
+         "  AND NOT EXISTS (SELECT 1 FROM electronic_invoices ei WHERE ei.order_id = o.id) "
+-        "ORDER BY o.created_at LIMIT 10"
++        "ORDER BY o.created_at DESC LIMIT 10"
+     ))).mappings().all()
+ 
+     invoices_created = 0
+@@ -2074,7 +2080,7 @@ async def seed_fase10_fiscal(db: AsyncSession):
+         # Desgaste CO: IVA 19% incluido implícito -> neto = total / 1.19 (centavos exactos)
+         tax_cents = total_cents - round(total_cents / 1.19)
+         subtotal_cents = total_cents - tax_cents
+-        await db.execute(text(
++        r_inv = await db.execute(text(
+             "INSERT INTO electronic_invoices "
+             "(id, order_id, invoice_type, resolution_number, sequence_number, unique_identifier, "
+             " issue_date, issue_time, provider_type, currency_code, exchange_rate, "
+@@ -2089,7 +2095,7 @@ async def seed_fase10_fiscal(db: AsyncSession):
+             "uid": f"SEED-{resolutions['prefix']}{seq:08d}",
+             "sub": subtotal_cents, "tax": tax_cents, "tot": total_cents,
+         })
+-        invoices_created += 1
++        invoices_created += r_inv.rowcount  # rowcount real: no inflar si ON CONFLICT DO NOTHING
+ 
+     # Avanzar el contador de la resolución para no re-usar secuencias en runtime
+     if invoices_created:
+@@ -2121,14 +2127,33 @@ async def seed_fase10_fiscal(db: AsyncSession):
+         dist_created += r.rowcount
+ 
+     # 5) Registros de conciliación bancaria demo (mezcla de estados)
++    # FIX CAUSA #5: fuente cambiada de financial_transactions (Fase 7, tabla que
++    #   el seed NUNCA llena -> 0 filas siempre) a financials (ledger Fase 3+).
++    #   Refs ESTABLES SEED-BANK-0001..NNNN + dedupe NOT EXISTS (NO ON CONFLICT:
++    #   bank_reference solo tiene indice NO-unico; NO se agrega UNIQUE para no
++    #   tocar la migracion Fase 10 ya aplicada). internal_transaction_id = NULL
++    #   a proposito (su FK apunta a financial_transactions.id; nullable por diseno).
++    # FIX asyncpg (AmbiguousParameterError text vs character varying): :ref viaja
++    #   DOS veces (columna varchar vs comparacion text) -> asyncpg deduce tipos
++    #   inconsistentes en prepare(). Solucion: CAST(:ref AS varchar) en AMBOS usos.
++    # FIX CAUSA #7b: los montos del ledger cambian entre corridas (totales de
++    #   orders aleatorios) -> con refs estables la corrida 2 insertaba 6 nuevas con
++    #   MISMOS refs pero distintos montos (viola gate psql estable). Ademas 'SEED%'
++    #   traia 6 transacciones Fase-3 extra fuera de la rotacion de 3 statuses.
++    #   Solucion: fuente SOLO source_type='SEED_ORDER_BATCH' (montos = totals de
++    #   orders, todos distintos) + dedupe NOT EXISTS POR MONTO: la corrida 2 no
++    #   encuentra montos nuevos -> 0 nuevas -> conteo 100% honesto.
+     recon_created = 0
+     tx_rows = (await db.execute(text(
+-        "SELECT ft.id::text AS tid, ft.amount_cents, ft.created_at "
+-        "FROM financial_transactions ft "
+-        "WHERE ft.amount_cents > 0 "
++        "SELECT round(abs(f.amount)::numeric * 100)::bigint AS amount_cents, "
++        "       f.created_at "
++        "FROM financials f "
++        "WHERE f.source_type = 'SEED_ORDER_BATCH' "
++        "  AND f.status IN ('PROCESADO', 'PAGADO') "
+         "  AND NOT EXISTS (SELECT 1 FROM bank_reconciliation_records brr "
+-        "                  WHERE brr.internal_transaction_id = ft.id) "
+-        "ORDER BY ft.created_at DESC LIMIT 6"
++        "                  WHERE brr.statement_amount_cents = "
++        "                        round(abs(f.amount)::numeric * 100)::bigint) "
++        "ORDER BY f.created_at DESC LIMIT 6"
+     ))).mappings().all()
+     statuses = ["RELACIONADO", "SIN_RELACIONAR", "VARIANCIA"]
+     for i, tx in enumerate(tx_rows):
+@@ -2137,16 +2162,19 @@ async def seed_fase10_fiscal(db: AsyncSession):
+         matched = amount_cents if status == "RELACIONADO" else (
+             amount_cents - 500 if status == "VARIANCIA" else None)
+         variance = (amount_cents - matched) if matched is not None else amount_cents
++        ref = f"SEED-BANK-{i + 1:04d}"
+         r = await db.execute(text(
+             "INSERT INTO bank_reconciliation_records "
+             "(id, statement_date, bank_reference, internal_transaction_id, statement_amount_cents, "
+             " matched_amount_cents, variance_cents, match_confidence_score, status, resolved_manually, "
+             " notes, created_at) "
+-            "VALUES (gen_random_uuid(), CURRENT_DATE - INTERVAL '1 day', :ref, CAST(:tid AS uuid), "
+-            " :stmt, :matched, :var, :conf, CAST(:st AS reconciliationstatus), FALSE, "
+-            " 'Demo seed Fase 10', NOW() AT TIME ZONE 'UTC')"
++            "SELECT gen_random_uuid(), CURRENT_DATE - INTERVAL '1 day', CAST(:ref AS varchar), NULL, "
++            "       :stmt, :matched, :var, :conf, CAST(:st AS reconciliationstatus), FALSE, "
++            "       'Demo seed Fase 10', NOW() AT TIME ZONE 'UTC' "
++            "WHERE NOT EXISTS (SELECT 1 FROM bank_reconciliation_records brr "
++            "                  WHERE brr.bank_reference = CAST(:ref AS varchar))"
+         ), {
+-            "ref": f"SEED-BANK-{uuid.uuid4().hex[:10].upper()}", "tid": tx["tid"],
++            "ref": ref,
+             "stmt": amount_cents, "matched": matched, "var": variance,
+             "conf": 0.95 if status != "SIN_RELACIONAR" else None, "st": status,
+         })
