@@ -1,13 +1,5 @@
 __pycache__/
 *.pyc
+.env
 .venv/
 venv/
-.env
-.env.local
-.env.*
-.vscode/
-.idea/
-*.swp
-*.swo
-*.log
-*.tmp
