@@ -6,7 +6,8 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Dict, Optional, Union, List, TypedDict
 
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import and_, func, select, update, cast, String
+from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from app.core.exceptions import (
@@ -45,6 +46,14 @@ DEBIT_TYPES = {
     # Legacy
     TransactionType.DESCUENTO,
 }
+
+
+def processed_ledger_filter() -> ColumnElement[bool]:
+    # Compare text so reading older installations does not bind a value that
+    # their physical PostgreSQL enum has not acquired yet (e.g. PAGADO).
+    return cast(Financial.status, String).in_(
+        [state.value for state in BALANCE_IMPACT_STATUSES]
+    )
 
 
 def money(value: Union[Decimal, float, int, str, None]) -> Decimal:
@@ -97,7 +106,7 @@ class FinancialService:
             select(Financial.balance_after)
             .where(
                 Financial.rider_id == UUID(str(rider_id)),
-                Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
+                processed_ledger_filter(),
             )
             .order_by(Financial.created_at.desc(), Financial.id.desc())
             .limit(1)
@@ -111,21 +120,21 @@ class FinancialService:
             select(func.coalesce(func.sum(Financial.amount), 0)).where(
                 Financial.rider_id == UUID(str(rider_id)),
                 Financial.transaction_type.in_(list(CREDIT_TYPES)),
-                Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
+                processed_ledger_filter(),
             )
         )
         deductions_result = await self.db.execute(
             select(func.coalesce(func.sum(Financial.amount), 0)).where(
                 Financial.rider_id == UUID(str(rider_id)),
                 Financial.transaction_type.in_(list(DEBIT_TYPES)),
-                Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
+                processed_ledger_filter(),
             )
         )
         adjustments_result = await self.db.execute(
             select(func.coalesce(func.sum(Financial.amount), 0)).where(
                 Financial.rider_id == UUID(str(rider_id)),
                 Financial.transaction_type.in_([TransactionType.AJUSTE]),
-                Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
+                processed_ledger_filter(),
             )
         )
 
@@ -458,7 +467,7 @@ class FinancialService:
                     Financial.created_at >= start_dt,
                     Financial.created_at <= end_dt,
                     Financial.transaction_type.in_(list(CREDIT_TYPES)),
-                    Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
+                    processed_ledger_filter(),
                 )
             )
         )
@@ -490,7 +499,7 @@ class FinancialService:
                     Financial.created_at >= start_date,
                     Financial.created_at <= end_date,
                     Financial.transaction_type.in_(list(CREDIT_TYPES)),
-                    Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
+                    processed_ledger_filter(),
                 )
             )
         )
@@ -521,7 +530,7 @@ class FinancialService:
                 and_(
                     Financial.created_at >= start_dt,
                     Financial.created_at <= end_dt,
-                    Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
+                    processed_ledger_filter(),
                 )
             )
         )
@@ -535,7 +544,7 @@ class FinancialService:
                         Financial.transaction_type == t_type,
                         Financial.created_at >= start_dt,
                         Financial.created_at <= end_dt,
-                        Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
+                        processed_ledger_filter(),
                     )
                 )
             )

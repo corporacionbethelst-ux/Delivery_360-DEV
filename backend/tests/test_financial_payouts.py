@@ -9,34 +9,7 @@ import pytest
 from app.models.financial import PaymentStatus, TransactionType, PayoutStatus
 from app.services.financial_service import FinancialService, ledger_delta, money
 from app.api.v1 import payouts as payouts_api
-
-
-class _ScalarResult:
-    def __init__(self, value):
-        self._value = value
-
-    def scalar(self):
-        return self._value
-
-    def scalar_one_or_none(self):
-        return self._value
-
-
-class _FakeDb:
-    def __init__(self, scalar_values=None):
-        self.scalar_values = list(scalar_values or [])
-        self.added = []
-        self.execute = AsyncMock(side_effect=self._execute)
-        self.commit = AsyncMock()
-        self.refresh = AsyncMock()
-        self.flush = AsyncMock()
-
-    async def _execute(self, _stmt):
-        value = self.scalar_values.pop(0) if self.scalar_values else None
-        return _ScalarResult(value)
-
-    def add(self, obj):
-        self.added.append(obj)
+from tests.test_ledger_integrity import ledger_context, payout_context  # noqa: F401
 
 
 @pytest.mark.parametrize(
@@ -129,17 +102,29 @@ async def test_create_ledger_entry_does_not_move_balance_for_pending_status(
 
 
 @pytest.mark.asyncio
-async def test_calculate_available_balance_reserves_pending_and_processed_payouts():
-    db = _FakeDb([Decimal("100.00"), Decimal("25.00"), Decimal("40.00")])
+async def test_calculate_available_balance_reserves_pending_and_processed_payouts(
+    payout_context,
+):
+    from sqlalchemy import update
+    from app.models.payout import Payout
 
-    balance = await payouts_api._calculate_available_balance(db, rider_id="rider-1")
-
+    db, rider_id, _, payout_id = payout_context
+    await db.execute(update(Payout).where(Payout.id == payout_id).values(amount=25))
+    await db.execute(
+        update(Payout)
+        .where(Payout.id != payout_id)
+        .values(amount=40, status=PayoutStatus.EN_PROCESO)
+    )
+    await db.commit()
+    balance = await payouts_api._calculate_available_balance(db, rider_id=rider_id)
     assert balance == {
         "available": 35.0,
         "pending": 25.0,
         "processed": 40.0,
         "total_earned": 100.0,
         "currency": "COP",
+        "ledger_balance": 100.0,
+        "reserved": 65.0,
     }
 
 
@@ -185,14 +170,19 @@ def test_payout_status_complete_workflow():
 
 
 @pytest.mark.asyncio
-async def test_payout_rejection_restores_balance():
-    """Prueba que rechazar un payout restaura el saldo pendiente."""
-    # Simular DB con saldo total, payout pendiente y payout procesado
-    db = _FakeDb([Decimal("100.00"), Decimal("20.00"), Decimal("0.00")])
-
-    # El saldo disponible debería ser 100 - 20 (pendiente) - 0 (procesado) = 80
-    balance = await payouts_api._calculate_available_balance(db, rider_id="rider-1")
-
+async def test_payout_rejection_restores_balance(payout_context, monkeypatch):
+    db, rider_id, user, payout_id = payout_context
+    monkeypatch.setattr("app.services.notification_hooks.notify_event", AsyncMock())
+    monkeypatch.setattr(
+        payouts_api, "get_redis_audit_logger", lambda: SimpleNamespace(connected=False)
+    )
+    await payouts_api.reject_payout(
+        str(payout_id),
+        payouts_api.PayoutRejectBody(reason="Rejected"),
+        db=db,
+        current_user=user,
+    )
+    balance = await payouts_api._calculate_available_balance(db, rider_id=rider_id)
     assert balance["available"] == 80.0
     assert balance["pending"] == 20.0
 
