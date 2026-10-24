@@ -78,3 +78,16 @@ it('retrieves balances, detail and audit history', async () => {
   expect(await payoutService.getHistory(' payout-1 ')).toEqual([]);
   expect(get).toHaveBeenNthCalledWith(3, '/payouts/payout-1/history');
 });
+
+it('looks up only the submitted key and normalizes the server record', async () => {
+  get.mockResolvedValueOnce(row);
+  expect((await payoutService.findRequestByKey('key 1'))?.id).toBe('payout-1');
+  expect(get).toHaveBeenCalledWith('/payouts/request-status?idempotency_key=key%201');
+});
+it('treats 404 as not yet found and propagates other lookup failures', async () => {
+  get.mockRejectedValueOnce({ response: { status: 404 } });
+  expect(await payoutService.findRequestByKey('key')).toBeNull();
+  const failure = { response: { status: 500 } };
+  get.mockRejectedValueOnce(failure);
+  await expect(payoutService.findRequestByKey('key')).rejects.toBe(failure);
+});
