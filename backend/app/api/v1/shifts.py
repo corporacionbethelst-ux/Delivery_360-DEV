@@ -1,6 +1,6 @@
 """Delivery360 - API Endpoints para Turnos (operador)."""
 
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -8,12 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, load_only
 
 from app.core.database import get_db
+from app.core.shift_rules import schedule_columns, transition_shift
 from app.core.security import get_current_active_user
 from app.models.rider import Rider
-from app.models.shift import CheckInOut, Shift, ShiftStatus
+from app.models.shift import Shift, ShiftStatus
 from app.models.user import User, UserRole
 from app.models.zone import Zone
 
@@ -99,6 +100,9 @@ def _serialize_shift(
         else _combine_shift_datetime(shift.shift_date, shift.end_time)
     )
 
+    if not shift.check_out_at and start_at and end_at and end_at <= start_at:
+        end_at = (datetime.fromisoformat(end_at) + timedelta(days=1)).isoformat()
+
     return {
         "id": str(shift.id),
         "rider_id": str(shift.rider_id),
@@ -124,10 +128,12 @@ async def _get_shift_row(db: AsyncSession, shift_id: str):
     zone_alias = aliased(Zone)
     stmt = (
         select(Shift, rider_alias, user_alias, zone_alias)
+        .options(load_only(rider_alias.id, rider_alias.operating_zone))
         .outerjoin(rider_alias, Shift.rider_id == rider_alias.id)
         .outerjoin(user_alias, rider_alias.user_id == user_alias.id)
         .outerjoin(zone_alias, rider_alias.zone_id == zone_alias.id)
         .where(Shift.id == _parse_uuid(shift_id, "shift_id"))
+        .execution_options(populate_existing=True)
     )
     result = await db.execute(stmt)
     return result.first()
@@ -149,6 +155,7 @@ async def list_shifts(
     zone_alias = aliased(Zone)
     stmt = (
         select(Shift, rider_alias, user_alias, zone_alias)
+        .options(load_only(rider_alias.id, rider_alias.operating_zone))
         .outerjoin(rider_alias, Shift.rider_id == rider_alias.id)
         .outerjoin(user_alias, rider_alias.user_id == user_alias.id)
         .outerjoin(zone_alias, rider_alias.zone_id == zone_alias.id)
@@ -185,30 +192,31 @@ async def create_shift(
 ):
     _require_operator_user(current_user)
 
+    shift_date, start_time, end_time = schedule_columns(body.start_time, body.end_time)
     rider_uuid = _parse_uuid(body.rider_id, "rider_id")
-    rider_result = await db.execute(select(Rider).where(Rider.id == rider_uuid))
-    rider = rider_result.scalar_one_or_none()
-    if not rider:
+    rider_id = await db.scalar(select(Rider.id).where(Rider.id == rider_uuid))
+    if rider_id is None:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
 
-    end_time = body.end_time.time() if body.end_time else time(23, 59)
     shift = Shift(
-        rider_id=rider.id,
-        shift_date=body.start_time,
-        start_time=body.start_time.time(),
+        rider_id=rider_id,
+        shift_date=shift_date,
+        start_time=start_time,
         end_time=end_time,
         status=ShiftStatus.PROGRAMADO,
         notes=body.notes,
     )
     db.add(shift)
-    await db.commit()
+    await db.flush()
 
     row = await _get_shift_row(db, str(shift.id))
     if not row:
         raise HTTPException(
             status_code=500, detail="No se pudo serializar el turno creado"
         )
-    return _serialize_shift(*row)
+    response = _serialize_shift(*row)
+    await db.commit()
+    return response
 
 
 @router.get("/{shift_id}")
@@ -224,6 +232,16 @@ async def get_shift(
     return _serialize_shift(*row)
 
 
+async def _transition_response(db: AsyncSession, shift_id: str, target: ShiftStatus):
+    await transition_shift(db, _parse_uuid(shift_id, "shift_id"), target)
+    row = await _get_shift_row(db, shift_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Turno no encontrado")
+    response = _serialize_shift(*row)
+    await db.commit()
+    return response
+
+
 @router.patch("/{shift_id}/start")
 async def start_shift(
     shift_id: str,
@@ -231,26 +249,7 @@ async def start_shift(
     current_user: User = Depends(get_current_active_user),
 ):
     _require_operator_user(current_user)
-    row = await _get_shift_row(db, shift_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Turno no encontrado")
-    shift, rider, user, zone = row
-    if shift.status not in [ShiftStatus.PROGRAMADO, ShiftStatus.INCOMPLETO]:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No se puede iniciar un turno en estado {_status_to_ui(shift.status)}",
-        )
-
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    shift.status = ShiftStatus.EN_CURSO
-    shift.check_in_at = now
-    db.add(
-        CheckInOut(
-            rider_id=shift.rider_id, shift_id=shift.id, check_type="IN", timestamp=now
-        )
-    )
-    await db.commit()
-    return _serialize_shift(shift, rider, user, zone)
+    return await _transition_response(db, shift_id, ShiftStatus.EN_CURSO)
 
 
 @router.patch("/{shift_id}/end")
@@ -260,27 +259,7 @@ async def end_shift(
     current_user: User = Depends(get_current_active_user),
 ):
     _require_operator_user(current_user)
-    row = await _get_shift_row(db, shift_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Turno no encontrado")
-    shift, rider, user, zone = row
-    if shift.status != ShiftStatus.EN_CURSO:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No se puede finalizar un turno en estado {_status_to_ui(shift.status)}",
-        )
-
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    shift.status = ShiftStatus.COMPLETADO
-    shift.check_out_at = now
-    shift.end_time = now.time()
-    db.add(
-        CheckInOut(
-            rider_id=shift.rider_id, shift_id=shift.id, check_type="OUT", timestamp=now
-        )
-    )
-    await db.commit()
-    return _serialize_shift(shift, rider, user, zone)
+    return await _transition_response(db, shift_id, ShiftStatus.COMPLETADO)
 
 
 @router.patch("/{shift_id}/cancel")
@@ -290,17 +269,4 @@ async def cancel_shift(
     current_user: User = Depends(get_current_active_user),
 ):
     _require_operator_user(current_user)
-    row = await _get_shift_row(db, shift_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Turno no encontrado")
-    shift, rider, user, zone = row
-    if shift.status in [ShiftStatus.COMPLETADO, ShiftStatus.CANCELADO]:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No se puede cancelar un turno en estado {_status_to_ui(shift.status)}",
-        )
-
-    shift.status = ShiftStatus.CANCELADO
-    shift.cancellation_reason = "Cancelado desde panel operador"
-    await db.commit()
-    return _serialize_shift(shift, rider, user, zone)
+    return await _transition_response(db, shift_id, ShiftStatus.CANCELADO)
