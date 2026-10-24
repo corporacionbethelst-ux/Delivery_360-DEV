@@ -2,7 +2,8 @@
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional, List
+from typing import Union, TypeAlias
+from decimal import Decimal
 from sqlalchemy import (
     Column,
     String,
@@ -17,7 +18,7 @@ from sqlalchemy import (
     text,
     Numeric,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from geoalchemy2 import Geometry
 import enum
@@ -60,12 +61,23 @@ class VehicleType(str, enum.Enum):
     FURGONETA = "FURGONETA"
 
 
+JsonValue: TypeAlias = Union[
+    None, bool, int, float, str, list["JsonValue"], dict[str, "JsonValue"]
+]
+
+
 class Rider(Base):
     __tablename__ = "riders"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True,
+        nullable=False,
+    )
 
-    user_id = Column(
+    user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         unique=True,
@@ -73,74 +85,89 @@ class Rider(Base):
         nullable=False,
     )
 
-    vehicle_type: Any = Column(SQLEnum(VehicleType), default=VehicleType.MOTO)
-    vehicle_plate = Column(String(20))
-    vehicle_model = Column(String(100))
-    operating_zone = Column(String(100))
-    zone_id = Column(
+    vehicle_type: Mapped[VehicleType | None] = mapped_column(
+        SQLEnum(VehicleType), default=VehicleType.MOTO, nullable=True
+    )
+    vehicle_plate: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    vehicle_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    operating_zone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    zone_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("zones.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
-    cpf = Column(String(14))
-    cnh = Column(String(20))
+    cpf: Mapped[str | None] = mapped_column(String(14), nullable=True)
+    cnh: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Tipo de propiedad del vehículo (PROPIO o EMPRESA)
-    vehicle_ownership_type: Any = Column(
+    vehicle_ownership_type: Mapped[str | None] = mapped_column(
         SQLEnum(
             *[e.value for e in VehicleOwnershipType],
             name="vehicleownershiptype",
             create_type=True,
         ),
         default=VehicleOwnershipType.PROPIO.value,
+        nullable=True,
     )
 
     # ID del vehículo de empresa asignado (solo si vehicle_ownership_type es EMPRESA)
-    assigned_vehicle_id = Column(
+    assigned_vehicle_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("vehicles.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
 
-    status: Any = Column(SQLEnum(RiderStatus), default=RiderStatus.PENDIENTE)
-    tier: Any = Column(
+    status: Mapped[RiderStatus | None] = mapped_column(
+        SQLEnum(RiderStatus), default=RiderStatus.PENDIENTE, nullable=True
+    )
+    tier: Mapped[RiderTier] = mapped_column(
         SQLEnum(RiderTier, name="rider_tier", create_type=False),
         default=RiderTier.BRONCE,
         nullable=False,
     )
-    is_online = Column(Boolean, default=False)
+    is_online: Mapped[bool | None] = mapped_column(
+        Boolean, default=False, nullable=True
+    )
     last_location = Column(
         Geometry(geometry_type="POINT", srid=4326, spatial_index=True), nullable=True
     )
 
-    current_order_id = Column(
+    current_order_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("orders.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
 
-    last_lat = Column(Float, nullable=True)
-    last_lng = Column(Float, nullable=True)
-    last_location_at = Column(DateTime)
+    last_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_lng: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_location_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    level = Column(Integer, default=1)
-    total_points = Column(Integer, default=0)
-    badges = Column(JSON, default=list)
-    notes = Column(Text)
-    documents_metadata = Column(JSON)
+    level: Mapped[int | None] = mapped_column(Integer, default=1, nullable=True)
+    total_points: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
+    badges: Mapped[JsonValue] = mapped_column(JSON, default=list, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    documents_metadata: Mapped[JsonValue] = mapped_column(JSON, nullable=True)
 
-    approved_at = Column(DateTime)
-    created_at = Column(DateTime, default=utc_now_naive)
-    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=True
+    )
 
-    wallet_balance = Column(Numeric(10, 2), default=0.00)
-    pending_balance = Column(Numeric(10, 2), default=0.00)
+    wallet_balance: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), default=0.0, nullable=True
+    )
+    pending_balance: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), default=0.0, nullable=True
+    )
 
     # Campo de versión para bloqueo optimista (concurrencia financiera)
-    version = Column(Integer, default=0, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # RELACIONES
     user = relationship("User", back_populates="rider_profile")

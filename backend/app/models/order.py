@@ -16,7 +16,7 @@ from sqlalchemy import (
     JSON,
     Integer,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
 from app.core.database import Base
@@ -75,8 +75,11 @@ class Order(Base):
     status: Any = Column(SQLEnum(OrderStatus), default=OrderStatus.PENDIENTE)
     priority: Any = Column(SQLEnum(OrderPriority), default=OrderPriority.NORMAL)
 
-    assigned_rider_id = Column(
-        UUID(as_uuid=True), ForeignKey("riders.id", ondelete="SET NULL"), index=True
+    assigned_rider_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("riders.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
     )
 
     # CORREGIDO: Fechas con timezone

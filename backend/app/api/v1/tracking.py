@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
+from app.core.serialization import optional_enum_value
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.core.websocket import manager
@@ -314,9 +315,7 @@ async def get_dashboard_data(
                     f"{r.user.first_name} {r.user.last_name}".strip() if r.user else ""
                 )
                 or "Repartidor",
-                "status": (
-                    r.status.value if hasattr(r.status, "value") else str(r.status)
-                ),
+                "status": optional_enum_value(r.status),
                 "lat": r.last_lat,
                 "lng": r.last_lng,
                 "lastSeenMinutesAgo": last_seen_min,

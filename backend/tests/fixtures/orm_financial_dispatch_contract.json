@@ -1,0 +1,1036 @@
+{
+  "payouts": {
+    "ddl": "\nCREATE TABLE payouts (\n\tid UUID NOT NULL, \n\trider_id UUID NOT NULL, \n\tamount NUMERIC(10, 2) NOT NULL, \n\tstatus payoutstatus, \n\tmethod payoutmethod, \n\tbank_account_last4 VARCHAR(10), \n\treference_code VARCHAR(50), \n\trejection_reason TEXT, \n\tidempotency_key VARCHAR(100), \n\tbalance_before NUMERIC(10, 2), \n\tbalance_after NUMERIC(10, 2), \n\trequested_by_user_id UUID, \n\tprocessed_by_user_id UUID, \n\trequested_at TIMESTAMP WITHOUT TIME ZONE, \n\tprocessed_at TIMESTAMP WITHOUT TIME ZONE, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(rider_id) REFERENCES riders (id) ON DELETE CASCADE, \n\tFOREIGN KEY(requested_by_user_id) REFERENCES users (id), \n\tFOREIGN KEY(processed_by_user_id) REFERENCES users (id)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_payouts_id ON payouts (id)",
+      "CREATE INDEX ix_payouts_processed_by_user_id ON payouts (processed_by_user_id)",
+      "CREATE INDEX ix_payouts_requested_by_user_id ON payouts (requested_by_user_id)",
+      "CREATE INDEX ix_payouts_rider_id ON payouts (rider_id)",
+      "CREATE UNIQUE INDEX ix_payouts_idempotency_key ON payouts (idempotency_key)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "rider_id": [
+        null,
+        null
+      ],
+      "amount": [
+        null,
+        null
+      ],
+      "status": [
+        null,
+        null
+      ],
+      "method": [
+        "PayoutMethod.TRANSFERENCIA",
+        null
+      ],
+      "bank_account_last4": [
+        null,
+        null
+      ],
+      "reference_code": [
+        null,
+        null
+      ],
+      "rejection_reason": [
+        null,
+        null
+      ],
+      "idempotency_key": [
+        null,
+        null
+      ],
+      "balance_before": [
+        null,
+        null
+      ],
+      "balance_after": [
+        null,
+        null
+      ],
+      "requested_by_user_id": [
+        null,
+        null
+      ],
+      "processed_by_user_id": [
+        null,
+        null
+      ],
+      "requested_at": [
+        "utc_now_naive",
+        null
+      ],
+      "processed_at": [
+        null,
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {
+      "status": [
+        "PENDIENTE",
+        "APROBADO",
+        "EN_PROCESO",
+        "COMPLETADO",
+        "RECHAZADO",
+        "FALLIDO"
+      ],
+      "method": [
+        "TRANSFERENCIA",
+        "EFECTIVO",
+        "BILLETERA_DIGITAL"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "processed_by_user_id",
+        "target": "users.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "requested_by_user_id",
+        "target": "users.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "rider_id",
+        "target": "riders.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "status": {
+        "name": "payoutstatus",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "method": {
+        "name": "payoutmethod",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    }
+  },
+  "payout_status_history": {
+    "ddl": "\nCREATE TABLE payout_status_history (\n\tid UUID NOT NULL, \n\tpayout_id UUID NOT NULL, \n\told_status VARCHAR(30), \n\tnew_status VARCHAR(30) NOT NULL, \n\treason TEXT, \n\tchanged_by_user_id UUID, \n\tbalance_before NUMERIC(10, 2), \n\tbalance_after NUMERIC(10, 2), \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(payout_id) REFERENCES payouts (id) ON DELETE CASCADE, \n\tFOREIGN KEY(changed_by_user_id) REFERENCES users (id)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX idx_payout_status_history_payout_date ON payout_status_history (payout_id, created_at)",
+      "CREATE INDEX ix_payout_status_history_changed_by_user_id ON payout_status_history (changed_by_user_id)",
+      "CREATE INDEX ix_payout_status_history_created_at ON payout_status_history (created_at)",
+      "CREATE INDEX ix_payout_status_history_payout_id ON payout_status_history (payout_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "payout_id": [
+        null,
+        null
+      ],
+      "old_status": [
+        null,
+        null
+      ],
+      "new_status": [
+        null,
+        null
+      ],
+      "reason": [
+        null,
+        null
+      ],
+      "changed_by_user_id": [
+        null,
+        null
+      ],
+      "balance_before": [
+        null,
+        null
+      ],
+      "balance_after": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ]
+    },
+    "enums": {},
+    "foreign_keys": [
+      {
+        "column": "changed_by_user_id",
+        "target": "users.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "payout_id",
+        "target": "payouts.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {}
+  },
+  "riders": {
+    "ddl": "\nCREATE TABLE riders (\n\tid UUID NOT NULL, \n\tuser_id UUID NOT NULL, \n\tvehicle_type vehicletype, \n\tvehicle_plate VARCHAR(20), \n\tvehicle_model VARCHAR(100), \n\toperating_zone VARCHAR(100), \n\tzone_id UUID, \n\tcpf VARCHAR(14), \n\tcnh VARCHAR(20), \n\tvehicle_ownership_type vehicleownershiptype, \n\tassigned_vehicle_id UUID, \n\tstatus riderstatus, \n\ttier rider_tier NOT NULL, \n\tis_online BOOLEAN, \n\tlast_location geometry(POINT,4326), \n\tcurrent_order_id UUID, \n\tlast_lat FLOAT, \n\tlast_lng FLOAT, \n\tlast_location_at TIMESTAMP WITHOUT TIME ZONE, \n\tlevel INTEGER, \n\ttotal_points INTEGER, \n\tbadges JSON, \n\tnotes TEXT, \n\tdocuments_metadata JSON, \n\tapproved_at TIMESTAMP WITHOUT TIME ZONE, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\twallet_balance NUMERIC(10, 2), \n\tpending_balance NUMERIC(10, 2), \n\tversion INTEGER NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE, \n\tFOREIGN KEY(zone_id) REFERENCES zones (id) ON DELETE SET NULL, \n\tFOREIGN KEY(assigned_vehicle_id) REFERENCES vehicles (id) ON DELETE SET NULL, \n\tFOREIGN KEY(current_order_id) REFERENCES orders (id) ON DELETE SET NULL\n)\n\n",
+    "indexes": [
+      "CREATE INDEX idx_riders_last_location ON riders USING gist (last_location)",
+      "CREATE INDEX ix_riders_assigned_vehicle_id ON riders (assigned_vehicle_id)",
+      "CREATE INDEX ix_riders_current_order_id ON riders (current_order_id)",
+      "CREATE INDEX ix_riders_id ON riders (id)",
+      "CREATE INDEX ix_riders_zone_id ON riders (zone_id)",
+      "CREATE UNIQUE INDEX ix_riders_user_id ON riders (user_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "user_id": [
+        null,
+        null
+      ],
+      "vehicle_type": [
+        "VehicleType.MOTO",
+        null
+      ],
+      "vehicle_plate": [
+        null,
+        null
+      ],
+      "vehicle_model": [
+        null,
+        null
+      ],
+      "operating_zone": [
+        null,
+        null
+      ],
+      "zone_id": [
+        null,
+        null
+      ],
+      "cpf": [
+        null,
+        null
+      ],
+      "cnh": [
+        null,
+        null
+      ],
+      "vehicle_ownership_type": [
+        "PROPIO",
+        null
+      ],
+      "assigned_vehicle_id": [
+        null,
+        null
+      ],
+      "status": [
+        "RiderStatus.PENDIENTE",
+        null
+      ],
+      "tier": [
+        "RiderTier.BRONCE",
+        null
+      ],
+      "is_online": [
+        "False",
+        null
+      ],
+      "last_location": [
+        null,
+        null
+      ],
+      "current_order_id": [
+        null,
+        null
+      ],
+      "last_lat": [
+        null,
+        null
+      ],
+      "last_lng": [
+        null,
+        null
+      ],
+      "last_location_at": [
+        null,
+        null
+      ],
+      "level": [
+        "1",
+        null
+      ],
+      "total_points": [
+        "0",
+        null
+      ],
+      "badges": [
+        "list",
+        null
+      ],
+      "notes": [
+        null,
+        null
+      ],
+      "documents_metadata": [
+        null,
+        null
+      ],
+      "approved_at": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ],
+      "wallet_balance": [
+        "0.0",
+        null
+      ],
+      "pending_balance": [
+        "0.0",
+        null
+      ],
+      "version": [
+        "0",
+        null
+      ]
+    },
+    "enums": {
+      "vehicle_type": [
+        "MOTO",
+        "BICICLETA",
+        "PATINETA",
+        "AUTO",
+        "FURGONETA"
+      ],
+      "vehicle_ownership_type": [
+        "PROPIO",
+        "EMPRESA"
+      ],
+      "status": [
+        "PENDIENTE",
+        "ACTIVO",
+        "INACTIVO",
+        "OCUPADO",
+        "SUSPENDIDO"
+      ],
+      "tier": [
+        "BRONCE",
+        "PLATA",
+        "ORO",
+        "PLATINO"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "assigned_vehicle_id",
+        "target": "vehicles.id",
+        "ondelete": "SET NULL",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "current_order_id",
+        "target": "orders.id",
+        "ondelete": "SET NULL",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "user_id",
+        "target": "users.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "zone_id",
+        "target": "zones.id",
+        "ondelete": "SET NULL",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "vehicle_type": {
+        "name": "vehicletype",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "vehicle_ownership_type": {
+        "name": "vehicleownershiptype",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "status": {
+        "name": "riderstatus",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "tier": {
+        "name": "rider_tier",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    }
+  },
+  "vehicles": {
+    "ddl": "\nCREATE TABLE vehicles (\n\tid UUID NOT NULL, \n\ttype vehicletype NOT NULL, \n\tstatus vehiclestatus NOT NULL, \n\tplate VARCHAR(20) NOT NULL, \n\tmodel VARCHAR(100) NOT NULL, \n\tcolor VARCHAR(50) NOT NULL, \n\tyear INTEGER NOT NULL, \n\tinsurance_expiry DATE, \n\tnotes TEXT, \n\trider_id UUID, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_vehicles_status_plate ON vehicles (status, plate)",
+      "CREATE UNIQUE INDEX ix_vehicles_plate ON vehicles (plate)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "type": [
+        null,
+        null
+      ],
+      "status": [
+        "ACTIVO",
+        null
+      ],
+      "plate": [
+        null,
+        null
+      ],
+      "model": [
+        null,
+        null
+      ],
+      "color": [
+        null,
+        null
+      ],
+      "year": [
+        null,
+        null
+      ],
+      "insurance_expiry": [
+        null,
+        null
+      ],
+      "notes": [
+        null,
+        null
+      ],
+      "rider_id": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {
+      "type": [
+        "MOTO",
+        "AUTO",
+        "FURGONETA",
+        "BICICLETA"
+      ],
+      "status": [
+        "ACTIVO",
+        "MANTENIMIENTO",
+        "BAJA"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "rider_id",
+        "target": "users.id",
+        "ondelete": "SET NULL",
+        "onupdate": null,
+        "use_alter": true,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "type": {
+        "name": "vehicletype",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "status": {
+        "name": "vehiclestatus",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    }
+  },
+  "orders": {
+    "ddl": "\nCREATE TABLE orders (\n\tid UUID NOT NULL, \n\texternal_id VARCHAR(100), \n\tcustomer_name VARCHAR(255) NOT NULL, \n\tcustomer_phone VARCHAR(20) NOT NULL, \n\tcustomer_email VARCHAR(255), \n\tpickup_address TEXT NOT NULL, \n\tpickup_name VARCHAR(255), \n\tpickup_phone VARCHAR(20), \n\tdelivery_address TEXT NOT NULL, \n\tdelivery_reference VARCHAR(255), \n\tdelivery_instructions TEXT, \n\tpickup_latitude FLOAT, \n\tpickup_longitude FLOAT, \n\tdelivery_latitude FLOAT, \n\tdelivery_longitude FLOAT, \n\titems JSON, \n\tsubtotal FLOAT, \n\tdelivery_fee FLOAT, \n\ttotal FLOAT, \n\tpayment_method VARCHAR(50), \n\tpayment_status VARCHAR(20), \n\tstatus orderstatus, \n\tpriority orderpriority, \n\tassigned_rider_id UUID, \n\tordered_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\taccepted_at TIMESTAMP WITHOUT TIME ZONE, \n\tpicked_up_at TIMESTAMP WITHOUT TIME ZONE, \n\tdelivered_at TIMESTAMP WITHOUT TIME ZONE, \n\testimated_delivery_time TIMESTAMP WITHOUT TIME ZONE, \n\tsla_deadline TIMESTAMP WITHOUT TIME ZONE, \n\tfailure_reason VARCHAR(255), \n\tfailure_notes TEXT, \n\tfailure_cause_external BOOLEAN, \n\tcancelled_by VARCHAR(50), \n\tcancellation_reason TEXT, \n\tsource VARCHAR(50), \n\tintegration_id VARCHAR(100), \n\twebhook_sent BOOLEAN, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(assigned_rider_id) REFERENCES riders (id) ON DELETE SET NULL\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_orders_assigned_rider_id ON orders (assigned_rider_id)",
+      "CREATE INDEX ix_orders_id ON orders (id)",
+      "CREATE UNIQUE INDEX ix_orders_external_id ON orders (external_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "external_id": [
+        null,
+        null
+      ],
+      "customer_name": [
+        null,
+        null
+      ],
+      "customer_phone": [
+        null,
+        null
+      ],
+      "customer_email": [
+        null,
+        null
+      ],
+      "pickup_address": [
+        null,
+        null
+      ],
+      "pickup_name": [
+        null,
+        null
+      ],
+      "pickup_phone": [
+        null,
+        null
+      ],
+      "delivery_address": [
+        null,
+        null
+      ],
+      "delivery_reference": [
+        null,
+        null
+      ],
+      "delivery_instructions": [
+        null,
+        null
+      ],
+      "pickup_latitude": [
+        null,
+        null
+      ],
+      "pickup_longitude": [
+        null,
+        null
+      ],
+      "delivery_latitude": [
+        null,
+        null
+      ],
+      "delivery_longitude": [
+        null,
+        null
+      ],
+      "items": [
+        null,
+        null
+      ],
+      "subtotal": [
+        "0.0",
+        null
+      ],
+      "delivery_fee": [
+        "0.0",
+        null
+      ],
+      "total": [
+        "0.0",
+        null
+      ],
+      "payment_method": [
+        null,
+        null
+      ],
+      "payment_status": [
+        "pendiente",
+        null
+      ],
+      "status": [
+        "OrderStatus.PENDIENTE",
+        null
+      ],
+      "priority": [
+        "OrderPriority.NORMAL",
+        null
+      ],
+      "assigned_rider_id": [
+        null,
+        null
+      ],
+      "ordered_at": [
+        "utc_now_naive",
+        null
+      ],
+      "accepted_at": [
+        null,
+        null
+      ],
+      "picked_up_at": [
+        null,
+        null
+      ],
+      "delivered_at": [
+        null,
+        null
+      ],
+      "estimated_delivery_time": [
+        null,
+        null
+      ],
+      "sla_deadline": [
+        null,
+        null
+      ],
+      "failure_reason": [
+        null,
+        null
+      ],
+      "failure_notes": [
+        null,
+        null
+      ],
+      "failure_cause_external": [
+        null,
+        null
+      ],
+      "cancelled_by": [
+        null,
+        null
+      ],
+      "cancellation_reason": [
+        null,
+        null
+      ],
+      "source": [
+        "app",
+        null
+      ],
+      "integration_id": [
+        null,
+        null
+      ],
+      "webhook_sent": [
+        "False",
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {
+      "status": [
+        "PENDIENTE",
+        "ASIGNADO",
+        "EN_RECOLECCION",
+        "RECOLECTADO",
+        "EN_RUTA",
+        "ENTREGADO",
+        "FALLIDO",
+        "CANCELADO"
+      ],
+      "priority": [
+        "NORMAL",
+        "ALTA",
+        "URGENTE"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "assigned_rider_id",
+        "target": "riders.id",
+        "ondelete": "SET NULL",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "status": {
+        "name": "orderstatus",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "priority": {
+        "name": "orderpriority",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    }
+  },
+  "deliveries": {
+    "ddl": "\nCREATE TABLE deliveries (\n\tid UUID NOT NULL, \n\torder_id UUID NOT NULL, \n\trider_id UUID NOT NULL, \n\tstatus deliverystatus, \n\tstarted_at TIMESTAMP WITHOUT TIME ZONE, \n\tarrived_pickup_at TIMESTAMP WITHOUT TIME ZONE, \n\tleft_pickup_at TIMESTAMP WITHOUT TIME ZONE, \n\tarrived_delivery_at TIMESTAMP WITHOUT TIME ZONE, \n\tcompleted_at TIMESTAMP WITHOUT TIME ZONE, \n\tcurrent_latitude FLOAT, \n\tcurrent_longitude FLOAT, \n\tlast_location_update TIMESTAMP WITHOUT TIME ZONE, \n\troute_data JSON, \n\tdistance_total FLOAT, \n\tdistance_pickup FLOAT, \n\tdistance_delivery FLOAT, \n\tproof_type prooftype, \n\tproof_photo_url VARCHAR(500), \n\tproof_signature TEXT, \n\tproof_otp VARCHAR(10), \n\tproof_notes TEXT, \n\tcustomer_name_received VARCHAR(255), \n\thas_issues BOOLEAN, \n\tfailure_cause deliveryfailurecause, \n\tissue_type VARCHAR(50), \n\tissue_description TEXT, \n\tissue_resolved BOOLEAN, \n\tissue_analysis_result TEXT, \n\ttime_to_pickup INTEGER, \n\ttime_at_pickup INTEGER, \n\ttime_to_delivery INTEGER, \n\ttotal_time INTEGER, \n\tsla_expected_minutes INTEGER, \n\tsla_actual_minutes INTEGER, \n\tsla_compliant BOOLEAN, \n\tlocked_bonus_amount NUMERIC(10, 2), \n\tlocked_bonus_type lockedbonustype, \n\tbonus_snapshot_date TIMESTAMP WITHOUT TIME ZONE, \n\tbonus_config_warning_snapshot TEXT, \n\tlocked_bonus_base NUMERIC(10, 2), \n\tlocked_bonus_zone_multiplier NUMERIC(4, 2), \n\tlocked_bonus_tier_multiplier NUMERIC(4, 2), \n\tlocked_bonus_tier_level VARCHAR(20), \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(order_id) REFERENCES orders (id) ON DELETE CASCADE, \n\tFOREIGN KEY(rider_id) REFERENCES riders (id) ON DELETE SET NULL\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_deliveries_id ON deliveries (id)",
+      "CREATE INDEX ix_deliveries_rider_id ON deliveries (rider_id)",
+      "CREATE UNIQUE INDEX ix_deliveries_order_id ON deliveries (order_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "order_id": [
+        null,
+        null
+      ],
+      "rider_id": [
+        null,
+        null
+      ],
+      "status": [
+        "DeliveryStatus.PENDIENTE",
+        null
+      ],
+      "started_at": [
+        null,
+        null
+      ],
+      "arrived_pickup_at": [
+        null,
+        null
+      ],
+      "left_pickup_at": [
+        null,
+        null
+      ],
+      "arrived_delivery_at": [
+        null,
+        null
+      ],
+      "completed_at": [
+        null,
+        null
+      ],
+      "current_latitude": [
+        null,
+        null
+      ],
+      "current_longitude": [
+        null,
+        null
+      ],
+      "last_location_update": [
+        null,
+        null
+      ],
+      "route_data": [
+        null,
+        null
+      ],
+      "distance_total": [
+        null,
+        null
+      ],
+      "distance_pickup": [
+        null,
+        null
+      ],
+      "distance_delivery": [
+        null,
+        null
+      ],
+      "proof_type": [
+        null,
+        null
+      ],
+      "proof_photo_url": [
+        null,
+        null
+      ],
+      "proof_signature": [
+        null,
+        null
+      ],
+      "proof_otp": [
+        null,
+        null
+      ],
+      "proof_notes": [
+        null,
+        null
+      ],
+      "customer_name_received": [
+        null,
+        null
+      ],
+      "has_issues": [
+        "False",
+        null
+      ],
+      "failure_cause": [
+        null,
+        null
+      ],
+      "issue_type": [
+        null,
+        null
+      ],
+      "issue_description": [
+        null,
+        null
+      ],
+      "issue_resolved": [
+        "False",
+        null
+      ],
+      "issue_analysis_result": [
+        null,
+        null
+      ],
+      "time_to_pickup": [
+        null,
+        null
+      ],
+      "time_at_pickup": [
+        null,
+        null
+      ],
+      "time_to_delivery": [
+        null,
+        null
+      ],
+      "total_time": [
+        null,
+        null
+      ],
+      "sla_expected_minutes": [
+        null,
+        null
+      ],
+      "sla_actual_minutes": [
+        null,
+        null
+      ],
+      "sla_compliant": [
+        null,
+        null
+      ],
+      "locked_bonus_amount": [
+        null,
+        null
+      ],
+      "locked_bonus_type": [
+        null,
+        null
+      ],
+      "bonus_snapshot_date": [
+        null,
+        null
+      ],
+      "bonus_config_warning_snapshot": [
+        null,
+        null
+      ],
+      "locked_bonus_base": [
+        null,
+        null
+      ],
+      "locked_bonus_zone_multiplier": [
+        null,
+        null
+      ],
+      "locked_bonus_tier_multiplier": [
+        null,
+        null
+      ],
+      "locked_bonus_tier_level": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {
+      "status": [
+        "PENDIENTE",
+        "INICIADA",
+        "EN_PICKUP",
+        "EN_ROUTE",
+        "EN_DESTINO",
+        "COMPLETADA",
+        "FALLIDA"
+      ],
+      "proof_type": [
+        "FOTO",
+        "FIRMA",
+        "OTP",
+        "NINGUNO"
+      ],
+      "failure_cause": [
+        "CLIENTE_NO_ESTA",
+        "CLIENTE_NO_CONTESTA",
+        "DIRECCION_INCORRECTA",
+        "DIRECCION_NO_EXISTE",
+        "COMERCIO_CERRADO",
+        "CLIENTE_RECHAZA",
+        "ZONA_INSEGURA",
+        "FUERZA_MAYOR",
+        "EDIFICIO_RESTRINGIDO",
+        "REPARTIDOR_NO_QUIERE_ENTREGAR",
+        "REPARTIDOR_LLEGO_TARDE",
+        "REPARTIDOR_ERROR_PROPIO",
+        "REPARTIDOR_VEHICULO_FALLA",
+        "REPARTIDOR_SIN_BATERIA",
+        "OTRO_REPARTIDOR"
+      ],
+      "locked_bonus_type": [
+        "SUCCESS",
+        "FAILED_ATTEMPT"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "order_id",
+        "target": "orders.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "rider_id",
+        "target": "riders.id",
+        "ondelete": "SET NULL",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "status": {
+        "name": "deliverystatus",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "proof_type": {
+        "name": "prooftype",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "failure_cause": {
+        "name": "deliveryfailurecause",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "locked_bonus_type": {
+        "name": "lockedbonustype",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    }
+  }
+}

@@ -2,9 +2,8 @@
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from decimal import Decimal
 from sqlalchemy import (
-    Column,
     String,
     DateTime,
     ForeignKey,
@@ -14,7 +13,7 @@ from sqlalchemy import (
     text,
     Index,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
 
@@ -42,9 +41,15 @@ class PayoutMethod(str, enum.Enum):
 class Payout(Base):
     __tablename__ = "payouts"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True,
+        nullable=False,
+    )
 
-    rider_id = Column(
+    rider_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("riders.id", ondelete="CASCADE"),
         nullable=False,
@@ -52,7 +57,7 @@ class Payout(Base):
     )
 
     # Datos del retiro
-    amount = Column(Numeric(10, 2), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     # FIX FASE 7 (column "payouts.status" does not exist):
     # La tabla legacy 'payouts' se creó en la migración inicial a617d286d3d0 con una
     # columna llamada 'requested_at', NO 'status'. El modelo declaraba 'status', por lo
@@ -60,36 +65,45 @@ class Payout(Base):
     # Se mapea el atributo 'status' a la columna física existente y se usa
     # create_type=False para reutilizar el tipo PG 'payoutstatus' estándar (6 valores
     # en español) ya normalizado por la migración 20260818.
-    status: Any = Column(
+    status: Mapped[PayoutStatus | None] = mapped_column(
         "status",
         SQLEnum(PayoutStatus, name="payoutstatus", create_type=False),
         nullable=True,
     )
-    method: Any = Column(
+    method: Mapped[PayoutMethod | None] = mapped_column(
         SQLEnum(PayoutMethod, name="payoutmethod", create_type=False),
         default=PayoutMethod.TRANSFERENCIA,
+        nullable=True,
     )
 
     # Información bancaria (opcional, podría venir de una tabla separada)
-    bank_account_last4 = Column(String(10), nullable=True)
-    reference_code = Column(String(50), nullable=True)
-    rejection_reason = Column(Text, nullable=True)
-    idempotency_key = Column(String(100), unique=True, nullable=True, index=True)
+    bank_account_last4: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    reference_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(100), unique=True, nullable=True, index=True
+    )
 
     # Trazabilidad contable y de auditoría
-    balance_before = Column(Numeric(10, 2), nullable=True)
-    balance_after = Column(Numeric(10, 2), nullable=True)
-    requested_by_user_id = Column(
+    balance_before: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    balance_after: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    requested_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
     )
-    processed_by_user_id = Column(
+    processed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
     )
 
     # Fechas
-    requested_at = Column(DateTime, default=utc_now_naive)
-    processed_at = Column(DateTime, nullable=True)
-    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+    requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=True
+    )
 
     # Relación
     rider = relationship("Rider", back_populates="payouts")
@@ -109,22 +123,28 @@ class PayoutStatusHistory(Base):
 
     __tablename__ = "payout_status_history"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    payout_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False
+    )
+    payout_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("payouts.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    old_status = Column(String(30), nullable=True)
-    new_status = Column(String(30), nullable=False)
-    reason = Column(Text, nullable=True)
-    changed_by_user_id = Column(
+    old_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    new_status: Mapped[str] = mapped_column(String(30), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    changed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
     )
-    balance_before = Column(Numeric(10, 2), nullable=True)
-    balance_after = Column(Numeric(10, 2), nullable=True)
-    created_at = Column(DateTime, default=utc_now_naive, index=True)
+    balance_before: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    balance_after: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, index=True, nullable=True
+    )
 
     payout = relationship("Payout", back_populates="status_history")
 
