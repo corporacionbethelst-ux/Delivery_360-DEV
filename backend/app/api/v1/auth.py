@@ -83,54 +83,25 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    # 1. Debug del Token recibido
-    print(f"🔍 [AUTH] Token recibido (primeros 50 chars): {token[:50]}...")
-
     try:
         payload = decode_token(token)
-    except Exception as e:
-        print(f"❌ [AUTH] Error al decodificar el token: {str(e)}")
+    except Exception:
         raise credentials_exception
 
     if not payload or payload.get("type") != "access":
-        print(f"❌ [AUTH] Token inválido o no es de acceso. Payload: {payload}")
         raise credentials_exception
-
-    user_id = payload.get("sub")
-    print(f"🔍 [AUTH] User ID extraído del token: {user_id}")
-
-    if not user_id:
-        print("❌ [AUTH] No se encontró 'sub' en el payload del token")
+    subject = payload.get("sub")
+    if not isinstance(subject, str):
         raise credentials_exception
-
     try:
-        # Aseguramos que user_id sea UUID si tu BD lo requiere
-        from uuid import UUID
-
-        if isinstance(user_id, str):
-            user_uuid = UUID(user_id)
-        else:
-            user_uuid = user_id
+        user_uuid = uuid.UUID(subject)
     except ValueError:
-        print(f"❌ [AUTH] El user_id '{user_id}' no es un UUID válido")
         raise credentials_exception
 
     result = await db.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
-
-    if not user:
-        print(f"❌ [AUTH] Usuario NO encontrado en la BD con ID: {user_uuid}")
+    if not user or not user.is_active or user.role is None:
         raise credentials_exception
-
-    if not user.is_active:
-        print(
-            f"⚠️ [AUTH] Usuario {user.email} existe pero está INACTIVO (is_active=False)"
-        )
-        raise credentials_exception
-
-    print(
-        f"✅ [AUTH] Usuario autenticado correctamente: {user.email} | Rol: {user.role.value} | ID: {user.id}"
-    )
 
     return user
 
@@ -160,7 +131,11 @@ async def login(
     user = result.scalar_one_or_none()
 
     # Verificar credenciales básicas
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    if (
+        not user
+        or user.role is None
+        or not verify_password(form_data.password, user.hashed_password)
+    ):
         # Mensaje genérico por seguridad para no revelar si el email existe
         raise HTTPException(status_code=400, detail="Email o contraseña incorrectos")
 
@@ -202,12 +177,18 @@ async def refresh_token(
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(status_code=401, detail="Token de refresco inválido")
 
-    user_id = payload.get("sub")
+    subject = payload.get("sub")
+    if not isinstance(subject, str):
+        raise HTTPException(status_code=401, detail="Token de refresco inválido")
+    try:
+        user_id = uuid.UUID(subject)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Token de refresco inválido")
     result = await db.execute(
         select(User).where(User.id == user_id, User.is_active.is_(True))
     )
     user = result.scalar_one_or_none()
-    if not user:
+    if not user or user.role is None:
         raise HTTPException(status_code=401, detail="Usuario no encontrado")
 
     return TokenResponse(
@@ -332,7 +313,8 @@ async def logout():
 async def get_current_user_info(
     current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
-    # Asegúrate de NO poner "Usuario" por defecto aquí si ya existen los datos
+    if current_user.role is None:
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
     return {
         "id": str(current_user.id),
         "email": current_user.email,
@@ -346,15 +328,6 @@ async def get_current_user_info(
 # ==============================================================================
 # RECUPERACIÓN DE CONTRASEÑA (Lote 12.1.3)
 # ==============================================================================
-
-
-class ForgotPasswordRequest(BaseModel):
-    email: str
-
-
-class ResetPasswordRequest(BaseModel):
-    token: str
-    new_password: str
 
 
 @router.post("/forgot-password")

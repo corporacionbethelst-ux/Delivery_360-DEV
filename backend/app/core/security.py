@@ -16,11 +16,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
-# Alias para compatibilidad con código existente (se definirá después)
-get_current_user = None
-RoleChecker = None
-
-
 def verify_password(plain: str, hashed: str) -> bool:
     """
     Verificar si una contraseña en texto plano coincide con su hash
