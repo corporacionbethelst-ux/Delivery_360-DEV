@@ -140,7 +140,7 @@ const buildQuery = (params?: Readonly<PayoutFilters>): string => {
   return query ? `?${query}` : '';
 };
 
-const buildIdempotencyKey = (): string => {
+export const createPayoutIdempotencyKey = (): string => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID();
   }
@@ -170,7 +170,7 @@ export const payoutService = {
     }
 
     try {
-      const payload = { ...data, idempotency_key: data.idempotency_key || buildIdempotencyKey() };
+      const payload = { ...data, idempotency_key: data.idempotency_key || createPayoutIdempotencyKey() };
       const response = await api.post<ApiPayout>('/payouts/request', payload);
       return normalizePayout(response);
     } catch (error) {
