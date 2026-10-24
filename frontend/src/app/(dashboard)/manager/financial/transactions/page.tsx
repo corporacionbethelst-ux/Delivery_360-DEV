@@ -38,6 +38,8 @@ const TYPE_COLORS: Record<TransactionType, string> = {
 const STATUS_CONFIG: Record<TransactionStatus, { icon: any; color: string }> = {
   PROCESADO: { icon: CheckCircle, color: 'text-green-600' },
   PAGADO: { icon: CheckCircle, color: 'text-green-600' },
+  PROCESANDO: { icon: Loader2, color: 'text-blue-600' },
+  APROBADA: { icon: CheckCircle, color: 'text-green-600' },
   PENDIENTE: { icon: Clock, color: 'text-orange-600' },
   RECHAZADO: { icon: XCircle, color: 'text-red-600' },
 };

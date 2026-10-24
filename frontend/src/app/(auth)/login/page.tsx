@@ -5,7 +5,7 @@
  * Formulario de autenticación para todos los roles
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/stores/authStore';
@@ -13,7 +13,7 @@ import { authService } from '@/services/auth.service';
 import { registerDeviceAfterLogin } from '@/lib/deviceRegistration';
 import { Mail, Lock, Loader2, AlertCircle, Truck, ArrowLeft, CheckCircle } from 'lucide-react';
 
-export default function LoginPage() {
+function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
@@ -373,5 +373,13 @@ export default function LoginPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div role="status">Cargando…</div>}>
+      <LoginPageContent />
+    </Suspense>
   );
 }

@@ -20,6 +20,8 @@ from sqlalchemy.orm import aliased
 
 from app.api.v1.auth import get_current_user, require_role
 from app.core.database import get_db
+from app.core.operation_permissions import ensure_operation_role, ensure_rider_resource_access
+from app.core.delivery_rules import validate_delivery_otp, ensure_delivery_not_terminal
 from app.models.delivery import Delivery, DeliveryStatus, DeliveryFailureCause
 from app.models.order import Order, OrderStatus
 from app.models.rider import Rider, RiderStatus
@@ -244,6 +246,7 @@ async def list_deliveries(
     Devuelve: { "items": [...], "total": <count_real> }
     """
     # 1. Definición de Alias para evitar ambigüedades en JOINs
+    ensure_operation_role(current_user)
     d_alias = aliased(Delivery)
     r_alias = aliased(Rider)
     u_alias = aliased(User)
@@ -345,6 +348,7 @@ async def get_delivery(
     current_user: User = Depends(get_current_user),
 ):
     """Obtiene el detalle completo de una entrega específica."""
+    ensure_operation_role(current_user)
     d_alias = aliased(Delivery)
     r_alias = aliased(Rider)
     u_alias = aliased(User)
@@ -366,10 +370,7 @@ async def get_delivery(
         
     delivery, rider, user, order = row
 
-    if current_user.role == UserRole.REPARTIDOR:
-        rider_profile = await _get_rider_for_user(db, current_user.id)
-        if not rider_profile or delivery.rider_id != rider_profile.id:
-            raise HTTPException(status_code=403, detail="Acceso denegado")
+    await ensure_rider_resource_access(db, current_user, delivery.rider_id)
 
     return _serialize_delivery(delivery, rider, user, order)
 
@@ -463,15 +464,13 @@ async def start_delivery(
     current_user: User = Depends(get_current_user),
 ):
     """Inicia el proceso de entrega (camino a pickup)."""
+    ensure_operation_role(current_user, write=True)
     result = await db.execute(select(Delivery).where(Delivery.id == _parse_uuid(delivery_id, "delivery_id")))
     delivery = result.scalar_one_or_none()
     if not delivery:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
-    if current_user.role == UserRole.REPARTIDOR:
-        rider = await _get_rider_for_user(db, current_user.id)
-        if not rider or delivery.rider_id != rider.id:
-            raise HTTPException(status_code=403, detail="No tienes permiso para iniciar esta entrega")
+    await ensure_rider_resource_access(db, current_user, delivery.rider_id, write=True)
 
     if delivery.status not in [DeliveryStatus.INICIADA, DeliveryStatus.EN_PICKUP]:
          raise HTTPException(status_code=400, detail=f"Estado inválido para iniciar: {delivery.status.value}")
@@ -517,10 +516,16 @@ async def complete_delivery(
     IMPORTANTE: Delega toda la lógica de cálculo de bonos y snapshot financiero
     al método delivery_service.complete_delivery() para asegurar consistencia.
     """
+    ensure_operation_role(current_user, write=True)
+    parsed_id = _parse_uuid(delivery_id, "delivery_id")
+    delivery = await delivery_service.get_delivery(db, parsed_id)
+    await ensure_rider_resource_access(db, current_user, delivery.rider_id, write=True)
+
     # Convertir datos del body al schema esperado por el servicio
     from app.schemas.delivery import ProofOfDeliveryCreate
     
     proof_data = ProofOfDeliveryCreate(
+        delivery_id=parsed_id,
         photo_url=None,  # No se usa foto en este endpoint legacy
         signature_base64=None,
         otp_code=body.otp_code,
@@ -533,7 +538,7 @@ async def complete_delivery(
     # Delegar toda la lógica al servicio que contiene el cálculo completo de bonos
     delivery = await delivery_service.complete_delivery(
         db=db,
-        delivery_id=_parse_uuid(delivery_id, "delivery_id"),
+        delivery_id=parsed_id,
         proof_data=proof_data,
         completed_by=current_user.id,
     )
@@ -566,15 +571,13 @@ async def fail_delivery(
     current_user: User = Depends(get_current_user),
 ):
     """Marca la entrega como fallida con razón estandarizada y crea pago de intento fallido si corresponde."""
+    ensure_operation_role(current_user, write=True)
     result = await db.execute(select(Delivery).where(Delivery.id == _parse_uuid(delivery_id, "delivery_id")))
     delivery = result.scalar_one_or_none()
     if not delivery:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
-    if current_user.role == UserRole.REPARTIDOR:
-        rider = await _get_rider_for_user(db, current_user.id)
-        if not rider or delivery.rider_id != rider.id:
-            raise HTTPException(status_code=403, detail="No tienes permiso")
+    await ensure_rider_resource_access(db, current_user, delivery.rider_id, write=True)
 
     allowed_statuses = [
         DeliveryStatus.PENDIENTE, DeliveryStatus.INICIADA, 
@@ -638,6 +641,7 @@ async def update_location(
     current_user: User = Depends(get_current_user),
 ):
     """Actualiza la ubicación GPS de una entrega en curso."""
+    ensure_operation_role(current_user, write=True)
     stmt = select(Delivery).where(Delivery.id == _parse_uuid(delivery_id, "delivery_id"))
     result = await db.execute(stmt)
     delivery = result.scalar_one_or_none()
@@ -645,13 +649,10 @@ async def update_location(
     if not delivery:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
-    if current_user.role == UserRole.REPARTIDOR:
-        rider_profile = await _get_rider_for_user(db, current_user.id)
-        if not rider_profile or delivery.rider_id != rider_profile.id:
-            raise HTTPException(status_code=403, detail="No autorizado para actualizar esta ubicación")
+    await ensure_rider_resource_access(db, current_user, delivery.rider_id, write=True)
     
     if delivery.status not in [DeliveryStatus.INICIADA, DeliveryStatus.EN_PICKUP, DeliveryStatus.EN_ROUTE, DeliveryStatus.EN_DESTINO]:
-        pass 
+        raise HTTPException(status_code=400, detail="La entrega no está en curso")
 
     lat = body.lat if body.lat is not None else body.latitude
     lng = body.lng if body.lng is not None else body.longitude
@@ -711,16 +712,14 @@ async def update_delivery_status(
     Incluye lógica de FASE 3 para cálculo de bonos con multiplicador de zona y Tier.
     """
     # 1. Obtener la entrega
+    ensure_operation_role(current_user, write=True)
     result = await db.execute(select(Delivery).where(Delivery.id == _parse_uuid(delivery_id, "delivery_id")))
     delivery = result.scalar_one_or_none()
     if not delivery:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
     # 2. Validar permisos
-    if current_user.role == UserRole.REPARTIDOR:
-        rider = await _get_rider_for_user(db, current_user.id)
-        if not rider or delivery.rider_id != rider.id:
-            raise HTTPException(status_code=403, detail="No tienes permiso para actualizar esta entrega")
+    await ensure_rider_resource_access(db, current_user, delivery.rider_id, write=True)
     
     # 3. Mapeo de estados
     status_mapping = {
@@ -744,13 +743,15 @@ async def update_delivery_status(
     }
     
     current_status = delivery.status
-    if current_status in allowed_transitions:
-        if new_status not in allowed_transitions[current_status]:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"No se puede cambiar de {current_status.value} a {new_status.value}. Transiciones validas: {[s.value for s in allowed_transitions[current_status]]}"
-            )
-    
+    ensure_delivery_not_terminal(delivery)
+    if current_status not in allowed_transitions:
+        raise HTTPException(status_code=400, detail="La entrega no está en curso")
+    if new_status not in allowed_transitions[current_status]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede cambiar de {current_status.value} a {new_status.value}. Transiciones validas: {[s.value for s in allowed_transitions[current_status]]}"
+        )
+
     # CORRECCIÓN CRÍTICA: Usar fecha naive para compatibilidad con PostgreSQL TIMESTAMP WITHOUT TIME ZONE
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     
@@ -789,8 +790,7 @@ async def update_delivery_status(
         
     elif new_status == DeliveryStatus.COMPLETADA:
         # Validación OTP
-        if body.otp_code and delivery.proof_otp and body.otp_code != delivery.proof_otp:
-            raise HTTPException(status_code=400, detail="Código OTP incorrecto")
+        validate_delivery_otp(delivery, body.otp_code)
         
         delivery.status = DeliveryStatus.COMPLETADA
         delivery.completed_at = now

@@ -109,8 +109,12 @@ def _template(code="payout_aprobado", channel="PUSH"):
 
 
 @pytest.fixture()
-def client():
+def client(monkeypatch):
     """App con lifespan seguro (sin create_all/dispose reales) y overrides."""
+    # This fixture promises no real Redis: external template caches must not
+    # change the fake DB query sequence or affect notification assertions.
+    from app.services.omnichannel_service import OmnichannelNotificationService
+    monkeypatch.setattr(OmnichannelNotificationService, "_get_redis", AsyncMock(return_value=None))
     import app.core.database as dbmod
     import app.main as mainmod
 

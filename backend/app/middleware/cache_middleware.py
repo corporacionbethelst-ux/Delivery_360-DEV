@@ -43,6 +43,10 @@ class CacheMiddleware(BaseHTTPMiddleware):
     
     def _should_cache(self, request: Request) -> bool:
         """Determinar si la respuesta debe ser cacheada"""
+        # Operational API responses must always execute authentication and authorization.
+        if request.url.path.startswith("/api/") or request.headers.get("authorization") or request.headers.get("cookie"):
+            return False
+
         # Solo cachear GET
         if request.method != "GET":
             return False
@@ -84,7 +88,7 @@ class CacheMiddleware(BaseHTTPMiddleware):
             logger.debug(f"✅ CACHE HIT: {cache_key}")
             
             # Reconstruir respuesta desde caché
-            response_data = json.loads(cached_response)
+            response_data = cached_response if isinstance(cached_response, dict) else json.loads(cached_response)
             response = Response(
                 content=response_data["body"],
                 status_code=response_data["status_code"],
