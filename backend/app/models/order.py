@@ -2,9 +2,8 @@
 
 import uuid
 from datetime import datetime, timezone  # CORREGIDO
-from typing import Any
+from app.core.json_types import JsonValue
 from sqlalchemy import (
-    Column,
     String,
     Float,
     DateTime,
@@ -47,33 +46,49 @@ class OrderPriority(str, enum.Enum):
 class Order(Base):
     __tablename__ = "orders"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid4)
-    external_id = Column(String(100), unique=True, index=True)
-    customer_name = Column(String(255), nullable=False)
-    customer_phone = Column(String(20), nullable=False)
-    customer_email = Column(String(255))
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        index=True,
+        default=uuid.uuid4,
+        nullable=False,
+    )
+    external_id: Mapped[str | None] = mapped_column(
+        String(100), unique=True, index=True, nullable=True
+    )
+    customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    customer_phone: Mapped[str] = mapped_column(String(20), nullable=False)
+    customer_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    pickup_address = Column(Text, nullable=False)
-    pickup_name = Column(String(255))
-    pickup_phone = Column(String(20))
-    delivery_address = Column(Text, nullable=False)
-    delivery_reference = Column(String(255))
-    delivery_instructions = Column(Text)
+    pickup_address: Mapped[str] = mapped_column(Text, nullable=False)
+    pickup_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    pickup_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    delivery_address: Mapped[str] = mapped_column(Text, nullable=False)
+    delivery_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delivery_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    pickup_latitude = Column(Float)
-    pickup_longitude = Column(Float)
-    delivery_latitude = Column(Float)
-    delivery_longitude = Column(Float)
+    pickup_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pickup_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    delivery_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    delivery_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    items = Column(JSON)
-    subtotal = Column(Float, default=0.0)
-    delivery_fee = Column(Float, default=0.0)
-    total = Column(Float, default=0.0)
+    items: Mapped[JsonValue] = mapped_column(JSON, nullable=True)
+    subtotal: Mapped[float | None] = mapped_column(Float, default=0.0, nullable=True)
+    delivery_fee: Mapped[float | None] = mapped_column(
+        Float, default=0.0, nullable=True
+    )
+    total: Mapped[float | None] = mapped_column(Float, default=0.0, nullable=True)
 
-    payment_method = Column(String(50))
-    payment_status = Column(String(20), default="pendiente")
-    status: Any = Column(SQLEnum(OrderStatus), default=OrderStatus.PENDIENTE)
-    priority: Any = Column(SQLEnum(OrderPriority), default=OrderPriority.NORMAL)
+    payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    payment_status: Mapped[str | None] = mapped_column(
+        String(20), default="pendiente", nullable=True
+    )
+    status: Mapped[OrderStatus | None] = mapped_column(
+        SQLEnum(OrderStatus), default=OrderStatus.PENDIENTE, nullable=True
+    )
+    priority: Mapped[OrderPriority | None] = mapped_column(
+        SQLEnum(OrderPriority), default=OrderPriority.NORMAL, nullable=True
+    )
 
     assigned_rider_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -83,26 +98,36 @@ class Order(Base):
     )
 
     # CORREGIDO: Fechas con timezone
-    ordered_at = Column(DateTime, default=utc_now_naive, nullable=False)
-    accepted_at = Column(DateTime)
-    picked_up_at = Column(DateTime)
-    delivered_at = Column(DateTime)
-    estimated_delivery_time = Column(DateTime)
-    sla_deadline = Column(DateTime)
+    ordered_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=False
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    picked_up_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    estimated_delivery_time: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    sla_deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    failure_reason = Column(String(255))
-    failure_notes = Column(Text)
-    failure_cause_external = Column(
-        Boolean
+    failure_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    failure_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failure_cause_external: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True
     )  # True si la causa fue externa (cliente/comercio), False si fue culpa del rider
-    cancelled_by = Column(String(50))
-    cancellation_reason = Column(Text)
-    source = Column(String(50), default="app")
-    integration_id = Column(String(100))
-    webhook_sent = Column(Boolean, default=False)
+    cancelled_by: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str | None] = mapped_column(String(50), default="app", nullable=True)
+    integration_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    webhook_sent: Mapped[bool | None] = mapped_column(
+        Boolean, default=False, nullable=True
+    )
 
-    created_at = Column(DateTime, default=utc_now_naive)
-    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=True
+    )
 
     delivery = relationship("Delivery", back_populates="order", uselist=False)
 

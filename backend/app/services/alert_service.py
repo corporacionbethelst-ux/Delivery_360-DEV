@@ -63,7 +63,7 @@ class AlertService:
         severity: str,
         title: str,
         message: str,
-        related_entity_id: Optional[int] = None,
+        related_entity_id: Optional[object] = None,
         related_entity_type: Optional[str] = None,
         recipient_user_ids: Optional[List[int]] = None,
     ) -> Notification:

@@ -1,10 +1,10 @@
 """Delivery model."""
 
 import uuid
+from decimal import Decimal
 from datetime import datetime, timezone  # CORREGIDO
-from typing import Any
+from app.core.json_types import JsonValue
 from sqlalchemy import (
-    Column,
     String,
     Integer,
     Float,
@@ -117,8 +117,14 @@ class Delivery(Base):
     __tablename__ = "deliveries"
     __table_args__ = {"extend_existing": True}
 
-    id = Column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid4)
-    order_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        index=True,
+        default=uuid.uuid4,
+        nullable=False,
+    )
+    order_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("orders.id", ondelete="CASCADE"),
         unique=True,
@@ -132,50 +138,66 @@ class Delivery(Base):
         index=True,
     )
 
-    status: Any = Column(SQLEnum(DeliveryStatus), default=DeliveryStatus.PENDIENTE)
+    status: Mapped[DeliveryStatus | None] = mapped_column(
+        SQLEnum(DeliveryStatus), default=DeliveryStatus.PENDIENTE, nullable=True
+    )
 
     # CORREGIDO
-    started_at = Column(DateTime)
-    arrived_pickup_at = Column(DateTime)
-    left_pickup_at = Column(DateTime)
-    arrived_delivery_at = Column(DateTime)
-    completed_at = Column(DateTime)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    arrived_pickup_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    left_pickup_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    arrived_delivery_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    current_latitude = Column(Float)
-    current_longitude = Column(Float)
-    last_location_update = Column(DateTime)
+    current_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    current_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_location_update: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
 
-    route_data = Column(JSON)
-    distance_total = Column(Float)
-    distance_pickup = Column(Float)
-    distance_delivery = Column(Float)
+    route_data: Mapped[JsonValue] = mapped_column(JSON, nullable=True)
+    distance_total: Mapped[float | None] = mapped_column(Float, nullable=True)
+    distance_pickup: Mapped[float | None] = mapped_column(Float, nullable=True)
+    distance_delivery: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    proof_type: Any = Column(SQLEnum(ProofType))
-    proof_photo_url = Column(String(500))
-    proof_signature = Column(Text)
-    proof_otp = Column(String(10))
-    proof_notes = Column(Text)
-    customer_name_received = Column(String(255))
+    proof_type: Mapped[ProofType | None] = mapped_column(
+        SQLEnum(ProofType), nullable=True
+    )
+    proof_photo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    proof_signature: Mapped[str | None] = mapped_column(Text, nullable=True)
+    proof_otp: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    proof_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    customer_name_received: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
 
-    has_issues = Column(Boolean, default=False)
-    failure_cause: Any = Column(
+    has_issues: Mapped[bool | None] = mapped_column(
+        Boolean, default=False, nullable=True
+    )
+    failure_cause: Mapped[DeliveryFailureCause | None] = mapped_column(
         SQLEnum(DeliveryFailureCause), nullable=True
     )  # Nuevo campo ENUM estandarizado
-    issue_type = Column(String(50))  # Se mantiene para compatibilidad pero se depreca
-    issue_description = Column(Text)
-    issue_resolved = Column(Boolean, default=False)
-    issue_analysis_result = Column(
-        Text
+    issue_type: Mapped[str | None] = mapped_column(
+        String(50), nullable=True
+    )  # Se mantiene para compatibilidad pero se depreca
+    issue_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    issue_resolved: Mapped[bool | None] = mapped_column(
+        Boolean, default=False, nullable=True
+    )
+    issue_analysis_result: Mapped[str | None] = mapped_column(
+        Text, nullable=True
     )  # Resultado del análisis de causa (externa/interna)
 
-    time_to_pickup = Column(Integer)
-    time_at_pickup = Column(Integer)
-    time_to_delivery = Column(Integer)
-    total_time = Column(Integer)
+    time_to_pickup: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    time_at_pickup: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    time_to_delivery: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_time: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    sla_expected_minutes = Column(Integer)
-    sla_actual_minutes = Column(Integer)
-    sla_compliant = Column(Boolean)
+    sla_expected_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sla_actual_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sla_compliant: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     # =============================================================================
     # SNAPSHOT FINANCIERO INMUTABLE (Fase 3 - Inmutabilidad Financiera)
@@ -184,45 +206,45 @@ class Delivery(Base):
     # (COMPLETADA o FALLIDA) y NUNCA deben modificarse después.
 
     # Monto exacto del bono aplicado, congelado al momento del cierre
-    locked_bonus_amount = Column(
+    locked_bonus_amount: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2),
         nullable=True,
         comment="Monto del bono congelado en el momento de finalizar la entrega. Inmutable.",
     )
 
     # Tipo de bono aplicado: SUCCESS (entrega completada) o FAILED_ATTEMPT (fallida bonificable)
-    locked_bonus_type: Any = Column(
+    locked_bonus_type: Mapped[LockedBonusType | None] = mapped_column(
         SQLEnum(LockedBonusType),
         nullable=True,
         comment="Tipo de bono congelado. Inmutable.",
     )
 
     # Timestamp exacto del congelamiento del bono
-    bonus_snapshot_date = Column(
+    bonus_snapshot_date: Mapped[datetime | None] = mapped_column(
         DateTime,
         nullable=True,
         comment="Fecha y hora exacta en que se congeló el bono. Inmutable.",
     )
 
     # Alerta de configuración faltante en el momento del snapshot (para auditoría)
-    bonus_config_warning_snapshot = Column(
+    bonus_config_warning_snapshot: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
         comment="Mensaje de alerta sobre configuración faltante en el momento del snapshot. Para auditoría.",
     )
 
     # FASE 5: Componentes del cálculo del bono para desglose visual
-    locked_bonus_base = Column(
+    locked_bonus_base: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2),
         nullable=True,
         comment="Bono base configurado al momento del cálculo. Para desglose frontend.",
     )
-    locked_bonus_zone_multiplier = Column(
+    locked_bonus_zone_multiplier: Mapped[Decimal | None] = mapped_column(
         Numeric(4, 2),
         nullable=True,
         comment="Multiplicador de zona aplicado. Para desglose frontend.",
     )
-    locked_bonus_tier_multiplier = Column(
+    locked_bonus_tier_multiplier: Mapped[Decimal | None] = mapped_column(
         Numeric(4, 2),
         nullable=True,
         comment="Multiplicador de tier aplicado. Para desglose frontend.",
@@ -233,8 +255,12 @@ class Delivery(Base):
         comment="Nivel del rider (BRONCE/PLATA/ORO/PLATINO) al momento del cálculo.",
     )
 
-    created_at = Column(DateTime, default=utc_now_naive)
-    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=True
+    )
 
     order = relationship("Order", back_populates="delivery")
     rider = relationship("Rider", back_populates="deliveries", foreign_keys=[rider_id])

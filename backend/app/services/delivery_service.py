@@ -6,12 +6,14 @@ from datetime import datetime
 import uuid
 import re
 import logging
+import math
 from typing import Optional, List, Tuple
 from sqlalchemy import select
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
+from app.core.serialization import optional_enum_value
 from app.core.delivery_rules import validate_delivery_otp
 from app.models.delivery import Delivery, DeliveryStatus, LockedBonusType
 from app.models.order import OrderStatus
@@ -19,7 +21,7 @@ from app.schemas.delivery import ProofOfDeliveryCreate
 from app.crud.delivery import delivery as delivery_crud
 from app.crud.order import order as order_crud
 from app.models.platform_setting import PlatformSetting
-from app.services.financial_service import FinancialService
+from app.services.financial_service import FinancialService, money
 from app.models.rider import Rider
 
 # Configurar logger para asegurar que los mensajes se vean siempre
@@ -102,7 +104,7 @@ class DeliveryService:
             allowed = ", ".join(s.value for s in allowed_from)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"No se puede {action}. Estado actual: {delivery.status.value}. Estados permitidos: {allowed}",
+                detail=f"No se puede {action}. Estado actual: {optional_enum_value(delivery.status)}. Estados permitidos: {allowed}",
             )
 
     @staticmethod
@@ -137,7 +139,7 @@ class DeliveryService:
         bonus_type: LockedBonusType,
         delivery_id: uuid.UUID,
         rider_id: uuid.UUID,
-    ) -> Tuple[Optional[float], Optional[str]]:
+    ) -> Tuple[float, Optional[str]]:
         """
         Obtiene la configuración de bonos vigente y retorna el monto aplicable.
 
@@ -196,9 +198,15 @@ class DeliveryService:
 
         try:
             base_bonus_amount = float(bonus_value)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             warning = f"Configuración '{bonus_key}' tiene valor inválido '{bonus_value}'. Bono congelado en $0."
             return 0.0, warning
+
+        if not math.isfinite(base_bonus_amount) or base_bonus_amount < 0:
+            return (
+                0.0,
+                f"Configuración '{bonus_key}' fuera de rango. Bono congelado en $0.",
+            )
 
         # 3. Obtener la zona del rider para aplicar multiplicador
         rider_result = await db.execute(
@@ -216,13 +224,22 @@ class DeliveryService:
             )
             zone_multiplier_value = zone_result.scalar_one_or_none()
             if zone_multiplier_value is not None:
-                zone_multiplier = float(zone_multiplier_value)
+                try:
+                    zone_multiplier = float(zone_multiplier_value)
+                except (ValueError, TypeError, OverflowError):
+                    return 0.0, "Multiplicador de zona inválido. Bono congelado en $0."
+
+        if not math.isfinite(zone_multiplier) or zone_multiplier < 0:
+            return 0.0, "Multiplicador de zona inválido. Bono congelado en $0."
 
         # 4. Obtener multiplicador por nivel del rider (Fase 4)
         tier_multiplier = TIER_MULTIPLIERS.get(rider_tier, 1.0)
 
         # 5. Aplicar fórmula completa: Bono Final = (Bono Base × Multiplicador Zona) × Multiplicador Nivel
         final_bonus_amount = (base_bonus_amount * zone_multiplier) * tier_multiplier
+
+        if not math.isfinite(final_bonus_amount) or final_bonus_amount > 99999999.99:
+            return 0.0, "Bono calculado fuera de rango. Bono congelado en $0."
 
         # Logging para depuración - USANDO LOGGER PARA ASEGURAR VISIBILIDAD
         logger.info(
@@ -257,7 +274,7 @@ class DeliveryService:
         now = datetime.utcnow()
 
         # Actualizar campos de snapshot en el objeto delivery
-        delivery.locked_bonus_amount = bonus_amount
+        delivery.locked_bonus_amount = money(bonus_amount)
         delivery.locked_bonus_type = bonus_type
         delivery.bonus_snapshot_date = now
         delivery.bonus_config_warning_snapshot = config_warning
@@ -308,7 +325,7 @@ class DeliveryService:
 
             try:
                 bonus_amount = float(bonus_value)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, OverflowError):
                 print(
                     f"[ERROR] El valor del setting '{bonus_value}' no es numérico válido."
                 )
@@ -365,7 +382,7 @@ class DeliveryService:
         if order.status not in [OrderStatus.ASIGNADO, OrderStatus.EN_RECOLECCION]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"No se puede crear entrega. Estado del pedido: {order.status.value}",
+                detail=f"No se puede crear entrega. Estado del pedido: {optional_enum_value(order.status)}",
             )
         if not order.assigned_rider_id:
             raise HTTPException(
@@ -423,7 +440,7 @@ class DeliveryService:
         db: AsyncSession,
         delivery_id: uuid.UUID,
         proof_data: ProofOfDeliveryCreate,
-        completed_by: int,
+        completed_by: uuid.UUID,
     ) -> Delivery:
         """Completa entrega con prueba de entrega.
 
@@ -465,7 +482,7 @@ class DeliveryService:
             "current_latitude": proof_data.delivery_latitude,
             "current_longitude": proof_data.delivery_longitude,
             # Snapshot financiero inmutable
-            "locked_bonus_amount": bonus_amount,
+            "locked_bonus_amount": money(bonus_amount),
             "locked_bonus_type": LockedBonusType.SUCCESS,
             "bonus_snapshot_date": now,
             "bonus_config_warning_snapshot": config_warning,
@@ -527,7 +544,7 @@ class DeliveryService:
         db: AsyncSession,
         delivery_id: uuid.UUID,
         failure_cause_enum_value: str,
-        failed_by: int,
+        failed_by: uuid.UUID,
     ) -> Delivery:
         """Marca entrega como fallida y gestiona bonos si aplica basado en el Enum.
 
@@ -588,7 +605,7 @@ class DeliveryService:
             "issue_description": f"Fallo por causa: {failure_cause.value}",
             "issue_analysis_result": f"Causa: {failure_cause.value}. Bonificable: {failure_cause.is_bonificable}",
             # Snapshot financiero inmutable
-            "locked_bonus_amount": bonus_amount if bonus_type else None,
+            "locked_bonus_amount": money(bonus_amount) if bonus_type else None,
             "locked_bonus_type": bonus_type,
             "bonus_snapshot_date": datetime.utcnow() if bonus_type else None,
             "bonus_config_warning_snapshot": config_warning,
@@ -649,17 +666,15 @@ class DeliveryService:
         date_to: Optional[datetime] = None,
     ) -> List[Delivery]:
         """Lista entregas con filtros"""
-        filters = {}
-        if status_filter:
-            filters["status"] = status_filter
-        if rider_id:
-            filters["rider_id"] = rider_id
-        if date_from:
-            filters["created_at_gte"] = date_from
-        if date_to:
-            filters["created_at_lte"] = date_to
-
-        return await delivery_crud.get_multi(db, skip=skip, limit=limit, **filters)
+        return await delivery_crud.get_multi(
+            db,
+            skip=skip,
+            limit=limit,
+            status=status_filter,
+            rider_id=rider_id,
+            created_at_gte=date_from,
+            created_at_lte=date_to,
+        )
 
     async def get_deliveries_by_rider(
         self,
@@ -667,12 +682,9 @@ class DeliveryService:
         rider_id: uuid.UUID,
         status_filter: Optional[DeliveryStatus] = None,
     ) -> List[Delivery]:
-        """Obtiene entregas de un repartidor"""
-        filters = {"rider_id": rider_id}
-        if status_filter:
-            filters["status"] = status_filter
-
-        return await delivery_crud.get_multi(db, skip=0, limit=1000, **filters)
+        return await delivery_crud.get_multi(
+            db, skip=0, limit=1000, rider_id=rider_id, status=status_filter
+        )
 
     async def get_delivery_history(
         self, db: AsyncSession, rider_id: uuid.UUID, limit: int = 50
