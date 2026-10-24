@@ -557,7 +557,7 @@ export default function RiderOrderDetailPage() {
                     <div className="flex items-start gap-2">
                       <MessageSquare className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
                       <p className="text-sm text-gray-700 italic bg-white p-2 rounded border border-gray-100">
-                        "{order.delivery_instructions}"
+                        &quot;{order.delivery_instructions}&quot;
                       </p>
                     </div>
                   </div>
@@ -626,7 +626,7 @@ export default function RiderOrderDetailPage() {
                     ) : (
                       <p className="text-xs text-gray-600">
                         Motivo registrado: <br/>
-                        <span className="italic font-semibold">"{(delivery as any).issue_type || (order as any).failure_reason || 'Sin especificar'}"</span>
+                        <span className="italic font-semibold">&quot;{(delivery as any).issue_type || (order as any).failure_reason || 'Sin especificar'}&quot;</span>
                       </p>
                     )}
 

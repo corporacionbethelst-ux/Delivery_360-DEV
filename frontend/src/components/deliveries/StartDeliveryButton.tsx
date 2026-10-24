@@ -60,7 +60,7 @@ export function StartDeliveryButton({ delivery, onStart }: StartDeliveryButtonPr
             </ul>
           </div>
           <p className="text-xs text-gray-500">
-            Al iniciar, el estado cambiará a "En Camino" y se notificará al cliente.
+            Al iniciar, el estado cambiará a &quot;En Camino&quot; y se notificará al cliente.
           </p>
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setIsOpen(false)}>

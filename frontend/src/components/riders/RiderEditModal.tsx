@@ -343,7 +343,7 @@ export default function RiderEditModal({
           {rider?.vehicle_ownership_type && 
            rider.vehicle_ownership_type !== vehicleOwnershipType && (
             <div className="p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-              ⚠️ Estás cambiando el tipo de vehículo. Si cambias de "Propio" a "Empresa", 
+              ⚠️ Estás cambiando el tipo de vehículo. Si cambias de &quot;Propio&quot; a &quot;Empresa&quot;,
               se perderán los datos del vehículo propio actual.
             </div>
           )}

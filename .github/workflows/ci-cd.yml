@@ -57,21 +57,31 @@ jobs:
           cache: 'pip'
       
       - name: Install dependencies
+        id: backend-dependencies
         run: |
           cd backend
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio pytest-cov faker
+          pip install -r requirements-dev.txt
       
       - name: Run linting
         run: |
           cd backend
-          pip install flake8 black mypy
           flake8 app --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Check formatting
+        if: ${{ !cancelled() && steps.backend-dependencies.outcome == 'success' }}
+        run: |
+          cd backend
           black --check app
+
+      - name: Type check
+        if: ${{ !cancelled() && steps.backend-dependencies.outcome == 'success' }}
+        run: |
+          cd backend
           mypy app --ignore-missing-imports
-      
+
       - name: Run tests
+        if: ${{ !cancelled() && steps.backend-dependencies.outcome == 'success' }}
         run: |
           cd backend
           pytest tests/ -v --cov=app --cov-report=xml --cov-report=html
@@ -82,6 +92,7 @@ jobs:
           ENVIRONMENT: testing
       
       - name: Upload coverage reports
+        if: ${{ !cancelled() && hashFiles('backend/coverage.xml') != '' }}
         uses: codecov/codecov-action@v3
         with:
           file: ./backend/coverage.xml
@@ -104,6 +115,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       
       - name: Install dependencies
+        id: frontend-dependencies
         run: |
           cd frontend
           npm ci
@@ -114,16 +126,19 @@ jobs:
           npm run lint
       
       - name: Type check
+        if: ${{ !cancelled() && steps.frontend-dependencies.outcome == 'success' }}
         run: |
           cd frontend
           npm run type-check
       
       - name: Run tests
+        if: ${{ !cancelled() && steps.frontend-dependencies.outcome == 'success' }}
         run: |
           cd frontend
           npm run test -- --coverage --watchAll=false
       
       - name: Build
+        if: ${{ !cancelled() && steps.frontend-dependencies.outcome == 'success' }}
         run: |
           cd frontend
           npm run build
@@ -319,6 +334,9 @@ jobs:
   security-scan:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      security-events: write
     
     steps:
       - name: Checkout code
@@ -343,11 +361,13 @@ jobs:
           severity: 'CRITICAL,HIGH'
       
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-backend-results.sarif'
+          category: 'trivy-backend'
       
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-frontend-results.sarif'
+          category: 'trivy-frontend'
