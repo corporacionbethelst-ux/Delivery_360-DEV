@@ -124,6 +124,9 @@ export interface RiderEarningsBreakdownParams extends FinancialReportParams {
   type?: string;
 }
 
+const boundedLimit = (value: number | undefined, maximum: number, fallback: number): number =>
+  Number.isFinite(value) ? Math.min(Math.max(Math.trunc(value as number), 1), maximum) : fallback;
+
 export const financialService = {
   /**
    * Obtener resumen financiero global o filtrado por fechas.
@@ -183,7 +186,7 @@ export const financialService = {
     if (params?.type) queryParams.append('type', params.type);
     if (params?.date_from) queryParams.append('date_from', params.date_from);
     if (params?.date_to) queryParams.append('date_to', params.date_to);
-    if (params?.limit) queryParams.append('limit', String(Math.min(Math.max(Math.trunc(params.limit), 1), 500)));
+    if (params?.limit !== undefined) queryParams.append('limit', String(boundedLimit(params.limit, 500, 100)));
     if (Number.isFinite(params?.offset) && Number(params?.offset) >= 0) {
       queryParams.append('offset', String(Math.trunc(Number(params?.offset))));
     }
@@ -207,7 +210,7 @@ export const financialService = {
 
     if (params?.date_from) queryParams.append('date_from', params.date_from);
     if (params?.date_to) queryParams.append('date_to', params.date_to);
-    if (params?.limit) queryParams.append('limit', String(Math.min(Math.max(Math.trunc(params.limit), 1), 5000)));
+    if (params?.limit !== undefined) queryParams.append('limit', String(boundedLimit(params.limit, 5000, 1000)));
     if (Number.isFinite(params?.offset) && Number(params?.offset) >= 0) {
       queryParams.append('offset', String(Math.trunc(Number(params?.offset))));
     }
@@ -247,7 +250,7 @@ export const financialService = {
    */
   getTransactions: async (limit: number = 20): Promise<FinancialTransaction[]> => {
     try {
-      return await api.get(`/financial/transactions?limit=${limit}`);
+      return await api.get(`/financial/transactions?limit=${boundedLimit(limit, 500, 20)}`);
     } catch (error) {
       console.error('[FinancialService] Error fetching transactions:', error);
       throw error;
