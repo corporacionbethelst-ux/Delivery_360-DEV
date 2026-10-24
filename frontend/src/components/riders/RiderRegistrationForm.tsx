@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import { riderFormSchema } from '@/lib/rider-validation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -16,19 +17,6 @@ import type { RiderVehicleType } from '@/types/rider';
 
 // Esquema de validación: Mantenemos fullName en el form para facilidad del usuario,
 // pero lo dividiremos antes de enviar.
-const riderFormSchema = z.object({
-  fullName: z.string().min(3, 'El nombre completo es requerido'),
-  email: z.string().email('Email inválido'),
-  phone: z.string().min(8, 'Teléfono inválido'),
-  cpf: z.string().min(9, 'CPF/Documento requerido'),
-  birthDate: z.string().min(1, 'Fecha de nacimiento requerida'),
-  vehicleOwnershipType: z.enum(['PROPIO', 'EMPRESA']).default('PROPIO'),
-  vehicleType: z.enum(['MOTO', 'BICICLETA', 'AUTO', 'PIE', 'NO_ESPECIFICADO']),
-  vehiclePlate: z.string().optional(),
-  assignedVehicleId: z.string().optional(),
-  operatingZone: z.string().min(1, 'Zona requerida'),
-  password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres'),
-});
 
 type RiderFormValues = z.infer<typeof riderFormSchema>;
 

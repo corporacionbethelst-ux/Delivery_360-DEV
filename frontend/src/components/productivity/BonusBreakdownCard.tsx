@@ -54,7 +54,7 @@ export function BonusBreakdownCard({
   const base = breakdown?.base ?? (locked_bonus_base ? Number(locked_bonus_base) : null);
   const zoneMultiplier = breakdown?.zone_multiplier ?? (locked_bonus_zone_multiplier ? Number(locked_bonus_zone_multiplier) : null);
   const tierMultiplier = breakdown?.tier_multiplier ?? (locked_bonus_tier_multiplier ? Number(locked_bonus_tier_multiplier) : null);
-  const tierLevel = breakdown?.tier_level ?? locked_bonus_tier_level;
+  const tierLevel = breakdown?.tier_level ?? locked_bonus_tier_level ?? null;
   const total = breakdown?.total ?? (locked_bonus_amount ? Number(locked_bonus_amount) : null);
 
   // Si no hay datos y hideIfEmpty es true, no renderizar nada

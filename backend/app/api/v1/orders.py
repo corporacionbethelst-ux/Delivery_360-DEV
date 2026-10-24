@@ -13,6 +13,8 @@ import logging
 import math
 
 from app.core.database import get_db
+from app.core.delivery_rules import validate_delivery_otp
+from app.core.operation_permissions import ensure_operation_role, ensure_rider_resource_access
 from app.models.order import Order, OrderStatus, OrderPriority
 from app.models.rider import Rider, RiderStatus, utc_now_naive
 from app.models.user import User, UserRole
@@ -318,12 +320,8 @@ async def _get_rider_for_user(db: AsyncSession, user_id) -> Optional[Rider]:
     rider_result = await db.execute(select(Rider).where(Rider.user_id == user_id))
     return rider_result.scalar_one_or_none()
 
-async def _ensure_rider_order_access(db: AsyncSession, current_user: User, order: Order) -> None:
-    if current_user.role != UserRole.REPARTIDOR:
-        return
-    rider = await _get_rider_for_user(db, current_user.id)
-    if not rider or order.assigned_rider_id != rider.id:
-        raise HTTPException(status_code=403, detail="No tienes permiso para acceder a este pedido")
+async def _ensure_rider_order_access(db: AsyncSession, current_user: User, order: Order, *, write: bool = False) -> None:
+    await ensure_rider_resource_access(db, current_user, order.assigned_rider_id, write=write)
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 @router.get("")
@@ -335,6 +333,7 @@ async def list_orders(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    ensure_operation_role(current_user)
     q = select(Order).options(
         joinedload(Order.assigned_rider).joinedload(Rider.user),
         joinedload(Order.delivery)
@@ -443,13 +442,20 @@ async def orders_summary(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    ensure_operation_role(current_user)
     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
     today = now_naive.date()
-    result = await db.execute(
+    stmt = (
         select(Order.status, func.count(Order.id))
         .where(func.date(Order.created_at) == today)
         .group_by(Order.status)
     )
+    if current_user.role == UserRole.REPARTIDOR:
+        rider = await _get_rider_for_user(db, current_user.id)
+        if rider is None:
+            raise HTTPException(status_code=403, detail="Perfil de repartidor requerido")
+        stmt = stmt.where(Order.assigned_rider_id == rider.id)
+    result = await db.execute(stmt)
     rows = result.all()
     summary = {r[0].value: r[1] for r in rows}
     total = sum(summary.values())
@@ -656,6 +662,7 @@ async def assign_rider(
 async def update_status(
     order_id: str,
     new_status: str,
+    otp_code: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -676,7 +683,7 @@ async def update_status(
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Estado inválido: {new_status}")
 
-    await _ensure_rider_order_access(db, current_user, order)
+    await _ensure_rider_order_access(db, current_user, order, write=True)
 
     current_status = cast(OrderStatus, order.status)
     allowed = VALID_TRANSITIONS.get(current_status, [])
@@ -685,6 +692,12 @@ async def update_status(
             status_code=400,
             detail=f"Transición inválida: {order.status.value} → {new_status}",
         )
+
+    if target == OrderStatus.ENTREGADO:
+        delivery_result = await db.execute(select(Delivery).where(Delivery.order_id == order.id))
+        delivery = delivery_result.scalar_one_or_none()
+        if delivery is not None:
+            validate_delivery_otp(delivery, otp_code)
 
     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
     order.status = target

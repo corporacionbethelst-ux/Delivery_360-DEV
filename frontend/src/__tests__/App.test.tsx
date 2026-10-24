@@ -1,3 +1,4 @@
+import { riderFormSchema } from '@/lib/rider-validation';
 /**
  * Delivery360 - Frontend Test Suite
  * Tests para componentes y funcionalidades del frontend
@@ -149,10 +150,11 @@ describe('Frontend Basic Tests', () => {
       const validPhone = '+1234567890';
       const invalidPhone = '123';
 
-      const phoneRegex = /^\+?[1-9]\d{1,14}$/;
+      // Exercise the actual form contract, rather than an unrelated inline regex.
+      const phoneSchema = riderFormSchema.shape.phone;
       
-      expect(phoneRegex.test(validPhone)).toBe(true);
-      expect(phoneRegex.test(invalidPhone)).toBe(false);
+      expect(phoneSchema.safeParse(validPhone).success).toBe(true);
+      expect(phoneSchema.safeParse(invalidPhone).success).toBe(false);
     });
 
     it('should validate password strength', () => {

@@ -102,12 +102,15 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest.fixture(scope="function")
-def client(db_session) -> Generator[TestClient, None, None]:
+def client(db_session, monkeypatch, tmp_path) -> Generator[TestClient, None, None]:
     """Create test client for FastAPI"""
     
     async def override_get_db():
         yield db_session
     
+    # Registration writes relative uploads: keep test evidence out of the checkout.
+    (tmp_path / "uploads").mkdir()
+    monkeypatch.chdir(tmp_path)
     app.dependency_overrides[get_db] = override_get_db
     
     test_client = TestClient(app)

@@ -17,6 +17,8 @@ import { transactionService, Transaction, TransactionStatus } from '@/services/t
 const STATUS_CONFIG: Record<TransactionStatus, { label: string; color: string; icon: any }> = {
   PROCESADO: { label: 'Procesada', color: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle },
   PAGADO: { label: 'Pagada', color: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle },
+  PROCESANDO: { label: 'Procesando', color: 'bg-blue-100 text-blue-800 border-blue-200', icon: Loader2 },
+  APROBADA: { label: 'Aprobada', color: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle },
   PENDIENTE: { label: 'Pendiente', color: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: Clock },
   RECHAZADO: { label: 'Rechazada', color: 'bg-red-100 text-red-800 border-red-200', icon: AlertCircle },
 };

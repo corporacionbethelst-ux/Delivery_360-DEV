@@ -13,6 +13,7 @@ import shutil
 from pathlib import Path
  
 from app.core.database import get_db
+from app.core.operation_permissions import ensure_operation_role
 from app.core.config import settings
 from app.models.rider import Rider, RiderStatus, VehicleType, utc_now_naive
 from app.models.user import User, UserRole
@@ -142,6 +143,17 @@ class RiderUpdate(BaseModel):
     
     # Campo para nivel/gamificación (Fase 4)
     tier: Optional[str] = None
+
+
+def _ensure_rider_update_fields(current_user: User, body: RiderUpdate) -> None:
+    """Administrative compensation and fleet assignment cannot be self-edited."""
+    ensure_operation_role(current_user, write=True)
+    protected = {"tier", "vehicle_ownership_type", "assigned_vehicle_id"}
+    if protected.intersection(body.model_fields_set) and current_user.role not in (
+        UserRole.SUPERADMIN, UserRole.GERENTE
+    ):
+        raise HTTPException(status_code=403, detail="Solo gerencia puede cambiar el nivel o la asignación de flota")
+
 
 class LocationUpdate(BaseModel):
     """Actualización básica de coordenadas GPS."""
@@ -750,6 +762,7 @@ async def update_my_rider_profile(
     MEJORA LOTE 12.1.2: Si cambia el vehículo, invalida documentos, bloquea la cuenta 
     y notifica a administración mediante Audit Log y Alertas en consola.
     """
+    _ensure_rider_update_fields(current_user, body)
     result = await db.execute(
         select(Rider).options(joinedload(Rider.user)).where(Rider.user_id == current_user.id)
     )
@@ -1124,6 +1137,7 @@ async def update_rider(
     - Si vehicle_ownership_type es EMPRESA, debe proporcionar assigned_vehicle_id
     - Si vehicle_ownership_type es PROPIO, limpia assigned_vehicle_id
     """
+    _ensure_rider_update_fields(current_user, body)
     result = await db.execute(
         select(Rider).options(joinedload(Rider.user)).where(Rider.id == _parse_uuid(rider_id, "rider_id"))
     )

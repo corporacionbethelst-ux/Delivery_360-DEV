@@ -16,9 +16,8 @@ import { formatCurrency } from '@/lib/formatters';
 import { financialService } from '@/services/financial.service';
 import { orderService, Order } from '@/services/order.service';
 import { riderService } from '@/services/rider.service';
-import { deliveriesService } from '@/services/deliveries.service';
 import { BonusBreakdownCard } from '@/components/productivity/BonusBreakdownCard';
-import { deliveryService, type Delivery as DeliveryType } from '@/services/delivery.service';
+import { deliveryService } from '@/services/delivery.service';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   BarChart, Bar, Cell, PieChart, Pie 

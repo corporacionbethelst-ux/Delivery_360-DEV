@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
+from app.core.delivery_rules import validate_delivery_otp
 from app.models.delivery import Delivery, DeliveryStatus, LockedBonusType
 from app.models.order import OrderStatus
 from app.schemas.delivery import ProofOfDeliveryCreate
@@ -377,6 +378,7 @@ class DeliveryService:
             allowed_from=(DeliveryStatus.INICIADA, DeliveryStatus.EN_ROUTE, DeliveryStatus.EN_DESTINO),
             action="completar entrega",
         )
+        validate_delivery_otp(delivery, proof_data.otp_code)
         now = datetime.utcnow()
         
         # =========================================================================
