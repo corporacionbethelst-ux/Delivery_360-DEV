@@ -1,6 +1,5 @@
 # app/models/vehicle.py
 from sqlalchemy import (
-    Column,
     String,
     Integer,
     Date,
@@ -11,8 +10,8 @@ from sqlalchemy import (
     Index,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
-from datetime import datetime, timezone
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from datetime import date, datetime, timezone
 import uuid
 
 # Importar los enums compartidos
@@ -29,14 +28,16 @@ def utc_now_naive():
 class Vehicle(Base):
     __tablename__ = "vehicles"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False
+    )
 
     # Definición correcta de Enums en SQL: pasar los valores (.value) como argumentos
-    type = Column(
+    type: Mapped[str] = mapped_column(
         SQLEnum(*[e.value for e in VehicleType], name="vehicletype", create_type=True),
         nullable=False,
     )
-    status = Column(
+    status: Mapped[str] = mapped_column(
         SQLEnum(
             *[e.value for e in VehicleStatus], name="vehiclestatus", create_type=True
         ),
@@ -44,20 +45,20 @@ class Vehicle(Base):
         default="ACTIVO",
     )
 
-    plate = Column(String(20), unique=True, index=True, nullable=False)
-    model = Column(String(100), nullable=False)
-    color = Column(String(50), nullable=False)
-    year = Column(Integer, nullable=False)
+    plate: Mapped[str] = mapped_column(
+        String(20), unique=True, index=True, nullable=False
+    )
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    color: Mapped[str] = mapped_column(String(50), nullable=False)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    insurance_expiry = Column(Date, nullable=True)
-    notes = Column(Text, nullable=True)
+    insurance_expiry: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Clave foránea hacia Users (no hacia Riders directamente, ya que el vehículo lo posee la persona/usuario)
-    rider_id = Column(
+    rider_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey(
-            "users.id", ondelete="SET NULL", use_alter=True
-        ),  # use_alter ayuda con ciclos
+        ForeignKey("users.id", ondelete="SET NULL", use_alter=True),
         nullable=True,
     )
 
@@ -67,8 +68,10 @@ class Vehicle(Base):
     # Usamos lazy='selectin' para carga asíncrona correcta en FastAPI
     rider = relationship("User", foreign_keys=[rider_id], lazy="selectin")
 
-    created_at = Column(DateTime(timezone=False), default=utc_now_naive, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=utc_now_naive, nullable=False
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=False),
         default=utc_now_naive,
         onupdate=utc_now_naive,

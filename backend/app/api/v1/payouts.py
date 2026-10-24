@@ -97,7 +97,7 @@ def _serialize_payout(payout: Payout):
     processed_at = payout.processed_at.isoformat() if payout.processed_at else None
     updated_at = (
         payout.updated_at.isoformat()
-        if getattr(payout, "updated_at", None)
+        if payout.updated_at is not None
         else processed_at or requested_at
     )
 

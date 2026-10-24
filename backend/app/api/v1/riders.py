@@ -21,6 +21,7 @@ import inspect
 import shutil
 from pathlib import Path
 
+from app.core.serialization import optional_enum_value
 from app.core.database import get_db
 from app.core.operation_permissions import ensure_operation_role
 from app.core.config import settings
@@ -297,13 +298,11 @@ def _rider_to_dict(r: Rider, include_user: bool = False) -> dict:
     d: dict[str, Any] = {
         "id": str(r.id),
         "user_id": str(r.user_id),
-        "status": r.status.value if hasattr(r.status, "value") else r.status,
+        "status": optional_enum_value(r.status),
         "tier": (
             r.tier.value if hasattr(r.tier, "value") else r.tier
         ),  # ✅ AGREGADO: Campo tier para gamificación
-        "vehicle_type": (
-            r.vehicle_type.value if hasattr(r.vehicle_type, "value") else r.vehicle_type
-        ),
+        "vehicle_type": optional_enum_value(r.vehicle_type),
         "vehicle_plate": r.vehicle_plate or "",
         "vehicle_model": r.vehicle_model,
         "operating_zone": r.operating_zone,
@@ -894,23 +893,19 @@ async def update_my_rider_profile(
 
     payload = body.model_dump(exclude_none=True)
 
+    old_vehicle_type = optional_enum_value(rider.vehicle_type)
     vehicle_changed = False
-    old_vehicle_info = f"{rider.vehicle_type.value} - {rider.vehicle_plate}"
+    old_vehicle_info = f"{old_vehicle_type} - {rider.vehicle_plate}"
     new_vehicle_info = ""
 
-    if (
-        "vehicle_type" in payload
-        and str(payload["vehicle_type"]) != rider.vehicle_type.value
-    ):
+    if "vehicle_type" in payload and str(payload["vehicle_type"]) != old_vehicle_type:
         vehicle_changed = True
         new_vehicle_info = f"{payload['vehicle_type']} - {rider.vehicle_plate}"
 
     if "vehicle_plate" in payload and payload["vehicle_plate"] != rider.vehicle_plate:
         vehicle_changed = True
         if not new_vehicle_info:
-            new_vehicle_info = (
-                f"{rider.vehicle_type.value} - {payload['vehicle_plate']}"
-            )
+            new_vehicle_info = f"{old_vehicle_type} - {payload['vehicle_plate']}"
         else:
             new_vehicle_info = (
                 f"{new_vehicle_info.split(' - ')[0]} - {payload['vehicle_plate']}"
@@ -1233,17 +1228,9 @@ async def get_riders_audit_summary(
                 "last_name": last_name,
                 "full_name": f"{first_name} {last_name}".strip() or user.email,
                 "phone": user.phone,
-                "status": (
-                    rider.status.value
-                    if hasattr(rider.status, "value")
-                    else str(rider.status)
-                ),
+                "status": optional_enum_value(rider.status),
                 "is_online": bool(rider.is_online),
-                "vehicle_type": (
-                    rider.vehicle_type.value
-                    if hasattr(rider.vehicle_type, "value")
-                    else str(rider.vehicle_type) if rider.vehicle_type else None
-                ),
+                "vehicle_type": optional_enum_value(rider.vehicle_type),
                 "vehicle_plate": rider.vehicle_plate,
                 "operating_zone": rider.operating_zone,
                 "zone_id": str(rider.zone_id) if rider.zone_id else None,

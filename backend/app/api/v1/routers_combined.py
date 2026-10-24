@@ -24,6 +24,7 @@ import random
 import string
 from decimal import Decimal
 
+from app.core.serialization import optional_enum_value
 from app.core.database import get_db
 from app.models.all_models import (
     Delivery,
@@ -519,9 +520,11 @@ async def list_payouts(
             "id": str(p.id),
             "rider_id": str(p.rider_id),
             "amount": float(p.amount),
-            "status": p.status.value,
+            "status": optional_enum_value(p.status),
             "method": p.method,
-            "requested_at": p.requested_at.isoformat(),
+            "requested_at": (
+                p.requested_at.isoformat() if p.requested_at is not None else None
+            ),
             "processed_at": p.processed_at.isoformat() if p.processed_at else None,
             "rejection_reason": p.rejection_reason,
             "reference_code": p.reference_code,
@@ -585,7 +588,7 @@ async def request_payout(
     return {
         "id": str(payout.id),
         "amount": float(payout.amount),
-        "status": payout.status.value,
+        "status": optional_enum_value(payout.status),
         "message": "Solicitud creada exitosamente",
     }
 
@@ -985,9 +988,11 @@ async def list_users(
             "id": str(u.id),
             "email": u.email,
             "full_name": f"{u.first_name} {u.last_name}",
-            "role": u.role.value,
+            "role": optional_enum_value(u.role),
             "is_active": u.is_active,
-            "created_at": u.created_at.isoformat(),
+            "created_at": (
+                u.created_at.isoformat() if u.created_at is not None else None
+            ),
         }
         for u in items
     ]

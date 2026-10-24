@@ -14,61 +14,30 @@ from app.models.delivery import Delivery, DeliveryStatus, ProofType
 from app.models.payout import Payout, PayoutStatus, PayoutMethod, PayoutStatusHistory
 from app.models.route import Route, RoutePoint, RouteDeviation, RouteStatus
 
-# Importaciones condicionales para modelos opcionales
-try:
-    from app.models.shift import Shift, ShiftStatus, CheckInOut
-except ImportError:
-    Shift = None
-    ShiftStatus = None
-    CheckInOut = None
+# Registro explícito de modelos requeridos por el paquete.
+from app.models.shift import Shift, ShiftStatus, CheckInOut
 
-try:
-    from app.models.financial import (
-        Financial,
-        FinancialTransaction,
-        TransactionType,
-        PaymentStatus,
-    )
-except ImportError:
-    Financial = None
-    FinancialTransaction = None
-    TransactionType = None
-    PaymentStatus = None
+from app.models.financial import (
+    Financial,
+    FinancialTransaction,
+    TransactionType,
+    PaymentStatus,
+)
 
-try:
-    from app.models.productivity import ProductivityRecord, MetricType
-except ImportError:
-    ProductivityRecord = None
-    MetricType = None
+from app.models.productivity import ProductivityRecord, MetricType
 
-try:
-    from app.models.audit_log import AuditLog, AuditAction, ActionType
-except ImportError:
-    AuditLog = None
-    AuditAction = None
-    ActionType = None
+from app.models.audit_log import AuditLog, AuditAction, ActionType
 
-try:
-    from app.models.notification import (
-        Notification,
-        NotificationType,
-        NotificationPriority,
-        Alert,
-    )
-except ImportError:
-    Notification = None
-    NotificationType = None
-    NotificationPriority = None
-    Alert = None
+from app.models.notification import (
+    Notification,
+    NotificationType,
+    NotificationPriority,
+    Alert,
+)
 
-try:
-    from app.models.integration import Integration, IntegrationType, IntegrationStatus
-except ImportError:
-    Integration = None
-    IntegrationType = None
-    IntegrationStatus = None
+from app.models.integration import Integration, IntegrationType, IntegrationStatus
 
-# CORRECCIÓN: Lista __all__ completa incluyendo los opcionales
+# Exportaciones de compatibilidad.
 __all__ = [
     "User",
     "Rider",
@@ -87,7 +56,7 @@ __all__ = [
     "RoutePoint",
     "RouteDeviation",
     "RouteStatus",
-    # Opcionales (solo si se importaron)
+    # Modelos requeridos
     "Shift",
     "ShiftStatus",
     "CheckInOut",

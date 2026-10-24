@@ -13,10 +13,10 @@ TABLES = (
 )
 
 
-def mapping_contract():
+def mapping_contract(tables=TABLES):
     dialect = postgresql.dialect()
     contract = {}
-    for name in TABLES:
+    for name in tables:
         table = Base.metadata.tables[name]
         defaults = {}
         for column in table.columns:
@@ -41,5 +41,39 @@ def mapping_contract():
                 for column in table.columns
                 if hasattr(column.type, "enums")
             },
+        }
+    return contract
+
+
+def detailed_mapping_contract(tables):
+    contract = mapping_contract(tables)
+    for name in tables:
+        table = Base.metadata.tables[name]
+        contract[name]["foreign_keys"] = sorted(
+            (
+                dict(
+                    column=key.parent.name,
+                    target=key.target_fullname,
+                    ondelete=key.ondelete,
+                    onupdate=key.onupdate,
+                    use_alter=key.use_alter,
+                    name=key.name,
+                    deferrable=key.deferrable,
+                    initially=key.initially,
+                )
+                for key in table.foreign_keys
+            ),
+            key=lambda item: (item["column"], item["target"]),
+        )
+        contract[name]["enum_options"] = {
+            column.name: dict(
+                name=column.type.name,
+                schema=column.type.schema,
+                native_enum=column.type.native_enum,
+                create_constraint=column.type.create_constraint,
+                validate_strings=column.type.validate_strings,
+            )
+            for column in table.columns
+            if hasattr(column.type, "enums")
         }
     return contract

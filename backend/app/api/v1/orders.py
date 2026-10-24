@@ -12,6 +12,7 @@ import string
 import logging
 import math
 
+from app.core.serialization import optional_enum_value
 from app.core.database import get_db
 from app.core.delivery_rules import validate_delivery_otp
 from app.core.operation_permissions import (
@@ -139,17 +140,9 @@ def _serialize_order_rider(rider: Optional[Rider]) -> Optional[dict]:
         "full_name": full_name,
         "email": user.email if user else None,
         "phone": user.phone if user else None,
-        "vehicle_type": (
-            rider.vehicle_type.value
-            if hasattr(rider.vehicle_type, "value")
-            else str(rider.vehicle_type) if rider.vehicle_type else None
-        ),
+        "vehicle_type": optional_enum_value(rider.vehicle_type),
         "vehicle_plate": rider.vehicle_plate,
-        "status": (
-            rider.status.value
-            if hasattr(rider.status, "value")
-            else str(rider.status) if rider.status else None
-        ),
+        "status": optional_enum_value(rider.status),
         "is_online": bool(rider.is_online),
         "last_location_at": (
             rider.last_location_at.isoformat() if rider.last_location_at else None

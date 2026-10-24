@@ -17,7 +17,7 @@ from sqlalchemy import (
     JSON,
     Numeric,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
 from app.core.database import Base
@@ -125,7 +125,7 @@ class Delivery(Base):
         nullable=False,
         index=True,
     )
-    rider_id = Column(
+    rider_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("riders.id", ondelete="SET NULL"),
         nullable=False,
@@ -227,7 +227,7 @@ class Delivery(Base):
         nullable=True,
         comment="Multiplicador de tier aplicado. Para desglose frontend.",
     )
-    locked_bonus_tier_level = Column(
+    locked_bonus_tier_level: Mapped[str | None] = mapped_column(
         String(20),
         nullable=True,
         comment="Nivel del rider (BRONCE/PLATA/ORO/PLATINO) al momento del cálculo.",
