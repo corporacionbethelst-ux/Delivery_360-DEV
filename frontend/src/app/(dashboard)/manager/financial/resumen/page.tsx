@@ -13,7 +13,7 @@ export default function ManagerFinancialPage() {
   const router = useRouter();
   
   // ✅ CORRECCIÓN: Obtener estado del store de Zustand
-  const { user, isAuthenticated, checkAuth } = useAuthStore();
+  const { user, isAuthenticated } = useAuthStore();
   
   const [summary, setSummary] = useState<FinancialSummary | null>(null);
   const [period, setPeriod] = useState<'today' | 'week' | 'month'>('week');
@@ -21,9 +21,8 @@ export default function ManagerFinancialPage() {
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   useEffect(() => {
-    const verifyAuth = async () => {
-      // Aseguramos que el store tenga la información más reciente
-      await checkAuth();
+    const verifyAuth = () => {
+      // SessionGate verifies the server profile before this page mounts.
       
       const currentUser = useAuthStore.getState().user;
       const currentIsAuth = useAuthStore.getState().isAuthenticated;
@@ -37,7 +36,7 @@ export default function ManagerFinancialPage() {
     };
 
     verifyAuth();
-  }, [router, checkAuth]);
+  }, [router, isAuthenticated, user]);
 
   useEffect(() => {
     if (isCheckingAuth) return;
