@@ -9,6 +9,7 @@ import shutil, logging, secrets, uuid
 from pathlib import Path
 from app.core.config import settings
 
+from app.services.session_policy import ensure_session_allowed
 from app.core.database import get_db
 from app.core.security import (
     verify_password,
@@ -103,6 +104,7 @@ async def get_current_user(
     if not user or not user.is_active or user.role is None:
         raise credentials_exception
 
+    await ensure_session_allowed(db, user)
     return user
 
 
@@ -139,19 +141,7 @@ async def login(
         # Mensaje genérico por seguridad para no revelar si el email existe
         raise HTTPException(status_code=400, detail="Email o contraseña incorrectos")
 
-    # 2. VALIDACIÓN ESPECÍFICA PARA REPARTIDORES
-    if user.role == UserRole.REPARTIDOR:
-        rider_result = await db.execute(select(Rider).where(Rider.user_id == user.id))
-        rider = rider_result.scalar_one_or_none()
-
-        # Si no tiene perfil de rider o no está ACTIVO
-        if not rider or rider.status != RiderStatus.ACTIVO:
-            # Usamos status_code 400 para que el frontend lo trate como un error de formulario/mensaje visible
-            # y no como un error de prohibición genérico.
-            raise HTTPException(
-                status_code=403,
-                detail="Tu cuenta está pendiente de aprobación. Un gerente debe activarla antes de que puedas ingresar. Por favor contacta a soporte.",
-            )
+    await ensure_session_allowed(db, user)
 
     # 3. Actualizar último login
     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -191,6 +181,7 @@ async def refresh_token(
     if not user or user.role is None:
         raise HTTPException(status_code=401, detail="Usuario no encontrado")
 
+    await ensure_session_allowed(db, user)
     return TokenResponse(
         access_token=create_access_token(str(user.id)),
         refresh_token=create_refresh_token(str(user.id)),
