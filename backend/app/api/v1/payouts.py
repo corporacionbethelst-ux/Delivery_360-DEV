@@ -365,6 +365,37 @@ async def get_available_balance(
         }
 
 
+@router.get("/request-status")
+async def get_request_status(
+    idempotency_key: str = Query(..., min_length=1, max_length=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Read only the caller's request; a key is not an authorization token.
+
+    404 is a point-in-time observation, not proof an in-flight POST cannot
+    commit later. Clients must retain the original key when retrying.
+    """
+    if current_user.role != UserRole.REPARTIDOR:
+        raise HTTPException(
+            status_code=403, detail="Solo repartidores pueden consultar su solicitud"
+        )
+    key = idempotency_key.strip()
+    if not key:
+        raise HTTPException(status_code=422, detail="Clave de solicitud inválida")
+    payout = await db.scalar(
+        select(Payout)
+        .join(Rider, Payout.rider_id == Rider.id)
+        .where(
+            Rider.user_id == current_user.id,
+            Payout.idempotency_key == key,
+        )
+    )
+    if payout is None:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    return _serialize_payout(payout)
+
+
 @router.post("/request", status_code=201)
 async def request_payout(
     body: PayoutRequestBody,
