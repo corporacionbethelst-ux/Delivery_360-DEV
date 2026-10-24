@@ -11,6 +11,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
 const STATUS_CONFIG: Record<PayoutStatus, { label: string; color: string; icon: any; bg: string }> = {
+  APROBADO: { label: 'Aprobado', color: 'text-blue-700', icon: Clock, bg: 'bg-blue-100' },
+  EN_PROCESO: { label: 'En proceso', color: 'text-blue-700', icon: Loader2, bg: 'bg-blue-100' },
+  COMPLETADO: { label: 'Completado', color: 'text-emerald-700', icon: CheckCircle, bg: 'bg-emerald-100' },
+  FALLIDO: { label: 'Fallido', color: 'text-red-700', icon: AlertCircle, bg: 'bg-red-100' },
   PENDIENTE: { label: 'Pendiente', color: 'text-amber-700', icon: Clock, bg: 'bg-amber-100' },
   PROCESADO: { label: 'Procesado', color: 'text-emerald-700', icon: CheckCircle, bg: 'bg-emerald-100' },
   RECHAZADO: { label: 'Rechazado', color: 'text-red-700', icon: XCircle, bg: 'bg-red-100' },

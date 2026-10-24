@@ -28,6 +28,10 @@ const getErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
 
 const STATUS_COLORS: Record<PayoutStatus, string> = {
+  APROBADO: 'bg-blue-100 text-blue-800 border-blue-200',
+  EN_PROCESO: 'bg-blue-100 text-blue-800 border-blue-200',
+  COMPLETADO: 'bg-green-100 text-green-800 border-green-200',
+  FALLIDO: 'bg-red-100 text-red-800 border-red-200',
   PENDIENTE: 'bg-yellow-100 text-yellow-800 border-yellow-200',
   PROCESADO: 'bg-green-100 text-green-800 border-green-200',
   RECHAZADO: 'bg-red-100 text-red-800 border-red-200',
