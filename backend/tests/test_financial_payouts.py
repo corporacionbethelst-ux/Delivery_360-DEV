@@ -54,7 +54,9 @@ class _FakeDb:
         (TransactionType.AJUSTE, Decimal("-2.75"), Decimal("-2.75")),
     ],
 )
-def test_ledger_delta_uses_transaction_direction(transaction_type, amount, expected_delta):
+def test_ledger_delta_uses_transaction_direction(
+    transaction_type, amount, expected_delta
+):
     assert ledger_delta(amount, transaction_type) == expected_delta
 
 
@@ -63,31 +65,38 @@ def test_money_normalizes_to_two_decimals():
     assert money(None) == Decimal("0.00")
 
 
-@pytest.mark.asyncio
-async def test_create_ledger_entry_is_idempotent_when_key_exists():
-    existing = SimpleNamespace(id="existing-financial-id")
-    db = _FakeDb([existing])
+# These contracts now use persisted rows; incomplete stubs cannot validate
+# transaction/savepoint or strict operation-identity behavior.
+from tests.test_reconciliation_safety import reconciliation_context  # noqa: F401
 
-    result = await FinancialService(db).create_ledger_entry(
-        rider_id="rider-1",
+
+@pytest.mark.asyncio
+async def test_create_ledger_entry_is_idempotent_when_key_exists(
+    reconciliation_context,
+):
+    db, rider_id, _ = reconciliation_context
+    service = FinancialService(db)
+    first = await service.create_ledger_entry(
+        rider_id=rider_id,
         amount=Decimal("20.00"),
         transaction_type=TransactionType.PAGO_ENTREGA,
         idempotency_key="delivery-123",
     )
-
-    assert result is existing
-    assert db.added == []
-    db.commit.assert_not_awaited()
+    retry = await service.create_ledger_entry(
+        rider_id=rider_id,
+        amount=Decimal("20.00"),
+        transaction_type=TransactionType.PAGO_ENTREGA,
+        idempotency_key="delivery-123",
+    )
+    assert first.id == retry.id
+    assert await service.get_current_balance(rider_id) == Decimal("120.00")
 
 
 @pytest.mark.asyncio
-async def test_create_ledger_entry_calculates_processed_balance():
-    db = _FakeDb([None])
-    service = FinancialService(db)
-    service.get_current_balance = AsyncMock(return_value=Decimal("100.00"))
-
-    transaction = await service.create_ledger_entry(
-        rider_id="rider-1",
+async def test_create_ledger_entry_calculates_processed_balance(reconciliation_context):
+    db, rider_id, _ = reconciliation_context
+    transaction = await FinancialService(db).create_ledger_entry(
+        rider_id=rider_id,
         amount=Decimal("15.00"),
         transaction_type=TransactionType.RETIRO,
         source_type="PAYOUT",
@@ -96,32 +105,27 @@ async def test_create_ledger_entry_calculates_processed_balance():
         status=PaymentStatus.PROCESADO,
         commit=False,
     )
-
     assert transaction.balance_before == Decimal("100.00")
     assert transaction.balance_after == Decimal("85.00")
     assert transaction.source_type == "PAYOUT"
     assert transaction.source_id == "payout-1"
     assert transaction.idempotency_key == "payout-approve-1"
-    db.flush.assert_awaited_once()
-    db.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_create_ledger_entry_does_not_move_balance_for_pending_status():
-    db = _FakeDb([None])
-    service = FinancialService(db)
-    service.get_current_balance = AsyncMock(return_value=Decimal("42.00"))
-
-    transaction = await service.create_ledger_entry(
-        rider_id="rider-1",
+async def test_create_ledger_entry_does_not_move_balance_for_pending_status(
+    reconciliation_context,
+):
+    db, rider_id, _ = reconciliation_context
+    transaction = await FinancialService(db).create_ledger_entry(
+        rider_id=rider_id,
         amount=Decimal("99.00"),
         transaction_type=TransactionType.PAGO_ENTREGA,
         status=PaymentStatus.PENDIENTE,
         commit=False,
     )
-
-    assert transaction.balance_before == Decimal("42.00")
-    assert transaction.balance_after == Decimal("42.00")
+    assert transaction.balance_before == Decimal("100.00")
+    assert transaction.balance_after == Decimal("100.00")
 
 
 @pytest.mark.asyncio
@@ -141,6 +145,7 @@ async def test_calculate_available_balance_reserves_pending_and_processed_payout
 
 # === TESTS DE FASE 7: Estados de Payout en Español ===
 
+
 @pytest.mark.parametrize(
     "status_value",
     [
@@ -154,7 +159,14 @@ async def test_calculate_available_balance_reserves_pending_and_processed_payout
 )
 def test_payout_status_enum_spanish_values(status_value):
     """Verifica que los estados de payout estén en español."""
-    assert status_value in ["PENDIENTE", "APROBADO", "EN_PROCESO", "COMPLETADO", "RECHAZADO", "FALLIDO"]
+    assert status_value in [
+        "PENDIENTE",
+        "APROBADO",
+        "EN_PROCESO",
+        "COMPLETADO",
+        "RECHAZADO",
+        "FALLIDO",
+    ]
 
 
 def test_payout_status_complete_workflow():
@@ -164,7 +176,7 @@ def test_payout_status_complete_workflow():
     approved_status = PayoutStatus.APROBADO
     processing_status = PayoutStatus.EN_PROCESO
     final_status = PayoutStatus.COMPLETADO
-    
+
     # Verificar transiciones válidas
     assert initial_status.value == "PENDIENTE"
     assert approved_status.value == "APROBADO"
@@ -177,10 +189,10 @@ async def test_payout_rejection_restores_balance():
     """Prueba que rechazar un payout restaura el saldo pendiente."""
     # Simular DB con saldo total, payout pendiente y payout procesado
     db = _FakeDb([Decimal("100.00"), Decimal("20.00"), Decimal("0.00")])
-    
+
     # El saldo disponible debería ser 100 - 20 (pendiente) - 0 (procesado) = 80
     balance = await payouts_api._calculate_available_balance(db, rider_id="rider-1")
-    
+
     assert balance["available"] == 80.0
     assert balance["pending"] == 20.0
 
@@ -206,18 +218,18 @@ async def test_payout_status_transitions():
         processed_by_user_id=None,
         idempotency_key=None,
     )
-    
+
     # Verificar estado inicial
     assert payout_mock.status == PayoutStatus.PENDIENTE
-    
+
     # Transición a APROBADO
     payout_mock.status = PayoutStatus.APROBADO
     assert payout_mock.status.value == "APROBADO"
-    
+
     # Transición a EN_PROCESO
     payout_mock.status = PayoutStatus.EN_PROCESO
     assert payout_mock.status.value == "EN_PROCESO"
-    
+
     # Transición a COMPLETADO
     payout_mock.status = PayoutStatus.COMPLETADO
     assert payout_mock.status.value == "COMPLETADO"

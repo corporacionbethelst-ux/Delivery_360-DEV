@@ -27,7 +27,7 @@ export type TransactionStatus =
 type ApiTransaction = {
   id: string;
   rider_id?: string | null;
-  amount: number;
+  amount: number | string;
   transaction_type?: TransactionType;
   type?: TransactionType;
   description?: string | null;
@@ -36,7 +36,7 @@ type ApiTransaction = {
   created_at: string;
   updated_at?: string | null;
   processed_at?: string | null;
-  balance_after?: number | null;
+  balance_after?: number | string | null;
 };
 
 export interface Transaction {
@@ -99,9 +99,23 @@ const clampLimit = (limit?: number): number | undefined => {
   return Math.min(Math.max(Math.trunc(limit as number), 1), 500);
 };
 
+const finiteAmount = (value: unknown): number => {
+  if ((typeof value !== 'number' && typeof value !== 'string') ||
+      (typeof value === 'string' && !value.trim()) || !Number.isFinite(Number(value))) {
+    throw new Error('[TransactionService] Importe financiero inválido');
+  }
+  return Number(value);
+};
+
 const normalizeTransaction = (transaction: ApiTransaction): Transaction => {
   // Priorizar transaction_type, fallback a type
   const transactionType = transaction.transaction_type || transaction.type;
+
+  if (!transaction.id || !transactionType || typeof transactionType !== 'string') {
+    throw new Error('[TransactionService] Identidad de transacción inválida');
+  }
+  const amount = finiteAmount(transaction.amount);
+  const balance = transaction.balance_after == null ? null : finiteAmount(transaction.balance_after);
 
   // Validación suave: Si el tipo no está en la lista blanca, lo aceptamos pero lanzamos warning.
   // Esto evita que la UI se rompa si el backend agrega un nuevo tipo en el futuro.
@@ -111,7 +125,7 @@ const normalizeTransaction = (transaction: ApiTransaction): Transaction => {
   }
 
   // Normalización de estado si viene en formato ligeramente distinto
-  let normalizedStatus = transaction.status;
+  const normalizedStatus = transaction.status;
   if (!VALID_STATUSES.has(normalizedStatus)) {
      console.warn(`[TransactionService] Estado desconocido: ${normalizedStatus}. Se mantiene tal cual.`);
   }
@@ -122,7 +136,7 @@ const normalizeTransaction = (transaction: ApiTransaction): Transaction => {
     user_id: transaction.rider_id ?? null,
     transaction_type: transactionType as TransactionType,
     type: transactionType as TransactionType,
-    amount: Number(transaction.amount || 0),
+    amount,
     currency: 'COP',
     status: normalizedStatus,
     description: transaction.description || 'Sin descripción',
@@ -130,7 +144,7 @@ const normalizeTransaction = (transaction: ApiTransaction): Transaction => {
     created_at: transaction.created_at,
     updated_at: transaction.updated_at ?? null,
     processed_at: transaction.processed_at ?? null,
-    balance_after: transaction.balance_after ?? null,
+    balance_after: balance,
     metadata: {},
   };
 };

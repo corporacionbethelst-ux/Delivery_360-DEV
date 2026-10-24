@@ -2,12 +2,18 @@
 
 import logging
 from uuid import UUID
-from datetime import date, datetime
-from decimal import Decimal, ROUND_HALF_UP
+from datetime import date, datetime, timedelta
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Dict, Optional, Union, List, TypedDict
 
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
+from app.core.exceptions import (
+    DuplicateTransactionError,
+    NotFoundError,
+    ValidationError,
+)
 
 from app.models.financial import Financial, PaymentStatus, TransactionType
 from app.models.rider import Rider
@@ -18,6 +24,7 @@ logger = logging.getLogger(__name__)
 FinancialTransaction = Financial
 
 MONEY_QUANT = Decimal("0.01")
+MAX_LEDGER_CLOCK_SKEW = timedelta(seconds=5)
 BALANCE_IMPACT_STATUSES = {PaymentStatus.PROCESADO, PaymentStatus.PAGADO}
 
 # Tipos de crédito: aumentan el balance del rider (Fase 3 Inmutabilidad Financiera)
@@ -232,84 +239,154 @@ class FinancialService:
     async def create_ledger_entry(
         self,
         *,
-        rider_id: str,
-        amount: Decimal,
+        rider_id: str | UUID,
+        amount: Decimal | float | int | str,
         transaction_type: TransactionType,
         description: Optional[str] = None,
         reference_id: Optional[str] = None,
         source_type: Optional[str] = None,
         source_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
-        created_by_user_id: Optional[str] = None,
+        created_by_user_id: str | UUID | None = None,
         status: PaymentStatus = PaymentStatus.PROCESADO,
         balance_before: Optional[Decimal] = None,
         commit: bool = True,
     ) -> Financial:
-        """Crear un movimiento contable auditable e idempotente.
+        """Serialize ledger snapshots and validate idempotent operation identity.
 
-        Es el punto canónico de escritura para `financials`: calcula balance antes/después,
-        conserva trazabilidad de origen, respeta idempotencia y permite participar en una
-        transacción externa con `commit=False`.
+        commit=False retains transaction ownership in the caller. A savepoint
+        resolves a globally unique key race without committing caller changes.
         """
-        clean_idempotency_key = idempotency_key.strip() if idempotency_key else None
-        if clean_idempotency_key:
-            existing_result = await self.db.execute(
-                select(Financial).where(
-                    Financial.idempotency_key == clean_idempotency_key
-                )
+        try:
+            rider_uuid = UUID(str(rider_id))
+            actor_uuid = (
+                UUID(str(created_by_user_id))
+                if created_by_user_id is not None
+                else None
             )
-            existing = existing_result.scalar_one_or_none()
-            if existing:
-                return existing
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise ValidationError("Identificador financiero inválido") from exc
+        if not isinstance(transaction_type, TransactionType) or not isinstance(
+            status, PaymentStatus
+        ):
+            raise ValidationError("Tipo o estado financiero inválido")
+        try:
+            if isinstance(amount, bool) or not Decimal(str(amount)).is_finite():
+                raise InvalidOperation
+            normalized = money(amount)
+            if transaction_type in CREDIT_TYPES | DEBIT_TYPES:
+                normalized = abs(normalized)
+            if not normalized or abs(normalized) > Decimal("99999999.99"):
+                raise InvalidOperation
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            raise ValidationError("Monto financiero inválido o fuera de rango") from exc
+        if balance_before is not None:
+            try:
+                if isinstance(balance_before, bool) or not balance_before.is_finite():
+                    raise InvalidOperation
+                balance_before = money(balance_before)
+            except (InvalidOperation, ValueError, TypeError, AttributeError) as exc:
+                raise ValidationError("Saldo inicial inválido") from exc
+        key = idempotency_key.strip() if idempotency_key is not None else None
+        if key is not None and (not key or len(key) > 100):
+            raise ValidationError("Clave de idempotencia inválida")
 
-        normalized_amount = (
-            abs(money(amount))
-            if transaction_type in CREDIT_TYPES | DEBIT_TYPES
-            else money(amount)
-        )
-        before = (
-            money(balance_before)
-            if balance_before is not None
-            else await self.get_current_balance(rider_id)
-        )
-        delta = (
-            ledger_delta(normalized_amount, transaction_type)
-            if status in BALANCE_IMPACT_STATUSES
-            else Decimal("0.00")
-        )
-        after = before + delta
+        async def existing_entry() -> Financial | None:
+            if key is None:
+                return None
+            existing = await self.db.scalar(
+                select(Financial).where(Financial.idempotency_key == key)
+            )
+            if existing is not None and (
+                existing.rider_id != rider_uuid
+                or existing.amount != normalized
+                or existing.transaction_type != transaction_type
+                or existing.status != status
+                or existing.description != description
+                or existing.reference_id != reference_id
+                or existing.source_type != source_type
+                or existing.source_id != source_id
+                or existing.created_by_user_id != actor_uuid
+            ):
+                raise DuplicateTransactionError(
+                    "La clave de idempotencia identifica otro movimiento"
+                )
+            return existing
 
-        transaction = Financial(
-            rider_id=rider_id,
-            amount=normalized_amount,
-            balance_before=before,
-            balance_after=after,
-            transaction_type=transaction_type,
-            description=description,
-            reference_id=reference_id,
-            source_type=source_type,
-            source_id=source_id,
-            idempotency_key=clean_idempotency_key,
-            created_by_user_id=created_by_user_id,
-            status=status,
-        )
-        self.db.add(transaction)
-
-        if commit:
-            await self.db.commit()
-            await self.db.refresh(transaction)
-        else:
-            await self.db.flush()
-
-        logger.info(
-            "Movimiento financiero creado: %s para rider %s", transaction.id, rider_id
-        )
-        return transaction
+        try:
+            try:
+                async with self.db.begin_nested():
+                    parent = await self.db.scalar(
+                        select(Rider.id).where(Rider.id == rider_uuid).with_for_update()
+                    )
+                    if parent is None:
+                        raise NotFoundError("Repartidor no encontrado")
+                    transaction = await existing_entry()
+                    if transaction is None:
+                        before = await self.get_current_balance(rider_uuid)
+                        if (
+                            balance_before is not None
+                            and money(balance_before) != before
+                        ):
+                            raise ValidationError(
+                                "El saldo inicial no coincide con el ledger actual"
+                            )
+                        delta = (
+                            ledger_delta(normalized, transaction_type)
+                            if status in BALANCE_IMPACT_STATUSES
+                            else Decimal("0.00")
+                        )
+                        after = before + delta
+                        if abs(after) > Decimal("99999999.99"):
+                            raise ValidationError(
+                                "El saldo contable excede el rango permitido"
+                            )
+                        latest = await self.db.scalar(
+                            select(func.max(Financial.created_at)).where(
+                                Financial.rider_id == rider_uuid
+                            )
+                        )
+                        created_at = datetime.utcnow()
+                        if latest is not None and created_at <= latest:
+                            if latest - created_at > MAX_LEDGER_CLOCK_SKEW:
+                                raise ValidationError(
+                                    "La cronología del ledger requiere revisión antes de escribir"
+                                )
+                            created_at = latest + timedelta(microseconds=1)
+                        transaction = Financial(
+                            rider_id=rider_uuid,
+                            amount=normalized,
+                            balance_before=before,
+                            balance_after=after,
+                            transaction_type=transaction_type,
+                            description=description,
+                            reference_id=reference_id,
+                            source_type=source_type,
+                            source_id=source_id,
+                            idempotency_key=key,
+                            created_by_user_id=actor_uuid,
+                            status=status,
+                            created_at=created_at,
+                        )
+                        self.db.add(transaction)
+                        await self.db.flush()
+            except IntegrityError:
+                # The savepoint reverted the losing insert, not the outer unit.
+                transaction = await existing_entry()
+                if transaction is None:
+                    raise
+            if commit:
+                await self.db.commit()
+            return transaction
+        except BaseException:
+            if commit:
+                await self.db.rollback()
+            raise
 
     async def create_transaction(
         self,
         rider_id: str,
-        amount: Decimal,
+        amount: Decimal | float | int | str,
         transaction_type: TransactionType,
         description: Optional[str] = None,
         reference_id: Optional[str] = None,
