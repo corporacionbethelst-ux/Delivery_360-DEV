@@ -31,7 +31,7 @@ export const resolveOrderCollectAmount = (order: OrderAmountSource): number => {
   const subtotal = toFiniteNumber(order.subtotal) ?? 0;
   const deliveryFee = toFiniteNumber(order.delivery_fee) ?? 0;
   const subtotalAmount = subtotal + deliveryFee;
-  if (subtotalAmount > 0) return subtotalAmount;
+  if (subtotal > 0 && subtotalAmount > 0) return subtotalAmount;
 
   const itemsAmount = order.items?.reduce((sum, item) => {
     const explicitSubtotal = toFiniteNumber(item.subtotal);
@@ -42,5 +42,5 @@ export const resolveOrderCollectAmount = (order: OrderAmountSource): number => {
     return sum + quantity * unitPrice;
   }, 0) ?? 0;
 
-  return itemsAmount > 0 ? itemsAmount + deliveryFee : 0;
+  return Math.max(0, itemsAmount > 0 ? itemsAmount + deliveryFee : deliveryFee);
 };

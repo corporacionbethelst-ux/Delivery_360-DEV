@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from decimal import Decimal
-from typing import List, Optional
+from uuid import UUID
 from datetime import date, datetime
 
 from app.core.database import get_db
@@ -18,144 +18,144 @@ router = APIRouter(prefix="/reconciliation", tags=["Reconciliation"])
 
 @router.get("/wallet/{rider_id}")
 async def reconcile_rider_wallet(
-    rider_id: str,
+    rider_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.SUPERADMIN, UserRole.GERENTE])),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ):
-    """Verificar y corregir inconsistencias entre wallet_balance y el ledger de un rider.
-
-    Este endpoint compara el saldo almacenado en la tabla riders con la suma real
-    de todas las transacciones en el ledger financiero. Si encuentra una diferencia
-    mayor a 0.01, crea automáticamente una transacción de ajuste.
-    """
-    service = FinancialService(db)
-    result = await service.reconcile_wallet_with_ledger(rider_id)
-
+    """Report the current discrepancy without modifying balances or ledger."""
+    result = await FinancialService(db).reconcile_wallet_with_ledger(str(rider_id))
     if result["status"] == "error":
         raise HTTPException(status_code=404, detail=result["message"])
+    return result
 
+
+@router.post("/wallet/{rider_id}/sync")
+async def synchronize_rider_wallet(
+    rider_id: UUID,
+    dry_run: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN)),
+):
+    """Explicitly synchronize only the cached balance; preview by default."""
+    result = await FinancialService(db).reconcile_wallet_with_ledger(
+        str(rider_id), dry_run=dry_run
+    )
+    if result["status"] == "error":
+        raise HTTPException(status_code=404, detail=result["message"])
     return result
 
 
 @router.get("/batch/daily")
 async def daily_reconciliation_report(
-    target_date: date = Query(
-        default=None, description="Fecha a reconciliar (YYYY-MM-DD)"
+    target_date: date | None = Query(
+        None, description="Fecha actual UTC; no hay snapshot histórico de la caché"
     ),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.SUPERADMIN, UserRole.GERENTE])),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ):
-    """Generar reporte diario de reconciliación para todos los riders activos.
-
-    No corrige automáticamente, solo reporta discrepancias encontradas.
-    """
-    if target_date is None:
-        target_date = datetime.utcnow().date()
-
-    # Obtener todos los riders activos
-    result = await db.execute(select(Rider).where(Rider.status == "ACTIVO"))
-    active_riders = result.scalars().all()
-
-    report = {
-        "date": target_date.isoformat(),
-        "total_riders": len(active_riders),
-        "ok_count": 0,
-        "discrepancy_count": 0,
-        "total_discrepancy_amount": 0.0,
-        "details": [],
-    }
-
-    for rider in active_riders:
-        # Calcular balance del ledger
-        service = FinancialService(db)
-        ledger_balance = await service.get_current_balance(str(rider.id))
-        stored_balance = Decimal(str(rider.wallet_balance or 0))
-        difference = abs(ledger_balance - stored_balance)
-
-        if difference <= Decimal("0.01"):
-            report["ok_count"] += 1
-        else:
-            report["discrepancy_count"] += 1
-            report["total_discrepancy_amount"] += float(difference)
-            report["details"].append(
+    """Report current cache discrepancies; historical cache snapshots do not exist."""
+    today = datetime.utcnow().date()
+    if target_date is not None and target_date != today:
+        raise HTTPException(
+            status_code=422,
+            detail="Solo se puede comparar la caché actual; no hay snapshots históricos",
+        )
+    riders = (
+        await db.execute(
+            select(Rider.id, User.first_name, User.last_name)
+            .join(User, Rider.user_id == User.id)
+            .where(Rider.status == "ACTIVO")
+        )
+    ).all()
+    details = []
+    ok_count = 0
+    total = Decimal("0.00")
+    for rider in riders:
+        rider_id = rider.id
+        item = await FinancialService(db).reconcile_wallet_with_ledger(str(rider_id))
+        if item["status"] == "ok":
+            ok_count += 1
+        elif item["status"] == "discrepancy":
+            total += Decimal(str(item["difference"]))
+            details.append(
                 {
-                    "rider_id": str(rider.id),
-                    "rider_name": (
-                        f"{rider.user.first_name} {rider.user.last_name}"
-                        if rider.user
-                        else "N/A"
-                    ),
-                    "ledger_balance": float(ledger_balance),
-                    "stored_balance": float(stored_balance),
-                    "difference": float(difference),
+                    "rider_id": str(rider_id),
+                    "rider_name": f"{rider.first_name} {rider.last_name}",
+                    **item,
                 }
             )
-
-    return report
+    return {
+        "date": today.isoformat(),
+        "total_riders": len(riders),
+        "ok_count": ok_count,
+        "discrepancy_count": len(details),
+        "total_discrepancy_amount": float(total),
+        "details": details,
+    }
 
 
 @router.post("/fix-all-discrepancies")
 async def fix_all_discrepancies(
-    dry_run: bool = Query(
-        default=True, description="Si es True, solo reporta sin corregir"
-    ),
+    dry_run: bool = Query(True),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.SUPERADMIN])),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN)),
 ):
-    """Corregir automáticamente todas las discrepancias encontradas.
+    """Preview by default; explicit application syncs caches without ledger entries.
 
-    ADVERTENCIA: Esta operación crea transacciones de ajuste automáticas.
-    Usar dry_run=True primero para revisar antes de ejecutar.
+    Each rider is committed independently. Failures roll back that rider and are
+    reported explicitly; the response does not claim batch-wide atomicity.
     """
-    result = await db.execute(select(Rider).where(Rider.status == "ACTIVO"))
-    active_riders = result.scalars().all()
-
+    rider_ids = list(
+        (await db.scalars(select(Rider.id).where(Rider.status == "ACTIVO"))).all()
+    )
     fixed_count = 0
+    discrepancy_count = 0
     error_count = 0
-    total_adjusted = 0.0
+    total = Decimal("0.00")
     details = []
-
-    for rider in active_riders:
+    for rider_id in rider_ids:
         try:
-            service = FinancialService(db)
-            recon_result = await service.reconcile_wallet_with_ledger(str(rider.id))
-
-            if recon_result["status"] == "reconciled":
-                fixed_count += 1
-                total_adjusted += abs(recon_result["adjustment_amount"])
-                details.append(
-                    {
-                        "rider_id": str(rider.id),
-                        "adjustment_amount": recon_result["adjustment_amount"],
-                        "new_balance": recon_result["ledger_balance"],
-                    }
-                )
-            elif recon_result["status"] == "ok":
-                pass  # Sin acción necesaria
-        except Exception as e:
+            item = await FinancialService(db).reconcile_wallet_with_ledger(
+                str(rider_id), dry_run=dry_run
+            )
+            if item["status"] in ("reconciled", "discrepancy"):
+                discrepancy_count += 1
+                if item["status"] == "reconciled":
+                    fixed_count += 1
+                total += abs(Decimal(str(item["adjustment_amount"])))
+                details.append({"rider_id": str(rider_id), **item})
+            elif item["status"] == "error":
+                error_count += 1
+                details.append({"rider_id": str(rider_id), "error": item["message"]})
+        except Exception:
+            await db.rollback()
             error_count += 1
-            details.append({"rider_id": str(rider.id), "error": str(e)})
-
+            details.append(
+                {
+                    "rider_id": str(rider_id),
+                    "error": "No se pudo conciliar este repartidor",
+                }
+            )
     return {
         "dry_run": dry_run,
         "fixed_count": fixed_count,
+        "discrepancy_count": discrepancy_count,
         "error_count": error_count,
-        "total_adjusted_amount": total_adjusted,
-        "details": details[:50],  # Limitar a primeros 50 para no saturar respuesta
+        "total_adjusted_amount": 0.0 if dry_run else float(total),
+        "total_discrepancy_amount": float(total),
+        "details": details[:50],
     }
 
 
 @router.get("/audit/ledger-integrity")
 async def audit_ledger_integrity(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.SUPERADMIN, UserRole.AUDITOR])),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.AUDITOR)),
 ):
     """Auditoría completa de integridad del ledger financiero.
 
-    Verifica:
-    1. Que todas las transacciones tengan balance_before/balance_after consistentes
-    2. Que no haya saltos en la secuencia de balances
-    3. Que la suma de deltas coincida con el balance final
+    Cuenta balances ausentes y la distribución por tipo. No demuestra continuidad
+    de saldos ni valida la aritmética de cada asiento.
     """
     from app.models.financial import Financial
 

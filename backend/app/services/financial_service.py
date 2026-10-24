@@ -1,11 +1,12 @@
 """Servicio canónico para operaciones contables de Delivery360."""
 
 import logging
+from uuid import UUID
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Dict, Optional, Union, List
+from typing import Dict, Optional, Union, List, TypedDict
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.financial import Financial, PaymentStatus, TransactionType
@@ -57,6 +58,16 @@ def ledger_delta(amount: Decimal, transaction_type: TransactionType) -> Decimal:
     return normalized
 
 
+class WalletReconciliation(TypedDict):
+    status: str
+    message: str
+    ledger_balance: float
+    stored_balance: float
+    difference: float
+    adjustment_amount: float
+    dry_run: bool
+
+
 class FinancialService:
     """Servicio transaccional para escritura y consulta del ledger financiero.
 
@@ -69,7 +80,7 @@ class FinancialService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def get_current_balance(self, rider_id: str) -> Decimal:
+    async def get_current_balance(self, rider_id: str | UUID) -> Decimal:
         """Obtener el último balance contable procesado del rider.
 
         Usa balance_after de la última transacción como fuente de verdad.
@@ -77,7 +88,10 @@ class FinancialService:
         """
         result = await self.db.execute(
             select(Financial.balance_after)
-            .where(Financial.rider_id == rider_id)
+            .where(
+                Financial.rider_id == UUID(str(rider_id)),
+                Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
+            )
             .order_by(Financial.created_at.desc(), Financial.id.desc())
             .limit(1)
         )
@@ -88,24 +102,22 @@ class FinancialService:
         # Fallback para instalaciones migradas sin balance histórico poblado.
         earnings_result = await self.db.execute(
             select(func.coalesce(func.sum(Financial.amount), 0)).where(
-                Financial.rider_id == rider_id,
+                Financial.rider_id == UUID(str(rider_id)),
                 Financial.transaction_type.in_(list(CREDIT_TYPES)),
                 Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
             )
         )
         deductions_result = await self.db.execute(
             select(func.coalesce(func.sum(Financial.amount), 0)).where(
-                Financial.rider_id == rider_id,
+                Financial.rider_id == UUID(str(rider_id)),
                 Financial.transaction_type.in_(list(DEBIT_TYPES)),
                 Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
             )
         )
         adjustments_result = await self.db.execute(
             select(func.coalesce(func.sum(Financial.amount), 0)).where(
-                Financial.rider_id == rider_id,
-                Financial.transaction_type.in_(
-                    [TransactionType.AJUSTE, TransactionType.AJUSTE_MANUAL]
-                ),
+                Financial.rider_id == UUID(str(rider_id)),
+                Financial.transaction_type.in_([TransactionType.AJUSTE]),
                 Financial.status.in_(list(BALANCE_IMPACT_STATUSES)),
             )
         )
@@ -145,95 +157,77 @@ class FinancialService:
         Raises:
             ValueError: Si el rider no existe
         """
-        from app.models.rider import Rider
-
-        # Obtener estado actual
-        result = await self.db.execute(select(Rider).where(Rider.id == rider_id))
-        rider = result.scalar_one_or_none()
-
-        if not rider:
+        statement = update(Rider).where(Rider.id == UUID(str(rider_id)))
+        if expected_version is not None:
+            statement = statement.where(Rider.version == expected_version)
+        result = await self.db.execute(
+            statement.values(
+                wallet_balance=money(new_balance), version=Rider.version + 1
+            ).returning(Rider.id)
+        )
+        if result.scalar_one_or_none() is not None:
+            return True
+        exists = await self.db.scalar(
+            select(Rider.id).where(Rider.id == UUID(str(rider_id)))
+        )
+        if exists is None:
             raise ValueError(f"Rider {rider_id} no encontrado")
+        return False
 
-        # Validar versión si se proporcionó
-        if expected_version is not None and rider.version != expected_version:
-            logger.warning(
-                f"Conflicto de versión para rider {rider_id}: "
-                f"esperada={expected_version}, actual={rider.version}"
-            )
-            return False
+    async def reconcile_wallet_with_ledger(
+        self, rider_id: str, *, dry_run: bool = True
+    ) -> WalletReconciliation:
+        """Compare a cached balance with the ledger; only explicit writes sync it.
 
-        # Actualizar balance e incrementar versión
-        rider.wallet_balance = money(new_balance)
-        rider.version = (rider.version or 0) + 1
-
-        await self.db.flush()
-        return True
-
-    async def reconcile_wallet_with_ledger(self, rider_id: str) -> Dict[str, any]:
-        """Verificar y corregir inconsistencias entre wallet y ledger.
-
-        Compara el wallet_balance almacenado vs la suma real de transacciones.
-        Si hay diferencia > 0.01, crea un ajuste automático.
-
-        Returns:
-            Dict con estado de reconciliación y detalles
+        A cache discrepancy is not a real earning or debit. Never fabricate a
+        ledger entry to reconcile the cache, or the source balance changes too.
         """
-        from app.models.rider import Rider
-
-        # Obtener balance del ledger (suma de todas las transacciones)
-        ledger_balance = await self.get_current_balance(rider_id)
-
-        # Obtener balance almacenado en wallet
-        result = await self.db.execute(select(Rider).where(Rider.id == rider_id))
-        rider = result.scalar_one_or_none()
-
-        if not rider:
-            return {"status": "error", "message": "Rider no encontrado"}
-
-        stored_balance = money(rider.wallet_balance or 0)
-        difference = abs(ledger_balance - stored_balance)
-
-        if difference <= Decimal("0.01"):
-            return {
-                "status": "ok",
+        statement = select(Rider.wallet_balance, Rider.version).where(
+            Rider.id == UUID(str(rider_id))
+        )
+        if not dry_run:
+            statement = statement.with_for_update()
+        try:
+            row = (await self.db.execute(statement)).one_or_none()
+            if row is None:
+                return {
+                    "status": "error",
+                    "message": "Rider no encontrado",
+                    "ledger_balance": 0.0,
+                    "stored_balance": 0.0,
+                    "difference": 0.0,
+                    "adjustment_amount": 0.0,
+                    "dry_run": dry_run,
+                }
+            ledger_balance = await self.get_current_balance(rider_id)
+            stored_balance = money(row.wallet_balance)
+            adjustment = ledger_balance - stored_balance
+            difference = abs(adjustment)
+            result: WalletReconciliation = {
+                "status": "ok" if difference <= MONEY_QUANT else "discrepancy",
+                "message": "",
                 "ledger_balance": float(ledger_balance),
                 "stored_balance": float(stored_balance),
-                "difference": 0.00,
+                "difference": float(difference),
+                "adjustment_amount": float(adjustment),
+                "dry_run": dry_run,
             }
-
-        # Hay discrepancia significativa - crear ajuste automático
-        logger.warning(
-            f"Discrepancia detectada para rider {rider_id}: "
-            f"ledger={ledger_balance}, stored={stored_balance}, diff={difference}"
-        )
-
-        # Crear transacción de ajuste
-        adjustment_type = TransactionType.AJUSTE_MANUAL
-        adjustment_amount = ledger_balance - stored_balance
-
-        await self.create_ledger_entry(
-            rider_id=rider_id,
-            amount=abs(adjustment_amount),
-            transaction_type=adjustment_type,
-            description=f"Ajuste automático por reconciliación (diff: {difference})",
-            source_type="RECONCILIATION_JOB",
-            source_id=f"recon_{datetime.utcnow().isoformat()}",
-            status=PaymentStatus.PROCESADO,
-            commit=True,
-        )
-
-        # Actualizar wallet al valor correcto
-        rider.wallet_balance = ledger_balance
-        rider.version = (rider.version or 0) + 1
-        await self.db.commit()
-
-        return {
-            "status": "reconciled",
-            "ledger_balance": float(ledger_balance),
-            "stored_balance": float(stored_balance),
-            "difference": float(difference),
-            "adjustment_amount": float(adjustment_amount),
-        }
+            if not dry_run:
+                if difference > MONEY_QUANT:
+                    await self.db.execute(
+                        update(Rider)
+                        .where(Rider.id == UUID(str(rider_id)))
+                        .values(
+                            wallet_balance=ledger_balance, version=Rider.version + 1
+                        )
+                    )
+                    result["status"] = "reconciled"
+                await self.db.commit()
+            return result
+        except Exception:
+            if not dry_run:
+                await self.db.rollback()
+            raise
 
     async def create_ledger_entry(
         self,
@@ -383,7 +377,7 @@ class FinancialService:
                 func.count(Financial.id).label("count"),
             ).where(
                 and_(
-                    Financial.rider_id == rider_id,
+                    Financial.rider_id == UUID(str(rider_id)),
                     Financial.created_at >= start_dt,
                     Financial.created_at <= end_dt,
                     Financial.transaction_type.in_(list(CREDIT_TYPES)),
@@ -397,7 +391,7 @@ class FinancialService:
             "total_amount": money(row.total),
             "period_start": start_dt,
             "period_end": end_dt,
-            "transaction_count": row.count or 0,
+            "transaction_count": row._mapping["count"] or 0,
             "status": "calculated",
         }
 
