@@ -247,3 +247,26 @@ async def test_legacy_paymentstatus_without_pagado_can_read_existing_balances(
         balance = await api._calculate_available_balance(session, rider_id)
         assert balance["available"] == 100
         assert balance["total_earned"] == 100
+
+
+@pytest.mark.asyncio
+async def test_recovery_key_lookup_in_postgresql_is_scoped_to_the_owner(pg_requests):
+    sessions, _, users, _ = pg_requests
+    payout = await request(sessions, users[0], 60, "recover-postgres")
+    async with sessions() as session:
+        owner = await session.scalar(select(User).where(User.id == users[0]))
+        result = await api.get_request_status(
+            "recover-postgres", db=session, current_user=owner
+        )
+        assert result["id"] == payout["id"]
+        other = await session.scalar(select(User).where(User.id == users[1]))
+        with pytest.raises(HTTPException) as denied:
+            await api.get_request_status(
+                "recover-postgres", db=session, current_user=other
+            )
+        assert denied.value.status_code == 404
+        assert await session.scalar(select(func.count()).select_from(Payout)) == 1
+        assert (
+            await session.scalar(select(func.count()).select_from(PayoutStatusHistory))
+            == 1
+        )

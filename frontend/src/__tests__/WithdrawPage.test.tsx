@@ -6,9 +6,11 @@ const mockRouter = { push: jest.fn(), back: jest.fn() };
 const mockUser = { id: 'rider-user', role: 'REPARTIDOR' };
 jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }));
 jest.mock('@/stores/authStore', () => ({ useAuthStore: () => ({ user: mockUser, isAuthenticated: true }) }));
-jest.mock('@/services/payout.service', () => ({ payoutService: { getAvailableBalance: jest.fn(), requestPayout: jest.fn() }, createPayoutIdempotencyKey: jest.fn() }));
+jest.mock('@/services/payout.service', () => ({ payoutService: { getAvailableBalance: jest.fn(), requestPayout: jest.fn(), findRequestByKey: jest.fn() }, createPayoutIdempotencyKey: jest.fn(), payoutHttpStatus: jest.requireActual('@/services/payout.service').payoutHttpStatus }));
 beforeEach(() => {
   jest.resetAllMocks();
+  sessionStorage.clear();
+  jest.mocked(payoutService.findRequestByKey).mockResolvedValue(null);
   jest.mocked(payoutService.getAvailableBalance).mockResolvedValue({ available: 100, pending: 0 });
   jest.mocked(payoutService.requestPayout).mockRejectedValue(new Error('Network unavailable'));
   jest.mocked(createPayoutIdempotencyKey).mockReturnValueOnce('intent-1').mockReturnValueOnce('intent-2');
@@ -25,7 +27,8 @@ it('reuses the same key after an uncertain response instead of starting another 
   expect(jest.mocked(payoutService.requestPayout).mock.calls.map(([data]) => data.idempotency_key)).toEqual(['intent-1', 'intent-1']);
   expect(createPayoutIdempotencyKey).toHaveBeenCalledTimes(1);
 });
-it('creates a new intent when the requested amount changes', async () => {
+it('creates a new intent after a definite rejection when the amount changes', async () => {
+  jest.mocked(payoutService.requestPayout).mockRejectedValueOnce({ response: { status: 400 } });
   render(<WithdrawPage />);
   const amount = await screen.findByLabelText('Monto a Retirar');
   fireEvent.change(amount, { target: { value: '60' } });
@@ -43,4 +46,76 @@ it('does not submit an incomplete bank suffix', async () => {
   submit();
   expect(await screen.findByText('Ingresa los cuatro dígitos completos de la cuenta.')).toBeInTheDocument();
   expect(payoutService.requestPayout).not.toHaveBeenCalled();
+});
+it('restores an uncertain request after remount and retries the original key even with a lower balance', async () => {
+  const page = render(<WithdrawPage />);
+  fireEvent.change(await screen.findByLabelText('Monto a Retirar'), { target: { value: '60' } });
+  submit();
+  await screen.findByText('Error al procesar. Intenta más tarde.');
+  page.unmount();
+  jest.mocked(payoutService.getAvailableBalance).mockResolvedValue({ available: 40, pending: 60 });
+  render(<WithdrawPage />);
+  await screen.findByText('La solicitud aún no aparece registrada. Puedes consultar de nuevo o reintentar la misma solicitud.');
+  expect(screen.getByLabelText('Monto a Retirar')).toHaveValue(60);
+  expect(screen.getByLabelText('Monto a Retirar')).toBeDisabled();
+  submit();
+  await waitFor(() => expect(payoutService.requestPayout).toHaveBeenCalledTimes(2));
+  expect(jest.mocked(payoutService.requestPayout).mock.calls.map(([data]) => data.idempotency_key)).toEqual(['intent-1', 'intent-1']);
+  expect(createPayoutIdempotencyKey).toHaveBeenCalledTimes(1);
+});
+it('recovers the authoritative request after remount without submitting again', async () => {
+  const page = render(<WithdrawPage />);
+  fireEvent.change(await screen.findByLabelText('Monto a Retirar'), { target: { value: '60' } });
+  submit();
+  await screen.findByText('Error al procesar. Intenta más tarde.');
+  page.unmount();
+  jest.mocked(payoutService.findRequestByKey).mockResolvedValue({ id: 'registered', rider_id: 'rider-1', amount: 60, total_amount: 60, status: 'RECHAZADO', method: 'TRANSFERENCIA', requested_at: '2026-10-24', created_at: '2026-10-24', updated_at: '2026-10-24' });
+  render(<WithdrawPage />);
+  expect(await screen.findByText('Solicitud encontrada')).toBeInTheDocument();
+  expect(screen.getByText('Estado actual: RECHAZADO')).toBeInTheDocument();
+  expect(payoutService.requestPayout).toHaveBeenCalledTimes(1);
+  expect(sessionStorage.getItem('delivery360-withdrawal-v1:rider-user')).toBeNull();
+});
+it('does not send a request if its recovery metadata cannot be saved', async () => {
+  render(<WithdrawPage />);
+  fireEvent.change(await screen.findByLabelText('Monto a Retirar'), { target: { value: '60' } });
+  const storage = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Unavailable'); });
+  submit();
+  expect(await screen.findByText('El navegador no pudo conservar la solicitud. Revisa tu historial y la configuración del navegador antes de continuar.')).toBeInTheDocument();
+  expect(payoutService.requestPayout).not.toHaveBeenCalled();
+  storage.mockRestore();
+});
+it('keeps the original key when a retry is rejected after an earlier uncertain response', async () => {
+  render(<WithdrawPage />);
+  fireEvent.change(await screen.findByLabelText('Monto a Retirar'), { target: { value: '60' } });
+  submit();
+  await screen.findByText('Error al procesar. Intenta más tarde.');
+  jest.mocked(payoutService.requestPayout).mockRejectedValueOnce({ response: { status: 400 } });
+  submit();
+  await waitFor(() => expect(payoutService.requestPayout).toHaveBeenCalledTimes(2));
+  await screen.findByRole('button', { name: 'Reintentar misma solicitud' });
+  expect(screen.getByLabelText('Monto a Retirar')).toBeDisabled();
+  expect(JSON.parse(sessionStorage.getItem('delivery360-withdrawal-v1:rider-user') || '{}').key).toBe('intent-1');
+});
+it('shows the final server status when retrying an uncertain request', async () => {
+  render(<WithdrawPage />);
+  fireEvent.change(await screen.findByLabelText('Monto a Retirar'), { target: { value: '60' } });
+  submit();
+  await screen.findByText('Error al procesar. Intenta más tarde.');
+  jest.mocked(payoutService.requestPayout).mockResolvedValueOnce({ id: 'registered', rider_id: 'rider-1', amount: 60, total_amount: 60, status: 'RECHAZADO', method: 'TRANSFERENCIA', requested_at: '2026-10-24', created_at: '2026-10-24', updated_at: '2026-10-24' });
+  submit();
+  expect(await screen.findByText('Solicitud encontrada')).toBeInTheDocument();
+  expect(screen.getByText('Estado actual: RECHAZADO')).toBeInTheDocument();
+  expect(sessionStorage.getItem('delivery360-withdrawal-v1:rider-user')).toBeNull();
+});
+it('retains recovery metadata when the status service is unavailable', async () => {
+  sessionStorage.setItem('delivery360-withdrawal-v1:rider-user', JSON.stringify({ version: 1, userId: 'rider-user', key: 'original-key', amountCents: 6000, bankLast4: '' }));
+  jest.mocked(payoutService.findRequestByKey).mockRejectedValueOnce(new Error('Unavailable'));
+  render(<WithdrawPage />);
+  await screen.findByText('No se pudo confirmar la solicitud. Conservamos sus datos para reintentar sin crear otra.');
+  expect(payoutService.requestPayout).not.toHaveBeenCalled();
+  submit();
+  await waitFor(() => expect(payoutService.requestPayout).toHaveBeenCalledTimes(1));
+  expect(payoutService.requestPayout).toHaveBeenCalledWith(expect.objectContaining({ idempotency_key: 'original-key' }));
+  expect(createPayoutIdempotencyKey).not.toHaveBeenCalled();
 });

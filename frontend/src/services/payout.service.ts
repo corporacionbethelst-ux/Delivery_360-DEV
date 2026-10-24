@@ -148,7 +148,29 @@ export const createPayoutIdempotencyKey = (): string => {
   return `payout-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 };
 
+export const payoutHttpStatus = (error: unknown): number | undefined => {
+  if (typeof error === 'object' && error !== null && 'response' in error) {
+    const response = error.response;
+    if (typeof response === 'object' && response !== null && 'status' in response && typeof response.status === 'number') {
+      return response.status;
+    }
+  }
+  return undefined;
+};
+
 export const payoutService = {
+  /** A 404 does not cancel an in-flight request; retain its key for retry. */
+  findRequestByKey: async (key: string): Promise<Payout | null> => {
+    if (!key.trim() || key.length > 100) throw new Error('Clave de solicitud inválida');
+    try {
+      const response = await api.get<ApiPayout>(`/payouts/request-status?idempotency_key=${encodeURIComponent(key)}`);
+      return normalizePayout(response);
+    } catch (error: unknown) {
+      if (payoutHttpStatus(error) === 404) return null;
+      throw error;
+    }
+  },
+
   /** Obtener historial real de retiros con filtros opcionales. */
   getAll: async (params?: Readonly<PayoutFilters>): Promise<Payout[]> => {
     try {
