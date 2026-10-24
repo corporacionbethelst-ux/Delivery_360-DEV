@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, case
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select, func, case, cast, String, or_, and_
 from typing import Optional
 from decimal import Decimal
 import asyncio
@@ -11,8 +12,11 @@ import logging
 from app.core.database import get_db
 from app.models.payout import Payout, PayoutStatus, PayoutMethod, PayoutStatusHistory
 from app.models.financial import Financial, TransactionType, PaymentStatus
-from app.services.financial_service import FinancialService, CREDIT_TYPES
-from app.services.notification_service import NotificationService
+from app.services.financial_service import (
+    FinancialService,
+    CREDIT_TYPES,
+    processed_ledger_filter,
+)
 from app.services.redis_audit_service import get_redis_audit_logger
 from app.services.audit_service import get_audit_service
 from app.models.rider import Rider
@@ -40,10 +44,21 @@ def _order_earning_amount_expr():
 
 
 class PayoutRequestBody(BaseModel):
-    amount: float = Field(..., gt=0)
+    amount: Decimal = Field(
+        ..., gt=0, le=Decimal("99999999.99"), max_digits=10, decimal_places=2
+    )
     method: PayoutMethod = PayoutMethod.TRANSFERENCIA
-    bank_account_last4: Optional[str] = Field(None, max_length=10)
-    idempotency_key: Optional[str] = Field(None, max_length=100)
+    bank_account_last4: Optional[str] = Field(None, pattern=r"^[0-9]{4}$")
+    idempotency_key: Optional[str] = Field(None, min_length=1, max_length=100)
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def nonblank_key(cls, value: str | None) -> str | None:
+        if value is not None:
+            value = value.strip()
+            if not value:
+                raise ValueError("La clave de idempotencia no puede estar vacía")
+        return value
 
 
 class PayoutRejectBody(BaseModel):
@@ -136,53 +151,125 @@ def _serialize_status_history(row: PayoutStatusHistory):
 async def _calculate_available_balance(
     db: AsyncSession, rider_id, exclude_payout_id=None
 ) -> dict:
+    rider_uuid = uuid.UUID(str(rider_id))
+    ledger_balance = await FinancialService(db).get_current_balance(rider_uuid)
     earnings_result = await db.execute(
-        select(func.sum(Financial.amount)).where(
-            Financial.rider_id == rider_id,
+        select(func.sum(func.abs(Financial.amount))).where(
+            Financial.rider_id == rider_uuid,
             Financial.transaction_type.in_(list(CREDIT_TYPES)),
-            # Some upgraded databases still have a narrower paymentstatus enum.
-            # Use the canonical processed state for available-balance math to
-            # avoid binding enum values that may not exist in older installs.
-            Financial.status == PaymentStatus.PROCESADO,
+            processed_ledger_filter(),
         )
     )
     total_earned = _money(earnings_result.scalar())
-
-    if total_earned <= 0:
-        orders_earnings_result = await db.execute(
-            select(func.coalesce(func.sum(_order_earning_amount_expr()), 0)).where(
-                Order.assigned_rider_id == rider_id,
-                Order.status == OrderStatus.ENTREGADO,
-            )
+    # A recorded withdrawal already reduced the ledger. Only unposted
+    # requests reserve more money; legacy completed payouts remain held until
+    # a matching debit is reconciled, so completion never restores funds.
+    payout_ref = func.lower(func.replace(cast(Payout.id, String), "-", ""))
+    posted = (
+        select(Financial.id)
+        .where(
+            Financial.rider_id == Payout.rider_id,
+            Financial.transaction_type == TransactionType.RETIRO,
+            processed_ledger_filter(),
+            func.abs(Financial.amount) == Payout.amount,
+            or_(
+                and_(
+                    Financial.source_type == "PAYOUT",
+                    func.lower(func.replace(Financial.source_id, "-", ""))
+                    == payout_ref,
+                ),
+                func.lower(func.replace(Financial.reference_id, "-", "")) == payout_ref,
+            ),
         )
-        total_earned = _money(orders_earnings_result.scalar())
-
-    pending_stmt = select(func.sum(Payout.amount)).where(
-        Payout.rider_id == rider_id,
-        Payout.status == PayoutStatus.PENDIENTE,
+        .exists()
     )
-    processed_stmt = select(func.sum(Payout.amount)).where(
-        Payout.rider_id == rider_id,
-        Payout.status == PayoutStatus.EN_PROCESO,
+    statement = select(Payout.status, Payout.amount, posted.label("posted")).where(
+        Payout.rider_id == rider_uuid,
+        or_(
+            Payout.status.is_(None),
+            Payout.status.in_(
+                [
+                    PayoutStatus.PENDIENTE,
+                    PayoutStatus.APROBADO,
+                    PayoutStatus.EN_PROCESO,
+                    PayoutStatus.COMPLETADO,
+                ]
+            ),
+        ),
     )
-
     if exclude_payout_id:
-        pending_stmt = pending_stmt.where(Payout.id != exclude_payout_id)
-        processed_stmt = processed_stmt.where(Payout.id != exclude_payout_id)
-
-    pending_result = await db.execute(pending_stmt)
-    processed_result = await db.execute(processed_stmt)
-    pending = _money(pending_result.scalar())
-    processed = _money(processed_result.scalar())
-
-    available = max(Decimal("0.00"), total_earned - pending - processed)
+        statement = statement.where(Payout.id != uuid.UUID(str(exclude_payout_id)))
+    rows = (await db.execute(statement)).all()
+    pending = Decimal("0.00")
+    processed = Decimal("0.00")
+    reserved = Decimal("0.00")
+    for row in rows:
+        amount = _money(row.amount)
+        if not amount.is_finite() or amount <= 0:
+            raise HTTPException(
+                status_code=409, detail="Una reserva histórica requiere revisión"
+            )
+        if row.status in (None, PayoutStatus.PENDIENTE, PayoutStatus.APROBADO):
+            pending += amount
+        else:
+            processed += amount
+        if not row.posted:
+            reserved += amount
     return {
-        "available": _float_money(available),
+        "available": _float_money(max(Decimal("0.00"), ledger_balance - reserved)),
         "pending": _float_money(pending),
         "processed": _float_money(processed),
         "total_earned": _float_money(total_earned),
         "currency": "COP",
+        "ledger_balance": _float_money(ledger_balance),
+        "reserved": _float_money(reserved),
     }
+
+
+async def _lock_payout_rider(db: AsyncSession, rider_id: uuid.UUID | str) -> None:
+    if (
+        await db.scalar(
+            select(Rider.id)
+            .where(Rider.id == uuid.UUID(str(rider_id)))
+            .with_for_update()
+        )
+        is None
+    ):
+        raise HTTPException(
+            status_code=404, detail="Perfil de repartidor no encontrado"
+        )
+
+
+async def _notify_requested(
+    payout_id: uuid.UUID, user_id: uuid.UUID, amount: Decimal
+) -> None:
+    """Best-effort inbox record on an independent session; never commit business state."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.notification import (
+        Notification,
+        NotificationType,
+        NotificationStatus,
+    )
+    import json
+
+    try:
+        async with AsyncSessionLocal() as session:
+            session.add(
+                Notification(
+                    user_id=user_id,
+                    notification_type=NotificationType.RETIRO_SOLICITADO,
+                    title="Solicitud de retiro creada",
+                    message=f"Se ha solicitado un retiro de ${amount:.2f}",
+                    data=json.dumps(
+                        {"payout_id": str(payout_id), "amount": str(amount)}
+                    ),
+                    channel="push",
+                    status=NotificationStatus.PENDING,
+                )
+            )
+            await session.commit()
+    except Exception:
+        logger.warning("No se pudo registrar la notificación de solicitud de retiro")
 
 
 def _add_status_history(
@@ -290,96 +377,93 @@ async def request_payout(
             status_code=403, detail="Solo repartidores pueden solicitar retiros"
         )
 
-    rider = await _get_rider_from_user(db, current_user)
-    idempotency_key = body.idempotency_key.strip() if body.idempotency_key else None
-
-    if idempotency_key:
-        existing_result = await db.execute(
-            select(Payout).where(
-                Payout.rider_id == rider.id,
-                Payout.idempotency_key == idempotency_key,
-            )
+    user_id = current_user.id
+    rider_id = await db.scalar(select(Rider.id).where(Rider.user_id == user_id))
+    if rider_id is None:
+        raise HTTPException(
+            status_code=404, detail="Perfil de repartidor no encontrado"
         )
-        existing_payout = existing_result.scalar_one_or_none()
-        if existing_payout:
-            return _serialize_payout(existing_payout)
-
-    balance = await _calculate_available_balance(db, rider.id)
+    await _lock_payout_rider(db, rider_id)
+    key = body.idempotency_key
     requested_amount = _money(body.amount)
-    available = _money(balance["available"])
 
+    async def existing_request():
+        if key is None:
+            return None
+        existing = await db.scalar(select(Payout).where(Payout.idempotency_key == key))
+        if existing is not None and (
+            existing.rider_id != rider_id
+            or _money(existing.amount) != requested_amount
+            or existing.method != body.method
+            or existing.bank_account_last4 != body.bank_account_last4
+            or existing.requested_by_user_id != user_id
+        ):
+            raise HTTPException(
+                status_code=409, detail="La clave identifica otra solicitud de retiro"
+            )
+        return existing
+
+    existing = await existing_request()
+    if existing is not None:
+        return _serialize_payout(existing)
+    balance = await _calculate_available_balance(db, rider_id)
+    available = _money(balance["available"])
     if requested_amount > available:
         raise HTTPException(
-            status_code=400,
-            detail=f"Saldo insuficiente. Disponible: {available:.2f}",
+            status_code=400, detail=f"Saldo insuficiente. Disponible: {available:.2f}"
         )
-
     if requested_amount < Decimal("10.00"):
         raise HTTPException(
             status_code=400, detail="El monto mínimo de retiro es 10.00"
         )
-
-    balance_after = available - requested_amount
     payout = Payout(
-        rider_id=rider.id,
+        rider_id=rider_id,
         amount=requested_amount,
         method=body.method,
         bank_account_last4=body.bank_account_last4,
         status=PayoutStatus.PENDIENTE,
         balance_before=available,
-        balance_after=balance_after,
-        requested_by_user_id=current_user.id,
-        idempotency_key=idempotency_key,
+        balance_after=available - requested_amount,
+        requested_by_user_id=user_id,
+        idempotency_key=key,
     )
-
-    db.add(payout)
-    await db.flush()
-    _add_status_history(
-        db,
-        payout,
-        None,
-        PayoutStatus.PENDIENTE,
-        current_user,
-        "Solicitud de retiro creada",
-        available,
-        balance_after,
-    )
-    await db.commit()
-
-    # NOTIFICATION: Enviar notificación al rider sobre la solicitud de retiro
     try:
-        from app.models.notification import NotificationType
-
-        notification_service = NotificationService(db)
-        await notification_service.create_notification(
-            user_id=current_user.id,
-            notification_type=NotificationType.RETIRO_SOLICITADO,
-            title="💸 Solicitud de Retiro Creada",
-            message=f"Se ha solicitado un retiro de ${requested_amount:.2f}",
-            data={"payout_id": str(payout.id), "amount": float(requested_amount)},
-            channel="push",
+        db.add(payout)
+        await db.flush()
+        _add_status_history(
+            db,
+            payout,
+            None,
+            PayoutStatus.PENDIENTE,
+            current_user,
+            "Solicitud de retiro creada",
+            available,
+            available - requested_amount,
         )
-        logger.info(f"Notificación de retiro enviada al rider {rider.id}")
-    except Exception as e:
-        logger.warning(f"No se pudo enviar notificación de retiro: {e}")
-
-    # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        existing = await existing_request()
+        if existing is not None:
+            return _serialize_payout(existing)
+        raise
+    # No side effects can confirm/poison the request's database session.
+    response = _serialize_payout(payout)
+    asyncio.create_task(
+        _notify_requested(uuid.UUID(str(payout.id)), user_id, requested_amount)
+    )
     try:
         redis_logger = get_redis_audit_logger()
         if redis_logger.connected:
             await redis_logger.log_withdrawal_requested(
                 payout_id=str(payout.id),
-                rider_id=str(rider.id),
+                rider_id=str(rider_id),
                 amount=float(requested_amount),
-                requested_by=str(current_user.id),
+                requested_by=str(user_id),
             )
-    except Exception as e:
-        logger.warning(f"No se pudo escribir audit en Redis: {e}")
-
-    await db.refresh(payout)
-
-    logger.info("Retiro solicitado: %s por rider %s", payout.id, rider.id)
-    return _serialize_payout(payout)
+    except Exception:
+        logger.warning("No se pudo escribir la auditoría Redis de la solicitud")
+    return response
 
 
 @router.get("/{payout_id}")
@@ -449,11 +533,16 @@ async def approve_payout(
     """Aprobar un retiro y registrar salida contable de forma atómica."""
     payout_uuid = _parse_uuid(payout_id)
     result = await db.execute(
-        select(Payout).where(Payout.id == payout_uuid).with_for_update()
+        select(Payout)
+        .where(Payout.id == payout_uuid)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     payout = result.scalar_one_or_none()
     if not payout:
         raise HTTPException(status_code=404, detail="Retiro no encontrado")
+
+    await _lock_payout_rider(db, str(payout.rider_id))
 
     if payout.status != PayoutStatus.PENDIENTE:
         raise HTTPException(
@@ -577,11 +666,16 @@ async def reject_payout(
 
     payout_uuid = _parse_uuid(payout_id)
     result = await db.execute(
-        select(Payout).where(Payout.id == payout_uuid).with_for_update()
+        select(Payout)
+        .where(Payout.id == payout_uuid)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     payout = result.scalar_one_or_none()
     if not payout:
         raise HTTPException(status_code=404, detail="Retiro no encontrado")
+
+    await _lock_payout_rider(db, str(payout.rider_id))
 
     if payout.status != PayoutStatus.PENDIENTE:
         raise HTTPException(
@@ -590,7 +684,10 @@ async def reject_payout(
 
     balance_before_data = await _calculate_available_balance(db, payout.rider_id)
     balance_before = _money(balance_before_data["available"])
-    balance_after = balance_before + _money(payout.amount)
+    released = await _calculate_available_balance(
+        db, payout.rider_id, exclude_payout_id=payout.id
+    )
+    balance_after = _money(released["available"])
     old_status = payout.status
 
     payout.status = PayoutStatus.RECHAZADO

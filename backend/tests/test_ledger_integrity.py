@@ -163,8 +163,9 @@ async def test_payout_approval_commits_once_and_keeps_distinct_snapshot_meanings
     original_commit = session.commit
     with (
         patch.object(session, "commit", wraps=original_commit) as commit,
-        patch.object(
-            api.NotificationService, "create_notification", new_callable=AsyncMock
+        patch(
+            "app.services.notification_service.NotificationService.create_notification",
+            new_callable=AsyncMock,
         ) as legacy,
         patch.object(
             api, "get_redis_audit_logger", return_value=SimpleNamespace(connected=False)
@@ -204,8 +205,9 @@ async def test_payout_failed_final_commit_can_rollback_state_history_and_ledger(
     session, rider_id, user, payout_id = payout_context
     with (
         patch.object(session, "commit", side_effect=RuntimeError("commit failed")),
-        patch.object(
-            api.NotificationService, "create_notification", new_callable=AsyncMock
+        patch(
+            "app.services.notification_service.NotificationService.create_notification",
+            new_callable=AsyncMock,
         ) as legacy,
         patch.object(
             api, "get_redis_audit_logger", return_value=SimpleNamespace(connected=False)
@@ -261,8 +263,9 @@ async def test_payout_rejection_does_not_commit_inside_legacy_notifications(
             wraps=original_commit,
             side_effect=RuntimeError("commit failed") if fail_commit else None,
         ) as commit,
-        patch.object(
-            api.NotificationService, "create_notification", new_callable=AsyncMock
+        patch(
+            "app.services.notification_service.NotificationService.create_notification",
+            new_callable=AsyncMock,
         ) as legacy,
         patch.object(
             api, "get_redis_audit_logger", return_value=SimpleNamespace(connected=False)

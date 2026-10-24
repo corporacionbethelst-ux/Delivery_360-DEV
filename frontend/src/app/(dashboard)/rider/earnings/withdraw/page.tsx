@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
-import { payoutService, PayoutBalance } from '@/services/payout.service';
+import { payoutService, PayoutBalance, createPayoutIdempotencyKey } from '@/services/payout.service';
 import { ArrowLeft, AlertCircle, CheckCircle, Info, Loader2, Banknote, ShieldCheck, CreditCard } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,7 @@ export default function WithdrawPage() {
   const router = useRouter();
   const { user, isAuthenticated } = useAuthStore();
   
+  const requestIntent = useRef<{ fingerprint: string; key: string } | null>(null);
   const [balance, setBalance] = useState<PayoutBalance | null>(null);
   const [amount, setAmount] = useState<string>('');
   const [bankAccountLast4, setBankAccountLast4] = useState<string>('');
@@ -58,12 +59,18 @@ export default function WithdrawPage() {
     if (numAmount > available) { setError('Monto superior al disponible.'); return; }
     if (numAmount < 10) { setError('Mínimo $10.00 para retirar.'); return; }
 
+    if (bankAccountLast4 && !/^[0-9]{4}$/.test(bankAccountLast4)) { setError('Ingresa los cuatro dígitos completos de la cuenta.'); return; }
+    const fingerprint = JSON.stringify([user?.id, numAmount, 'TRANSFERENCIA', bankAccountLast4.trim()]);
+    if (!requestIntent.current || requestIntent.current.fingerprint !== fingerprint) {
+      requestIntent.current = { fingerprint, key: createPayoutIdempotencyKey() };
+    }
     setIsSubmitting(true);
     try {
       const payout = await payoutService.requestPayout({
         amount: numAmount,
         method: 'TRANSFERENCIA',
         bank_account_last4: bankAccountLast4.trim() || undefined,
+        idempotency_key: requestIntent.current.key,
       });
       setSubmittedAmount(payout.amount);
       setSuccess(true);
@@ -94,7 +101,7 @@ export default function WithdrawPage() {
           <p className="text-gray-600 mb-8 leading-relaxed">
             Hemos recibido tu retiro de <strong className="text-gray-900 text-lg">{formatCurrency(submittedAmount ?? 0)}</strong>.
             <br/>
-            <span className="text-sm text-gray-500">Se depositará en tu cuenta en el próximo ciclo.</span>
+            <span className="text-sm text-gray-500">Puedes consultar el estado de la solicitud en tu historial de retiros.</span>
           </p>
           <Button onClick={() => router.push('/rider/earnings')} className="w-full h-12 bg-green-600 hover:bg-green-700 shadow-lg shadow-green-200">
             Volver a Ganancias
@@ -116,7 +123,7 @@ export default function WithdrawPage() {
 
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Solicitar Retiro</h1>
-          <p className="text-gray-500">Transfiere tus ganancias de forma segura.</p>
+          <p className="text-gray-500">Solicita el retiro de tus ganancias disponibles.</p>
         </div>
 
         {/* Saldo Card */}
@@ -155,7 +162,7 @@ export default function WithdrawPage() {
               <Alert className="bg-blue-50 border-blue-200 text-blue-800">
                 <Info className="w-4 h-4" />
                 <AlertDescription className="text-sm font-medium">
-                  Los pagos se procesan los viernes. Solicita antes del jueves 14:00.
+                  La solicitud requiere revisión. Consulta su estado en el historial de retiros.
                 </AlertDescription>
               </Alert>
 
@@ -191,7 +198,7 @@ export default function WithdrawPage() {
                     </div>
                     <div>
                       <p className="font-bold text-sm text-gray-900">Transferencia Bancaria</p>
-                      <p className="text-xs text-gray-500">A tu cuenta registrada</p>
+                      <p className="text-xs text-gray-500">Cuenta de destino</p>
                     </div>
                   </div>
                   <ShieldCheck className="w-5 h-5 text-blue-600" />
