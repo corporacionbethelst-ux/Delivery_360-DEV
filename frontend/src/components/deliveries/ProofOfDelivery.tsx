@@ -193,7 +193,7 @@ export function ProofOfDelivery({ delivery, onSubmit }: ProofOfDeliveryProps) {
             <Signature className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
             <p className="text-sm text-yellow-800 leading-relaxed">
               Al enviar este comprobante, declaras bajo tu responsabilidad que la entrega se ha completado correctamente. 
-              Esta acción es irreversible y marcará la orden como <strong>"ENTREGADO"</strong>.
+              Esta acción es irreversible y marcará la orden como <strong>&quot;ENTREGADO&quot;</strong>.
             </p>
           </div>
 

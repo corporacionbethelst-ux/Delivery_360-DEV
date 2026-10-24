@@ -31,17 +31,17 @@ export function NotificationBell() {
   const omnichannel = useOmnichannelNotifications({ enabled: FEATURE_NOTIFICATIONS, inboxSize: 10 });
   const [isOpen, setIsOpen] = useState(false);
 
-  if (!FEATURE_NOTIFICATIONS) return null;
-
   const liveBadge = Math.max(unreadCount, omnichannel.unreadCount);
   const liveItems = omnichannel.items.slice(0, 10);
 
   // Cargar notificaciones al montar (si el store no lo hace automáticamente)
   useEffect(() => {
-    if (isOpen && notifications.length === 0) {
+    if (FEATURE_NOTIFICATIONS && isOpen && notifications.length === 0) {
       fetchNotifications();
     }
   }, [isOpen, notifications.length, fetchNotifications]);
+
+  if (!FEATURE_NOTIFICATIONS) return null;
 
   return (
     <div className="relative">

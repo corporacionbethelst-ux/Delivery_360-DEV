@@ -17,21 +17,21 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
 # Alias para compatibilidad con código existente (se definirá después)
-get_current_user = None  
-RoleChecker = None  
+get_current_user = None
+RoleChecker = None
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     """
     Verificar si una contraseña en texto plano coincide con su hash
-    
+
     Args:
         plain: Contraseña en texto plano proporcionada por el usuario
         hashed: Hash de contraseña almacenado en la base de datos
-    
+
     Returns:
         bool: True si la contraseña coincide, False en caso contrario
-    
+
     Uso típico:
         if verify_password(password_provided, user.hashed_password):
             # Login exitoso
@@ -43,13 +43,13 @@ def verify_password(plain: str, hashed: str) -> bool:
 def hash_password(password: str) -> str:
     """
     Generar hash seguro de una contraseña usando bcrypt
-    
+
     Args:
         password: Contraseña en texto plano a hashear
-    
+
     Returns:
         str: Hash de la contraseña listo para almacenar en DB
-    
+
     Uso típico:
         user.hashed_password = hash_password("mi_contraseña_segura")
         db.add(user)
@@ -65,14 +65,14 @@ get_password_hash = hash_password
 def create_access_token(subject: Any, expires_delta: Optional[timedelta] = None) -> str:
     """
     Crear un JWT access token para autenticación de usuario
-    
+
     Args:
         subject: Identificador del usuario (generalmente UUID o email)
         expires_delta: Tiempo personalizado de expiración (opcional)
-    
+
     Returns:
         str: Token JWT codificado listo para enviar al cliente
-    
+
     El token incluye:
         - sub: Identificador del sujeto (usuario)
         - exp: Timestamp de expiración
@@ -87,61 +87,63 @@ def create_access_token(subject: Any, expires_delta: Optional[timedelta] = None)
     # Codificar payload JWT con claims estándar y personalizados
     return jwt.encode(
         {
-            "sub": str(subject),                              # Identificador del usuario
-            "exp": expire,                                    # Fecha de expiración
-            "type": "access",                                 # Tipo de token
-            "iat": datetime.now(timezone.utc),                # Fecha de emisión
-            "jti": secrets.token_hex(16)                      # ID único para seguridad
+            "sub": str(subject),  # Identificador del usuario
+            "exp": expire,  # Fecha de expiración
+            "type": "access",  # Tipo de token
+            "iat": datetime.now(timezone.utc),  # Fecha de emisión
+            "jti": secrets.token_hex(16),  # ID único para seguridad
         },
-        settings.SECRET_KEY,                                  # Clave secreta para firmar
-        algorithm=settings.JWT_ALGORITHM,                     # Algoritmo de cifrado (HS256)
+        settings.SECRET_KEY,  # Clave secreta para firmar
+        algorithm=settings.JWT_ALGORITHM,  # Algoritmo de cifrado (HS256)
     )
 
 
 def create_refresh_token(subject: Any) -> str:
     """
     Crear un JWT refresh token para renovar access tokens expirados
-    
+
     Args:
         subject: Identificador del usuario (generalmente UUID o email)
-    
+
     Returns:
         str: Token JWT de refresh con expiración extendida (días)
-    
+
     Diferencias con access token:
         - Mayor tiempo de vida (días vs minutos)
         - Se usa solo para obtener nuevos access tokens
         - Debe almacenarse de forma más segura (httpOnly cookie)
     """
     # Calcular expiración basada en días configurados (ej: 7 días)
-    expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    expire = datetime.now(timezone.utc) + timedelta(
+        days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+    )
     # Codificar payload JWT similar al access token pero con tipo "refresh"
     return jwt.encode(
         {
-            "sub": str(subject),                              # Identificador del usuario
-            "exp": expire,                                    # Fecha de expiración (larga)
-            "type": "refresh",                                # Tipo de token
-            "iat": datetime.now(timezone.utc),                # Fecha de emisión
-            "jti": secrets.token_hex(16)                      # ID único para seguridad
+            "sub": str(subject),  # Identificador del usuario
+            "exp": expire,  # Fecha de expiración (larga)
+            "type": "refresh",  # Tipo de token
+            "iat": datetime.now(timezone.utc),  # Fecha de emisión
+            "jti": secrets.token_hex(16),  # ID único para seguridad
         },
-        settings.SECRET_KEY,                                  # Clave secreta para firmar
-        algorithm=settings.JWT_ALGORITHM,                     # Algoritmo de cifrado
+        settings.SECRET_KEY,  # Clave secreta para firmar
+        algorithm=settings.JWT_ALGORITHM,  # Algoritmo de cifrado
     )
 
 
 def decode_token(token: str, verify_type: Optional[str] = None) -> Optional[dict]:
     """
     Decodificar y validar un token JWT
-    
+
     Args:
         token: El token JWT a decodificar (string completo recibido del cliente)
-        verify_type: Tipo de token esperado ('access' o 'refresh'). 
+        verify_type: Tipo de token esperado ('access' o 'refresh').
                      Si es None, acepta cualquier tipo.
-    
+
     Returns:
         dict: Payload del token (claims) si es válido
         None: Si el token es inválido, expirado o tipo incorrecto
-    
+
     Proceso de validación:
         1. Decodifica con SECRET_KEY y verifica firma
         2. Verifica fecha de expiración automáticamente (jwt.decode lo hace)
@@ -150,16 +152,18 @@ def decode_token(token: str, verify_type: Optional[str] = None) -> Optional[dict
     """
     try:
         # Decodificar token verificando firma y expiración automáticamente
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
+        )
+
         # Verificar que el tipo de token coincida si se especificó uno esperado
         if verify_type and payload.get("type") != verify_type:
             return None
-        
+
         # Verificar que el token tenga ID único (jti) para seguridad
         if "jti" not in payload:
             return None
-        
+
         # Retornar payload completo con todos los claims
         return payload
     except JWTError:
@@ -170,10 +174,10 @@ def decode_token(token: str, verify_type: Optional[str] = None) -> Optional[dict
 def validate_token_strength(token: str) -> dict[str, Any]:
     """
     Validar la fortaleza y seguridad de un token JWT
-    
+
     Args:
         token: Token JWT a analizar
-    
+
     Returns:
         dict: Resultado de validación con estructura:
             {
@@ -181,7 +185,7 @@ def validate_token_strength(token: str) -> dict[str, Any]:
                 "errors": list[str],     # Lista de errores críticos
                 "warnings": list[str]    # Lista de advertencias no críticas
             }
-    
+
     Validaciones realizadas:
         - Decodificación y firma válida
         - Campos requeridos presentes
@@ -190,42 +194,38 @@ def validate_token_strength(token: str) -> dict[str, Any]:
         - Tiempo restante antes de expirar
     """
     # Inicializar resultado con estado inválido por defecto
-    result: dict[str, Any] = {
-        "valid": False,
-        "errors": [],
-        "warnings": []
-    }
-    
+    result: dict[str, Any] = {"valid": False, "errors": [], "warnings": []}
+
     # Intentar decodificar token sin verificar tipo específico
     payload = decode_token(token)
     # Si no se puede decodificar, agregar error y retornar inmediatamente
     if not payload:
         result["errors"].append("Token inválido o expirado")
         return result
-    
+
     # Lista de campos obligatorios que todo token debe tener
     required_fields = ["sub", "exp", "type", "iat", "jti"]
     # Verificar cada campo requerido
     for field in required_fields:
         if field not in payload:
             result["errors"].append(f"Campo requerido faltante: {field}")
-    
+
     # Si hay errores críticos, retornar sin hacer validaciones adicionales
     if result["errors"]:
         return result
-    
+
     # Verificar que el tipo de token sea uno conocido
     if payload["type"] not in ["access", "refresh"]:
         result["errors"].append(f"Tipo de token desconocido: {payload['type']}")
-    
+
     # Convertir timestamps Unix a objetos datetime para cálculos
     exp_time = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
     iat_time = datetime.fromtimestamp(payload["iat"], tz=timezone.utc)
     now = datetime.now(timezone.utc)
-    
+
     # Calcular duración total del token (expiración - emisión)
     duration = exp_time - iat_time
-    
+
     # Validaciones específicas según tipo de token
     if payload["type"] == "access":
         # Access tokens no deberían durar más de 2 horas (riesgo de seguridad)
@@ -237,14 +237,16 @@ def validate_token_strength(token: str) -> dict[str, Any]:
     elif payload["type"] == "refresh":
         # Refresh tokens no deberían durar más de 30 días
         if duration > timedelta(days=30):
-            result["warnings"].append("Token de refresh con duración excesiva (>30 días)")
-    
+            result["warnings"].append(
+                "Token de refresh con duración excesiva (>30 días)"
+            )
+
     # Calcular tiempo restante hasta expiración
     time_until_exp = exp_time - now
     # Advertir si el token expira en menos de 5 minutos
     if time_until_exp < timedelta(minutes=5):
         result["warnings"].append("Token próximo a expirar (<5min)")
-    
+
     # Marcar como válido solo si no hay errores críticos
     result["valid"] = len(result["errors"]) == 0
     return result
@@ -256,24 +258,24 @@ async def get_current_active_user(
 ) -> User:
     """
     Dependencia de FastAPI para obtener el usuario activo actual desde el token JWT
-    
+
     Args:
         token: Token JWT extraído automáticamente del header Authorization
         db: Sesión de base de datos inyectada como dependencia
-    
+
     Returns:
         User: Objeto de usuario autenticado y activo
-    
+
     Raises:
         HTTPException 401: Si el token es inválido, expirado o usuario no existe/inactivo
-    
+
     Flujo de validación:
         1. Extraer token del header (OAuth2PasswordBearer lo hace automático)
         2. Decodificar y validar token JWT
         3. Extraer user_id del claim 'sub'
         4. Buscar usuario en base de datos
         5. Verificar que usuario exista y esté activo
-    
+
     Uso típico en endpoints:
         @app.get("/profile")
         async def get_profile(current_user: User = Depends(get_current_active_user)):
@@ -324,19 +326,22 @@ get_current_user = get_current_active_user
 class RoleChecker:
     """
     Dependencia de FastAPI para verificar roles de usuario.
-    
+
     Uso:
         @router.get("/admin", dependencies=[Depends(RoleChecker([UserRole.ADMIN]))])
         async def admin_endpoint():
             ...
     """
+
     def __init__(self, allowed_roles: List[UserRole]):
         self.allowed_roles = allowed_roles
 
-    async def __call__(self, current_user: User = Depends(get_current_active_user)) -> User:
+    async def __call__(
+        self, current_user: User = Depends(get_current_active_user)
+    ) -> User:
         if current_user.role not in self.allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permisos para acceder a este recurso"
+                detail="No tienes permisos para acceder a este recurso",
             )
         return current_user

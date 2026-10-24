@@ -17,6 +17,7 @@ DISEÑO:
 - Fan-out WS: publica NEW_NOTIFICATION en Redis Pub/Sub
   `notifications:user:{id}` — UN solo suscriptor hace fan-out (regla 6).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -48,6 +49,7 @@ logger = logging.getLogger(__name__)
 # Imports opcionales de providers (patrón OR-Tools Fase 8) ───────────────────
 try:  # pragma: no cover - depende de entorno
     from firebase_admin import messaging as fcm_messaging  # type: ignore
+
     FCM_AVAILABLE = True
 except Exception:  # ImportError u otros
     fcm_messaging = None
@@ -55,6 +57,7 @@ except Exception:  # ImportError u otros
 
 try:  # pragma: no cover
     from twilio.rest import Client as TwilioClient  # type: ignore
+
     TWILIO_AVAILABLE = True
 except Exception:
     TwilioClient = None
@@ -63,6 +66,7 @@ except Exception:
 try:  # pragma: no cover
     import aiosmtplib  # type: ignore
     from email.message import EmailMessage  # stdlib
+
     AIOSMTP_AVAILABLE = True
 except Exception:
     aiosmtplib = None
@@ -72,6 +76,7 @@ except Exception:
 # Redis async NATIVO (redis>=5). PROHIBIDO el paquete deprecado `aioredis`.
 try:  # pragma: no cover
     from redis import asyncio as aioredis
+
     REDIS_LIB_AVAILABLE = True
 except Exception:
     aioredis = None
@@ -107,6 +112,7 @@ def render_template(template_body: str, context: Dict[str, Any]) -> str:
 
     Devuelve siempre string; jamás propaga excepción al llamador (regla Paso 3).
     """
+
     def _sub(m: re.Match) -> str:
         key = m.group(1)
         if key in context and context[key] is not None:
@@ -121,8 +127,9 @@ def render_template(template_body: str, context: Dict[str, Any]) -> str:
         return template_body or ""
 
 
-def build_dedupe_key(template_code: str, entity_id: Optional[Any],
-                     window_ts: Optional[float] = None) -> str:
+def build_dedupe_key(
+    template_code: str, entity_id: Optional[Any], window_ts: Optional[float] = None
+) -> str:
     """hash(template_code + entity_id + ventana_5min) — 120 chars max."""
     ts = window_ts if window_ts is not None else time.time()
     window = int(ts // 300)  # ventana de 5 minutos
@@ -156,9 +163,12 @@ class OmnichannelNotificationService:
         if self._redis is False or not REDIS_LIB_AVAILABLE:
             return None
         try:
-            client = aioredis.from_url(settings.REDIS_URL, encoding="utf-8",
-                                       decode_responses=True,
-                                       socket_connect_timeout=2)
+            client = aioredis.from_url(
+                settings.REDIS_URL,
+                encoding="utf-8",
+                decode_responses=True,
+                socket_connect_timeout=2,
+            )
             await client.ping()
             self._redis = client
             return client
@@ -191,14 +201,21 @@ class OmnichannelNotificationService:
             try:
                 payload = {
                     "code": tpl.code,
-                    "channel": tpl.channel.value if hasattr(tpl.channel, "value") else str(tpl.channel),
+                    "channel": (
+                        tpl.channel.value
+                        if hasattr(tpl.channel, "value")
+                        else str(tpl.channel)
+                    ),
                     "subject": tpl.subject,
                     "body_template": tpl.body_template,
                     "language": tpl.language,
                     "is_active": bool(tpl.is_active),
                 }
-                await r.set(cache_key, json.dumps(payload),
-                            ex=settings.NOTIFICATION_TEMPLATE_CACHE_TTL_SEC)
+                await r.set(
+                    cache_key,
+                    json.dumps(payload),
+                    ex=settings.NOTIFICATION_TEMPLATE_CACHE_TTL_SEC,
+                )
             except Exception as exc:
                 logger.warning("No se pudo cachear plantilla %s: %s", code, exc)
         return tpl
@@ -219,8 +236,9 @@ class OmnichannelNotificationService:
         window.append(now)
         # Poda global suave para no crecer sin límite
         if len(cls._rate_windows) > 10000:
-            stale = [k for k, v in cls._rate_windows.items()
-                     if not v or now - max(v) > 120]
+            stale = [
+                k for k, v in cls._rate_windows.items() if not v or now - max(v) > 120
+            ]
             for k in stale:
                 cls._rate_windows.pop(k, None)
         return False
@@ -229,8 +247,11 @@ class OmnichannelNotificationService:
     # Preferencias por usuario + rol
     # ------------------------------------------------------------------
     async def resolve_channels(
-        self, user: User, template: NotificationTemplate,
-        event_code: str, channels: Optional[List[NotificationChannel]] = None,
+        self,
+        user: User,
+        template: NotificationTemplate,
+        event_code: str,
+        channels: Optional[List[NotificationChannel]] = None,
     ) -> List[NotificationChannel]:
         """Canales efectivos: override explícito > preferencias > default por rol.
 
@@ -238,7 +259,9 @@ class OmnichannelNotificationService:
         salvo que el canal sea IN_APP (inbox garantizado, regla de negocio).
         """
         requested = channels or ROLE_DEFAULT_CHANNELS.get(
-            getattr(getattr(user, "role", None), "value", str(getattr(user, "role", ""))),
+            getattr(
+                getattr(user, "role", None), "value", str(getattr(user, "role", ""))
+            ),
             [NotificationChannel.IN_APP],
         )
 
@@ -278,8 +301,13 @@ class OmnichannelNotificationService:
         """
         try:
             return await self._send_inner(
-                user_id, template_code, context, channels,
-                delivery_id, payout_id, title,
+                user_id,
+                template_code,
+                context,
+                channels,
+                delivery_id,
+                payout_id,
+                title,
             )
         except Exception as exc:
             # Regla Fase 4: un fallo de notificación JAMÁS interrumpe el flujo de negocio
@@ -287,17 +315,22 @@ class OmnichannelNotificationService:
             return []
 
     async def _send_inner(
-        self, user_id: Any, template_code: str, context: Dict[str, Any],
+        self,
+        user_id: Any,
+        template_code: str,
+        context: Dict[str, Any],
         channels: Optional[List[NotificationChannel]],
-        delivery_id: Any, payout_id: Any, title: Optional[str],
+        delivery_id: Any,
+        payout_id: Any,
+        title: Optional[str],
     ) -> List[NotificationLog]:
         if not settings.NOTIFICATIONS_ENABLED:
             # Flag apagado → todo queda IN_APP stub (test unitario lo exige)
             channels = [NotificationChannel.IN_APP]
 
-        user = (await self.db.execute(
-            select(User).where(User.id == user_id)
-        )).scalar_one_or_none()
+        user = (
+            await self.db.execute(select(User).where(User.id == user_id))
+        ).scalar_one_or_none()
         if user is None:
             logger.warning("send(): usuario %s inexistente", user_id)
             return []
@@ -309,11 +342,17 @@ class OmnichannelNotificationService:
 
         entity_id = payout_id or delivery_id or context.get("entity_id")
         dedupe_key = build_dedupe_key(template_code, entity_id)
-        existing = (await self.db.execute(
-            select(NotificationLog.id).where(NotificationLog.dedupe_key == dedupe_key)
-        )).scalar_one_or_none()
+        existing = (
+            await self.db.execute(
+                select(NotificationLog.id).where(
+                    NotificationLog.dedupe_key == dedupe_key
+                )
+            )
+        ).scalar_one_or_none()
         if existing is not None:
-            logger.info("Dedupe: %s ya enviado en la ventana actual (skip)", template_code)
+            logger.info(
+                "Dedupe: %s ya enviado en la ventana actual (skip)", template_code
+            )
             return []
 
         if self._rate_limited(user_id):
@@ -321,21 +360,29 @@ class OmnichannelNotificationService:
             return []
 
         body = render_template(template.body_template, context)
-        rendered_subject = render_template(template.subject, context) if template.subject else None
-        notif_title = title or rendered_subject or template_code.replace("_", " ").capitalize()
+        rendered_subject = (
+            render_template(template.subject, context) if template.subject else None
+        )
+        notif_title = (
+            title or rendered_subject or template_code.replace("_", " ").capitalize()
+        )
 
         effective = await self.resolve_channels(user, template, template_code, channels)
         if not settings.NOTIFICATIONS_ENABLED:
             effective = [NotificationChannel.IN_APP]
 
         logs: List[NotificationLog] = []
-        created_keys: set = set()  # dedupe intra-call (mismo canal para varias entidades)
+        created_keys: set = (
+            set()
+        )  # dedupe intra-call (mismo canal para varias entidades)
         for ch in effective:
             key = f"{dedupe_key}:{ch.value}"  # dedupe por canal
             if key in created_keys:
                 # send() NUNCA debe estallar: si otra entidad del mismo batch ya
                 # ocupó la clave, se omite el duplicado en vez de violar el UNIQUE.
-                logger.info("Dedupe intra-lote: %s ya encolado en esta ventana (skip)", key[:16])
+                logger.info(
+                    "Dedupe intra-lote: %s ya encolado en esta ventana (skip)", key[:16]
+                )
                 continue
             created_keys.add(key)
             log = NotificationLog(
@@ -368,15 +415,27 @@ class OmnichannelNotificationService:
             # send() devolvería [] silenciosamente (notificación perdida).
             await self.db.rollback()
             from sqlalchemy.dialects.postgresql import insert as pg_insert
+
             inserted_any = False
             for log in logs:
-                stmt = pg_insert(NotificationLog).values(
-                    id=log.id, user_id=log.user_id, template_code=log.template_code,
-                    delivery_id=log.delivery_id, payout_id=log.payout_id,
-                    channel=log.channel, status=OmnichannelStatus.PENDIENTE,
-                    payload_json=log.payload_json, dedupe_key=log.dedupe_key,
-                    title=log.title, body=log.body, created_at=log.created_at,
-                ).on_conflict_do_nothing(index_elements=["dedupe_key"])
+                stmt = (
+                    pg_insert(NotificationLog)
+                    .values(
+                        id=log.id,
+                        user_id=log.user_id,
+                        template_code=log.template_code,
+                        delivery_id=log.delivery_id,
+                        payout_id=log.payout_id,
+                        channel=log.channel,
+                        status=OmnichannelStatus.PENDIENTE,
+                        payload_json=log.payload_json,
+                        dedupe_key=log.dedupe_key,
+                        title=log.title,
+                        body=log.body,
+                        created_at=log.created_at,
+                    )
+                    .on_conflict_do_nothing(index_elements=["dedupe_key"])
+                )
                 res = await self.db.execute(stmt)
                 if res.rowcount:
                     inserted_any = True
@@ -384,9 +443,17 @@ class OmnichannelNotificationService:
                 logger.info("Dedupe (carrera): %s ya existía (skip)", template_code)
                 return []
             await self.db.commit()
-            logs = (await self.db.execute(
-                select(NotificationLog).where(NotificationLog.dedupe_key.in_(created_keys))
-            )).scalars().all()
+            logs = (
+                (
+                    await self.db.execute(
+                        select(NotificationLog).where(
+                            NotificationLog.dedupe_key.in_(created_keys)
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
 
         for log in logs:
             await self.db.refresh(log)
@@ -398,30 +465,47 @@ class OmnichannelNotificationService:
         )
 
         # Fan-out WS: publicar NEW_NOTIFICATION (solo una vez por evento)
-        in_app = next((l for l in logs if l.channel == NotificationChannel.IN_APP), None)
+        in_app = next(
+            (l for l in logs if l.channel == NotificationChannel.IN_APP), None
+        )
         await self._publish_new_notification(in_app or (logs[0] if logs else None))
         return logs
 
     # ------------------------------------------------------------------
     # Dispatch por canal
     # ------------------------------------------------------------------
-    async def _dispatch_one(self, log: NotificationLog, user: User,
-                            template: NotificationTemplate, body: str) -> None:
+    async def _dispatch_one(
+        self,
+        log: NotificationLog,
+        user: User,
+        template: NotificationTemplate,
+        body: str,
+    ) -> None:
         try:
             if log.channel == NotificationChannel.PUSH:
-                tokens = (await self.db.execute(
-                    select(UserDeviceToken).where(
-                        UserDeviceToken.user_id == user.id,
-                        UserDeviceToken.is_active.is_(True),
+                tokens = (
+                    (
+                        await self.db.execute(
+                            select(UserDeviceToken).where(
+                                UserDeviceToken.user_id == user.id,
+                                UserDeviceToken.is_active.is_(True),
+                            )
+                        )
                     )
-                )).scalars().all()
-                ok = await self.dispatch_push([t.device_token for t in tokens],
-                                              log.title or "", body)
+                    .scalars()
+                    .all()
+                )
+                ok = await self.dispatch_push(
+                    [t.device_token for t in tokens], log.title or "", body
+                )
             elif log.channel == NotificationChannel.SMS:
                 ok = await self.dispatch_sms(getattr(user, "phone", None), body)
             elif log.channel == NotificationChannel.EMAIL:
-                ok = await self.dispatch_email(getattr(user, "email", None),
-                                               log.title or template_code_safe(template), body)
+                ok = await self.dispatch_email(
+                    getattr(user, "email", None),
+                    log.title or template_code_safe(template),
+                    body,
+                )
             else:  # IN_APP: persistido es suficiente
                 ok = True
 
@@ -452,8 +536,13 @@ class OmnichannelNotificationService:
     # ------------------------------------------------------------------
     # Providers (todos opcionales vía feature flag / credenciales)
     # ------------------------------------------------------------------
-    async def dispatch_push(self, device_tokens: List[str], title: str,
-                            body: str, data: Optional[Dict[str, Any]] = None) -> bool:
+    async def dispatch_push(
+        self,
+        device_tokens: List[str],
+        title: str,
+        body: str,
+        data: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         if not device_tokens:
             # Sin dispositivos → simular éxito stub (el IN_APP cubre la bandeja)
             logger.debug("PUSH sin tokens: fallback stub")
@@ -463,8 +552,10 @@ class OmnichannelNotificationService:
             return True
         try:  # pragma: no cover - requiere credenciales reales
             msg = fcm_messaging.MulticastMessage(
-                tokens=device_tokens, notification=fcm_messaging.Notification(
-                    title=title, body=body), data=data or {})
+                tokens=device_tokens,
+                notification=fcm_messaging.Notification(title=title, body=body),
+                data=data or {},
+            )
             resp = fcm_messaging.send_multicast(msg)
             failed_idx = [i for i, r in enumerate(resp.responses) if not r.success]
             if failed_idx:
@@ -477,13 +568,20 @@ class OmnichannelNotificationService:
     async def dispatch_sms(self, phone: Optional[str], message: str) -> bool:
         if not phone:
             return True  # nada que enviar, no es fallo duro
-        if not (TWILIO_AVAILABLE and settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN):
+        if not (
+            TWILIO_AVAILABLE
+            and settings.TWILIO_ACCOUNT_SID
+            and settings.TWILIO_AUTH_TOKEN
+        ):
             logger.debug("Twilio no configurado → provider='stub'")
             return True
         try:  # pragma: no cover
-            client = TwilioClient(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-            msg = client.messages.create(body=message[:1600], from_=settings.TWILIO_FROM_NUMBER,
-                                         to=phone)
+            client = TwilioClient(
+                settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN
+            )
+            msg = client.messages.create(
+                body=message[:1600], from_=settings.TWILIO_FROM_NUMBER, to=phone
+            )
             return bool(msg.sid)
         except Exception as exc:
             logger.error("Twilio error: %s", exc)
@@ -492,20 +590,27 @@ class OmnichannelNotificationService:
     async def dispatch_email(self, to: Optional[str], subject: str, html: str) -> bool:
         if not to:
             return True
-        creds_ok = bool(settings.SMTP_USER and settings.SMTP_PASSWORD and settings.SMTP_HOST)
+        creds_ok = bool(
+            settings.SMTP_USER and settings.SMTP_PASSWORD and settings.SMTP_HOST
+        )
         if not (AIOSMTP_AVAILABLE and creds_ok):
             logger.debug("SMTP no configurado → provider='stub'")
             return True
         try:  # pragma: no cover
             import asyncio as _a
+
             loop = _a.get_event_loop()
             mail = EmailMessage()
             mail["From"] = settings.notification_email_from_computed
             mail["To"] = to
             mail["Subject"] = subject
             mail.set_content(html)
-            await aiosmtplib.send(mail, hostname=settings.SMTP_HOST,
-                                  port=settings.SMTP_PORT, starttls=True)
+            await aiosmtplib.send(
+                mail,
+                hostname=settings.SMTP_HOST,
+                port=settings.SMTP_PORT,
+                starttls=True,
+            )
             return True
         except Exception as exc:
             logger.error("SMTP error: %s", exc)
@@ -513,15 +618,26 @@ class OmnichannelNotificationService:
 
     async def _mark_token_failures(self, tokens: List[str]) -> None:
         """Auto-desactivar token tras 3 fallos consecutivos (regla Paso 1)."""
-        rows = (await self.db.execute(
-            select(UserDeviceToken).where(UserDeviceToken.device_token.in_(tokens))
-        )).scalars().all()
+        rows = (
+            (
+                await self.db.execute(
+                    select(UserDeviceToken).where(
+                        UserDeviceToken.device_token.in_(tokens)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         for t in rows:
             t.failure_count = (t.failure_count or 0) + 1
             if t.failure_count >= 3:
                 t.is_active = False
-                logger.info("Token %s... auto-desactivado tras %d fallos",
-                            t.device_token[:12], t.failure_count)
+                logger.info(
+                    "Token %s... auto-desactivado tras %d fallos",
+                    t.device_token[:12],
+                    t.failure_count,
+                )
         await self.db.commit()
 
     # ------------------------------------------------------------------
@@ -552,22 +668,28 @@ class OmnichannelNotificationService:
     async def process_retry_queue(self, batch_size: int = 50) -> int:
         """Reintenta logs PENDIENTE con next_retry_at vencido. Devuelve procesados."""
         now = utc_now_naive()
-        rows = (await self.db.execute(
-            select(NotificationLog)
-            .where(
-                NotificationLog.status == OmnichannelStatus.PENDIENTE,
-                NotificationLog.next_retry_at.is_not(None),
-                NotificationLog.next_retry_at <= now,
+        rows = (
+            (
+                await self.db.execute(
+                    select(NotificationLog)
+                    .where(
+                        NotificationLog.status == OmnichannelStatus.PENDIENTE,
+                        NotificationLog.next_retry_at.is_not(None),
+                        NotificationLog.next_retry_at <= now,
+                    )
+                    .order_by(NotificationLog.next_retry_at)
+                    .limit(batch_size)
+                )
             )
-            .order_by(NotificationLog.next_retry_at)
-            .limit(batch_size)
-        )).scalars().all()
+            .scalars()
+            .all()
+        )
 
         processed = 0
         for log in rows:
-            user = (await self.db.execute(
-                select(User).where(User.id == log.user_id)
-            )).scalar_one_or_none()
+            user = (
+                await self.db.execute(select(User).where(User.id == log.user_id))
+            ).scalar_one_or_none()
             if user is None:
                 log.status = OmnichannelStatus.FALLIDO
                 log.error_message = "Usuario inexistente en reintento"
@@ -578,17 +700,27 @@ class OmnichannelNotificationService:
                 template = await self._get_template(log.template_code)
             ok = False
             if log.channel == NotificationChannel.PUSH:
-                tokens = (await self.db.execute(
-                    select(UserDeviceToken).where(
-                        UserDeviceToken.user_id == user.id,
-                        UserDeviceToken.is_active.is_(True))
-                )).scalars().all()
-                ok = await self.dispatch_push([t.device_token for t in tokens],
-                                              log.title or "", log.body or "")
+                tokens = (
+                    (
+                        await self.db.execute(
+                            select(UserDeviceToken).where(
+                                UserDeviceToken.user_id == user.id,
+                                UserDeviceToken.is_active.is_(True),
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                ok = await self.dispatch_push(
+                    [t.device_token for t in tokens], log.title or "", log.body or ""
+                )
             elif log.channel == NotificationChannel.SMS:
                 ok = await self.dispatch_sms(user.phone, log.body or "")
             elif log.channel == NotificationChannel.EMAIL:
-                ok = await self.dispatch_email(user.email, log.title or "", log.body or "")
+                ok = await self.dispatch_email(
+                    user.email, log.title or "", log.body or ""
+                )
             else:
                 ok = True
 
@@ -611,15 +743,21 @@ class OmnichannelNotificationService:
     async def purge_old_logs(self) -> int:
         """Retención NOTIFICATION_RETENTION_DAYS (default 30)."""
         from sqlalchemy import delete
-        cutoff = utc_now_naive() - timedelta(days=int(settings.NOTIFICATION_RETENTION_DAYS))
+
+        cutoff = utc_now_naive() - timedelta(
+            days=int(settings.NOTIFICATION_RETENTION_DAYS)
+        )
         result = await self.db.execute(
             delete(NotificationLog).where(NotificationLog.created_at < cutoff)
         )
         await self.db.commit()
         n = result.rowcount or 0
         if n:
-            logger.info("purge_old_logs: %d logs >%d días eliminados",
-                        n, settings.NOTIFICATION_RETENTION_DAYS)
+            logger.info(
+                "purge_old_logs: %d logs >%d días eliminados",
+                n,
+                settings.NOTIFICATION_RETENTION_DAYS,
+            )
         return n
 
 

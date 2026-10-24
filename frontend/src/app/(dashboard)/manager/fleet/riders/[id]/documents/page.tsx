@@ -216,7 +216,7 @@ export default function ManagerRiderDocumentsPage() {
                 <DialogHeader>
                   <DialogTitle>Subir Documento Manualmente</DialogTitle>
                   <DialogDescription>
-                    Agregue un documento en nombre del repartidor. El estado inicial será "Pendiente".
+                    Agregue un documento en nombre del repartidor. El estado inicial será &quot;Pendiente&quot;.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">

@@ -1,15 +1,30 @@
 """Route model."""
+
 import uuid
 from datetime import datetime, timezone  # CORREGIDO
-from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Enum as SQLEnum, Text, text, Boolean, JSON, Integer
+from sqlalchemy import (
+    Column,
+    String,
+    Float,
+    DateTime,
+    ForeignKey,
+    Enum as SQLEnum,
+    Text,
+    text,
+    Boolean,
+    JSON,
+    Integer,
+)
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
 from app.core.database import Base
 
+
 def utc_now_naive():
     """Devuelve la hora actual en UTC sin zona horaria (naive) para compatibilidad con PostgreSQL."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
 
 class RouteStatus(str, enum.Enum):
     PLANIFICADA = "PLANIFICADA"
@@ -17,60 +32,61 @@ class RouteStatus(str, enum.Enum):
     COMPLETADA = "COMPLETADA"
     CANCELADA = "CANCELADA"
 
+
 class Route(Base):
     __tablename__ = "routes"
-    
-    id = Column(
-        UUID(as_uuid=True), 
-        primary_key=True, 
-        default=uuid.uuid4, 
-        index=True)
-    
-    delivery_id = Column(UUID(as_uuid=True), ForeignKey("deliveries.id"), unique=True, index=True)
-    
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+
+    delivery_id = Column(
+        UUID(as_uuid=True), ForeignKey("deliveries.id"), unique=True, index=True
+    )
+
     status = Column(SQLEnum(RouteStatus), default=RouteStatus.PLANIFICADA)
     planned_route = Column(JSON)
     actual_route = Column(JSON)
-    
+
     pickup_latitude = Column(Float)
     pickup_longitude = Column(Float)
     delivery_latitude = Column(Float)
     delivery_longitude = Column(Float)
-    
+
     planned_distance_km = Column(Float)
     actual_distance_km = Column(Float)
     planned_duration_minutes = Column(Integer)
     actual_duration_minutes = Column(Integer)
-    
+
     has_deviation = Column(Boolean, default=False)
     deviation_distance_km = Column(Float, default=0.0)
     deviation_time_minutes = Column(Integer, default=0)
     deviation_reason = Column(String(255))
-    
+
     traffic_level = Column(String(20))
     weather_condition = Column(String(50))
     efficiency_score = Column(Float, default=0.0)
-    
+
     started_at = Column(DateTime)
     completed_at = Column(DateTime)
-    
+
     created_at = Column(DateTime, default=utc_now_naive)
     updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
-    
-    delivery = relationship("Delivery", back_populates="route", primaryjoin="Route.delivery_id == Delivery.id", foreign_keys="[Route.delivery_id]")
+
+    delivery = relationship(
+        "Delivery",
+        back_populates="route",
+        primaryjoin="Route.delivery_id == Delivery.id",
+        foreign_keys="[Route.delivery_id]",
+    )
     points = relationship("RoutePoint")
     deviations = relationship("RouteDeviation")
 
     def __repr__(self):
         return f"<Route(id={self.id}, delivery={self.delivery_id})>"
 
+
 class RoutePoint(Base):
     __tablename__ = "route_points"
-    id = Column(
-        UUID(as_uuid=True), 
-        primary_key=True, 
-        default=uuid.uuid4, 
-        index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     route_id = Column(UUID(as_uuid=True), ForeignKey("routes.id"), index=True)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
@@ -89,13 +105,10 @@ class RoutePoint(Base):
     def __repr__(self):
         return f"<RoutePoint(route={self.route_id})>"
 
+
 class RouteDeviation(Base):
     __tablename__ = "route_deviations"
-    id = Column(
-        UUID(as_uuid=True), 
-        primary_key=True, 
-        default=uuid.uuid4, 
-        index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     route_id = Column(UUID(as_uuid=True), ForeignKey("routes.id"), index=True)
     deviation_type = Column(String(50))
     severity = Column(String(20))
@@ -109,7 +122,9 @@ class RouteDeviation(Base):
     time_lost_minutes = Column(Integer, default=0)
     status = Column(String(20), default="abierto")
     resolution_notes = Column(Text)
-    resolved_by = Column(UUID(as_uuid=True), ForeignKey("users.id")) # Asegúrate que sea UUID si users.id es UUID
+    resolved_by = Column(
+        UUID(as_uuid=True), ForeignKey("users.id")
+    )  # Asegúrate que sea UUID si users.id es UUID
     alert_sent = Column(Boolean, default=False)
     alert_channels = Column(JSON)
     created_at = Column(DateTime, default=utc_now_naive)

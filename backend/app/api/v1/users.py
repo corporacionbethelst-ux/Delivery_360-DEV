@@ -88,18 +88,24 @@ def _require_user_manager(current_user: User) -> None:
         )
 
 
-def _ensure_can_manage_role(current_user: User, target_role: UserRole, target_user: Optional[User] = None) -> None:
+def _ensure_can_manage_role(
+    current_user: User, target_role: UserRole, target_user: Optional[User] = None
+) -> None:
     if current_user.role == UserRole.SUPERADMIN:
         return
 
-    if target_role == UserRole.SUPERADMIN or (target_user and target_user.role == UserRole.SUPERADMIN):
+    if target_role == UserRole.SUPERADMIN or (
+        target_user and target_user.role == UserRole.SUPERADMIN
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo un superadmin puede administrar cuentas superadmin",
         )
 
 
-def _ensure_not_self_lockout(current_user: User, target_user: User, body: UserUpdateBody) -> None:
+def _ensure_not_self_lockout(
+    current_user: User, target_user: User, body: UserUpdateBody
+) -> None:
     if current_user.id != target_user.id:
         return
 
@@ -121,18 +127,25 @@ async def _get_user_or_404(db: AsyncSession, user_id: str) -> User:
     result = await db.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado"
+        )
     return user
 
 
-async def _ensure_email_available(db: AsyncSession, email: str, exclude_user_id: Optional[uuid.UUID] = None) -> None:
+async def _ensure_email_available(
+    db: AsyncSession, email: str, exclude_user_id: Optional[uuid.UUID] = None
+) -> None:
     stmt = select(User).where(func.lower(User.email) == email.lower())
     if exclude_user_id:
         stmt = stmt.where(User.id != exclude_user_id)
 
     result = await db.execute(stmt)
     if result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El email ya está registrado")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El email ya está registrado",
+        )
 
 
 @router.get("/me", response_model=dict)
@@ -198,7 +211,9 @@ async def list_users(
             )
         )
 
-    result = await db.execute(stmt.order_by(User.created_at.desc()).offset(offset).limit(limit))
+    result = await db.execute(
+        stmt.order_by(User.created_at.desc()).offset(offset).limit(limit)
+    )
     return [_serialize_user(user) for user in result.scalars().all()]
 
 
@@ -239,7 +254,10 @@ async def get_user(
     """Obtener un usuario por ID respetando permisos."""
     user = await _get_user_or_404(db, user_id)
 
-    if current_user.id != user.id and current_user.role not in [UserRole.SUPERADMIN, UserRole.GERENTE]:
+    if current_user.id != user.id and current_user.role not in [
+        UserRole.SUPERADMIN,
+        UserRole.GERENTE,
+    ]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tienes permisos para ver este usuario",
@@ -309,7 +327,10 @@ async def delete_user(
     _require_user_manager(current_user)
     user = await _get_user_or_404(db, user_id)
     if user.id == current_user.id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No puedes eliminar tu propia cuenta")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No puedes eliminar tu propia cuenta",
+        )
     _ensure_can_manage_role(current_user, user.role, user)
 
     user.is_active = False

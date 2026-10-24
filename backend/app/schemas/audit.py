@@ -13,6 +13,7 @@ from app.models.audit_log import ActionType
 
 class AuditLogBase(BaseModel):
     """Base schema for persisted audit events."""
+
     action_type: ActionType
     resource_type: Optional[str] = None
     resource_id: Optional[str] = None
@@ -31,6 +32,7 @@ class AuditLogBase(BaseModel):
 
 class AuditLogCreate(AuditLogBase):
     """Schema for creating an audit log."""
+
     user_id: Optional[uuid.UUID] = None
     user_email: Optional[str] = None
     user_role: Optional[str] = None
@@ -38,6 +40,7 @@ class AuditLogCreate(AuditLogBase):
 
 class AuditLogResponse(AuditLogBase):
     """Schema for audit log responses."""
+
     id: uuid.UUID
     user_id: Optional[uuid.UUID] = None
     user_email: Optional[str] = None
@@ -50,6 +53,7 @@ class AuditLogResponse(AuditLogBase):
 
 class AuditLogFilter(BaseModel):
     """Filters for audit log search."""
+
     user_id: Optional[uuid.UUID] = None
     action: Optional[ActionType] = None
     resource_type: Optional[str] = None

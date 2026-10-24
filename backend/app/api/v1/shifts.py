@@ -1,4 +1,5 @@
 """Delivery360 - API Endpoints para Turnos (operador)."""
+
 from datetime import datetime, time, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -47,8 +48,14 @@ class ShiftCreate(BaseModel):
 
 
 def _require_operator_user(current_user: User) -> None:
-    if current_user.role not in [UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR]:
-        raise HTTPException(status_code=403, detail="No autorizado para gestionar turnos")
+    if current_user.role not in [
+        UserRole.SUPERADMIN,
+        UserRole.GERENTE,
+        UserRole.OPERADOR,
+    ]:
+        raise HTTPException(
+            status_code=403, detail="No autorizado para gestionar turnos"
+        )
 
 
 def _parse_uuid(value: str, field_name: str) -> UUID:
@@ -58,7 +65,9 @@ def _parse_uuid(value: str, field_name: str) -> UUID:
         raise HTTPException(status_code=400, detail=f"{field_name} inválido")
 
 
-def _combine_shift_datetime(shift_date: datetime, shift_time: Optional[time]) -> Optional[str]:
+def _combine_shift_datetime(
+    shift_date: datetime, shift_time: Optional[time]
+) -> Optional[str]:
     if not shift_time:
         return None
     return datetime.combine(shift_date.date(), shift_time).isoformat()
@@ -68,17 +77,27 @@ def _status_to_ui(status_value: ShiftStatus | str | None) -> str:
     if isinstance(status_value, ShiftStatus):
         return STATUS_TO_UI.get(status_value, status_value.value)
     if status_value:
-        return STATUS_TO_UI.get(ShiftStatus(status_value), status_value) if status_value in ShiftStatus._value2member_map_ else status_value
+        return (
+            STATUS_TO_UI.get(ShiftStatus(status_value), status_value)
+            if status_value in ShiftStatus._value2member_map_
+            else status_value
+        )
     return STATUS_TO_UI[ShiftStatus.PROGRAMADO]
 
 
-def _serialize_shift(shift: Shift, rider: Optional[Rider], user: Optional[User], zone: Optional[Zone]) -> Dict[str, Any]:
+def _serialize_shift(
+    shift: Shift, rider: Optional[Rider], user: Optional[User], zone: Optional[Zone]
+) -> Dict[str, Any]:
     rider_name = None
     if user:
         rider_name = f"{user.first_name} {user.last_name}".strip()
 
     start_at = _combine_shift_datetime(shift.shift_date, shift.start_time)
-    end_at = shift.check_out_at.isoformat() if shift.check_out_at else _combine_shift_datetime(shift.shift_date, shift.end_time)
+    end_at = (
+        shift.check_out_at.isoformat()
+        if shift.check_out_at
+        else _combine_shift_datetime(shift.shift_date, shift.end_time)
+    )
 
     return {
         "id": str(shift.id),
@@ -138,15 +157,24 @@ async def list_shifts(
     if status_filter and status_filter != "ALL":
         mapped_status = UI_TO_STATUS.get(status_filter.upper())
         if not mapped_status:
-            raise HTTPException(status_code=400, detail=f"Estado inválido: {status_filter}")
+            raise HTTPException(
+                status_code=400, detail=f"Estado inválido: {status_filter}"
+            )
         stmt = stmt.where(Shift.status == mapped_status)
 
     if rider_id:
         stmt = stmt.where(Shift.rider_id == _parse_uuid(rider_id, "rider_id"))
 
-    stmt = stmt.order_by(Shift.shift_date.desc(), Shift.start_time.desc()).limit(limit).offset(offset)
+    stmt = (
+        stmt.order_by(Shift.shift_date.desc(), Shift.start_time.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     result = await db.execute(stmt)
-    return [_serialize_shift(shift, rider, user, zone) for shift, rider, user, zone in result.all()]
+    return [
+        _serialize_shift(shift, rider, user, zone)
+        for shift, rider, user, zone in result.all()
+    ]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -177,7 +205,9 @@ async def create_shift(
 
     row = await _get_shift_row(db, str(shift.id))
     if not row:
-        raise HTTPException(status_code=500, detail="No se pudo serializar el turno creado")
+        raise HTTPException(
+            status_code=500, detail="No se pudo serializar el turno creado"
+        )
     return _serialize_shift(*row)
 
 
@@ -206,12 +236,19 @@ async def start_shift(
         raise HTTPException(status_code=404, detail="Turno no encontrado")
     shift, rider, user, zone = row
     if shift.status not in [ShiftStatus.PROGRAMADO, ShiftStatus.INCOMPLETO]:
-        raise HTTPException(status_code=400, detail=f"No se puede iniciar un turno en estado {_status_to_ui(shift.status)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede iniciar un turno en estado {_status_to_ui(shift.status)}",
+        )
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     shift.status = ShiftStatus.EN_CURSO
     shift.check_in_at = now
-    db.add(CheckInOut(rider_id=shift.rider_id, shift_id=shift.id, check_type="IN", timestamp=now))
+    db.add(
+        CheckInOut(
+            rider_id=shift.rider_id, shift_id=shift.id, check_type="IN", timestamp=now
+        )
+    )
     await db.commit()
     return _serialize_shift(shift, rider, user, zone)
 
@@ -228,13 +265,20 @@ async def end_shift(
         raise HTTPException(status_code=404, detail="Turno no encontrado")
     shift, rider, user, zone = row
     if shift.status != ShiftStatus.EN_CURSO:
-        raise HTTPException(status_code=400, detail=f"No se puede finalizar un turno en estado {_status_to_ui(shift.status)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede finalizar un turno en estado {_status_to_ui(shift.status)}",
+        )
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     shift.status = ShiftStatus.COMPLETADO
     shift.check_out_at = now
     shift.end_time = now.time()
-    db.add(CheckInOut(rider_id=shift.rider_id, shift_id=shift.id, check_type="OUT", timestamp=now))
+    db.add(
+        CheckInOut(
+            rider_id=shift.rider_id, shift_id=shift.id, check_type="OUT", timestamp=now
+        )
+    )
     await db.commit()
     return _serialize_shift(shift, rider, user, zone)
 
@@ -251,7 +295,10 @@ async def cancel_shift(
         raise HTTPException(status_code=404, detail="Turno no encontrado")
     shift, rider, user, zone = row
     if shift.status in [ShiftStatus.COMPLETADO, ShiftStatus.CANCELADO]:
-        raise HTTPException(status_code=400, detail=f"No se puede cancelar un turno en estado {_status_to_ui(shift.status)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede cancelar un turno en estado {_status_to_ui(shift.status)}",
+        )
 
     shift.status = ShiftStatus.CANCELADO
     shift.cancellation_reason = "Cancelado desde panel operador"

@@ -15,6 +15,7 @@ Sin credenciales/API bank → el parser CSV local es la fuente (modo dev/stub);
 la integración real queda como hook `fetch_bank_statement()` reemplazable.
 Nunca lanza al scheduler: errores quedan loggeados.
 """
+
 from __future__ import annotations
 
 import csv
@@ -46,7 +47,14 @@ class StatementLine:
 
 _COL_ALIASES = {
     "date": ["date", "fecha", "transdate", "transaction_date"],
-    "reference": ["reference", "referencia", "concept", "concepto", "description", "detail"],
+    "reference": [
+        "reference",
+        "referencia",
+        "concept",
+        "concepto",
+        "description",
+        "detail",
+    ],
     "amount": ["amount", "monto", "value", "valor", "debit/credit", "importe"],
 }
 
@@ -69,7 +77,9 @@ def parse_statement_csv(csv_text: str) -> List[StatementLine]:
                 if n in [_norm(a) for a in aliases]:
                     colmap[canon] = fname
         if "amount" not in colmap or "date" not in colmap:
-            logger.warning("CSV sin columnas date/amount reconocibles: %s", reader.fieldnames)
+            logger.warning(
+                "CSV sin columnas date/amount reconocibles: %s", reader.fieldnames
+            )
             return lines
 
         amount_idx = reader.fieldnames.index(colmap["amount"])
@@ -83,9 +93,12 @@ def parse_statement_csv(csv_text: str) -> List[StatementLine]:
                 # (1-2 decimales), se reconstruye: 1234 + ,56 → '1234.56'
                 overflow = [str(o or "").strip() for o in (row.get(None) or [])]
                 amt_val = str(row.get(colmap["amount"]) or "").strip()
-                if (overflow and amount_idx == last_idx
-                        and all(t.isdigit() for t in overflow)
-                        and len(overflow[0]) <= 2):
+                if (
+                    overflow
+                    and amount_idx == last_idx
+                    and all(t.isdigit() for t in overflow)
+                    and len(overflow[0]) <= 2
+                ):
                     row[colmap["amount"]] = f"{amt_val}.{overflow[0]}"
                     row.pop(None, None)
                 raw_date = (row.get(colmap["date"]) or "").strip()
@@ -106,8 +119,14 @@ def parse_statement_csv(csv_text: str) -> List[StatementLine]:
                     amt_raw = amt_raw.replace(",", ".")
                 cents = int((Decimal(amt_raw) * 100).quantize(Decimal("1")))
                 ref = (row.get(colmap.get("reference", ""), "") or "").strip() or None
-                lines.append(StatementLine(statement_date=d, bank_reference=ref,
-                                           amount_cents=cents, raw=dict(row)))
+                lines.append(
+                    StatementLine(
+                        statement_date=d,
+                        bank_reference=ref,
+                        amount_cents=cents,
+                        raw=dict(row),
+                    )
+                )
             except (InvalidOperation, ValueError, KeyError):
                 continue  # línea basura: se reporta como no parseada
     except Exception as exc:
@@ -121,20 +140,28 @@ def _confidence(line: StatementLine, txn: FinancialTransaction) -> float:
     txn_cents = int(txn.amount_cents or 0)
     if abs(abs(txn_cents) - abs(line.amount_cents)) == 0:
         score += 0.6
-    elif abs(abs(txn_cents) - abs(line.amount_cents)) <= settings.RECONCILIATION_VARIANCE_ALERT_CENTS:
+    elif (
+        abs(abs(txn_cents) - abs(line.amount_cents))
+        <= settings.RECONCILIATION_VARIANCE_ALERT_CENTS
+    ):
         score += 0.3  # variance candidate
-    txn_date = (txn.created_at.date() if txn.created_at else None)
+    txn_date = txn.created_at.date() if txn.created_at else None
     if txn_date is not None and abs((txn_date - line.statement_date).days) <= 1:
         score += 0.25
     ref_txt = (line.bank_reference or "").lower()
     internal_ref = (txn.reference_id or "").lower()
-    if ref_txt and internal_ref and (internal_ref[:13] in ref_txt or ref_txt[:13] in internal_ref):
+    if (
+        ref_txt
+        and internal_ref
+        and (internal_ref[:13] in ref_txt or ref_txt[:13] in internal_ref)
+    ):
         score += 0.15
     return round(score, 2)
 
 
-async def run_reconciliation(db: AsyncSession, csv_text: str,
-                             statement_day: Optional[date] = None) -> dict:
+async def run_reconciliation(
+    db: AsyncSession, csv_text: str, statement_day: Optional[date] = None
+) -> dict:
     """Ejecuta el matching completo y persiste BankReconciliationRecords.
 
     Retorna resumen {processed, matched, variance, unmatched}. Nunca lanza por
@@ -154,9 +181,10 @@ async def run_reconciliation(db: AsyncSession, csv_text: str,
 
     res = await db.execute(
         select(FinancialTransaction).where(
-            FinancialTransaction.created_at >= datetime.combine(lo, datetime.min.time()),
-            FinancialTransaction.created_at < datetime.combine(hi + timedelta(days=1),
-                                                               datetime.min.time()),
+            FinancialTransaction.created_at
+            >= datetime.combine(lo, datetime.min.time()),
+            FinancialTransaction.created_at
+            < datetime.combine(hi + timedelta(days=1), datetime.min.time()),
         )
     )
     txns = list(res.scalars().all())
@@ -164,7 +192,9 @@ async def run_reconciliation(db: AsyncSession, csv_text: str,
     prev = await db.execute(
         select(BankReconciliationRecord.internal_transaction_id).where(
             BankReconciliationRecord.status.in_(
-                [ReconciliationStatus.RELACIONADO, ReconciliationStatus.RESUELTO_MANUAL]))
+                [ReconciliationStatus.RELACIONADO, ReconciliationStatus.RESUELTO_MANUAL]
+            )
+        )
     )
     already_matched_ids = {r for (r,) in prev.all() if r}
 
@@ -215,12 +245,14 @@ async def fetch_and_reconcile_safe() -> None:
     /app/data/bank_statement.csv; si no existe, log info y sale. Hook real:
     reemplazar por descarga SFTP/API del banco."""
     import os
+
     path = os.environ.get("BANK_STATEMENT_CSV_PATH", "/app/data/bank_statement.csv")
     if not os.path.exists(path):
         logger.info("reconciliación: no hay extracto en %s; skip", path)
         return
     try:
         from app.core.database import AsyncSessionLocal
+
         with open(path, "r", encoding="utf-8-sig") as fh:
             text_data = fh.read()
         async with AsyncSessionLocal() as db:

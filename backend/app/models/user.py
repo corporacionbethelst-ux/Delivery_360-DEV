@@ -11,11 +11,14 @@ from passlib.context import CryptContext
 
 from app.core.database import Base
 
+
 def utc_now_naive():
     """Devuelve la hora actual en UTC sin zona horaria (naive)."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 class UserRole(str, enum.Enum):
     SUPERADMIN = "SUPERADMIN"
@@ -25,15 +28,11 @@ class UserRole(str, enum.Enum):
     CLIENTE = "CLIENTE"
     AUDITOR = "AUDITOR"
 
+
 class User(Base):
     __tablename__ = "users"
-    
-    id = Column(
-        UUID(as_uuid=True), 
-        primary_key=True, 
-        default=uuid.uuid4, 
-        index=True
-    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
@@ -46,7 +45,7 @@ class User(Base):
     last_login = Column(DateTime)
     failed_login_attempts = Column(String, default="0")
     locked_until = Column(DateTime)
-    
+
     reset_token = Column(String(500), nullable=True)
     reset_token_expires = Column(DateTime, nullable=True)
 
@@ -63,7 +62,7 @@ class User(Base):
 
     def __repr__(self):
         return f"<User(id={self.id}, email={self.email}, role={self.role})>"
-    
+
     # ------------------------------------------------------------------
     # RELACIONES
     # Nota: Las relaciones con clases que pueden causar circularidad
@@ -72,10 +71,14 @@ class User(Base):
 
     # 1. Relación Uno-a-Uno con Rider (Perfil de repartidor)
     # Se mantiene uselist=False porque un usuario tiene máximo un perfil de rider.
-    rider_profile = relationship("Rider", back_populates="user", uselist=False, foreign_keys="Rider.user_id")
-    
+    rider_profile = relationship(
+        "Rider", back_populates="user", uselist=False, foreign_keys="Rider.user_id"
+    )
+
     # 2. Relación Uno-a-Muchos con Notificaciones
-    notifications = relationship("Notification", back_populates="user", foreign_keys="Notification.user_id")
+    notifications = relationship(
+        "Notification", back_populates="user", foreign_keys="Notification.user_id"
+    )
 
     # 3. Relación Uno-a-Muchos con Vehicle (Flota de vehículos)
     # Un usuario (dueño) puede tener múltiples vehículos.

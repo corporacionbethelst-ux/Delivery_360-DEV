@@ -7,10 +7,10 @@ class Settings(BaseSettings):
     """
     Clase de configuración global de la aplicación
     """
-    
+
     # --- CONFIGURACIÓN GENERAL DE LA APLICACIÓN ---
     APP_NAME: str = "Delivery360"
-    APP_VERSION: str = "1.2.3" # Actualizado con los nuevos lotes
+    APP_VERSION: str = "1.2.3"  # Actualizado con los nuevos lotes
     APP_ENV: str = "development"
     ENVIRONMENT: str = "development"
     DEBUG: bool = False  # Cambiado a False para producción
@@ -21,7 +21,10 @@ class Settings(BaseSettings):
 
     @property
     def is_secret_key_default(self) -> bool:
-        return self.SECRET_KEY == "CHANGE-THIS-SECRET-KEY-IN-PRODUCTION-MIN-32-CHARS-RANDOM!"
+        return (
+            self.SECRET_KEY
+            == "CHANGE-THIS-SECRET-KEY-IN-PRODUCTION-MIN-32-CHARS-RANDOM!"
+        )
 
     # --- CONFIGURACIÓN DE API ---
     API_V1_STR: str = "/api/v1"
@@ -59,13 +62,13 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_HOST: str = "localhost"
     REDIS_PORT: str = "6379"
-    
+
     # --- CONFIGURACIÓN DE CACHÉ ---
     CACHE_ENABLED: bool = True
     CACHE_DEFAULT_TTL_SECONDS: int = 300  # 5 minutos
-    CACHE_ORDER_TTL_SECONDS: int = 120    # 2 minutos para órdenes
-    CACHE_RIDER_TTL_SECONDS: int = 60     # 1 minuto para repartidores
-    CACHE_DASHBOARD_TTL_SECONDS: int = 180 # 3 minutos para dashboard
+    CACHE_ORDER_TTL_SECONDS: int = 120  # 2 minutos para órdenes
+    CACHE_RIDER_TTL_SECONDS: int = 60  # 1 minuto para repartidores
+    CACHE_DASHBOARD_TTL_SECONDS: int = 180  # 3 minutos para dashboard
 
     # --- CONFIGURACIÓN DE AUTENTICACIÓN JWT ---
     ALGORITHM: str = "HS256"
@@ -87,7 +90,11 @@ class Settings(BaseSettings):
 
     @property
     def retention_days_computed(self) -> int:
-        return self.LGPD_RETENTION_DAYS if self.LGPD_RETENTION_DAYS else self.DATA_RETENTION_DAYS
+        return (
+            self.LGPD_RETENTION_DAYS
+            if self.LGPD_RETENTION_DAYS
+            else self.DATA_RETENTION_DAYS
+        )
 
     # --- CONFIGURACIÓN DE RATE LIMITING ---
     RATE_LIMIT_PER_MINUTE: int = 60
@@ -131,10 +138,10 @@ class Settings(BaseSettings):
     # IN_APP/stub (provider='stub'), nunca revientan en desarrollo.
     NOTIFICATIONS_ENABLED: bool = True
     NOTIFICATION_MAX_RETRIES: int = 3
-    NOTIFICATION_RETRY_BACKOFF_SEC: int = 60      # base exponencial: 60,120,240s
-    NOTIFICATION_RETENTION_DAYS: int = 30         # purge_old_logs
+    NOTIFICATION_RETRY_BACKOFF_SEC: int = 60  # base exponencial: 60,120,240s
+    NOTIFICATION_RETENTION_DAYS: int = 30  # purge_old_logs
     NOTIFICATION_TEMPLATE_CACHE_TTL_SEC: int = 3600  # cache Redis plantillas 1h
-    NOTIFICATION_RATE_LIMIT_PER_MIN: int = 10     # eventos/min por usuario
+    NOTIFICATION_RATE_LIMIT_PER_MIN: int = 10  # eventos/min por usuario
     # Canal Pub/Sub de fan-out WS: notifications:user:{id}
     REDIS_NOTIF_CHANNEL_PREFIX: str = "notifications:user"
     # Push (FCM) — opcionales
@@ -156,13 +163,13 @@ class Settings(BaseSettings):
     # Defaults seguros para dev: facturación en modo STUB (sin credenciales
     # reales de DIAN/SAT se simula ACEPTADA localmente, jamás crash).
     # ════════════════════════════════════════════════════════════
-    ENABLE_ELECTRONIC_INVOICING: bool = True   # feature flag maestro del flujo
-    FISCAL_DEFAULT_COUNTRY: str = "CO"         # régimen por defecto (ISO alfa-2)
-    COMPANY_NIT: str = "900000000-1"           # NIT/RFC emisor demo
+    ENABLE_ELECTRONIC_INVOICING: bool = True  # feature flag maestro del flujo
+    FISCAL_DEFAULT_COUNTRY: str = "CO"  # régimen por defecto (ISO alfa-2)
+    COMPANY_NIT: str = "900000000-1"  # NIT/RFC emisor demo
     COMPANY_NAME: str = "Delivery360 S.A.S."
     COMPANY_ADDRESS: str = "Bogotá D.C., Colombia"
-    COMPANY_CITY_CODE: str = "11001"           # código DANE Bogotá
-    INVOICE_DAILY_LIMIT: int = 500             # protección anti-fraude emisión/día
+    COMPANY_CITY_CODE: str = "11001"  # código DANE Bogotá
+    INVOICE_DAILY_LIMIT: int = 500  # protección anti-fraude emisión/día
     # Proveedores fiscales (opcionales → stub sandbox)
     DIAN_API_KEY: Optional[str] = None
     DIAN_CERTIFICATE_PATH: Optional[str] = None
@@ -171,14 +178,16 @@ class Settings(BaseSettings):
     SAT_CERT_FILE: Optional[str] = None
     SAT_KEY_FILE: Optional[str] = None
     # Multi-moneda / FX
-    EXCHANGE_RATE_PROVIDER: str = "stub"       # stub | openexchangerates
+    EXCHANGE_RATE_PROVIDER: str = "stub"  # stub | openexchangerates
     OPEN_EXCHANGE_RATES_APP_ID: Optional[str] = None
     FX_CACHE_TTL_MINUTES: int = 60
-    FX_FALLBACK_RATES_JSON: str = '{"COP":3900.0,"MXN":17.0,"CLP":950.0,"PEN":3.75,"USD":1.0}'
+    FX_FALLBACK_RATES_JSON: str = (
+        '{"COP":3900.0,"MXN":17.0,"CLP":950.0,"PEN":3.75,"USD":1.0}'
+    )
     # Split payments (regla global; override por zona vía platform_settings)
-    PLATFORM_COMMISSION_PCT: float = 20.0      # % de la tarifa de envío para plataforma
+    PLATFORM_COMMISSION_PCT: float = 20.0  # % de la tarifa de envío para plataforma
     # Reconciliación bancaria
-    RECONCILIATION_VARIANCE_ALERT_CENTS: int = 100   # variance > 1.00 → VARIANCIA
+    RECONCILIATION_VARIANCE_ALERT_CENTS: int = 100  # variance > 1.00 → VARIANCIA
     # Cifrado de secretos locales (AES-256-GCM); dev default NO es seguro
     ENCRYPTION_MASTER_KEY: Optional[str] = None
 

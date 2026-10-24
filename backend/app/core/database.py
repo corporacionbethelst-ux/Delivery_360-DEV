@@ -3,11 +3,14 @@ from sqlalchemy.orm import DeclarativeBase
 from typing import AsyncGenerator
 from app.core.config import settings
 
+
 class Base(DeclarativeBase):
     """
     Clase base declarativa para todos los modelos SQLAlchemy
     """
+
     pass
+
 
 # Validar que la URL tenga el prefijo correcto para asyncpg
 # Si la URL en .env es 'postgresql://', la convertimos a 'postgresql+asyncpg://'
@@ -32,6 +35,7 @@ AsyncSessionLocal = async_sessionmaker(
     autocommit=False,
     autoflush=False,
 )
+
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """

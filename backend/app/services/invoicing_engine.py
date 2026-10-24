@@ -13,6 +13,7 @@ Diseño:
 - Protección anti-fraude: límite diario INVOICE_DAILY_LIMIT por resolución.
 - Numeración atómica: UPDATE ... current_counter+1 con row lock (SELECT FOR UPDATE).
 """
+
 from __future__ import annotations
 
 import base64
@@ -56,6 +57,7 @@ try:  # pragma: no cover - entorno sin extras
     from cryptography.hazmat.primitives import hashes, serialization  # noqa
     from cryptography.hazmat.primitives.asymmetric import padding  # noqa
     from cryptography.x509 import load_pem_x509_certificate  # noqa
+
     _HAVE_CRYPTO = True
 except Exception:  # ImportError o binario ausente
     _HAVE_CRYPTO = False
@@ -74,6 +76,7 @@ def sign_document(content: str, key_path: Optional[str] = None) -> bytes:
                 from cryptography.hazmat.primitives.serialization import (
                     load_pem_private_key,
                 )
+
                 pkey = load_pem_private_key(fh.read(), password=None)
             return pkey.sign(raw, padding.PKCS1v15(), hashes.SHA256())
         except Exception as exc:
@@ -110,9 +113,12 @@ class DianColombiaAdapter(ElectronicInvoiceProvider):
     country = CountryTaxRegime.COLOMBIA
     _NS = "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
 
-    def __init__(self, api_key: Optional[str] = None,
-                 certificate_path: Optional[str] = None,
-                 password: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        certificate_path: Optional[str] = None,
+        password: Optional[str] = None,
+    ):
         self.api_key = api_key or settings.DIAN_API_KEY
         self.certificate_path = certificate_path or settings.DIAN_CERTIFICATE_PATH
         self.password = password or settings.DIAN_PASSWORD
@@ -132,7 +138,11 @@ class DianColombiaAdapter(ElectronicInvoiceProvider):
         sub(root, "ID", f"{d['resolution_number']}-{d['sequence']}")
         sub(root, "IssueDate", d["issue_date"])
         sub(root, "IssueTime", d["issue_time"])
-        sub(root, "InvoiceTypeCode", "380" if d.get("invoice_type", "VENTA") == "VENTA" else "381")
+        sub(
+            root,
+            "InvoiceTypeCode",
+            "380" if d.get("invoice_type", "VENTA") == "VENTA" else "381",
+        )
         sub(root, "DocumentCurrencyCode", d["currency"])
 
         emitter = sub(root, "AccountingSupplierParty")
@@ -160,8 +170,7 @@ class DianColombiaAdapter(ElectronicInvoiceProvider):
             le = sub(root, "InvoiceLine")
             sub(le, "ID", line.get("index", 1))
             sub(le, "InvoicedQuantity", line.get("quantity", 1))
-            sub(le, "LineExtensionAmount",
-                Decimal(line["base_amount_cents"]) / 100)
+            sub(le, "LineExtensionAmount", Decimal(line["base_amount_cents"]) / 100)
             it = sub(le, "Item")
             sub(it, "Name", line.get("name", "Servicio de entrega"))
 
@@ -187,6 +196,7 @@ class DianColombiaAdapter(ElectronicInvoiceProvider):
             }
         try:
             import httpx
+
             payload = {
                 "document": base64.b64encode(document.encode()).decode(),
                 "signature": base64.b64encode(signature).decode(),
@@ -235,11 +245,16 @@ class SatMexicoAdapter(ElectronicInvoiceProvider):
             "UsoCfdi": d.get("usage_code", "G03"),
             "Moneda": d["currency"] if d["currency"] != "COP" else "MXN",
             "TipoCambio": float(d.get("exchange_rate", 1)),
-            "Emisor": {"Rfc": settings.COMPANY_NIT, "Nombre": settings.COMPANY_NAME,
-                       "RegimenFiscal": "601"},
-            "Receptor": {"Rfc": d.get("customer", {}).get("tax_id", "XAXX010101000"),
-                         "Nombre": d.get("customer", {}).get("name", "Publico General"),
-                         "UsoCfdi": d.get("usage_code", "G03")},
+            "Emisor": {
+                "Rfc": settings.COMPANY_NIT,
+                "Nombre": settings.COMPANY_NAME,
+                "RegimenFiscal": "601",
+            },
+            "Receptor": {
+                "Rfc": d.get("customer", {}).get("tax_id", "XAXX010101000"),
+                "Nombre": d.get("customer", {}).get("name", "Publico General"),
+                "UsoCfdi": d.get("usage_code", "G03"),
+            },
             "Conceptos": [
                 {
                     "ClaveProdServ": c.get("product_key", "81101500"),
@@ -252,8 +267,9 @@ class SatMexicoAdapter(ElectronicInvoiceProvider):
             ],
             "Impuestos": {
                 "TotalImpuestosTrasladados": float(Decimal(d["tax_total_cents"]) / 100),
-                "Traslados": [{"Impuesto": "002", "TipoFactor": "Tasa",
-                               "TasaOCuota": "0.160000"}],
+                "Traslados": [
+                    {"Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": "0.160000"}
+                ],
             },
         }
         return json.dumps(cfdi, ensure_ascii=False)
@@ -269,6 +285,7 @@ class SatMexicoAdapter(ElectronicInvoiceProvider):
             }
         try:
             import httpx
+
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.post(
                     settings.SAT_API_ENDPOINT
@@ -277,13 +294,21 @@ class SatMexicoAdapter(ElectronicInvoiceProvider):
                     headers={"Content-Type": "application/xml"},
                 )
                 resp.raise_for_status()
-                data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+                data = (
+                    resp.json()
+                    if resp.headers.get("content-type", "").startswith(
+                        "application/json"
+                    )
+                    else {}
+                )
             uid = data.get("UUID") or data.get("id")
             if not uid:
                 raise InvoiceSubmissionError("SAT no devolvió UUID")
-            return {"unique_identifier": uid,
-                    "pdf_url": data.get("PdfUrl"),
-                    "qr_code_url": data.get("QrUrl")}
+            return {
+                "unique_identifier": uid,
+                "pdf_url": data.get("PdfUrl"),
+                "qr_code_url": data.get("QrUrl"),
+            }
         except InvoiceSubmissionError:
             raise
         except Exception as exc:
@@ -317,7 +342,9 @@ class InvoicingEngine:
         return prov
 
     # ------------------------------------------------------------------
-    async def _get_active_resolution(self, country: CountryTaxRegime) -> InvoiceResolution:
+    async def _get_active_resolution(
+        self, country: CountryTaxRegime
+    ) -> InvoiceResolution:
         today = datetime.now(timezone.utc).date()
         res = await self.db.execute(
             select(InvoiceResolution)
@@ -333,7 +360,8 @@ class InvoicingEngine:
         resolution = res.scalar_one_or_none()
         if resolution is None:
             raise InvoiceSubmissionError(
-                f"No hay resolución activa autorizada para {country.value}")
+                f"No hay resolución activa autorizada para {country.value}"
+            )
         return resolution
 
     async def _next_sequence(self, resolution: InvoiceResolution) -> int:
@@ -348,12 +376,15 @@ class InvoicingEngine:
         seq = int(refreshed.current_counter) + 1  # inicia en 1
         if seq > int(refreshed.end_range):
             raise InvoiceSubmissionError(
-                f"Resolución {refreshed.prefix} agotada (seq {seq} > {refreshed.end_range})")
+                f"Resolución {refreshed.prefix} agotada (seq {seq} > {refreshed.end_range})"
+            )
         return seq
 
     async def _daily_count(self, resolution_id: uuid.UUID) -> int:
         res = await self.db.execute(
-            select(func.count()).select_from(ElectronicInvoice).where(
+            select(func.count())
+            .select_from(ElectronicInvoice)
+            .where(
                 ElectronicInvoice.resolution_number.isnot(None),
                 ElectronicInvoice.issue_date == datetime.now(timezone.utc).date(),
             )
@@ -389,18 +420,25 @@ class InvoicingEngine:
         retentions = sum(r.total_retentions_cents for r in line_results)
         grand = subtotal + tax_total - retentions
         if invoice_type == InvoiceType.NOTA_CREDITO:
-            subtotal, tax_total, retentions, grand = -subtotal, -tax_total, -retentions, -grand
+            subtotal, tax_total, retentions, grand = (
+                -subtotal,
+                -tax_total,
+                -retentions,
+                -grand,
+            )
 
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         resolution = await self._get_active_resolution(country)
 
         if await self._daily_count(resolution.id) >= settings.INVOICE_DAILY_LIMIT:
             raise InvoiceSubmissionError(
-                f"Límite diario de emisión ({settings.INVOICE_DAILY_LIMIT}) alcanzado")
+                f"Límite diario de emisión ({settings.INVOICE_DAILY_LIMIT}) alcanzado"
+            )
 
         sequence = await self._next_sequence(resolution)
 
         from app.services.fx_service import get_exchange_rate
+
         exchange_rate = await get_exchange_rate("USD", "COP")
 
         invoice = ElectronicInvoice(
@@ -423,7 +461,8 @@ class InvoicingEngine:
             reference_invoice_id=reference_invoice_id,
             customer_info_json=json.dumps(customer_info, ensure_ascii=False),
             tax_breakdown_json=json.dumps(
-                [r.to_dict() for r in line_results], ensure_ascii=False),
+                [r.to_dict() for r in line_results], ensure_ascii=False
+            ),
         )
         self.db.add(invoice)
 
@@ -434,9 +473,7 @@ class InvoicingEngine:
             "issue_date": now.strftime("%Y-%m-%d"),
             "issue_time": now.strftime("%H:%M:%S"),
             "customer": customer_info,
-            "items": [
-                {**it, **lr.to_dict()} for it, lr in zip(items, line_results)
-            ],
+            "items": [{**it, **lr.to_dict()} for it, lr in zip(items, line_results)],
             "payment_method": payment_method,
             "currency": invoice.currency_code,
             "exchange_rate": str(exchange_rate),
@@ -472,20 +509,23 @@ class InvoicingEngine:
         return invoice
 
     # ------------------------------------------------------------------
-    async def issue_credit_note(self, original_invoice_id: uuid.UUID,
-                                 reason: str, amount_cents: int) -> ElectronicInvoice:
+    async def issue_credit_note(
+        self, original_invoice_id: uuid.UUID, reason: str, amount_cents: int
+    ) -> ElectronicInvoice:
         """Nota crédito vinculada a factura original (devoluciones/reembolsos)."""
         original = await self.db.get(ElectronicInvoice, original_invoice_id)
         if original is None:
             raise ValueError("Factura original no encontrada")
         if original.status != InvoiceStatus.ACEPTADA:
             raise ValueError("Solo se pueden anular facturas ACEPTADAS")
-        nc_items = [{
-            "name": f"Nota crédito: {reason}"[:120],
-            "unit_price_cents": abs(int(amount_cents)),
-            "quantity": 1,
-            "category": "ajuste",
-        }]
+        nc_items = [
+            {
+                "name": f"Nota crédito: {reason}"[:120],
+                "unit_price_cents": abs(int(amount_cents)),
+                "quantity": 1,
+                "category": "ajuste",
+            }
+        ]
         customer = json.loads(original.customer_info_json or "{}")
         return await self.create_electronic_invoice(
             order_id=original.order_id,
@@ -498,7 +538,9 @@ class InvoicingEngine:
         )
 
     # ------------------------------------------------------------------
-    async def cancel_invoice(self, invoice_id: uuid.UUID, reason: str) -> ElectronicInvoice:
+    async def cancel_invoice(
+        self, invoice_id: uuid.UUID, reason: str
+    ) -> ElectronicInvoice:
         inv = await self.db.get(ElectronicInvoice, invoice_id)
         if inv is None:
             raise ValueError("Factura no encontrada")
@@ -539,18 +581,22 @@ async def issue_invoice_for_order_safe(order_id: uuid.UUID) -> None:
                 logger.info("Orden %s sin monto; no se factura", order_id)
                 return
             # Una sola línea: servicio de entrega D360 (IVA servicios)
-            items = [{
-                "name": "Servicio de entrega Delivery360",
-                "unit_price_cents": gross_cents,
-                "quantity": 1,
-                "category": "delivery_service",
-            }]
+            items = [
+                {
+                    "name": "Servicio de entrega Delivery360",
+                    "unit_price_cents": gross_cents,
+                    "quantity": 1,
+                    "category": "delivery_service",
+                }
+            ]
             customer = {
                 "name": order.customer_name,
                 "tax_id": "NN",  # consumidor final sin NIT → DIAN permite NN
                 "email": order.customer_email,
                 "phone": order.customer_phone,
-                "billing_mode": "simplified" if order.customer_email is None else "full",
+                "billing_mode": (
+                    "simplified" if order.customer_email is None else "full"
+                ),
             }
             engine = InvoicingEngine(db)
             inv = await engine.create_electronic_invoice(
@@ -560,7 +606,12 @@ async def issue_invoice_for_order_safe(order_id: uuid.UUID) -> None:
                 payment_method=(order.payment_method or "CARD").upper(),
                 country=CountryTaxRegime(settings.FISCAL_DEFAULT_COUNTRY),
             )
-            logger.info("Factura %s → estado %s (orden %s, fee=%d¢)",
-                        inv.id, inv.status.value, order_id, fee_cents)
+            logger.info(
+                "Factura %s → estado %s (orden %s, fee=%d¢)",
+                inv.id,
+                inv.status.value,
+                order_id,
+                fee_cents,
+            )
     except Exception:
         logger.exception("Hook factura orden %s falló (no bloqueante)", order_id)

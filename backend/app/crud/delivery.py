@@ -15,7 +15,9 @@ class CRUDDelivery:
         result = await db.execute(select(Delivery).where(Delivery.id == delivery_id))
         return result.scalar_one_or_none()
 
-    async def get_by_order_id(self, db: AsyncSession, order_id: uuid.UUID) -> Optional[Delivery]:
+    async def get_by_order_id(
+        self, db: AsyncSession, order_id: uuid.UUID
+    ) -> Optional[Delivery]:
         result = await db.execute(select(Delivery).where(Delivery.order_id == order_id))
         return result.scalar_one_or_none()
 
@@ -50,7 +52,9 @@ class CRUDDelivery:
         await db.refresh(db_obj)
         return db_obj
 
-    async def update(self, db: AsyncSession, db_obj: Delivery, obj_in: dict[str, Any]) -> Delivery:
+    async def update(
+        self, db: AsyncSession, db_obj: Delivery, obj_in: dict[str, Any]
+    ) -> Delivery:
         for field, value in obj_in.items():
             setattr(db_obj, field, value)
         db.add(db_obj)

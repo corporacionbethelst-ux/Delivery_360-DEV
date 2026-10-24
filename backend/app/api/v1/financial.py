@@ -26,6 +26,7 @@ def _order_earning_amount_expr():
         else_=Order.subtotal,
     )
 
+
 @router.get("/riders/me")
 async def get_my_earnings(
     db: AsyncSession = Depends(get_db),
@@ -43,7 +44,9 @@ async def get_my_earnings(
     )
     rider = result.scalar_one_or_none()
     if not rider:
-        raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
+        raise HTTPException(
+            status_code=404, detail="Perfil de repartidor no encontrado"
+        )
 
     # 1. Calcular Total Ganado desde ledger y, si aún no hay asientos,
     # usar órdenes entregadas como fallback para demos/instalaciones migradas.
@@ -51,7 +54,7 @@ async def get_my_earnings(
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider.id,
             Financial.transaction_type.in_(list(CREDIT_TYPES)),
-            Financial.status == PaymentStatus.PROCESADO
+            Financial.status == PaymentStatus.PROCESADO,
         )
     )
     ledger_total_earned = float(earnings_result.scalar() or 0)
@@ -68,7 +71,9 @@ async def get_my_earnings(
     orders_total_earned, orders_completed_count = orders_earnings_result.one()
     orders_total_earned = float(orders_total_earned or 0)
     orders_completed_count = int(orders_completed_count or 0)
-    total_earned = ledger_total_earned if ledger_total_earned > 0 else orders_total_earned
+    total_earned = (
+        ledger_total_earned if ledger_total_earned > 0 else orders_total_earned
+    )
 
     # 2. Calcular Total Retirado (Suma de retiros PROCESADOS)
     # Nota: No restamos los PENDIENTE aquí para que el frontend calcule el "pending_payout" correctamente
@@ -76,16 +81,16 @@ async def get_my_earnings(
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider.id,
             Financial.transaction_type == TransactionType.RETIRO,
-            Financial.status == PaymentStatus.PROCESADO
+            Financial.status == PaymentStatus.PROCESADO,
         )
     )
     total_withdrawn = float(withdrawn_result.scalar() or 0)
-    
+
     # Contar entregas completadas desde ledger (todos los tipos de crédito) y fallback a órdenes entregadas.
     deliveries_count_result = await db.execute(
         select(func.count(Financial.id)).where(
             Financial.rider_id == rider.id,
-            Financial.transaction_type.in_(list(CREDIT_TYPES))
+            Financial.transaction_type.in_(list(CREDIT_TYPES)),
         )
     )
     ledger_completed_deliveries = int(deliveries_count_result.scalar() or 0)
@@ -99,7 +104,7 @@ async def get_my_earnings(
         "rider_name": f"{rider.user.first_name} {rider.user.last_name}",
         "total_earned": total_earned,
         "completed_deliveries": completed_deliveries,
-        "pending_payout": max(0, pending_payout) # Evitar negativos
+        "pending_payout": max(0, pending_payout),  # Evitar negativos
     }
 
 
@@ -117,23 +122,33 @@ async def get_my_earnings_breakdown(
     if current_user.role != UserRole.REPARTIDOR:
         raise HTTPException(status_code=403, detail="Acceso denegado")
 
-    rider_result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
+    rider_result = await db.execute(
+        select(Rider).where(Rider.user_id == current_user.id)
+    )
     rider = rider_result.scalar_one_or_none()
     if not rider:
-        raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
+        raise HTTPException(
+            status_code=404, detail="Perfil de repartidor no encontrado"
+        )
 
     stmt = select(Financial).where(Financial.rider_id == rider.id)
 
     if transaction_type:
         stmt = stmt.where(Financial.transaction_type == transaction_type)
     if date_from:
-        stmt = stmt.where(Financial.created_at >= _parse_datetime_param(date_from, "date_from"))
+        stmt = stmt.where(
+            Financial.created_at >= _parse_datetime_param(date_from, "date_from")
+        )
     if date_to:
-        stmt = stmt.where(Financial.created_at <= _parse_datetime_param(date_to, "date_to"))
+        stmt = stmt.where(
+            Financial.created_at <= _parse_datetime_param(date_to, "date_to")
+        )
 
     stmt = stmt.order_by(Financial.created_at.desc()).offset(offset).limit(limit)
     result = await db.execute(stmt)
-    items = [_serialize_transaction(transaction) for transaction in result.scalars().all()]
+    items = [
+        _serialize_transaction(transaction) for transaction in result.scalars().all()
+    ]
 
     if not items and transaction_type in (None, TransactionType.PAGO_ENTREGA):
         fallback_orders_result = await db.execute(
@@ -142,43 +157,54 @@ async def get_my_earnings_breakdown(
                 Order.assigned_rider_id == rider.id,
                 Order.status == OrderStatus.ENTREGADO,
             )
-            .order_by(func.coalesce(Order.delivered_at, Order.updated_at, Order.created_at).desc())
+            .order_by(
+                func.coalesce(
+                    Order.delivered_at, Order.updated_at, Order.created_at
+                ).desc()
+            )
             .offset(offset)
             .limit(limit)
         )
         for order in fallback_orders_result.scalars().all():
             amount = float(order.delivery_fee or order.total or order.subtotal or 0)
             created_at = order.delivered_at or order.updated_at or order.created_at
-            items.append({
-                "id": str(order.id),
-                "rider_id": str(rider.id),
-                "amount": amount,
-                "balance_before": None,
-                "balance_after": None,
-                "transaction_type": TransactionType.PAGO_ENTREGA.value,
-                "type": TransactionType.PAGO_ENTREGA.value,
-                "description": f"Entrega completada · Orden {order.external_id or str(order.id)[:8]}",
-                "reference_id": str(order.id),
-                "source_type": "order",
-                "source_id": str(order.id),
-                "idempotency_key": None,
-                "created_by_user_id": None,
-                "status": PaymentStatus.PROCESADO.value,
-                "is_fallback": True,
-                "created_at": created_at,
-                "updated_at": order.updated_at,
-            })
+            items.append(
+                {
+                    "id": str(order.id),
+                    "rider_id": str(rider.id),
+                    "amount": amount,
+                    "balance_before": None,
+                    "balance_after": None,
+                    "transaction_type": TransactionType.PAGO_ENTREGA.value,
+                    "type": TransactionType.PAGO_ENTREGA.value,
+                    "description": f"Entrega completada · Orden {order.external_id or str(order.id)[:8]}",
+                    "reference_id": str(order.id),
+                    "source_type": "order",
+                    "source_id": str(order.id),
+                    "idempotency_key": None,
+                    "created_by_user_id": None,
+                    "status": PaymentStatus.PROCESADO.value,
+                    "is_fallback": True,
+                    "created_at": created_at,
+                    "updated_at": order.updated_at,
+                }
+            )
 
     return {
         "rider_id": str(rider.id),
         "items": items,
     }
 
+
 @router.get("/summary")
 async def get_financial_summary(
     period: str = Query("today", description="today, week, month"),
-    start_date_filter: Optional[str] = Query(None, alias="start_date", description="Fecha inicial ISO o YYYY-MM-DD"),
-    end_date_filter: Optional[str] = Query(None, alias="end_date", description="Fecha final ISO o YYYY-MM-DD"),
+    start_date_filter: Optional[str] = Query(
+        None, alias="start_date", description="Fecha inicial ISO o YYYY-MM-DD"
+    ),
+    end_date_filter: Optional[str] = Query(
+        None, alias="end_date", description="Fecha final ISO o YYYY-MM-DD"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.GERENTE, UserRole.SUPERADMIN)),
 ):
@@ -191,7 +217,9 @@ async def get_financial_summary(
     period = (period or "today").lower().strip()
 
     if start_date_filter:
-        period_start = _parse_report_datetime(start_date_filter, "start_date", end_of_day=False)
+        period_start = _parse_report_datetime(
+            start_date_filter, "start_date", end_of_day=False
+        )
         response_period = "custom"
     elif period == "today":
         period_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -214,10 +242,14 @@ async def get_financial_summary(
     )
 
     if period_start > period_end:
-        raise HTTPException(status_code=400, detail="start_date no puede ser mayor que end_date")
+        raise HTTPException(
+            status_code=400, detail="start_date no puede ser mayor que end_date"
+        )
 
     paid_statuses = ["PAGADO", "PAID", "COMPLETADO", "COMPLETADA", "PROCESADO"]
-    order_period_date = func.coalesce(Order.delivered_at, Order.updated_at, Order.created_at, Order.ordered_at)
+    order_period_date = func.coalesce(
+        Order.delivered_at, Order.updated_at, Order.created_at, Order.ordered_at
+    )
 
     revenue_result = await db.execute(
         select(
@@ -236,7 +268,10 @@ async def get_financial_summary(
     completed_deliveries = int(revenue_row.completed_deliveries or 0)
     gross_order_value = float(revenue_row.gross_order_value or 0)
 
-    financial_period_filters = [Financial.created_at >= period_start, Financial.created_at <= period_end]
+    financial_period_filters = [
+        Financial.created_at >= period_start,
+        Financial.created_at <= period_end,
+    ]
 
     transactions_result = await db.execute(
         select(func.count(Financial.id)).where(*financial_period_filters)
@@ -264,7 +299,9 @@ async def get_financial_summary(
     adjustments_result = await db.execute(
         select(func.coalesce(func.sum(Financial.amount), 0)).where(
             *financial_period_filters,
-            Financial.transaction_type.in_([TransactionType.AJUSTE, TransactionType.AJUSTE_MANUAL]),
+            Financial.transaction_type.in_(
+                [TransactionType.AJUSTE, TransactionType.AJUSTE_MANUAL]
+            ),
             Financial.status.in_([PaymentStatus.PROCESADO, PaymentStatus.PAGADO]),
         )
     )
@@ -287,7 +324,9 @@ async def get_financial_summary(
     # PAGO_ENTREGA/BONO representa el costo operativo devengado por rider.
     # Payout representa salida de caja. Se usa el mayor para soportar instalaciones
     # que aún no registran ambas capas y evitar doble conteo cuando sí existen.
-    total_rider_payouts = max(0, max(earned_rider_payouts - rider_deductions, processed_cash_payouts))
+    total_rider_payouts = max(
+        0, max(earned_rider_payouts - rider_deductions, processed_cash_payouts)
+    )
     other_costs = max(0, operational_adjustments)
     total_costs = total_rider_payouts + other_costs
     net_margin = total_revenue - total_costs
@@ -304,7 +343,11 @@ async def get_financial_summary(
         "net_margin": round(net_margin, 2),
         "total_rider_payouts": round(total_rider_payouts, 2),
         "other_costs": round(other_costs, 2),
-        "avg_per_delivery": round(total_revenue / completed_deliveries, 2) if completed_deliveries > 0 else 0,
+        "avg_per_delivery": (
+            round(total_revenue / completed_deliveries, 2)
+            if completed_deliveries > 0
+            else 0
+        ),
         "cash_payouts_processed": round(processed_cash_payouts, 2),
         "rider_earnings_accrued": round(earned_rider_payouts, 2),
         "rider_deductions": round(rider_deductions, 2),
@@ -313,7 +356,9 @@ async def get_financial_summary(
 
 @router.get("/reports/orders")
 async def get_orders_financial_report(
-    date_from: Optional[str] = Query(None, description="Fecha inicial ISO o YYYY-MM-DD"),
+    date_from: Optional[str] = Query(
+        None, description="Fecha inicial ISO o YYYY-MM-DD"
+    ),
     date_to: Optional[str] = Query(None, description="Fecha final ISO o YYYY-MM-DD"),
     limit: int = Query(1000, ge=1, le=5000),
     offset: int = Query(0, ge=0),
@@ -321,8 +366,14 @@ async def get_orders_financial_report(
     current_user: User = Depends(require_role(UserRole.GERENTE, UserRole.SUPERADMIN)),
 ):
     """Reporte financiero/exportable de órdenes basado en datos reales de BD."""
-    start_date = _parse_report_datetime(date_from, "date_from", end_of_day=False) if date_from else None
-    end_date = _parse_report_datetime(date_to, "date_to", end_of_day=True) if date_to else None
+    start_date = (
+        _parse_report_datetime(date_from, "date_from", end_of_day=False)
+        if date_from
+        else None
+    )
+    end_date = (
+        _parse_report_datetime(date_to, "date_to", end_of_day=True) if date_to else None
+    )
 
     date_column = func.coalesce(Order.delivered_at, Order.created_at, Order.ordered_at)
     filters = []
@@ -346,14 +397,14 @@ async def get_orders_financial_report(
         func.coalesce(func.sum(Order.total), 0).label("gross_order_value"),
         func.count(Order.id).label("total_orders"),
         func.coalesce(
-            func.sum(
-                case((Order.status == OrderStatus.ENTREGADO, 1), else_=0)
-            ),
+            func.sum(case((Order.status == OrderStatus.ENTREGADO, 1), else_=0)),
             0,
         ).label("completed_orders"),
         func.count(
             func.distinct(
-                func.coalesce(Order.customer_email, Order.customer_phone, Order.customer_name)
+                func.coalesce(
+                    Order.customer_email, Order.customer_phone, Order.customer_name
+                )
             )
         ).label("active_customers"),
     )
@@ -364,8 +415,11 @@ async def get_orders_financial_report(
     stats = stats_result.one()
 
     status_result = await db.execute(
-        (select(Order.status, func.count(Order.id)).where(*filters) if filters else select(Order.status, func.count(Order.id)))
-        .group_by(Order.status)
+        (
+            select(Order.status, func.count(Order.id)).where(*filters)
+            if filters
+            else select(Order.status, func.count(Order.id))
+        ).group_by(Order.status)
     )
 
     rows = [_serialize_order_report_row(order) for order in orders]
@@ -394,20 +448,28 @@ async def get_financial_reconciliation(
 ):
     """Reporte de conciliación: ingresos, obligaciones rider, reservas, retiros y margen."""
     start_date = _parse_report_datetime(date_from, "date_from") if date_from else None
-    end_date = _parse_report_datetime(date_to, "date_to", end_of_day=True) if date_to else None
+    end_date = (
+        _parse_report_datetime(date_to, "date_to", end_of_day=True) if date_to else None
+    )
 
-    order_date = func.coalesce(Order.delivered_at, Order.updated_at, Order.created_at, Order.ordered_at)
+    order_date = func.coalesce(
+        Order.delivered_at, Order.updated_at, Order.created_at, Order.ordered_at
+    )
     financial_filters = []
     payout_filters = []
     order_filters = []
 
     if start_date:
         financial_filters.append(Financial.created_at >= start_date)
-        payout_filters.append(func.coalesce(Payout.processed_at, Payout.requested_at) >= start_date)
+        payout_filters.append(
+            func.coalesce(Payout.processed_at, Payout.requested_at) >= start_date
+        )
         order_filters.append(order_date >= start_date)
     if end_date:
         financial_filters.append(Financial.created_at <= end_date)
-        payout_filters.append(func.coalesce(Payout.processed_at, Payout.requested_at) <= end_date)
+        payout_filters.append(
+            func.coalesce(Payout.processed_at, Payout.requested_at) <= end_date
+        )
         order_filters.append(order_date <= end_date)
 
     paid_statuses = ["PAGADO", "PAID", "COMPLETADO", "COMPLETADA", "PROCESADO"]
@@ -426,19 +488,40 @@ async def get_financial_reconciliation(
         func.coalesce(
             func.sum(
                 case(
-                    (Financial.transaction_type.in_(list(CREDIT_TYPES)), Financial.amount),
+                    (
+                        Financial.transaction_type.in_(list(CREDIT_TYPES)),
+                        Financial.amount,
+                    ),
                     else_=0,
                 )
             ),
             0,
         ).label("rider_earnings"),
         func.coalesce(
-            func.sum(case((Financial.transaction_type.in_(list(DEBIT_TYPES)), Financial.amount), else_=0)),
+            func.sum(
+                case(
+                    (
+                        Financial.transaction_type.in_(list(DEBIT_TYPES)),
+                        Financial.amount,
+                    ),
+                    else_=0,
+                )
+            ),
             0,
         ).label("rider_deductions"),
         # Nota: AJUSTE_MANUAL puede ser positivo o negativo. Se usa el signo del amount directamente.
         func.coalesce(
-            func.sum(case((Financial.transaction_type.in_([TransactionType.AJUSTE, TransactionType.AJUSTE_MANUAL]), Financial.amount), else_=0)),
+            func.sum(
+                case(
+                    (
+                        Financial.transaction_type.in_(
+                            [TransactionType.AJUSTE, TransactionType.AJUSTE_MANUAL]
+                        ),
+                        Financial.amount,
+                    ),
+                    else_=0,
+                )
+            ),
             0,
         ).label("adjustments"),
         func.count(Financial.id).label("ledger_transactions"),
@@ -449,10 +532,33 @@ async def get_financial_reconciliation(
     ledger = (await db.execute(earnings_stmt)).one()
 
     payouts_stmt = select(
-        func.coalesce(func.sum(case((Payout.status == PayoutStatus.PENDIENTE, Payout.amount), else_=0)), 0).label("pending_payouts"),
+        func.coalesce(
+            func.sum(
+                case((Payout.status == PayoutStatus.PENDIENTE, Payout.amount), else_=0)
+            ),
+            0,
+        ).label("pending_payouts"),
         # FIX FASE 7: estados estándar en español (EN_PROCESO + COMPLETADO reemplazan a PROCESADO)
-        func.coalesce(func.sum(case((Payout.status.in_([PayoutStatus.EN_PROCESO, PayoutStatus.COMPLETADO]), Payout.amount), else_=0)), 0).label("processed_payouts"),
-        func.coalesce(func.sum(case((Payout.status == PayoutStatus.RECHAZADO, Payout.amount), else_=0)), 0).label("rejected_payouts"),
+        func.coalesce(
+            func.sum(
+                case(
+                    (
+                        Payout.status.in_(
+                            [PayoutStatus.EN_PROCESO, PayoutStatus.COMPLETADO]
+                        ),
+                        Payout.amount,
+                    ),
+                    else_=0,
+                )
+            ),
+            0,
+        ).label("processed_payouts"),
+        func.coalesce(
+            func.sum(
+                case((Payout.status == PayoutStatus.RECHAZADO, Payout.amount), else_=0)
+            ),
+            0,
+        ).label("rejected_payouts"),
         func.count(Payout.id).label("payout_count"),
     ).where(*payout_filters)
     payouts = (await db.execute(payouts_stmt)).one()
@@ -466,7 +572,9 @@ async def get_financial_reconciliation(
     processed_payouts = _float_money(payouts.processed_payouts)
     rejected_payouts = _float_money(payouts.rejected_payouts)
     net_rider_liability = max(0, rider_earnings - rider_deductions + adjustments)
-    available_liability = max(0, net_rider_liability - pending_payouts - processed_payouts)
+    available_liability = max(
+        0, net_rider_liability - pending_payouts - processed_payouts
+    )
     total_costs = processed_payouts + pending_payouts
 
     return {
@@ -489,6 +597,7 @@ async def get_financial_reconciliation(
         "payout_count": int(payouts.payout_count or 0),
         "currency": "COP",
     }
+
 
 @router.get("/transactions")
 async def get_transactions(
@@ -521,10 +630,14 @@ async def get_transactions(
         stmt = stmt.where(Financial.status == status)
 
     if date_from:
-        stmt = stmt.where(Financial.created_at >= _parse_datetime_param(date_from, "date_from"))
+        stmt = stmt.where(
+            Financial.created_at >= _parse_datetime_param(date_from, "date_from")
+        )
 
     if date_to:
-        stmt = stmt.where(Financial.created_at <= _parse_datetime_param(date_to, "date_to"))
+        stmt = stmt.where(
+            Financial.created_at <= _parse_datetime_param(date_to, "date_to")
+        )
 
     stmt = stmt.order_by(Financial.created_at.desc()).offset(offset).limit(limit)
 
@@ -532,6 +645,7 @@ async def get_transactions(
     transactions = result.scalars().all()
 
     return [_serialize_transaction(t) for t in transactions]
+
 
 @router.get("/transactions/{transaction_id}")
 async def get_transaction_detail(
@@ -551,7 +665,9 @@ async def get_transaction_detail(
     if current_user.role == UserRole.REPARTIDOR:
         rider_filter = await _resolve_transaction_rider_filter(db, current_user, None)
         if transaction.rider_id != rider_filter:
-            raise HTTPException(status_code=403, detail="No tienes permiso para ver esta transacción")
+            raise HTTPException(
+                status_code=403, detail="No tienes permiso para ver esta transacción"
+            )
     elif current_user.role not in [UserRole.GERENTE, UserRole.SUPERADMIN]:
         raise HTTPException(status_code=403, detail="Acceso denegado")
 
@@ -598,6 +714,7 @@ def _parse_report_datetime(value: str, field_name: str, end_of_day: bool = False
     except ValueError:
         raise HTTPException(status_code=400, detail=f"{field_name} inválida")
 
+
 async def _resolve_transaction_rider_filter(
     db: AsyncSession,
     current_user: User,
@@ -607,13 +724,16 @@ async def _resolve_transaction_rider_filter(
         result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
         rider = result.scalar_one_or_none()
         if not rider:
-            raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
+            raise HTTPException(
+                status_code=404, detail="Perfil de repartidor no encontrado"
+            )
         return rider.id
 
     if current_user.role not in [UserRole.GERENTE, UserRole.SUPERADMIN]:
         raise HTTPException(status_code=403, detail="Acceso denegado")
 
     return _parse_uuid(rider_id) if rider_id else None
+
 
 def _serialize_transaction(transaction: Financial):
     transaction_type = _enum_value(transaction.transaction_type)
@@ -632,10 +752,18 @@ def _serialize_transaction(transaction: Financial):
         "source_type": getattr(transaction, "source_type", None),
         "source_id": getattr(transaction, "source_id", None),
         "idempotency_key": getattr(transaction, "idempotency_key", None),
-        "created_by_user_id": str(transaction.created_by_user_id) if getattr(transaction, "created_by_user_id", None) else None,
+        "created_by_user_id": (
+            str(transaction.created_by_user_id)
+            if getattr(transaction, "created_by_user_id", None)
+            else None
+        ),
         "status": status,
-        "created_at": transaction.created_at.isoformat() if transaction.created_at else None,
-        "updated_at": transaction.updated_at.isoformat() if transaction.updated_at else None,
+        "created_at": (
+            transaction.created_at.isoformat() if transaction.created_at else None
+        ),
+        "updated_at": (
+            transaction.updated_at.isoformat() if transaction.updated_at else None
+        ),
     }
 
 
@@ -646,8 +774,10 @@ def _money(value) -> Decimal:
 def _float_money(value) -> float:
     return float(_money(value))
 
+
 def _enum_value(value):
     return value.value if hasattr(value, "value") else value
+
 
 def _parse_datetime_param(value: str, field_name: str):
     try:
@@ -657,8 +787,10 @@ def _parse_datetime_param(value: str, field_name: str):
     except ValueError:
         raise HTTPException(status_code=400, detail=f"{field_name} inválida")
 
+
 def _parse_uuid(value: str):
     import uuid
+
     try:
         return uuid.UUID(value)
     except ValueError:

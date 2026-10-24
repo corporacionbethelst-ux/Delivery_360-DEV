@@ -1,0 +1,5 @@
+# Reproducible CI tooling. Runtime and test dependencies stay pinned in requirements.txt.
+-r requirements.txt
+black==26.10.1
+flake8==7.4.1
+mypy==2.4.0

@@ -27,6 +27,7 @@ class ProductivityMetricsBase(BaseModel):
 
 class ProductivityMetricsCreate(ProductivityMetricsBase):
     """Schema para crear métricas de productividad"""
+
     pass
 
 
@@ -62,6 +63,7 @@ class SLARecordBase(BaseModel):
 
 class SLARecordCreate(SLARecordBase):
     """Schema para crear un registro de SLA"""
+
     pass
 
 

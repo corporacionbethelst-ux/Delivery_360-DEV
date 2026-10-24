@@ -62,9 +62,10 @@ async def _get_rider_from_user(db: AsyncSession, user: User) -> Rider:
     result = await db.execute(select(Rider).where(Rider.user_id == user.id))
     rider = result.scalar_one_or_none()
     if not rider:
-        raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
+        raise HTTPException(
+            status_code=404, detail="Perfil de repartidor no encontrado"
+        )
     return rider
-
 
 
 def _money(value) -> Decimal:
@@ -79,7 +80,11 @@ def _serialize_payout(payout: Payout):
     amount = _float_money(payout.amount)
     requested_at = payout.requested_at.isoformat() if payout.requested_at else None
     processed_at = payout.processed_at.isoformat() if payout.processed_at else None
-    updated_at = payout.updated_at.isoformat() if getattr(payout, "updated_at", None) else processed_at or requested_at
+    updated_at = (
+        payout.updated_at.isoformat()
+        if getattr(payout, "updated_at", None)
+        else processed_at or requested_at
+    )
 
     return {
         "id": str(payout.id),
@@ -98,8 +103,12 @@ def _serialize_payout(payout: Payout):
         "rejection_reason": payout.rejection_reason,
         "balance_before": _float_money(payout.balance_before),
         "balance_after": _float_money(payout.balance_after),
-        "requested_by_user_id": str(payout.requested_by_user_id) if payout.requested_by_user_id else None,
-        "processed_by_user_id": str(payout.processed_by_user_id) if payout.processed_by_user_id else None,
+        "requested_by_user_id": (
+            str(payout.requested_by_user_id) if payout.requested_by_user_id else None
+        ),
+        "processed_by_user_id": (
+            str(payout.processed_by_user_id) if payout.processed_by_user_id else None
+        ),
         "idempotency_key": payout.idempotency_key,
         "orders_count": 0,
         "period": "Periodo no especificado",
@@ -115,14 +124,18 @@ def _serialize_status_history(row: PayoutStatusHistory):
         "old_status": row.old_status,
         "new_status": row.new_status,
         "reason": row.reason,
-        "changed_by_user_id": str(row.changed_by_user_id) if row.changed_by_user_id else None,
+        "changed_by_user_id": (
+            str(row.changed_by_user_id) if row.changed_by_user_id else None
+        ),
         "balance_before": _float_money(row.balance_before),
         "balance_after": _float_money(row.balance_after),
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
 
 
-async def _calculate_available_balance(db: AsyncSession, rider_id, exclude_payout_id=None) -> dict:
+async def _calculate_available_balance(
+    db: AsyncSession, rider_id, exclude_payout_id=None
+) -> dict:
     earnings_result = await db.execute(
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider_id,
@@ -228,7 +241,9 @@ async def list_payouts(
 
 @router.get("/balance")
 async def get_available_balance(
-    rider_id: Optional[str] = Query(None, description="ID de repartidor para gerentes/superadmins"),
+    rider_id: Optional[str] = Query(
+        None, description="ID de repartidor para gerentes/superadmins"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -246,7 +261,9 @@ async def get_available_balance(
     try:
         return await _calculate_available_balance(db, target_rider_id)
     except Exception:
-        logger.exception("No se pudo calcular el saldo disponible para rider %s", target_rider_id)
+        logger.exception(
+            "No se pudo calcular el saldo disponible para rider %s", target_rider_id
+        )
         # Do not break rider-facing screens if a legacy database has an
         # inconsistent enum/index state. Returning a safe zero balance is
         # preferable to a 500 that browsers surface as a CORS/network error.
@@ -269,7 +286,9 @@ async def request_payout(
 ):
     """Solicitar un nuevo retiro con payload JSON real e idempotencia opcional."""
     if current_user.role != UserRole.REPARTIDOR:
-        raise HTTPException(status_code=403, detail="Solo repartidores pueden solicitar retiros")
+        raise HTTPException(
+            status_code=403, detail="Solo repartidores pueden solicitar retiros"
+        )
 
     rider = await _get_rider_from_user(db, current_user)
     idempotency_key = body.idempotency_key.strip() if body.idempotency_key else None
@@ -296,7 +315,9 @@ async def request_payout(
         )
 
     if requested_amount < Decimal("10.00"):
-        raise HTTPException(status_code=400, detail="El monto mínimo de retiro es 10.00")
+        raise HTTPException(
+            status_code=400, detail="El monto mínimo de retiro es 10.00"
+        )
 
     balance_after = available - requested_amount
     payout = Payout(
@@ -324,10 +345,11 @@ async def request_payout(
         balance_after,
     )
     await db.commit()
-    
+
     # NOTIFICATION: Enviar notificación al rider sobre la solicitud de retiro
     try:
         from app.models.notification import NotificationType
+
         notification_service = NotificationService(db)
         await notification_service.create_notification(
             user_id=current_user.id,
@@ -335,12 +357,12 @@ async def request_payout(
             title="💸 Solicitud de Retiro Creada",
             message=f"Se ha solicitado un retiro de ${requested_amount:.2f}",
             data={"payout_id": str(payout.id), "amount": float(requested_amount)},
-            channel="push"
+            channel="push",
         )
         logger.info(f"Notificación de retiro enviada al rider {rider.id}")
     except Exception as e:
         logger.warning(f"No se pudo enviar notificación de retiro: {e}")
-    
+
     # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
     try:
         redis_logger = get_redis_audit_logger()
@@ -353,7 +375,7 @@ async def request_payout(
             )
     except Exception as e:
         logger.warning(f"No se pudo escribir audit en Redis: {e}")
-    
+
     await db.refresh(payout)
 
     logger.info("Retiro solicitado: %s por rider %s", payout.id, rider.id)
@@ -378,7 +400,9 @@ async def get_payout(
     if current_user.role == UserRole.REPARTIDOR:
         rider = await _get_rider_from_user(db, current_user)
         if payout.rider_id != rider.id:
-            raise HTTPException(status_code=403, detail="No tienes permiso para acceder a este retiro")
+            raise HTTPException(
+                status_code=403, detail="No tienes permiso para acceder a este retiro"
+            )
     elif current_user.role not in [UserRole.GERENTE, UserRole.SUPERADMIN]:
         raise HTTPException(status_code=403, detail="Acceso denegado")
 
@@ -402,7 +426,9 @@ async def get_payout_history(
     if current_user.role == UserRole.REPARTIDOR:
         rider = await _get_rider_from_user(db, current_user)
         if payout.rider_id != rider.id:
-            raise HTTPException(status_code=403, detail="No tienes permiso para acceder a este retiro")
+            raise HTTPException(
+                status_code=403, detail="No tienes permiso para acceder a este retiro"
+            )
     elif current_user.role not in [UserRole.GERENTE, UserRole.SUPERADMIN]:
         raise HTTPException(status_code=403, detail="Acceso denegado")
 
@@ -422,15 +448,21 @@ async def approve_payout(
 ):
     """Aprobar un retiro y registrar salida contable de forma atómica."""
     payout_uuid = _parse_uuid(payout_id)
-    result = await db.execute(select(Payout).where(Payout.id == payout_uuid).with_for_update())
+    result = await db.execute(
+        select(Payout).where(Payout.id == payout_uuid).with_for_update()
+    )
     payout = result.scalar_one_or_none()
     if not payout:
         raise HTTPException(status_code=404, detail="Retiro no encontrado")
 
     if payout.status != PayoutStatus.PENDIENTE:
-        raise HTTPException(status_code=400, detail="Solo se pueden aprobar retiros pendientes")
+        raise HTTPException(
+            status_code=400, detail="Solo se pueden aprobar retiros pendientes"
+        )
 
-    balance_before_data = await _calculate_available_balance(db, payout.rider_id, exclude_payout_id=payout.id)
+    balance_before_data = await _calculate_available_balance(
+        db, payout.rider_id, exclude_payout_id=payout.id
+    )
     balance_before = _money(balance_before_data["available"])
     payout_amount = _money(payout.amount)
 
@@ -448,7 +480,9 @@ async def approve_payout(
     payout.processed_by_user_id = current_user.id
     payout.balance_before = balance_before
     payout.balance_after = balance_after
-    payout.reference_code = f"PAY-{payout.processed_at.strftime('%Y%m%d')}-{str(payout.id)[:8].upper()}"
+    payout.reference_code = (
+        f"PAY-{payout.processed_at.strftime('%Y%m%d')}-{str(payout.id)[:8].upper()}"
+    )
 
     await FinancialService(db).create_ledger_entry(
         rider_id=payout.rider_id,
@@ -474,7 +508,7 @@ async def approve_payout(
         balance_before,
         balance_after,
     )
-    
+
     # NOTIFICATION: Enviar notificación al rider sobre el retiro aprobado
     try:
         notification_service = NotificationService(db)
@@ -484,9 +518,11 @@ async def approve_payout(
             title="✅ Retiro Aprobado",
             message=f"Tu retiro de ${float(payout.amount):.2f} ha sido aprobado y procesado",
             data={"payout_id": str(payout.id), "amount": float(payout.amount)},
-            channel="push"
+            channel="push",
         )
-        logger.info(f"Notificación de aprobación de retiro enviada al rider {payout.rider_id}")
+        logger.info(
+            f"Notificación de aprobación de retiro enviada al rider {payout.rider_id}"
+        )
     except Exception as e:
         logger.warning(f"No se pudo enviar notificación de aprobación de retiro: {e}")
 
@@ -497,8 +533,11 @@ async def approve_payout(
     _fase9_approve_ctx = None
     try:
         from app.services.notification_hooks import (
-            notify_event, resolve_payout_recipient, payout_context,
+            notify_event,
+            resolve_payout_recipient,
+            payout_context,
         )
+
         recipient_user_id = await resolve_payout_recipient(db, payout)
         if recipient_user_id:
             _fase9_approve_ctx = (recipient_user_id, payout_context(payout))
@@ -524,10 +563,14 @@ async def approve_payout(
     # notify_event jamás propaga excepciones al caller).
     if _fase9_approve_ctx is not None:
         try:
-            asyncio.create_task(notify_event(
-                "payout_aprobado", _fase9_approve_ctx[0], _fase9_approve_ctx[1],
-                payout_id=payout.id,
-            ))
+            asyncio.create_task(
+                notify_event(
+                    "payout_aprobado",
+                    _fase9_approve_ctx[0],
+                    _fase9_approve_ctx[1],
+                    payout_id=payout.id,
+                )
+            )
         except Exception as e:
             logger.warning(f"Dispatch Fase 9 payout_aprobado omitido: {e}")
 
@@ -547,13 +590,17 @@ async def reject_payout(
         raise HTTPException(status_code=400, detail="Motivo de rechazo requerido")
 
     payout_uuid = _parse_uuid(payout_id)
-    result = await db.execute(select(Payout).where(Payout.id == payout_uuid).with_for_update())
+    result = await db.execute(
+        select(Payout).where(Payout.id == payout_uuid).with_for_update()
+    )
     payout = result.scalar_one_or_none()
     if not payout:
         raise HTTPException(status_code=404, detail="Retiro no encontrado")
 
     if payout.status != PayoutStatus.PENDIENTE:
-        raise HTTPException(status_code=400, detail="Solo se pueden rechazar retiros pendientes")
+        raise HTTPException(
+            status_code=400, detail="Solo se pueden rechazar retiros pendientes"
+        )
 
     balance_before_data = await _calculate_available_balance(db, payout.rider_id)
     balance_before = _money(balance_before_data["available"])
@@ -578,7 +625,7 @@ async def reject_payout(
         balance_before,
         balance_after,
     )
-    
+
     # NOTIFICATION: Enviar notificación al rider sobre el retiro rechazado
     try:
         notification_service = NotificationService(db)
@@ -588,9 +635,11 @@ async def reject_payout(
             title="❌ Retiro Rechazado",
             message=f"Tu solicitud de retiro ha sido rechazada: {reason}",
             data={"payout_id": str(payout.id), "reason": reason},
-            channel="push"
+            channel="push",
         )
-        logger.info(f"Notificación de rechazo de retiro enviada al rider {payout.rider_id}")
+        logger.info(
+            f"Notificación de rechazo de retiro enviada al rider {payout.rider_id}"
+        )
     except Exception as e:
         logger.warning(f"No se pudo enviar notificación de rechazo de retiro: {e}")
 
@@ -601,15 +650,20 @@ async def reject_payout(
     _fase9_reject_ctx = None
     try:
         from app.services.notification_hooks import (
-            notify_event, resolve_payout_recipient, payout_context,
+            notify_event,
+            resolve_payout_recipient,
+            payout_context,
         )
+
         recipient_user_id = await resolve_payout_recipient(db, payout)
         if recipient_user_id:
-            _fase9_reject_ctx = (recipient_user_id,
-                                 payout_context(payout, extra={"reason": reason}))
+            _fase9_reject_ctx = (
+                recipient_user_id,
+                payout_context(payout, extra={"reason": reason}),
+            )
     except Exception as e:
         logger.warning(f"Hook Fase 9 payout_rechazado omitido: {e}")
-    
+
     # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
     try:
         redis_logger = get_redis_audit_logger()
@@ -627,17 +681,21 @@ async def reject_payout(
             )
     except Exception as e:
         logger.warning(f"No se pudo escribir audit en Redis: {e}")
-    
+
     await db.commit()
     await db.refresh(payout)
 
     # FASE 9: dispatch post-commit (sesión propia efímera dentro de notify_event).
     if _fase9_reject_ctx is not None:
         try:
-            asyncio.create_task(notify_event(
-                "payout_rechazado", _fase9_reject_ctx[0], _fase9_reject_ctx[1],
-                payout_id=payout.id,
-            ))
+            asyncio.create_task(
+                notify_event(
+                    "payout_rechazado",
+                    _fase9_reject_ctx[0],
+                    _fase9_reject_ctx[1],
+                    payout_id=payout.id,
+                )
+            )
         except Exception as e:
             logger.warning(f"Dispatch Fase 9 payout_rechazado omitido: {e}")
 

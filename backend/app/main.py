@@ -17,11 +17,27 @@ from app.core.config import settings
 from app.core.database import engine, Base
 from app.core.exception_handlers import register_exception_handlers
 from app.api.v1 import (
-    auth, users, roles, riders, orders, deliveries,
-    shifts, productivity, financial, dashboard,
-    routes, alerts, integrations, audit, settings as settings_router, payouts,
-    vehicles, zones, wallet
+    auth,
+    users,
+    roles,
+    riders,
+    orders,
+    deliveries,
+    shifts,
+    productivity,
+    financial,
+    dashboard,
+    routes,
+    alerts,
+    integrations,
+    audit,
+    settings as settings_router,
+    payouts,
+    vehicles,
+    zones,
+    wallet,
 )
+
 # Fase 8: Mapas & Tracking (telemetría REST + WebSocket handler). Import defensivo.
 try:
     from app.api.v1 import telemetry as telemetry_module
@@ -39,7 +55,7 @@ from geoalchemy2 import load_spatialite_gpkg
 
 logging.basicConfig(
     level=settings.LOG_LEVEL,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -60,6 +76,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     fase8_scheduler_started = False
     try:
         from app.services.tracking_scheduler import tracking_scheduler
+
         await tracking_scheduler.start()
         fase8_scheduler_started = True
     except Exception as exc:  # noqa: BLE001 - no bloquear el arranque de la API
@@ -89,11 +106,14 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
-        lifespan=lifespan
+        lifespan=lifespan,
     )
 
     # --- SEGURIDAD Y MIDDLEWARES ---
-    from app.middleware.cors_middleware import setup_cors_middleware, get_security_headers
+    from app.middleware.cors_middleware import (
+        setup_cors_middleware,
+        get_security_headers,
+    )
     from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
     setup_cors_middleware(app)
@@ -108,7 +128,12 @@ def create_app() -> FastAPI:
     if settings.ENVIRONMENT == "production":
         app.add_middleware(
             TrustedHostMiddleware,
-            allowed_hosts=["api.delivery360.com", "*.delivery360.com", "localhost", "127.0.0.1"]
+            allowed_hosts=[
+                "api.delivery360.com",
+                "*.delivery360.com",
+                "localhost",
+                "127.0.0.1",
+            ],
         )
 
     app.add_middleware(RateLimitMiddleware)
@@ -116,6 +141,7 @@ def create_app() -> FastAPI:
 
     # Configurar middleware de caché para optimización
     from app.middleware.cache_middleware import setup_cache_middleware
+
     setup_cache_middleware(app)
 
     register_exception_handlers(app)
@@ -132,12 +158,16 @@ def create_app() -> FastAPI:
     app.include_router(vehicles.router, prefix="/api/v1", tags=["Vehicles"])
     app.include_router(zones.router, prefix="/api/v1", tags=["Zones"])
     app.include_router(shifts.router, prefix="/api/v1/shifts", tags=["Shifts"])
-    app.include_router(productivity.router, prefix="/api/v1/productivity", tags=["Productivity"])
+    app.include_router(
+        productivity.router, prefix="/api/v1/productivity", tags=["Productivity"]
+    )
     app.include_router(financial.router, prefix="/api/v1", tags=["Financial"])
     app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"])
     app.include_router(routes.router, prefix="/api/v1/routes", tags=["Routes"])
     app.include_router(alerts.router, prefix="/api/v1", tags=["Alerts"])
-    app.include_router(integrations.router, prefix="/api/v1/integrations", tags=["Integrations"])
+    app.include_router(
+        integrations.router, prefix="/api/v1/integrations", tags=["Integrations"]
+    )
     app.include_router(audit.router, prefix="/api/v1/audit", tags=["Audit"])
     app.include_router(settings_router.router, prefix="/api/v1", tags=["Settings"])
     app.include_router(health_router, prefix="/health", tags=["Health"])
@@ -147,9 +177,14 @@ def create_app() -> FastAPI:
 
     # --- FASE 8: MAPAS & TRACKING ---
     if telemetry_module is not None:
-        app.include_router(telemetry_module.router, prefix="/api/v1", tags=["Telemetría (Fase 8)"])
+        app.include_router(
+            telemetry_module.router, prefix="/api/v1", tags=["Telemetría (Fase 8)"]
+        )
     if tracking_module is not None:
-        app.include_router(tracking_module.router, prefix="/api/v1", tags=["Tracking (Fase 8)"])
+        app.include_router(
+            tracking_module.router, prefix="/api/v1", tags=["Tracking (Fase 8)"]
+        )
+
         # WebSocket de tracking: /api/v1/tracking/ws/{channel}?token=<jwt>
         @app.websocket("/api/v1/tracking/ws/{channel}")
         async def tracking_ws(websocket, channel: str):
@@ -159,11 +194,15 @@ def create_app() -> FastAPI:
     notifications = None
     try:
         from app.api.v1 import notifications as notifications_module
+
         notifications = notifications_module
     except ImportError:  # pragma: no cover - entorno sin Fase 9 instalada
         notifications = None
     if notifications is not None:
-        app.include_router(notifications.router, prefix="/api/v1", tags=["Notificaciones (Fase 9)"])
+        app.include_router(
+            notifications.router, prefix="/api/v1", tags=["Notificaciones (Fase 9)"]
+        )
+
         # WebSocket de notificaciones: /api/v1/notifications/ws?token=<jwt> (JWT manual, close 1008 si inválido)
         @app.websocket("/api/v1/notifications/ws")
         async def notifications_ws(websocket: WebSocket):
@@ -173,6 +212,7 @@ def create_app() -> FastAPI:
     fiscal = None
     try:
         from app.api.v1 import fiscal as fiscal_module
+
         fiscal = fiscal_module
     except ImportError:  # pragma: no cover - entorno sin Fase 10 instalada
         fiscal = None
@@ -195,7 +235,7 @@ def create_app() -> FastAPI:
             "documentation": "/docs",
             "health": "/health/check",
             "metrics": "/metrics",
-            "uploads": "/uploads"
+            "uploads": "/uploads",
         }
 
     @app.get("/ping", tags=["Root"])
@@ -204,14 +244,16 @@ def create_app() -> FastAPI:
 
     return app
 
+
 app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
         port=8000,
         reload=settings.ENVIRONMENT == "development",
-        log_level=settings.LOG_LEVEL.lower()
+        log_level=settings.LOG_LEVEL.lower(),
     )

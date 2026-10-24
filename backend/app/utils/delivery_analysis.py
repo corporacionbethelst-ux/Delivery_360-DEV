@@ -1,29 +1,59 @@
 import re
 from typing import Optional, Dict, Any
 
+
 class DeliveryIssueAnalyzer:
     """
-    Analiza la descripción de una incidencia para determinar si fue 
+    Analiza la descripción de una incidencia para determinar si fue
     causada por factores externos al repartidor.
     """
-    
+
     # Palabras clave que indican CAUSA EXTERNA (Cliente, Comercio, Fuerza Mayor)
     EXTERNAL_CAUSES = [
-        "cliente no estaba", "no habia nadie", "nadie abrio", "puerta cerrada",
-        "direccion incorrecta", "direccion mala", "no existe la direccion",
-        "comercio cerrado", "restaurante cerrado", "tienda cerrada",
-        "cliente no contesta", "telefono apagado", "no responde",
-        "zona peligrosa", "inseguridad", "bloqueo", "protesta",
-        "lluvia fuerte", "accidente via", "calles inundadas",
-        "falta de luz", "sin ascensor", "edificio restringido"
+        "cliente no estaba",
+        "no habia nadie",
+        "nadie abrio",
+        "puerta cerrada",
+        "direccion incorrecta",
+        "direccion mala",
+        "no existe la direccion",
+        "comercio cerrado",
+        "restaurante cerrado",
+        "tienda cerrada",
+        "cliente no contesta",
+        "telefono apagado",
+        "no responde",
+        "zona peligrosa",
+        "inseguridad",
+        "bloqueo",
+        "protesta",
+        "lluvia fuerte",
+        "accidente via",
+        "calles inundadas",
+        "falta de luz",
+        "sin ascensor",
+        "edificio restringido",
     ]
 
     # Palabras clave que indican CULPA DEL REPARTIDOR
     RIDER_FAULTS = [
-        "se me cayo", "se cayó la comida", "derrame", "olvide", "se me olvido",
-        "llegue tarde", "me equivoque", "confundi la direccion", "error mio",
-        "moto se daño", "ponchadura", "me quede sin bateria", "choque",
-        "no quise subir", "pereza", "lejos", "mucha fila" # Si el rider se niega por comodidad
+        "se me cayo",
+        "se cayó la comida",
+        "derrame",
+        "olvide",
+        "se me olvido",
+        "llegue tarde",
+        "me equivoque",
+        "confundi la direccion",
+        "error mio",
+        "moto se daño",
+        "ponchadura",
+        "me quede sin bateria",
+        "choque",
+        "no quise subir",
+        "pereza",
+        "lejos",
+        "mucha fila",  # Si el rider se niega por comodidad
     ]
 
     @staticmethod
@@ -40,7 +70,7 @@ class DeliveryIssueAnalyzer:
             return {
                 "is_external_fault": False,
                 "reason": "Sin descripción proporcionada",
-                "confidence": "high"
+                "confidence": "high",
             }
 
         text_lower = text.lower()
@@ -51,7 +81,7 @@ class DeliveryIssueAnalyzer:
                 return {
                     "is_external_fault": False,
                     "reason": f"Indicio de culpa del repartidor: '{fault}'",
-                    "confidence": "high"
+                    "confidence": "high",
                 }
 
         # 2. Detectar Causa Externa
@@ -60,7 +90,7 @@ class DeliveryIssueAnalyzer:
                 return {
                     "is_external_fault": True,
                     "reason": f"Causa externa detectada: '{cause}'",
-                    "confidence": "high"
+                    "confidence": "high",
                 }
 
         # 3. Si no hay coincidencias exactas, podríamos usar lógica difusa o asumir por defecto
@@ -69,5 +99,5 @@ class DeliveryIssueAnalyzer:
         return {
             "is_external_fault": False,
             "reason": "No se detectaron patrones claros de causa externa. Requiere revisión manual.",
-            "confidence": "low"
+            "confidence": "low",
         }

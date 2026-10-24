@@ -47,10 +47,13 @@ class Zone(Base):
     center_lng = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=False), default=utc_now_naive, nullable=False)
-    updated_at = Column(DateTime(timezone=False), default=utc_now_naive, onupdate=utc_now_naive, nullable=True)
+    updated_at = Column(
+        DateTime(timezone=False),
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
+        nullable=True,
+    )
 
     riders = relationship("Rider", back_populates="zone", foreign_keys="Rider.zone_id")
 
-    __table_args__ = (
-        Index("ix_zones_active_priority", "is_active", "is_priority"),
-    )
+    __table_args__ = (Index("ix_zones_active_priority", "is_active", "is_priority"),)

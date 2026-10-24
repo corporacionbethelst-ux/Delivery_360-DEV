@@ -1,6 +1,7 @@
 """
 Alert Service - Gestión de Alertas Operacionales
 """
+
 from typing import Optional, List
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,7 @@ from app.models.order import Order, OrderStatus
 import logging
 
 logger = logging.getLogger(__name__)
+
 
 class AlertService:
     """Servicio para gestión de alertas operacionales"""
@@ -26,7 +28,9 @@ class AlertService:
         return None
 
     @staticmethod
-    def _normalize_recipient_user_ids(recipient_user_ids: Optional[List[int]]) -> List[int]:
+    def _normalize_recipient_user_ids(
+        recipient_user_ids: Optional[List[int]],
+    ) -> List[int]:
         if not recipient_user_ids:
             return []
         normalized: List[int] = []
@@ -51,7 +55,7 @@ class AlertService:
             "crítica": "critical",
         }
         return aliases.get(normalized, normalized)
-    
+
     async def create_alert(
         self,
         db: AsyncSession,
@@ -61,7 +65,7 @@ class AlertService:
         message: str,
         related_entity_id: Optional[int] = None,
         related_entity_type: Optional[str] = None,
-        recipient_user_ids: Optional[List[int]] = None
+        recipient_user_ids: Optional[List[int]] = None,
     ) -> Notification:
         """Crear una nueva alerta"""
         priority_map = {
@@ -76,7 +80,9 @@ class AlertService:
         if related_entity_id is not None and normalized_related_id is None:
             alert_data["related_entity_ref"] = str(related_entity_id)
 
-        normalized_recipient_user_ids = self._normalize_recipient_user_ids(recipient_user_ids)
+        normalized_recipient_user_ids = self._normalize_recipient_user_ids(
+            recipient_user_ids
+        )
         base_notification_kwargs = dict(
             notification_type=NotificationType.ALERTA_OPERACIONAL,
             priority=priority_map.get(normalized_severity, NotificationPriority.NORMAL),
@@ -104,12 +110,14 @@ class AlertService:
             len(normalized_recipient_user_ids),
         )
         return notifications[0]
-    
-    async def check_sla_alerts(self, db: AsyncSession, threshold_minutes: int = 5) -> List[Notification]:
+
+    async def check_sla_alerts(
+        self, db: AsyncSession, threshold_minutes: int = 5
+    ) -> List[Notification]:
         """Verificar entregas próximas a vencer SLA"""
         now = datetime.utcnow()
         threshold_time = now + timedelta(minutes=threshold_minutes)
-        
+
         # Buscar entregas en progreso que están cerca del límite SLA
         result = await db.execute(
             select(Delivery)
@@ -117,7 +125,7 @@ class AlertService:
             .where(Delivery.expected_completion_at <= threshold_time)
         )
         deliveries_at_risk = result.scalars().all()
-        
+
         alerts = []
         for delivery in deliveries_at_risk:
             alert = await self.create_alert(
@@ -127,7 +135,7 @@ class AlertService:
                 title=f"Entrega #{delivery.id} en riesgo de SLA",
                 message=f"La entrega {delivery.id} debe completarse en {threshold_minutes} minutos",
                 related_entity_id=delivery.id,
-                related_entity_type="delivery"
+                related_entity_type="delivery",
             )
 
 

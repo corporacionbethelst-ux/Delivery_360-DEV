@@ -1,6 +1,7 @@
 """
 CRUD Operations for Shift
 """
+
 from typing import Optional, List
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,8 +14,9 @@ class CRUDShift:
         result = await db.execute(select(Shift).where(Shift.id == shift_id))
         return result.scalar_one_or_none()
 
-    async def get_by_rider(self, db: AsyncSession, rider_id: int,
-                          skip: int = 0, limit: int = 100) -> List[Shift]:
+    async def get_by_rider(
+        self, db: AsyncSession, rider_id: int, skip: int = 0, limit: int = 100
+    ) -> List[Shift]:
         result = await db.execute(
             select(Shift)
             .where(Shift.rider_id == rider_id)
@@ -24,7 +26,9 @@ class CRUDShift:
         )
         return result.scalars().all()
 
-    async def get_active_shift(self, db: AsyncSession, rider_id: int) -> Optional[Shift]:
+    async def get_active_shift(
+        self, db: AsyncSession, rider_id: int
+    ) -> Optional[Shift]:
         result = await db.execute(
             select(Shift)
             .where(Shift.rider_id == rider_id)
@@ -32,28 +36,33 @@ class CRUDShift:
         )
         return result.scalar_one_or_none()
 
-    async def create(self, db: AsyncSession, rider_id: int, 
-                    scheduled_start: Optional[datetime] = None) -> Shift:
+    async def create(
+        self,
+        db: AsyncSession,
+        rider_id: int,
+        scheduled_start: Optional[datetime] = None,
+    ) -> Shift:
         db_obj = Shift(
             rider_id=rider_id,
             scheduled_start=scheduled_start,
-            status=ShiftStatus.SCHEDULED
+            status=ShiftStatus.SCHEDULED,
         )
         db.add(db_obj)
         await db.commit()
         await db.refresh(db_obj)
         return db_obj
 
-    async def start_shift(self, db: AsyncSession, shift: Shift, 
-                         check_in_location: tuple) -> Shift:
+    async def start_shift(
+        self, db: AsyncSession, shift: Shift, check_in_location: tuple
+    ) -> Shift:
         shift.status = ShiftStatus.ACTIVE
         shift.started_at = datetime.utcnow()
-        
+
         check_in = CheckInOut(
             shift_id=shift.id,
             check_in_time=datetime.utcnow(),
             location_lat=check_in_location[0],
-            location_lng=check_in_location[1]
+            location_lng=check_in_location[1],
         )
         db.add(check_in)
         db.add(shift)
@@ -61,11 +70,12 @@ class CRUDShift:
         await db.refresh(shift)
         return shift
 
-    async def end_shift(self, db: AsyncSession, shift: Shift,
-                       check_out_location: tuple) -> Shift:
+    async def end_shift(
+        self, db: AsyncSession, shift: Shift, check_out_location: tuple
+    ) -> Shift:
         shift.status = ShiftStatus.COMPLETED
         shift.ended_at = datetime.utcnow()
-        
+
         # Update the latest check_in record with check_out
         result = await db.execute(
             select(CheckInOut)
@@ -74,12 +84,12 @@ class CRUDShift:
             .limit(1)
         )
         check_in_record = result.scalar_one_or_none()
-        
+
         if check_in_record:
             check_in_record.check_out_time = datetime.utcnow()
             check_in_record.location_lat = check_out_location[0]
             check_in_record.location_lng = check_out_location[1]
-        
+
         db.add(shift)
         await db.commit()
         await db.refresh(shift)
@@ -92,23 +102,25 @@ class CRUDShift:
         limit: int = 100,
         rider_id: Optional[int] = None,
         status: Optional[ShiftStatus] = None,
-        date: Optional[datetime] = None
+        date: Optional[datetime] = None,
     ) -> List[Shift]:
         query = select(Shift)
         filters = []
-        
+
         if rider_id:
             filters.append(Shift.rider_id == rider_id)
         if status:
             filters.append(Shift.status == status)
         if date:
             from sqlalchemy import func
+
             filters.append(func.date(Shift.started_at) == date.date())
-        
+
         if filters:
             from sqlalchemy import and_
+
             query = query.where(and_(*filters))
-        
+
         query = query.order_by(Shift.started_at.desc())
         query = query.offset(skip).limit(limit)
         result = await db.execute(query)

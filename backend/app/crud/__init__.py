@@ -1,6 +1,7 @@
 """
 CRUD Operations Export
 """
+
 from app.crud.base import CRUDBase
 from app.crud.user import user as user_crud
 from app.crud.rider import rider as rider_crud
@@ -20,5 +21,5 @@ __all__ = [
     "shift_crud",
     "financial_crud",
     "productivity_crud",
-    "route_crud"
+    "route_crud",
 ]

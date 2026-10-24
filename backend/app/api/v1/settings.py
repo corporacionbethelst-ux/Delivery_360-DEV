@@ -77,12 +77,18 @@ class PlatformSettingsUpdate(BaseModel):
 
 class BonusSimulationRequest(BaseModel):
     """Solicitud para simulación What-If de bonos."""
-    new_base_bonus: Optional[float] = Field(None, ge=0, description="Nuevo valor propuesto para bono por entrega")
-    days_projection: int = Field(30, ge=1, le=90, description="Días hacia atrás para calcular promedio histórico")
+
+    new_base_bonus: Optional[float] = Field(
+        None, ge=0, description="Nuevo valor propuesto para bono por entrega"
+    )
+    days_projection: int = Field(
+        30, ge=1, le=90, description="Días hacia atrás para calcular promedio histórico"
+    )
 
 
 class BonusSimulationResponse(BaseModel):
     """Respuesta de simulación What-If de bonos."""
+
     current_monthly_cost: float
     projected_monthly_cost: float
     difference: float
@@ -90,10 +96,12 @@ class BonusSimulationResponse(BaseModel):
     message: str
 
 
-async def _get_historical_bonus_metrics(db: AsyncSession, days: int = 30) -> Dict[str, Any]:
+async def _get_historical_bonus_metrics(
+    db: AsyncSession, days: int = 30
+) -> Dict[str, Any]:
     """
     Obtiene métricas históricas de bonos pagados en los últimos N días.
-    
+
     Returns:
         Dict con:
         - total_deliveries: Total de entregas completadas
@@ -103,53 +111,63 @@ async def _get_historical_bonus_metrics(db: AsyncSession, days: int = 30) -> Dic
         - avg_daily_bonus_paid: Promedio diario de bonos pagados
     """
     cutoff_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
-    
+
     # Consulta agregada para entregas completadas (SUCCESS)
     success_stmt = select(
-        func.count(Delivery.id).label('total_deliveries'),
-        func.sum(Delivery.locked_bonus_amount).label('total_success_bonus')
+        func.count(Delivery.id).label("total_deliveries"),
+        func.sum(Delivery.locked_bonus_amount).label("total_success_bonus"),
     ).where(
         and_(
             Delivery.status == DeliveryStatus.COMPLETADA,
             Delivery.completed_at >= cutoff_date,
-            Delivery.locked_bonus_type == 'SUCCESS'
+            Delivery.locked_bonus_type == "SUCCESS",
         )
     )
-    
+
     # Consulta agregada para intentos fallidos bonificables
     failed_stmt = select(
-        func.count(Delivery.id).label('total_failed_deliveries'),
-        func.sum(Delivery.locked_bonus_amount).label('total_failed_bonus')
+        func.count(Delivery.id).label("total_failed_deliveries"),
+        func.sum(Delivery.locked_bonus_amount).label("total_failed_bonus"),
     ).where(
         and_(
             Delivery.status == DeliveryStatus.FALLIDA,
             Delivery.completed_at >= cutoff_date,
-            Delivery.locked_bonus_type == 'FAILED_ATTEMPT'
+            Delivery.locked_bonus_type == "FAILED_ATTEMPT",
         )
     )
-    
+
     success_result = await db.execute(success_stmt)
     success_row = success_result.fetchone()
-    
+
     failed_result = await db.execute(failed_stmt)
     failed_row = failed_result.fetchone()
-    
+
     total_deliveries = success_row.total_deliveries or 0
     total_failed_deliveries = failed_row.total_failed_deliveries or 0
-    total_success_bonus = float(success_row.total_success_bonus) if success_row.total_success_bonus else 0.0
-    total_failed_bonus = float(failed_row.total_failed_bonus) if failed_row.total_failed_bonus else 0.0
+    total_success_bonus = (
+        float(success_row.total_success_bonus)
+        if success_row.total_success_bonus
+        else 0.0
+    )
+    total_failed_bonus = (
+        float(failed_row.total_failed_bonus) if failed_row.total_failed_bonus else 0.0
+    )
     total_bonus_paid = total_success_bonus + total_failed_bonus
-    
+
     return {
-        'days_analyzed': days,
-        'total_deliveries': total_deliveries,
-        'total_failed_bonus_deliveries': total_failed_deliveries,
-        'total_combined_deliveries': total_deliveries + total_failed_deliveries,
-        'total_bonus_paid': round(total_bonus_paid, 2),
-        'avg_daily_deliveries': round(total_deliveries / days, 2) if days > 0 else 0,
-        'avg_daily_failed_deliveries': round(total_failed_deliveries / days, 2) if days > 0 else 0,
-        'avg_daily_bonus_paid': round(total_bonus_paid / days, 2) if days > 0 else 0,
-        'avg_bonus_per_delivery': round(total_bonus_paid / total_deliveries, 2) if total_deliveries > 0 else 0,
+        "days_analyzed": days,
+        "total_deliveries": total_deliveries,
+        "total_failed_bonus_deliveries": total_failed_deliveries,
+        "total_combined_deliveries": total_deliveries + total_failed_deliveries,
+        "total_bonus_paid": round(total_bonus_paid, 2),
+        "avg_daily_deliveries": round(total_deliveries / days, 2) if days > 0 else 0,
+        "avg_daily_failed_deliveries": (
+            round(total_failed_deliveries / days, 2) if days > 0 else 0
+        ),
+        "avg_daily_bonus_paid": round(total_bonus_paid / days, 2) if days > 0 else 0,
+        "avg_bonus_per_delivery": (
+            round(total_bonus_paid / total_deliveries, 2) if total_deliveries > 0 else 0
+        ),
     }
 
 
@@ -161,39 +179,43 @@ async def simulate_bonus_impact(
 ):
     """
     FASE 6: Simulador What-If para impacto de cambios en bonos.
-    
+
     Calcula proyecciones de costo operativo basadas en cambios propuestos
     en los valores de bonos, usando datos históricos de los últimos N días.
     """
     # Obtener configuración actual
     rows = await _ensure_default_settings(db)
     current_settings = _coerce_settings(rows)
-    
-    current_base_bonus = current_settings.get('rider_delivery_bonus') or 0
-    proposed_base_bonus = body.new_base_bonus if body.new_base_bonus is not None else current_base_bonus
-    
+
+    current_base_bonus = current_settings.get("rider_delivery_bonus") or 0
+    proposed_base_bonus = (
+        body.new_base_bonus if body.new_base_bonus is not None else current_base_bonus
+    )
+
     # Obtener métricas históricas (últimos 30 días por defecto)
     days_lookback = body.days_projection or 30
     historical_metrics = await _get_historical_bonus_metrics(db, days_lookback)
-    
+
     # Calcular proyección de impacto
-    total_deliveries = historical_metrics['total_deliveries']
-    days = historical_metrics['days_analyzed'] or 1
-    
+    total_deliveries = historical_metrics["total_deliveries"]
+    days = historical_metrics["days_analyzed"] or 1
+
     # Costo actual con valores históricos
-    current_monthly_cost = historical_metrics['total_bonus_paid']
-    
+    current_monthly_cost = historical_metrics["total_bonus_paid"]
+
     # Costo proyectado con nuevo valor
     base_bonus_delta = proposed_base_bonus - current_base_bonus
     projected_additional_cost = base_bonus_delta * total_deliveries
     projected_monthly_cost = current_monthly_cost + projected_additional_cost
-    
+
     # Diferencia neta
     difference = projected_monthly_cost - current_monthly_cost
-    
+
     # Porcentaje de cambio
-    percentage_increase = ((difference / current_monthly_cost) * 100) if current_monthly_cost > 0 else 0
-    
+    percentage_increase = (
+        ((difference / current_monthly_cost) * 100) if current_monthly_cost > 0 else 0
+    )
+
     # Mensaje interpretativo
     if difference > 0:
         message = f"Un aumento del bono base a ${proposed_base_bonus} incrementaría el costo mensual en ${abs(difference):,.2f} ({percentage_increase:.2f}%). Esto representa un mayor incentivo para los riders pero reduce el margen operativo."
@@ -201,7 +223,7 @@ async def simulate_bonus_impact(
         message = f"Una reducción del bono base a ${proposed_base_bonus} disminuiría el costo mensual en ${abs(difference):,.2f} ({abs(percentage_increase):.2f}%). Esto mejora el margen pero puede afectar la satisfacción de los riders."
     else:
         message = "No hay cambio en el costo operativo. El valor propuesto es igual al actual."
-    
+
     return BonusSimulationResponse(
         current_monthly_cost=round(current_monthly_cost, 2),
         projected_monthly_cost=round(projected_monthly_cost, 2),
@@ -218,7 +240,7 @@ async def _load_settings_rows(db: AsyncSession) -> dict[str, PlatformSetting]:
 
 def _coerce_settings(rows: dict[str, PlatformSetting]) -> dict[str, Any]:
     """Convierte rows de PlatformSetting a un diccionario de valores.
-    
+
     NOTA CRÍTICA: Sin fallbacks. Si un setting no existe en DB, se retorna None
     explícitamente para forzar validación estricta en capas superiores.
     """
@@ -229,49 +251,83 @@ def _coerce_settings(rows: dict[str, PlatformSetting]) -> dict[str, Any]:
     # Inicializar con None explícito para cada key esperada
     for key in EXPECTED_SETTING_KEYS:
         values[key] = None
-    
+
     # Sobrescribir con valores reales de DB si existen
     for key, row in rows.items():
         if key in values:
             values[key] = row.value
-            if row.updated_at and (latest_updated_at is None or row.updated_at > latest_updated_at):
+            if row.updated_at and (
+                latest_updated_at is None or row.updated_at > latest_updated_at
+            ):
                 latest_updated_at = row.updated_at
-                latest_updated_by = str(row.updated_by_user_id) if row.updated_by_user_id else None
+                latest_updated_by = (
+                    str(row.updated_by_user_id) if row.updated_by_user_id else None
+                )
 
     values["updated_at"] = latest_updated_at.isoformat() if latest_updated_at else None
     values["updated_by_user_id"] = latest_updated_by
-    
+
     # Conversión segura: None se mantiene como None (validación estricta)
-    values["delivery_fee_base"] = float(values.get("delivery_fee_base")) if values.get("delivery_fee_base") is not None else None
-    values["commission_percentage"] = float(values.get("commission_percentage")) if values.get("commission_percentage") is not None else None
-    values["min_order_amount"] = float(values.get("min_order_amount")) if values.get("min_order_amount") is not None else None
+    values["delivery_fee_base"] = (
+        float(values.get("delivery_fee_base"))
+        if values.get("delivery_fee_base") is not None
+        else None
+    )
+    values["commission_percentage"] = (
+        float(values.get("commission_percentage"))
+        if values.get("commission_percentage") is not None
+        else None
+    )
+    values["min_order_amount"] = (
+        float(values.get("min_order_amount"))
+        if values.get("min_order_amount") is not None
+        else None
+    )
     # BONOS: Sin fallback! None indica falta de configuración crítica
-    values["rider_delivery_bonus"] = float(values.get("rider_delivery_bonus")) if values.get("rider_delivery_bonus") is not None else None
-    values["rider_failed_attempt_bonus"] = float(values.get("rider_failed_attempt_bonus")) if values.get("rider_failed_attempt_bonus") is not None else None
-    
-    values["active_zones"] = [str(zone).strip() for zone in (values.get("active_zones") or []) if str(zone).strip()]
-    values["maintenance_mode"] = bool(values.get("maintenance_mode")) if values.get("maintenance_mode") is not None else False
-    
+    values["rider_delivery_bonus"] = (
+        float(values.get("rider_delivery_bonus"))
+        if values.get("rider_delivery_bonus") is not None
+        else None
+    )
+    values["rider_failed_attempt_bonus"] = (
+        float(values.get("rider_failed_attempt_bonus"))
+        if values.get("rider_failed_attempt_bonus") is not None
+        else None
+    )
+
+    values["active_zones"] = [
+        str(zone).strip()
+        for zone in (values.get("active_zones") or [])
+        if str(zone).strip()
+    ]
+    values["maintenance_mode"] = (
+        bool(values.get("maintenance_mode"))
+        if values.get("maintenance_mode") is not None
+        else False
+    )
+
     return values
 
 
 async def _ensure_default_settings(db: AsyncSession) -> dict[str, PlatformSetting]:
     """Crea entradas en DB para keys que no existen, con valores None explícitos.
-    
+
     Esto garantiza que todas las keys esperadas existan en DB, pero SIN valores
     por defecto hardcodeados. El administrador debe configurar los valores reales.
     """
     rows = await _load_settings_rows(db)
     changed = False
-    
+
     for key in EXPECTED_SETTING_KEYS:
         if key not in rows:
             # Crear entrada con valor None para forzar configuración explícita
-            row = PlatformSetting(key=key, value=None, description=SETTING_DESCRIPTIONS.get(key))
+            row = PlatformSetting(
+                key=key, value=None, description=SETTING_DESCRIPTIONS.get(key)
+            )
             db.add(row)
             rows[key] = row
             changed = True
-    
+
     if changed:
         await db.commit()
         rows = await _load_settings_rows(db)
@@ -281,9 +337,14 @@ async def _ensure_default_settings(db: AsyncSession) -> dict[str, PlatformSettin
 def _update_payload(body: PlatformSettingsUpdate) -> dict[str, Any]:
     payload = body.model_dump(exclude_unset=True)
     if "active_zones" in payload and payload["active_zones"] is not None:
-        zones = [zone.strip() for zone in payload["active_zones"] if zone and zone.strip()]
+        zones = [
+            zone.strip() for zone in payload["active_zones"] if zone and zone.strip()
+        ]
         if not zones:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Debe existir al menos una zona activa")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Debe existir al menos una zona activa",
+            )
         payload["active_zones"] = zones
     return payload
 
@@ -321,7 +382,9 @@ async def update_platform_settings(
             continue
         row = rows.get(key)
         if not row:
-            row = PlatformSetting(key=key, value=value, description=SETTING_DESCRIPTIONS.get(key))
+            row = PlatformSetting(
+                key=key, value=value, description=SETTING_DESCRIPTIONS.get(key)
+            )
             db.add(row)
             rows[key] = row
         row.value = value
@@ -335,7 +398,11 @@ async def update_platform_settings(
     audit = AuditLog(
         user_id=current_user.id,
         user_email=current_user.email,
-        user_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
+        user_role=(
+            current_user.role.value
+            if hasattr(current_user.role, "value")
+            else str(current_user.role)
+        ),
         action_type=ActionType.CONFIG_CHANGE,
         resource_type="PlatformSettings",
         resource_id="global",

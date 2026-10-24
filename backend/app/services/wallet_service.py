@@ -2,6 +2,7 @@
 Wallet Service - Fase 7 Enterprise
 Gestión de billeteras virtuales, transacciones y retiros para riders.
 """
+
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
 from uuid import UUID
@@ -11,12 +12,12 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, desc
 
 from app.models.financial import (
-    RiderWallet, 
-    FinancialTransaction, 
+    RiderWallet,
+    FinancialTransaction,
     PayoutRequest,
-    TransactionType, 
-    TransactionStatus, 
-    PayoutStatus
+    TransactionType,
+    TransactionStatus,
+    PayoutStatus,
 )
 from app.models.rider import Rider
 from app.core.exceptions import NotFoundError, ValidationError, InsufficientFundsError
@@ -30,17 +31,14 @@ class WalletService:
 
     def get_or_create_wallet(self, rider_id: UUID) -> RiderWallet:
         """Obtiene o crea la wallet de un rider."""
-        wallet = self.db.query(RiderWallet).filter(
-            RiderWallet.rider_id == rider_id
-        ).first()
+        wallet = (
+            self.db.query(RiderWallet).filter(RiderWallet.rider_id == rider_id).first()
+        )
 
         if not wallet:
             # Crear nueva wallet
             wallet = RiderWallet(
-                rider_id=rider_id,
-                balance_cents=0,
-                currency="USD",
-                is_active=True
+                rider_id=rider_id, balance_cents=0, currency="USD", is_active=True
             )
             self.db.add(wallet)
             self.db.commit()
@@ -50,15 +48,13 @@ class WalletService:
 
     def get_wallet_by_id(self, wallet_id: UUID) -> Optional[RiderWallet]:
         """Obtiene una wallet por ID."""
-        return self.db.query(RiderWallet).filter(
-            RiderWallet.id == wallet_id
-        ).first()
+        return self.db.query(RiderWallet).filter(RiderWallet.id == wallet_id).first()
 
     def get_wallet_by_rider(self, rider_id: UUID) -> Optional[RiderWallet]:
         """Obtiene la wallet de un rider."""
-        return self.db.query(RiderWallet).filter(
-            RiderWallet.rider_id == rider_id
-        ).first()
+        return (
+            self.db.query(RiderWallet).filter(RiderWallet.rider_id == rider_id).first()
+        )
 
     def add_funds(
         self,
@@ -69,11 +65,11 @@ class WalletService:
         reference_id: Optional[str] = None,
         metadata_json: Optional[Dict[str, Any]] = None,
         created_by_user_id: Optional[UUID] = None,
-        idempotency_key: Optional[str] = None
+        idempotency_key: Optional[str] = None,
     ) -> FinancialTransaction:
         """
         Agrega fondos a la wallet del rider.
-        
+
         Args:
             wallet_id: ID de la wallet
             amount_cents: Monto en centavos (debe ser positivo)
@@ -83,7 +79,7 @@ class WalletService:
             metadata_json: Metadata adicional en formato JSON
             created_by_user_id: ID del usuario que crea la transacción
             idempotency_key: Clave para evitar duplicados
-        
+
         Returns:
             FinancialTransaction creada
         """
@@ -92,9 +88,11 @@ class WalletService:
 
         # Verificar idempotencia
         if idempotency_key:
-            existing = self.db.query(FinancialTransaction).filter(
-                FinancialTransaction.idempotency_key == idempotency_key
-            ).first()
+            existing = (
+                self.db.query(FinancialTransaction)
+                .filter(FinancialTransaction.idempotency_key == idempotency_key)
+                .first()
+            )
             if existing:
                 return existing
 
@@ -117,7 +115,7 @@ class WalletService:
             status=TransactionStatus.COMPLETED,
             balance_after_cents=new_balance_cents,
             created_by_user_id=created_by_user_id,
-            idempotency_key=idempotency_key
+            idempotency_key=idempotency_key,
         )
 
         # Actualizar wallet
@@ -139,11 +137,11 @@ class WalletService:
         reference_id: Optional[str] = None,
         metadata_json: Optional[Dict[str, Any]] = None,
         created_by_user_id: Optional[UUID] = None,
-        idempotency_key: Optional[str] = None
+        idempotency_key: Optional[str] = None,
     ) -> FinancialTransaction:
         """
         Retira fondos de la wallet del rider.
-        
+
         Args:
             wallet_id: ID de la wallet
             amount_cents: Monto en centavos (debe ser positivo, se restará)
@@ -153,7 +151,7 @@ class WalletService:
             metadata_json: Metadata adicional
             created_by_user_id: ID del usuario que crea la transacción
             idempotency_key: Clave para evitar duplicados
-        
+
         Returns:
             FinancialTransaction creada
         """
@@ -162,9 +160,11 @@ class WalletService:
 
         # Verificar idempotencia
         if idempotency_key:
-            existing = self.db.query(FinancialTransaction).filter(
-                FinancialTransaction.idempotency_key == idempotency_key
-            ).first()
+            existing = (
+                self.db.query(FinancialTransaction)
+                .filter(FinancialTransaction.idempotency_key == idempotency_key)
+                .first()
+            )
             if existing:
                 return existing
 
@@ -194,7 +194,7 @@ class WalletService:
             status=TransactionStatus.COMPLETED,
             balance_after_cents=new_balance_cents,
             created_by_user_id=created_by_user_id,
-            idempotency_key=idempotency_key
+            idempotency_key=idempotency_key,
         )
 
         # Actualizar wallet
@@ -213,18 +213,18 @@ class WalletService:
         amount_cents: int,
         bank_account_last4: str,
         bank_name: str,
-        account_holder_name: str
+        account_holder_name: str,
     ) -> PayoutRequest:
         """
         Crea una solicitud de retiro hacia cuenta bancaria.
-        
+
         Args:
             rider_id: ID del rider
             amount_cents: Monto a retirar en centavos
             bank_account_last4: Últimos 4 dígitos de la cuenta
             bank_name: Nombre del banco
             account_holder_name: Nombre del titular
-        
+
         Returns:
             PayoutRequest creada
         """
@@ -256,7 +256,7 @@ class WalletService:
             bank_account_last4=bank_account_last4,
             bank_name=bank_name,
             account_holder_name=account_holder_name,
-            status=PayoutStatus.PENDIENTE
+            status=PayoutStatus.PENDIENTE,
         )
 
         self.db.add(payout_request)
@@ -265,17 +265,21 @@ class WalletService:
 
         return payout_request
 
-    def approve_payout(self, payout_id: UUID, provider_payout_id: Optional[str] = None) -> PayoutRequest:
+    def approve_payout(
+        self, payout_id: UUID, provider_payout_id: Optional[str] = None
+    ) -> PayoutRequest:
         """Aprueba una solicitud de retiro."""
-        payout = self.db.query(PayoutRequest).filter(
-            PayoutRequest.id == payout_id
-        ).first()
+        payout = (
+            self.db.query(PayoutRequest).filter(PayoutRequest.id == payout_id).first()
+        )
 
         if not payout:
             raise NotFoundError("Solicitud de retiro no encontrada")
 
         if payout.status != PayoutStatus.PENDIENTE:
-            raise ValidationError(f"No se puede aprobar retiro en estado {payout.status}")
+            raise ValidationError(
+                f"No se puede aprobar retiro en estado {payout.status}"
+            )
 
         payout.status = PayoutStatus.APROBADO
         payout.approved_at = datetime.utcnow()
@@ -287,17 +291,21 @@ class WalletService:
 
         return payout
 
-    def complete_payout(self, payout_id: UUID, provider_response_json: Optional[str] = None) -> PayoutRequest:
+    def complete_payout(
+        self, payout_id: UUID, provider_response_json: Optional[str] = None
+    ) -> PayoutRequest:
         """Marca un retiro como completado."""
-        payout = self.db.query(PayoutRequest).filter(
-            PayoutRequest.id == payout_id
-        ).first()
+        payout = (
+            self.db.query(PayoutRequest).filter(PayoutRequest.id == payout_id).first()
+        )
 
         if not payout:
             raise NotFoundError("Solicitud de retiro no encontrada")
 
         if payout.status not in [PayoutStatus.APROBADO, PayoutStatus.EN_PROCESO]:
-            raise ValidationError(f"No se puede completar retiro en estado {payout.status}")
+            raise ValidationError(
+                f"No se puede completar retiro en estado {payout.status}"
+            )
 
         payout.status = PayoutStatus.COMPLETADO
         payout.completed_at = datetime.utcnow()
@@ -311,15 +319,17 @@ class WalletService:
 
     def reject_payout(self, payout_id: UUID, reason: str) -> PayoutRequest:
         """Rechaza un retiro y devuelve los fondos a la wallet."""
-        payout = self.db.query(PayoutRequest).filter(
-            PayoutRequest.id == payout_id
-        ).first()
+        payout = (
+            self.db.query(PayoutRequest).filter(PayoutRequest.id == payout_id).first()
+        )
 
         if not payout:
             raise NotFoundError("Solicitud de retiro no encontrada")
 
         if payout.status != PayoutStatus.PENDIENTE:
-            raise ValidationError(f"No se puede rechazar retiro en estado {payout.status}")
+            raise ValidationError(
+                f"No se puede rechazar retiro en estado {payout.status}"
+            )
 
         # Devolver fondos a la wallet
         wallet = self.get_wallet_by_id(payout.wallet_id)
@@ -337,33 +347,36 @@ class WalletService:
         return payout
 
     def get_transactions(
-        self,
-        wallet_id: UUID,
-        limit: int = 50,
-        offset: int = 0
+        self, wallet_id: UUID, limit: int = 50, offset: int = 0
     ) -> List[FinancialTransaction]:
         """Obtiene el historial de transacciones de una wallet."""
-        return self.db.query(FinancialTransaction).filter(
-            FinancialTransaction.wallet_id == wallet_id
-        ).order_by(
-            desc(FinancialTransaction.created_at)
-        ).offset(offset).limit(limit).all()
+        return (
+            self.db.query(FinancialTransaction)
+            .filter(FinancialTransaction.wallet_id == wallet_id)
+            .order_by(desc(FinancialTransaction.created_at))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
 
     def get_payout_requests(
-        self,
-        rider_id: UUID,
-        limit: int = 20,
-        offset: int = 0
+        self, rider_id: UUID, limit: int = 20, offset: int = 0
     ) -> List[PayoutRequest]:
         """Obtiene las solicitudes de retiro de un rider."""
-        return self.db.query(PayoutRequest).filter(
-            PayoutRequest.rider_id == rider_id
-        ).order_by(
-            desc(PayoutRequest.created_at)
-        ).offset(offset).limit(limit).all()
+        return (
+            self.db.query(PayoutRequest)
+            .filter(PayoutRequest.rider_id == rider_id)
+            .order_by(desc(PayoutRequest.created_at))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
 
     def get_pending_payouts(self) -> List[PayoutRequest]:
         """Obtiene todas las solicitudes de retiro pendientes de aprobación."""
-        return self.db.query(PayoutRequest).filter(
-            PayoutRequest.status == PayoutStatus.PENDIENTE
-        ).order_by(PayoutRequest.created_at).all()
+        return (
+            self.db.query(PayoutRequest)
+            .filter(PayoutRequest.status == PayoutStatus.PENDIENTE)
+            .order_by(PayoutRequest.created_at)
+            .all()
+        )

@@ -433,7 +433,7 @@ function FeatureCard({ icon, title, description }: FeatureCardProps) {
 function TestimonialCard({ quote, author, role }: TestimonialCardProps) {
   return (
     <div className="bg-slate-900/50 p-8 rounded-2xl border border-slate-800 relative overflow-hidden">
-      <div className="text-blue-500 text-6xl font-serif absolute top-4 left-4 opacity-20 select-none">"</div>
+      <div className="text-blue-500 text-6xl font-serif absolute top-4 left-4 opacity-20 select-none">&quot;</div>
       <p className="text-slate-300 text-lg italic mb-6 relative z-10">{quote}</p>
       <div className="flex items-center gap-4">
         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white font-bold shadow-lg">

@@ -1,6 +1,7 @@
 """
 Health Checks para monitoreo del sistema
 """
+
 from fastapi import APIRouter
 from sqlalchemy.ext.asyncio import create_async_engine
 from typing import Dict, Any
@@ -10,7 +11,9 @@ from app.core.config import settings
 
 # Crear engine para health checks
 if settings.DATABASE_URL.startswith("postgresql://"):
-    ASYNC_DB_URL = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+    ASYNC_DB_URL = settings.DATABASE_URL.replace(
+        "postgresql://", "postgresql+asyncpg://", 1
+    )
 else:
     ASYNC_DB_URL = settings.DATABASE_URL
 
@@ -32,12 +35,13 @@ async def readiness_check():
     Verifica conexión a base de datos y Redis
     """
     from sqlalchemy import text
+
     checks: Dict[str, Any] = {
         "database": False,
         "redis": False,
-        "timestamp": time.time()
+        "timestamp": time.time(),
     }
-    
+
     # Verificar base de datos
     try:
         async with engine.begin() as conn:
@@ -45,7 +49,7 @@ async def readiness_check():
         checks["database"] = True
     except Exception as e:
         checks["database_error"] = str(e)
-    
+
     # Verificar Redis
     try:
         redis_client = redis.from_url(settings.REDIS_URL)
@@ -53,13 +57,10 @@ async def readiness_check():
         checks["redis"] = True
     except Exception as e:
         checks["redis_error"] = str(e)
-    
+
     all_healthy = all([checks["database"], checks["redis"]])
-    
-    return {
-        "status": "ready" if all_healthy else "not_ready",
-        "checks": checks
-    }
+
+    return {"status": "ready" if all_healthy else "not_ready", "checks": checks}
 
 
 @router.get("/live")
@@ -71,7 +72,7 @@ async def liveness_check():
     return {
         "status": "alive",
         "timestamp": time.time(),
-        "uptime_seconds": time.time() - start_time
+        "uptime_seconds": time.time() - start_time,
     }
 
 

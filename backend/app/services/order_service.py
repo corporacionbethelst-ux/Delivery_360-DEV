@@ -21,7 +21,9 @@ class OrderService:
         result = await db.execute(select(Order).where(Order.id == order_id))
         order = result.scalar_one_or_none()
         if not order:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado"
+            )
         return order
 
     async def create_order(
@@ -32,7 +34,9 @@ class OrderService:
     ) -> Order:
         now = datetime.utcnow()
         estimated_minutes = order_data.estimated_duration_minutes or 60
-        estimated_delivery = now.replace(microsecond=0) + timedelta(minutes=estimated_minutes)
+        estimated_delivery = now.replace(microsecond=0) + timedelta(
+            minutes=estimated_minutes
+        )
         order = Order(
             external_id=order_data.external_id,
             customer_name=order_data.customer_name,
@@ -50,10 +54,18 @@ class OrderService:
             delivery_reference=order_data.delivery_reference,
             total=order_data.total_value or 0.0,
             subtotal=order_data.total_value or 0.0,
-            items={"description": order_data.items_description, "count": order_data.items_count},
-            priority=OrderPriority.URGENTE if order_data.is_priority else OrderPriority.NORMAL,
+            items={
+                "description": order_data.items_description,
+                "count": order_data.items_count,
+            },
+            priority=(
+                OrderPriority.URGENTE
+                if order_data.is_priority
+                else OrderPriority.NORMAL
+            ),
             status=OrderStatus.PENDIENTE,
-            estimated_delivery_time=order_data.scheduled_delivery_time or estimated_delivery,
+            estimated_delivery_time=order_data.scheduled_delivery_time
+            or estimated_delivery,
             sla_deadline=order_data.scheduled_delivery_time or estimated_delivery,
         )
         if order_data.rider_id:
@@ -126,7 +138,11 @@ class OrderService:
             OrderStatus.PENDIENTE: [OrderStatus.ASIGNADO, OrderStatus.CANCELADO],
             OrderStatus.ASIGNADO: [OrderStatus.RECOLECTADO, OrderStatus.CANCELADO],
             OrderStatus.RECOLECTADO: [OrderStatus.EN_RUTA, OrderStatus.CANCELADO],
-            OrderStatus.EN_RUTA: [OrderStatus.ENTREGADO, OrderStatus.FALLIDO, OrderStatus.CANCELADO],
+            OrderStatus.EN_RUTA: [
+                OrderStatus.ENTREGADO,
+                OrderStatus.FALLIDO,
+                OrderStatus.CANCELADO,
+            ],
         }
         allowed = valid_transitions.get(order.status, [])
         if new_status not in allowed:
@@ -157,7 +173,11 @@ class OrderService:
         cancelled_by: int,
     ) -> Order:
         order = await self.get_order(db, order_id)
-        if order.status in [OrderStatus.ENTREGADO, OrderStatus.FALLIDO, OrderStatus.CANCELADO]:
+        if order.status in [
+            OrderStatus.ENTREGADO,
+            OrderStatus.FALLIDO,
+            OrderStatus.CANCELADO,
+        ]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"No se puede cancelar pedido en estado {order.status.value}",
@@ -192,7 +212,9 @@ class OrderService:
         rider_id: uuid.UUID,
         status_filter: Optional[OrderStatus] = None,
     ) -> List[Order]:
-        return await self.list_orders(db, skip=0, limit=1000, status_filter=status_filter, rider_id=rider_id)
+        return await self.list_orders(
+            db, skip=0, limit=1000, status_filter=status_filter, rider_id=rider_id
+        )
 
 
 order_service = OrderService()

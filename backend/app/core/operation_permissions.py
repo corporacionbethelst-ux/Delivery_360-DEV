@@ -11,10 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.rider import Rider
 from app.models.user import User, UserRole
 
-
-OPERATIONS_STAFF = frozenset(
-    (UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)
-)
+OPERATIONS_STAFF = frozenset((UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR))
 
 
 def ensure_operation_role(user: User, *, write: bool = False) -> None:
@@ -34,5 +31,11 @@ async def ensure_rider_resource_access(
         return
     result = await db.execute(select(Rider).where(Rider.user_id == user.id))
     rider = result.scalar_one_or_none()
-    if rider is None or assigned_rider_id is None or str(rider.id) != str(assigned_rider_id):
-        raise HTTPException(status_code=403, detail="No tienes permiso para acceder a este recurso")
+    if (
+        rider is None
+        or assigned_rider_id is None
+        or str(rider.id) != str(assigned_rider_id)
+    ):
+        raise HTTPException(
+            status_code=403, detail="No tienes permiso para acceder a este recurso"
+        )

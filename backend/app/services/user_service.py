@@ -1,6 +1,7 @@
 """
 Servicio de Gestión de Usuarios
 """
+
 import uuid
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,31 +24,31 @@ class UserService:
     @staticmethod
     def _normalize_email(email: str) -> str:
         return email.strip().lower()
-    
+
     async def get_user(self, db: AsyncSession, user_id: uuid.UUID) -> User:
         """Obtiene usuario por ID"""
-        result = await db.execute(select(User).where(User.id == user_id, self._not_deleted_filter()))
+        result = await db.execute(
+            select(User).where(User.id == user_id, self._not_deleted_filter())
+        )
         user = result.scalar_one_or_none()
         if not user:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Usuario no encontrado"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado"
             )
         return user
-    
+
     async def get_user_by_email(self, db: AsyncSession, email: str) -> Optional[User]:
         """Obtiene usuario por email"""
         normalized_email = self._normalize_email(email)
         result = await db.execute(
-            select(User).where(User.email == normalized_email, self._not_deleted_filter())
+            select(User).where(
+                User.email == normalized_email, self._not_deleted_filter()
+            )
         )
         return result.scalar_one_or_none()
-    
+
     async def create_user(
-        self, 
-        db: AsyncSession, 
-        user_data: UserCreate,
-        created_by: int
+        self, db: AsyncSession, user_data: UserCreate, created_by: int
     ) -> User:
         """Crea un nuevo usuario"""
         # Verificar si email ya existe
@@ -55,13 +56,12 @@ class UserService:
         existing_user = await self.get_user_by_email(db, normalized_email)
         if existing_user:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email ya registrado"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Email ya registrado"
             )
-        
+
         # Hash de contraseña
         hashed_password = auth_service.get_password_hash(user_data.password)
-        
+
         # Crear usuario
         user = User(
             email=normalized_email,
@@ -74,54 +74,58 @@ class UserService:
         await db.commit()
         await db.refresh(user)
         return user
-    
+
     async def update_user(
         self,
         db: AsyncSession,
         user_id: uuid.UUID,
         user_data: UserUpdate,
-        updated_by: int
+        updated_by: int,
     ) -> User:
         """Actualiza usuario existente"""
         user = await self.get_user(db, user_id)
-        
+
         update_data = user_data.model_dump(exclude_unset=True)
-        
+
         # Si se actualiza contraseña, hacer hash
         if "password" in update_data and update_data["password"]:
-            update_data["hashed_password"] = auth_service.get_password_hash(update_data.pop("password"))
+            update_data["hashed_password"] = auth_service.get_password_hash(
+                update_data.pop("password")
+            )
         if "email" in update_data and update_data["email"]:
             normalized_email = self._normalize_email(update_data["email"])
             existing_user = await self.get_user_by_email(db, normalized_email)
             if existing_user and existing_user.id != user.id:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Email ya registrado"
+                    detail="Email ya registrado",
                 )
             update_data["email"] = normalized_email
-        
+
         for field, value in update_data.items():
             setattr(user, field, value)
         db.add(user)
         await db.commit()
         await db.refresh(user)
         return user
-    
-    async def delete_user(self, db: AsyncSession, user_id: uuid.UUID, deleted_by: int) -> None:
+
+    async def delete_user(
+        self, db: AsyncSession, user_id: uuid.UUID, deleted_by: int
+    ) -> None:
         """Elimina usuario (soft delete)"""
         user = await self.get_user(db, user_id)
         user.is_deleted = True
         user.is_active = False
         db.add(user)
         await db.commit()
-    
+
     async def list_users(
-        self, 
-        db: AsyncSession, 
-        skip: int = 0, 
+        self,
+        db: AsyncSession,
+        skip: int = 0,
         limit: int = 100,
         role: Optional[UserRole] = None,
-        is_active: Optional[bool] = None
+        is_active: Optional[bool] = None,
     ) -> List[User]:
         """Lista usuarios con filtros"""
         q = select(User).where(self._not_deleted_filter())
@@ -133,8 +137,10 @@ class UserService:
         q = q.offset(skip).limit(limit)
         result = await db.execute(q)
         return list(result.scalars().all())
-    
-    async def deactivate_user(self, db: AsyncSession, user_id: uuid.UUID, deactivated_by: int) -> User:
+
+    async def deactivate_user(
+        self, db: AsyncSession, user_id: uuid.UUID, deactivated_by: int
+    ) -> User:
         """Desactiva usuario"""
         user = await self.get_user(db, user_id)
         user.is_active = False
@@ -142,8 +148,10 @@ class UserService:
         await db.commit()
         await db.refresh(user)
         return user
-    
-    async def activate_user(self, db: AsyncSession, user_id: uuid.UUID, activated_by: int) -> User:
+
+    async def activate_user(
+        self, db: AsyncSession, user_id: uuid.UUID, activated_by: int
+    ) -> User:
         """Activa usuario"""
         user = await self.get_user(db, user_id)
         user.is_active = True

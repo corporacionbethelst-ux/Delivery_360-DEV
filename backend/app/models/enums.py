@@ -1,11 +1,13 @@
 # app/models/enums.py
 from enum import Enum
 
+
 class VehicleType(str, Enum):
     MOTO = "MOTO"
     AUTO = "AUTO"
     FURGONETA = "FURGONETA"
     BICICLETA = "BICICLETA"
+
 
 class VehicleStatus(str, Enum):
     ACTIVO = "ACTIVO"
@@ -15,6 +17,7 @@ class VehicleStatus(str, Enum):
 
 class VehicleOwnershipType(str, Enum):
     """Tipo de propiedad del vehículo utilizado por el repartidor."""
+
     PROPIO = "PROPIO"
     EMPRESA = "EMPRESA"
 
@@ -37,10 +40,10 @@ def get_bonificable_causes() -> list[str]:
 def check_is_bonificable(cause: "DeliveryFailureCause") -> bool:
     """
     Función helper para verificar si una causa es bonificable.
-    
+
     Args:
         cause: Instancia de DeliveryFailureCause
-        
+
     Returns:
         True si la causa da derecho al bono por intento fallido
     """
@@ -54,6 +57,7 @@ class DeliveryFailureCause(str, Enum):
     Causas estandarizadas para entregas fallidas.
     Determina automáticamente si el repartidor recibe bono por intento fallido.
     """
+
     # === CAUSAS EXTERNAS (BONIFICABLES - 1500 COP) ===
     CLIENTE_NO_ESTA = "CLIENTE_NO_ESTA"  # Cliente no estaba en el lugar
     CLIENTE_NO_CONTESTA = "CLIENTE_NO_CONTESTA"  # No responde teléfono/portero
@@ -64,15 +68,17 @@ class DeliveryFailureCause(str, Enum):
     ZONA_INSEGURA = "ZONA_INSEGURA"  # Zona peligrosa o inaccesible
     FUERZA_MAYOR = "FUERZA_MAYOR"  # Lluvia extrema, bloqueo, accidente vial
     EDIFICIO_RESTRINGIDO = "EDIFICIO_RESTRINGIDO"  # Acceso denegado por seguridad
-    
+
     # === CAUSAS DEL REPARTIDOR (NO BONIFICABLES) ===
-    REPARTIDOR_NO_QUIERE_ENTREGAR = "REPARTIDOR_NO_QUIERE_ENTREGAR"  # Negativa por comodidad
+    REPARTIDOR_NO_QUIERE_ENTREGAR = (
+        "REPARTIDOR_NO_QUIERE_ENTREGAR"  # Negativa por comodidad
+    )
     REPARTIDOR_LLEGO_TARDE = "REPARTIDOR_LLEGO_TARDE"  # Llegó fuera del tiempo SLA
     REPARTIDOR_ERROR_PROPIO = "REPARTIDOR_ERROR_PROPIO"  # Error operativo del rider
     REPARTIDOR_VEHICULO_FALLA = "REPARTIDOR_VEHICULO_FALLA"  # Falla mecánica de la moto
     REPARTIDOR_SIN_BATERIA = "REPARTIDOR_SIN_BATERIA"  # Celular/moto sin batería
     OTRO_REPARTIDOR = "OTRO_REPARTIDOR"  # Otro repartidor tomó la entrega
-    
+
     @property
     def is_bonificable(self) -> bool:
         """Determina si esta causa da derecho al bono por intento fallido."""

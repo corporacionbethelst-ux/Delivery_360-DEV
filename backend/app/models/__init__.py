@@ -7,46 +7,107 @@ from app.models.zone import Zone
 from app.models.order import Order, OrderStatus, OrderPriority
 from app.models.delivery import Delivery, DeliveryStatus, ProofType
 from app.models.route import Route, RoutePoint, RouteDeviation, RouteStatus
+
 # Fase 8: Mapas & Tracking (live locations + route optimization snapshots)
 from app.models.location import RiderLiveLocation, DeliveryRouteSnapshot
 from app.models.shift import Shift, ShiftStatus, CheckInOut
-from app.models.financial import Financial, FinancialTransaction, TransactionType, PaymentStatus, RiderWallet, PayoutRequest
-from app.models.payout import Payout, PayoutStatus as LegacyPayoutStatus, PayoutMethod, PayoutStatusHistory
+from app.models.financial import (
+    Financial,
+    FinancialTransaction,
+    TransactionType,
+    PaymentStatus,
+    RiderWallet,
+    PayoutRequest,
+)
+from app.models.payout import (
+    Payout,
+    PayoutStatus as LegacyPayoutStatus,
+    PayoutMethod,
+    PayoutStatusHistory,
+)
 from app.models.productivity import ProductivityRecord, MetricType
 from app.models.audit_log import AuditLog, AuditAction, ActionType
 from app.models.notification import (
-    Notification, NotificationType, NotificationPriority, Alert,
-    NotificationChannel, OmnichannelStatus, NotificationTemplate,
-    NotificationLog, UserDeviceToken, NotificationPreference,
+    Notification,
+    NotificationType,
+    NotificationPriority,
+    Alert,
+    NotificationChannel,
+    OmnichannelStatus,
+    NotificationTemplate,
+    NotificationLog,
+    UserDeviceToken,
+    NotificationPreference,
 )
 from app.models.integration import Integration, IntegrationType, IntegrationStatus
 from app.models.platform_setting import PlatformSetting
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
 from app.models.fiscal import (
-    CountryTaxRegime, InvoiceType, InvoiceStatus, ReconciliationStatus,
-    ElectronicInvoice, InvoiceResolution, PaymentDistributionSnapshot,
-    FiscalConfiguration, BankReconciliationRecord,
+    CountryTaxRegime,
+    InvoiceType,
+    InvoiceStatus,
+    ReconciliationStatus,
+    ElectronicInvoice,
+    InvoiceResolution,
+    PaymentDistributionSnapshot,
+    FiscalConfiguration,
+    BankReconciliationRecord,
 )
 
 __all__ = [
-    "User", "UserRole",
-    "Rider", "RiderStatus", "VehicleType",
+    "User",
+    "UserRole",
+    "Rider",
+    "RiderStatus",
+    "VehicleType",
     "Zone",
-    "Order", "OrderStatus", "OrderPriority",
-    "Delivery", "DeliveryStatus", "ProofType",
-    "Route", "RoutePoint", "RouteDeviation", "RouteStatus",
+    "Order",
+    "OrderStatus",
+    "OrderPriority",
+    "Delivery",
+    "DeliveryStatus",
+    "ProofType",
+    "Route",
+    "RoutePoint",
+    "RouteDeviation",
+    "RouteStatus",
     # Fase 8: Mapas & Tracking
-    "RiderLiveLocation", "DeliveryRouteSnapshot",
-    "Shift", "ShiftStatus", "CheckInOut",
-    "Financial", "FinancialTransaction", "TransactionType", "PaymentStatus",
-    "RiderWallet", "PayoutRequest",
-    "Payout", "LegacyPayoutStatus", "PayoutMethod", "PayoutStatusHistory",
-    "ProductivityRecord", "MetricType",
-    "AuditLog", "AuditAction", "ActionType",
-    "Notification", "NotificationType", "NotificationPriority", "Alert",
-    "NotificationChannel", "OmnichannelStatus", "NotificationTemplate",
-    "NotificationLog", "UserDeviceToken", "NotificationPreference",
-    "Integration", "IntegrationType", "IntegrationStatus",
+    "RiderLiveLocation",
+    "DeliveryRouteSnapshot",
+    "Shift",
+    "ShiftStatus",
+    "CheckInOut",
+    "Financial",
+    "FinancialTransaction",
+    "TransactionType",
+    "PaymentStatus",
+    "RiderWallet",
+    "PayoutRequest",
+    "Payout",
+    "LegacyPayoutStatus",
+    "PayoutMethod",
+    "PayoutStatusHistory",
+    "ProductivityRecord",
+    "MetricType",
+    "AuditLog",
+    "AuditAction",
+    "ActionType",
+    "Notification",
+    "NotificationType",
+    "NotificationPriority",
+    "Alert",
+    "NotificationChannel",
+    "OmnichannelStatus",
+    "NotificationTemplate",
+    "NotificationLog",
+    "UserDeviceToken",
+    "NotificationPreference",
+    "Integration",
+    "IntegrationType",
+    "IntegrationStatus",
     "PlatformSetting",
-    "rider_document", "RiderDocument", "DocumentType", "DocumentStatus"
+    "rider_document",
+    "RiderDocument",
+    "DocumentType",
+    "DocumentStatus",
 ]

@@ -14,7 +14,7 @@ from app.core.security import get_password_hash
 
 class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
     """CRUD operations for User model"""
-    
+
     def __init__(self):
         super().__init__(User)
 
@@ -23,13 +23,12 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
         result = await db.execute(select(User).where(User.email == email))
         return result.scalar_one_or_none()
 
-    async def get_by_role(self, db: AsyncSession, role: UserRole, skip: int = 0, limit: int = 100) -> List[User]:
+    async def get_by_role(
+        self, db: AsyncSession, role: UserRole, skip: int = 0, limit: int = 100
+    ) -> List[User]:
         """Get users by role"""
         result = await db.execute(
-            select(User)
-            .where(User.role == role)
-            .offset(skip)
-            .limit(limit)
+            select(User).where(User.role == role).offset(skip).limit(limit)
         )
         return result.scalars().all()
 
@@ -42,14 +41,16 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
             hashed_password=get_password_hash(obj_in.password),
             role=obj_in.role,
             phone=obj_in.phone,
-            is_active=True
+            is_active=True,
         )
         db.add(db_obj)
         await db.commit()
         await db.refresh(db_obj)
         return db_obj
 
-    async def update_password(self, db: AsyncSession, db_obj: User, new_password: str) -> User:
+    async def update_password(
+        self, db: AsyncSession, db_obj: User, new_password: str
+    ) -> User:
         """Update user password"""
         db_obj.hashed_password = get_password_hash(new_password)
         db.add(db_obj)

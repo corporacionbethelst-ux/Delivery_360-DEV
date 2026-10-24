@@ -6,6 +6,7 @@ Patrón tolerante a fallos (OR-Tools Fase 8 / omnichannel Fase 9):
   con logger.warning. NUNCA lanza excepción al caller.
 - Cache en memoria con TTL FX_CACHE_TTL_MINUTES (Redis opcional no requerido).
 """
+
 from __future__ import annotations
 
 import json
@@ -42,6 +43,7 @@ async def _fetch_live_rates() -> Optional[Dict[str, float]]:
         return None
     try:
         import httpx  # ya está en requirements (integraciones Fase previa)
+
         url = _OXR_URL.format(app_id=settings.OPEN_EXCHANGE_RATES_APP_ID)
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(url)
@@ -80,6 +82,7 @@ async def convert(amount_cents: int, from_ccy: str, to_ccy: str) -> int:
     Moneda desconocida → tasa implícita 1.0 con warning (dev-safe).
     """
     from sqlalchemy.orm import decl_api  # noqa: F401  (guard de import entorno)
+
     rates = await get_rates()
 
     def rate_to_usd(ccy: str) -> float:

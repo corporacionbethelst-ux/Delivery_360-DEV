@@ -105,7 +105,9 @@ class AuditService:
             logger.error(f"Error creando audit log: {e}")
             return None
 
-    async def get_user_actions(self, user_id: uuid.UUID, limit: int = 100, offset: int = 0) -> List[AuditLog]:
+    async def get_user_actions(
+        self, user_id: uuid.UUID, limit: int = 100, offset: int = 0
+    ) -> List[AuditLog]:
         """Obtener acciones de un usuario."""
         result = await self.db.execute(
             select(AuditLog)
@@ -116,11 +118,16 @@ class AuditService:
         )
         return result.scalars().all()
 
-    async def get_resource_history(self, resource_type: str, resource_id: str) -> List[AuditLog]:
+    async def get_resource_history(
+        self, resource_type: str, resource_id: str
+    ) -> List[AuditLog]:
         """Obtener historial de cambios de un recurso."""
         result = await self.db.execute(
             select(AuditLog)
-            .where(AuditLog.resource_type == resource_type, AuditLog.resource_id == resource_id)
+            .where(
+                AuditLog.resource_type == resource_type,
+                AuditLog.resource_id == resource_id,
+            )
             .order_by(AuditLog.created_at.asc())
         )
         return result.scalars().all()
@@ -133,7 +140,9 @@ class AuditService:
         user_id: Optional[uuid.UUID] = None,
     ) -> List[AuditLog]:
         """Obtener acciones por rango de fechas."""
-        query = select(AuditLog).where(AuditLog.created_at >= start_date, AuditLog.created_at <= end_date)
+        query = select(AuditLog).where(
+            AuditLog.created_at >= start_date, AuditLog.created_at <= end_date
+        )
         if action_type:
             query = query.where(AuditLog.action_type == action_type)
         if user_id:
@@ -142,26 +151,38 @@ class AuditService:
         result = await self.db.execute(query.order_by(AuditLog.created_at.desc()))
         return result.scalars().all()
 
-    async def get_action_statistics(self, start_date: datetime, end_date: datetime) -> Dict[str, Union[int, str, Dict[str, int]]]:
+    async def get_action_statistics(
+        self, start_date: datetime, end_date: datetime
+    ) -> Dict[str, Union[int, str, Dict[str, int]]]:
         """Obtener estadísticas por tipo de acción."""
         total = int(
-            (await self.db.execute(
-                select(func.count(AuditLog.id)).where(AuditLog.created_at >= start_date, AuditLog.created_at <= end_date)
-            )).scalar()
+            (
+                await self.db.execute(
+                    select(func.count(AuditLog.id)).where(
+                        AuditLog.created_at >= start_date,
+                        AuditLog.created_at <= end_date,
+                    )
+                )
+            ).scalar()
             or 0
         )
 
         rows = (
             await self.db.execute(
                 select(AuditLog.action_type, func.count(AuditLog.id).label("count"))
-                .where(AuditLog.created_at >= start_date, AuditLog.created_at <= end_date)
+                .where(
+                    AuditLog.created_at >= start_date, AuditLog.created_at <= end_date
+                )
                 .group_by(AuditLog.action_type)
             )
         ).all()
 
         return {
             "total_actions": total,
-            "by_action_type": {action.name if hasattr(action, "name") else str(action): int(count or 0) for action, count in rows},
+            "by_action_type": {
+                action.name if hasattr(action, "name") else str(action): int(count or 0)
+                for action, count in rows
+            },
             "period_start": start_date.isoformat(),
             "period_end": end_date.isoformat(),
         }
@@ -169,7 +190,9 @@ class AuditService:
     async def cleanup_old_logs(self, days_to_keep: int = 365) -> int:
         """Eliminar logs antiguos según política de retención."""
         cutoff_date = datetime.utcnow() - timedelta(days=days_to_keep)
-        result = await self.db.execute(delete(AuditLog).where(AuditLog.created_at < cutoff_date))
+        result = await self.db.execute(
+            delete(AuditLog).where(AuditLog.created_at < cutoff_date)
+        )
         await self.db.commit()
         return int(result.rowcount or 0)
 
