@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
 from pydantic import BaseModel
-from typing import Optional, List, cast
+from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 import uuid
@@ -13,6 +13,7 @@ import logging
 import math
 
 from app.core.serialization import optional_enum_value
+from app.core.json_types import json_value
 from app.core.database import get_db
 from app.core.delivery_rules import validate_delivery_otp
 from app.core.operation_permissions import (
@@ -151,10 +152,8 @@ def _serialize_order_rider(rider: Optional[Rider]) -> Optional[dict]:
 
 
 def _order_to_dict(o: Order, rider: Optional[Rider] = None) -> dict:
-    status_value = o.status.value if hasattr(o.status, "value") else str(o.status)
-    priority_value = (
-        o.priority.value if hasattr(o.priority, "value") else str(o.priority)
-    )
+    status_value = optional_enum_value(o.status)
+    priority_value = optional_enum_value(o.priority)
     sla_breached = bool(
         o.sla_deadline and o.delivered_at and o.delivered_at > o.sla_deadline
     )
@@ -367,30 +366,51 @@ def _generate_order_number() -> str:
 
 
 def _calculate_order_amounts(
-    items: List[dict],
+    items: object,
     subtotal: Optional[float],
     delivery_fee: Optional[float],
     total: Optional[float],
     declared_value: float = 0.0,
 ) -> tuple[float, float, float]:
-    calculated_subtotal = subtotal
-    if calculated_subtotal is None:
-        calculated_subtotal = sum(
-            float(
-                item.get("subtotal")
-                or (
-                    float(item.get("quantity") or 0)
-                    * float(item.get("unit_price") or 0)
-                )
-            )
-            for item in items
-            if isinstance(item, dict)
+    if items is None:
+        items = []
+    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+        raise HTTPException(
+            status_code=422, detail="Los artículos deben ser una lista de objetos"
         )
 
-    normalized_delivery_fee = float(delivery_fee or 0)
-    normalized_total = total if total is not None else float(declared_value or 0)
+    def amount(value: object) -> float:
+        if value is None:
+            return 0.0
+        if isinstance(value, bool) or not isinstance(value, (int, float, str, Decimal)):
+            raise HTTPException(status_code=422, detail="Importe de artículo inválido")
+        try:
+            number = float(value)
+        except (ValueError, TypeError, OverflowError) as exc:
+            raise HTTPException(
+                status_code=422, detail="Importe de artículo inválido"
+            ) from exc
+        if not math.isfinite(number) or number < 0:
+            raise HTTPException(
+                status_code=422, detail="Los importes deben ser finitos y no negativos"
+            )
+        return number
+
+    item_amounts = []
+    for item in items:
+        quantity = amount(item.get("quantity"))
+        unit_price = amount(item.get("unit_price"))
+        explicit = item.get("subtotal")
+        item_amounts.append(
+            amount(explicit) if explicit else amount(quantity * unit_price)
+        )
+    calculated_subtotal = (
+        amount(subtotal) if subtotal is not None else amount(sum(item_amounts))
+    )
+    normalized_delivery_fee = amount(delivery_fee)
+    normalized_total = amount(total) if total is not None else amount(declared_value)
     if not normalized_total:
-        normalized_total = float(calculated_subtotal or 0) + normalized_delivery_fee
+        normalized_total = amount(calculated_subtotal + normalized_delivery_fee)
 
     return (
         float(calculated_subtotal or 0),
@@ -610,11 +630,11 @@ async def update_order(
     if not order:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
 
-    current_status = cast(OrderStatus, order.status)
+    current_status = order.status
     if current_status not in (OrderStatus.PENDIENTE, OrderStatus.ASIGNADO):
         raise HTTPException(
             status_code=400,
-            detail=f"Solo se pueden editar pedidos PENDIENTE o ASIGNADO. Estado actual: {current_status.value}",
+            detail=f"Solo se pueden editar pedidos PENDIENTE o ASIGNADO. Estado actual: {optional_enum_value(current_status)}",
         )
 
     update_data = body.model_dump(exclude_unset=True)
@@ -638,12 +658,19 @@ async def update_order(
         order.delivery_reference = update_data["delivery_contact"]
 
     if "priority" in update_data and body.priority is not None:
-        order.priority = body.priority.value
+        order.priority = OrderPriority(body.priority.value)
 
     if "items" in update_data or any(
         field in update_data for field in ("subtotal", "delivery_fee", "total")
     ):
-        order_items = body.items if "items" in update_data else (order.items or [])
+        try:
+            order_items = json_value(
+                body.items if "items" in update_data else order.items
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422, detail="Los artículos contienen datos inválidos"
+            ) from exc
         subtotal, delivery_fee, total = _calculate_order_amounts(
             order_items or [],
             (
@@ -708,7 +735,7 @@ async def assign_rider(
     if order.status not in (OrderStatus.PENDIENTE, OrderStatus.ASIGNADO):
         raise HTTPException(
             status_code=400,
-            detail=f"No se puede asignar un pedido en estado {order.status.value}",
+            detail=f"No se puede asignar un pedido en estado {optional_enum_value(order.status)}",
         )
 
     result2 = await db.execute(
@@ -818,12 +845,14 @@ async def update_status(
 
     await _ensure_rider_order_access(db, current_user, order, write=True)
 
-    current_status = cast(OrderStatus, order.status)
-    allowed = VALID_TRANSITIONS.get(current_status, [])
+    current_status = order.status
+    allowed = (
+        VALID_TRANSITIONS.get(current_status, []) if current_status is not None else []
+    )
     if target not in allowed:
         raise HTTPException(
             status_code=400,
-            detail=f"Transición inválida: {order.status.value} → {new_status}",
+            detail=f"Transición inválida: {optional_enum_value(order.status)} → {new_status}",
         )
 
     if target == OrderStatus.ENTREGADO:
@@ -1053,7 +1082,7 @@ async def cancel_order(
     if order.status in [OrderStatus.ENTREGADO, OrderStatus.CANCELADO]:
         raise HTTPException(
             status_code=400,
-            detail=f"No se puede cancelar un pedido en estado {order.status.value}",
+            detail=f"No se puede cancelar un pedido en estado {optional_enum_value(order.status)}",
         )
 
     order.status = OrderStatus.CANCELADO

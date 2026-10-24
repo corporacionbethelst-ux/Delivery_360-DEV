@@ -10,6 +10,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.serialization import optional_enum_value
+from app.core.json_types import json_value
 from app.models.order import Order, OrderStatus, OrderPriority
 from app.schemas.order import OrderCreate, OrderUpdate
 
@@ -33,45 +35,21 @@ class OrderService:
         created_by: int,
     ) -> Order:
         now = datetime.utcnow()
-        estimated_minutes = order_data.estimated_duration_minutes or 60
-        estimated_delivery = now.replace(microsecond=0) + timedelta(
-            minutes=estimated_minutes
+        estimated_delivery = now.replace(microsecond=0) + timedelta(minutes=60)
+        data = order_data.model_dump()
+        data["items"] = json_value(order_data.items)
+        data["priority"] = (
+            OrderPriority(order_data.priority.value)
+            if order_data.priority is not None
+            else None
         )
-        order = Order(
-            external_id=order_data.external_id,
-            customer_name=order_data.customer_name,
-            customer_phone=order_data.customer_phone,
-            customer_email=order_data.customer_email,
-            pickup_name=order_data.pickup_name,
-            pickup_address=order_data.pickup_address,
-            pickup_lat=order_data.pickup_latitude,
-            pickup_lng=order_data.pickup_longitude,
-            pickup_phone=order_data.pickup_phone,
-            delivery_address=order_data.delivery_address,
-            delivery_lat=order_data.delivery_latitude,
-            delivery_lng=order_data.delivery_longitude,
-            delivery_instructions=order_data.delivery_instructions,
-            delivery_reference=order_data.delivery_reference,
-            total=order_data.total_value or 0.0,
-            subtotal=order_data.total_value or 0.0,
-            items={
-                "description": order_data.items_description,
-                "count": order_data.items_count,
-            },
-            priority=(
-                OrderPriority.URGENTE
-                if order_data.is_priority
-                else OrderPriority.NORMAL
-            ),
-            status=OrderStatus.PENDIENTE,
-            estimated_delivery_time=order_data.scheduled_delivery_time
-            or estimated_delivery,
-            sla_deadline=order_data.scheduled_delivery_time or estimated_delivery,
-        )
-        if order_data.rider_id:
-            order.assigned_rider_id = order_data.rider_id  # type: ignore[assignment]
+        data["status"] = OrderStatus.PENDIENTE
+        data["estimated_delivery_time"] = estimated_delivery
+        data["sla_deadline"] = estimated_delivery
+        order = Order(**data)
+        if order_data.assigned_rider_id is not None:
             order.status = OrderStatus.ASIGNADO
-            order.accepted_at = datetime.utcnow()  # type: ignore[assignment]
+            order.accepted_at = now
 
         db.add(order)
         await db.commit()
@@ -87,17 +65,14 @@ class OrderService:
     ) -> Order:
         order = await self.get_order(db, order_id)
         update_data = order_data.model_dump(exclude_unset=True)
-        mapping = {
-            "pickup_latitude": "pickup_lat",
-            "pickup_longitude": "pickup_lng",
-            "delivery_latitude": "delivery_lat",
-            "delivery_longitude": "delivery_lng",
-            "total_value": "total",
-            "rider_id": "assigned_rider_id",
-        }
+        if "items" in update_data:
+            update_data["items"] = json_value(update_data["items"])
+        if order_data.priority is not None:
+            update_data["priority"] = OrderPriority(order_data.priority.value)
+        if order_data.status is not None:
+            update_data["status"] = OrderStatus(order_data.status.value)
         for key, value in update_data.items():
-            field = mapping.get(key, key)
-            setattr(order, field, value)
+            setattr(order, key, value)
 
         db.add(order)
         await db.commit()
@@ -115,12 +90,12 @@ class OrderService:
         if order.status not in [OrderStatus.PENDIENTE, OrderStatus.ASIGNADO]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"No se puede asignar repartidor. Estado actual: {order.status.value}",
+                detail=f"No se puede asignar repartidor. Estado actual: {optional_enum_value(order.status)}",
             )
 
-        order.assigned_rider_id = rider_id  # type: ignore[assignment]
+        order.assigned_rider_id = rider_id
         order.status = OrderStatus.ASIGNADO
-        order.accepted_at = datetime.utcnow()  # type: ignore[assignment]
+        order.accepted_at = datetime.utcnow()
         db.add(order)
         await db.commit()
         await db.refresh(order)
@@ -144,21 +119,25 @@ class OrderService:
                 OrderStatus.CANCELADO,
             ],
         }
+        if order.status is None:
+            raise HTTPException(
+                status_code=400, detail="El pedido no tiene estado definido"
+            )
         allowed = valid_transitions.get(order.status, [])
         if new_status not in allowed:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Transición inválida de {order.status.value} a {new_status.value}",
+                detail=f"Transición inválida de {optional_enum_value(order.status)} a {new_status.value}",
             )
 
         now = datetime.utcnow()
         order.status = new_status
         if new_status == OrderStatus.RECOLECTADO:
-            order.picked_up_at = now  # type: ignore[assignment]
+            order.picked_up_at = now
         elif new_status == OrderStatus.ENTREGADO:
-            order.delivered_at = now  # type: ignore[assignment]
+            order.delivered_at = now
         elif new_status == OrderStatus.FALLIDO:
-            order.failure_reason = "delivery_failed"  # type: ignore[assignment]
+            order.failure_reason = "delivery_failed"
 
         db.add(order)
         await db.commit()
@@ -180,10 +159,10 @@ class OrderService:
         ]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"No se puede cancelar pedido en estado {order.status.value}",
+                detail=f"No se puede cancelar pedido en estado {optional_enum_value(order.status)}",
             )
         order.status = OrderStatus.CANCELADO
-        order.cancellation_reason = cancellation_reason  # type: ignore[assignment]
+        order.cancellation_reason = cancellation_reason
         db.add(order)
         await db.commit()
         await db.refresh(order)

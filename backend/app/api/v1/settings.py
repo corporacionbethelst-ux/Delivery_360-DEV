@@ -137,10 +137,10 @@ async def _get_historical_bonus_metrics(
     )
 
     success_result = await db.execute(success_stmt)
-    success_row = success_result.fetchone()
+    success_row = success_result.one()
 
     failed_result = await db.execute(failed_stmt)
-    failed_row = failed_result.fetchone()
+    failed_row = failed_result.one()
 
     total_deliveries = success_row.total_deliveries or 0
     total_failed_deliveries = failed_row.total_failed_deliveries or 0

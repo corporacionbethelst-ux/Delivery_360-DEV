@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime, timezone
-from typing import Union, TypeAlias
+from app.core.json_types import JsonValue
 from decimal import Decimal
 from sqlalchemy import (
     Column,
@@ -59,11 +59,6 @@ class VehicleType(str, enum.Enum):
     PATINETA = "PATINETA"
     AUTO = "AUTO"
     FURGONETA = "FURGONETA"
-
-
-JsonValue: TypeAlias = Union[
-    None, bool, int, float, str, list["JsonValue"], dict[str, "JsonValue"]
-]
 
 
 class Rider(Base):

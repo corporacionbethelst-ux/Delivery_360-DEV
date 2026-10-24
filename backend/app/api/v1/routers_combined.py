@@ -25,6 +25,7 @@ import string
 from decimal import Decimal
 
 from app.core.serialization import optional_enum_value
+from app.models.delivery import DeliveryStatus
 from app.core.database import get_db
 from app.models.all_models import (
     Delivery,
@@ -126,7 +127,7 @@ async def list_deliveries(
             "id": str(d.id),
             "order_id": str(d.order_id),
             "rider_id": str(d.rider_id),
-            "status": d.status.value if d.status else None,
+            "status": optional_enum_value(d.status),
             "otp_verified": bool(d.proof_otp and d.status == "COMPLETADA"),
             "duration_minutes": d.total_time,
             "distance_km": d.distance_total,
@@ -211,13 +212,25 @@ async def complete_delivery(
     delivery.current_latitude = body.delivery_lat
     delivery.current_longitude = body.delivery_lng
     delivery.proof_notes = body.notes
-    delivery.status = "COMPLETADA"
+    delivery.status = DeliveryStatus.COMPLETADA
 
     if delivery.started_at:
         diff = now_naive - delivery.started_at
-        delivery.total_time = diff.total_seconds() / 60
-        if not delivery.time_at_pickup:
-            delivery.time_at_pickup = delivery.started_at
+        delivery.total_time = max(0, int(diff.total_seconds() / 60))
+        if (
+            delivery.time_at_pickup is None
+            and delivery.arrived_pickup_at is not None
+            and delivery.left_pickup_at is not None
+        ):
+            delivery.time_at_pickup = max(
+                0,
+                int(
+                    (
+                        delivery.left_pickup_at - delivery.arrived_pickup_at
+                    ).total_seconds()
+                    / 60
+                ),
+            )
 
     result2 = await db.execute(select(Order).where(Order.id == delivery.order_id))
     order = result2.scalar_one_or_none()
@@ -869,7 +882,7 @@ async def operator_dashboard(
             {
                 "id": str(o.id),
                 "number": o.external_id,
-                "status": o.status.value,
+                "status": optional_enum_value(o.status),
                 "address": o.delivery_address,
                 "priority": o.priority,
             }

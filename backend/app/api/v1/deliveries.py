@@ -20,17 +20,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.api.v1.auth import get_current_user, require_role
+from app.core.serialization import optional_enum_value
 from app.core.database import get_db
 from app.core.operation_permissions import (
     ensure_operation_role,
     ensure_rider_resource_access,
 )
 from app.core.delivery_rules import validate_delivery_otp, ensure_delivery_not_terminal
-from app.models.delivery import Delivery, DeliveryStatus, DeliveryFailureCause
+from app.models.delivery import (
+    Delivery,
+    DeliveryStatus,
+    DeliveryFailureCause,
+    LockedBonusType,
+)
 from app.models.order import Order, OrderStatus
 from app.models.rider import Rider, RiderStatus
 from app.models.user import User, UserRole
 from app.models.financial import Financial, TransactionType, PaymentStatus
+from app.services.financial_service import money
 from app.models.platform_setting import PlatformSetting
 from app.models.zone import Zone  # Importado para Fase 3
 from app.services.notification_service import NotificationService
@@ -173,11 +180,7 @@ def _serialize_delivery(
         "customer_name": customer_name,
         "rider_id": str(delivery.rider_id) if delivery.rider_id else None,
         "rider": rider_data,
-        "status": (
-            delivery.status.value
-            if hasattr(delivery.status, "value")
-            else str(delivery.status)
-        ),
+        "status": (optional_enum_value(delivery.status)),
         "started_at": delivery.started_at.isoformat() if delivery.started_at else None,
         "completed_at": (
             delivery.completed_at.isoformat() if delivery.completed_at else None
@@ -507,7 +510,7 @@ async def assign_delivery(
     if delivery.status != DeliveryStatus.PENDIENTE:
         raise HTTPException(
             status_code=400,
-            detail=f"No se puede asignar en estado {delivery.status.value}",
+            detail=f"No se puede asignar en estado {optional_enum_value(delivery.status)}",
         )
 
     rider_result = await db.execute(
@@ -600,7 +603,7 @@ async def start_delivery(
     if delivery.status not in [DeliveryStatus.INICIADA, DeliveryStatus.EN_PICKUP]:
         raise HTTPException(
             status_code=400,
-            detail=f"Estado inválido para iniciar: {delivery.status.value}",
+            detail=f"Estado inválido para iniciar: {optional_enum_value(delivery.status)}",
         )
 
     if body.lat is not None:
@@ -721,7 +724,7 @@ async def fail_delivery(
     if delivery.status not in allowed_statuses:
         raise HTTPException(
             status_code=400,
-            detail=f"Estado inválido para fallar: {delivery.status.value}",
+            detail=f"Estado inválido para fallar: {optional_enum_value(delivery.status)}",
         )
 
     # Validar que la causa sea un ENUM válido
@@ -1046,13 +1049,13 @@ async def update_delivery_status(
             final_payment = base_payment * zone_multiplier * tier_multiplier
 
             # 6. PERSISTIR EN LOCKED_BONUS_AMOUNT Y CAMPOS DE DESGLOSE (FASE 5)
-            delivery.locked_bonus_amount = float(final_payment)
-            delivery.locked_bonus_type = "SUCCESS"
+            delivery.locked_bonus_amount = money(final_payment)
+            delivery.locked_bonus_type = LockedBonusType.SUCCESS
             delivery.bonus_snapshot_date = now
             # Campos para desglose visual en frontend
-            delivery.locked_bonus_base = float(base_payment)
-            delivery.locked_bonus_zone_multiplier = float(zone_multiplier)
-            delivery.locked_bonus_tier_multiplier = float(tier_multiplier)
+            delivery.locked_bonus_base = money(base_payment)
+            delivery.locked_bonus_zone_multiplier = money(zone_multiplier)
+            delivery.locked_bonus_tier_multiplier = money(tier_multiplier)
             delivery.locked_bonus_tier_level = (
                 rider_tier.value
                 if rider_tier and hasattr(rider_tier, "value")
