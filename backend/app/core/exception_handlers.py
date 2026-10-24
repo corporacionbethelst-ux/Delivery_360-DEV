@@ -7,6 +7,7 @@ from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError
+from app.core.exceptions import AppException
 import logging
 import traceback
 from datetime import datetime
@@ -146,11 +147,23 @@ async def sqlalchemy_exception_handler(
     )
 
 
+async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": exc.message,
+            "message": exc.message,
+            "status_code": exc.status_code,
+        },
+    )
+
+
 def register_exception_handlers(app):
     """
     Registra todos los manejadores de excepciones en la aplicación FastAPI.
     Debe llamarse en main.py después de crear la app.
     """
+    app.add_exception_handler(AppException, app_exception_handler)
     app.add_exception_handler(Exception, global_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(SQLAlchemyError, sqlalchemy_exception_handler)

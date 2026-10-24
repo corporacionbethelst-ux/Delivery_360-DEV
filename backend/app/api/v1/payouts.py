@@ -487,7 +487,8 @@ async def approve_payout(
     await FinancialService(db).create_ledger_entry(
         rider_id=payout.rider_id,
         amount=payout_amount,
-        balance_before=balance_before,
+        # The payout snapshot is availability after reservations; the ledger
+        # must derive its own canonical balance while holding the rider lock.
         transaction_type=TransactionType.RETIRO,
         description=f"Retiro aprobado: {payout.reference_code}",
         reference_id=str(payout.id),
@@ -509,23 +510,8 @@ async def approve_payout(
         balance_after,
     )
 
-    # NOTIFICATION: Enviar notificación al rider sobre el retiro aprobado
-    try:
-        notification_service = NotificationService(db)
-        await notification_service.create_notification(
-            user_id=payout.rider_id,
-            notification_type="RETIRO_APROBADO",
-            title="✅ Retiro Aprobado",
-            message=f"Tu retiro de ${float(payout.amount):.2f} ha sido aprobado y procesado",
-            data={"payout_id": str(payout.id), "amount": float(payout.amount)},
-            channel="push",
-        )
-        logger.info(
-            f"Notificación de aprobación de retiro enviada al rider {payout.rider_id}"
-        )
-    except Exception as e:
-        logger.warning(f"No se pudo enviar notificación de aprobación de retiro: {e}")
-
+    # Use the existing post-commit hook with its own session; a legacy
+    # NotificationService call here would commit the financial unit early.
     # FASE 9 (hook omnicanal): payout → plantilla 'payout_aprobado'.
     # Se resuelve el destinatario AHÍ (antes del commit) pero el dispatch se
     # lanza DESPUÉS de commitear, con sesión propia efímera dentro de
@@ -626,23 +612,8 @@ async def reject_payout(
         balance_after,
     )
 
-    # NOTIFICATION: Enviar notificación al rider sobre el retiro rechazado
-    try:
-        notification_service = NotificationService(db)
-        await notification_service.create_notification(
-            user_id=payout.rider_id,
-            notification_type="RETIRO_RECHAZADO",
-            title="❌ Retiro Rechazado",
-            message=f"Tu solicitud de retiro ha sido rechazada: {reason}",
-            data={"payout_id": str(payout.id), "reason": reason},
-            channel="push",
-        )
-        logger.info(
-            f"Notificación de rechazo de retiro enviada al rider {payout.rider_id}"
-        )
-    except Exception as e:
-        logger.warning(f"No se pudo enviar notificación de rechazo de retiro: {e}")
-
+    # Use the existing post-commit hook with its own session; a legacy
+    # NotificationService call here would commit the financial unit early.
     # FASE 9 (hook omnicanal): payout RECHAZADO → plantilla 'payout_rechazado'.
     # Se resuelve el destinatario AHÍ (antes del commit) pero el dispatch se
     # lanza DESPUÉS de commitear, con sesión propia efímera: un fallo de
