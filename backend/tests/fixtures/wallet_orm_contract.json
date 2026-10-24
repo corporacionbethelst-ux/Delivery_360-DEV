@@ -1,0 +1,420 @@
+{
+  "users": {
+    "ddl": "\nCREATE TABLE users (\n\tid UUID NOT NULL, \n\temail VARCHAR(255) NOT NULL, \n\thashed_password VARCHAR(255) NOT NULL, \n\tis_active BOOLEAN, \n\tis_superuser BOOLEAN, \n\tfirst_name VARCHAR(100) NOT NULL, \n\tlast_name VARCHAR(100) NOT NULL, \n\tphone VARCHAR(20), \n\trole userrole, \n\tavatar_url VARCHAR(500), \n\tlast_login TIMESTAMP WITHOUT TIME ZONE, \n\tfailed_login_attempts VARCHAR, \n\tlocked_until TIMESTAMP WITHOUT TIME ZONE, \n\treset_token VARCHAR(500), \n\treset_token_expires TIMESTAMP WITHOUT TIME ZONE, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_users_id ON users (id)",
+      "CREATE UNIQUE INDEX ix_users_email ON users (email)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "email": [
+        null,
+        null
+      ],
+      "hashed_password": [
+        null,
+        null
+      ],
+      "is_active": [
+        "True",
+        null
+      ],
+      "is_superuser": [
+        "False",
+        null
+      ],
+      "first_name": [
+        null,
+        null
+      ],
+      "last_name": [
+        null,
+        null
+      ],
+      "phone": [
+        null,
+        null
+      ],
+      "role": [
+        "UserRole.OPERADOR",
+        null
+      ],
+      "avatar_url": [
+        null,
+        null
+      ],
+      "last_login": [
+        null,
+        null
+      ],
+      "failed_login_attempts": [
+        "0",
+        null
+      ],
+      "locked_until": [
+        null,
+        null
+      ],
+      "reset_token": [
+        null,
+        null
+      ],
+      "reset_token_expires": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {
+      "role": [
+        "SUPERADMIN",
+        "GERENTE",
+        "OPERADOR",
+        "REPARTIDOR",
+        "CLIENTE",
+        "AUDITOR"
+      ]
+    }
+  },
+  "rider_wallets": {
+    "ddl": "\nCREATE TABLE rider_wallets (\n\tid UUID NOT NULL, \n\trider_id UUID NOT NULL, \n\tbalance_cents INTEGER NOT NULL, \n\tcurrency VARCHAR(3) NOT NULL, \n\tis_active BOOLEAN NOT NULL, \n\tlast_transaction_at TIMESTAMP WITHOUT TIME ZONE, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(rider_id) REFERENCES riders (id) ON DELETE CASCADE\n)\n\n",
+    "indexes": [
+      "CREATE UNIQUE INDEX ix_rider_wallets_rider_id ON rider_wallets (rider_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "rider_id": [
+        null,
+        null
+      ],
+      "balance_cents": [
+        "0",
+        null
+      ],
+      "currency": [
+        "USD",
+        null
+      ],
+      "is_active": [
+        "True",
+        null
+      ],
+      "last_transaction_at": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {}
+  },
+  "financial_transactions": {
+    "ddl": "\nCREATE TABLE financial_transactions (\n\tid UUID NOT NULL, \n\twallet_id UUID NOT NULL, \n\ttransaction_type transactiontype NOT NULL, \n\tamount_cents INTEGER NOT NULL, \n\tdescription TEXT, \n\treference_id VARCHAR(255), \n\tmetadata_json TEXT, \n\tstatus transactionstatus NOT NULL, \n\tbalance_after_cents INTEGER NOT NULL, \n\tcreated_by_user_id UUID, \n\tidempotency_key VARCHAR(100), \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(wallet_id) REFERENCES rider_wallets (id) ON DELETE CASCADE, \n\tFOREIGN KEY(created_by_user_id) REFERENCES users (id)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_financial_transactions_created_at ON financial_transactions (created_at)",
+      "CREATE INDEX ix_financial_transactions_wallet_id ON financial_transactions (wallet_id)",
+      "CREATE UNIQUE INDEX ix_financial_transactions_idempotency_key ON financial_transactions (idempotency_key)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "wallet_id": [
+        null,
+        null
+      ],
+      "transaction_type": [
+        null,
+        null
+      ],
+      "amount_cents": [
+        null,
+        null
+      ],
+      "description": [
+        null,
+        null
+      ],
+      "reference_id": [
+        null,
+        null
+      ],
+      "metadata_json": [
+        null,
+        null
+      ],
+      "status": [
+        "TransactionStatus.PENDING",
+        null
+      ],
+      "balance_after_cents": [
+        null,
+        null
+      ],
+      "created_by_user_id": [
+        null,
+        null
+      ],
+      "idempotency_key": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ]
+    },
+    "enums": {
+      "transaction_type": [
+        "PAGO_ENTREGA",
+        "PAGO_INTENTO_FALLIDO",
+        "BONO_RENDIMIENTO",
+        "PENALIZACION",
+        "AJUSTE_MANUAL",
+        "INGRESO",
+        "RETIRO",
+        "BONO",
+        "DESCUENTO",
+        "AJUSTE",
+        "DELIVERY_BONUS",
+        "FAILED_ATTEMPT_BONUS",
+        "WITHDRAWAL_REQUEST",
+        "WITHDRAWAL_COMPLETION",
+        "STRIPE_PAYOUT",
+        "STRIPE_INSTANT",
+        "BANK_TRANSFER",
+        "WALLET_ADJUSTMENT"
+      ],
+      "status": [
+        "PENDING",
+        "COMPLETED",
+        "FAILED",
+        "CANCELLED",
+        "PROCESSING"
+      ]
+    }
+  },
+  "payout_requests": {
+    "ddl": "\nCREATE TABLE payout_requests (\n\tid UUID NOT NULL, \n\twallet_id UUID NOT NULL, \n\trider_id UUID NOT NULL, \n\tamount_cents INTEGER NOT NULL, \n\tcurrency VARCHAR(3) NOT NULL, \n\tbank_account_last4 VARCHAR(4), \n\tbank_name VARCHAR(100), \n\taccount_holder_name VARCHAR(255), \n\tprovider_payout_id VARCHAR(255), \n\tprovider_response_json TEXT, \n\tstatus payoutstatus NOT NULL, \n\trejection_reason TEXT, \n\tfailure_reason TEXT, \n\tidempotency_key VARCHAR(100), \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tapproved_at TIMESTAMP WITHOUT TIME ZONE, \n\tprocessed_at TIMESTAMP WITHOUT TIME ZONE, \n\tcompleted_at TIMESTAMP WITHOUT TIME ZONE, \n\tfailed_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(wallet_id) REFERENCES rider_wallets (id) ON DELETE CASCADE, \n\tFOREIGN KEY(rider_id) REFERENCES riders (id) ON DELETE CASCADE\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_payout_requests_rider_id ON payout_requests (rider_id)",
+      "CREATE INDEX ix_payout_requests_status ON payout_requests (status)",
+      "CREATE INDEX ix_payout_requests_wallet_id ON payout_requests (wallet_id)",
+      "CREATE UNIQUE INDEX ix_payout_requests_idempotency_key ON payout_requests (idempotency_key)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "wallet_id": [
+        null,
+        null
+      ],
+      "rider_id": [
+        null,
+        null
+      ],
+      "amount_cents": [
+        null,
+        null
+      ],
+      "currency": [
+        "USD",
+        null
+      ],
+      "bank_account_last4": [
+        null,
+        null
+      ],
+      "bank_name": [
+        null,
+        null
+      ],
+      "account_holder_name": [
+        null,
+        null
+      ],
+      "provider_payout_id": [
+        null,
+        null
+      ],
+      "provider_response_json": [
+        null,
+        null
+      ],
+      "status": [
+        "PayoutStatus.PENDIENTE",
+        null
+      ],
+      "rejection_reason": [
+        null,
+        null
+      ],
+      "failure_reason": [
+        null,
+        null
+      ],
+      "idempotency_key": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "approved_at": [
+        null,
+        null
+      ],
+      "processed_at": [
+        null,
+        null
+      ],
+      "completed_at": [
+        null,
+        null
+      ],
+      "failed_at": [
+        null,
+        null
+      ]
+    },
+    "enums": {
+      "status": [
+        "PENDIENTE",
+        "APROBADO",
+        "EN_PROCESO",
+        "COMPLETADO",
+        "RECHAZADO",
+        "FALLIDO"
+      ]
+    }
+  },
+  "financials": {
+    "ddl": "\nCREATE TABLE financials (\n\tid UUID NOT NULL, \n\trider_id UUID NOT NULL, \n\tshift_id UUID, \n\ttransaction_type transactiontype NOT NULL, \n\tamount NUMERIC(10, 2) NOT NULL, \n\tbalance_before NUMERIC(10, 2), \n\tbalance_after NUMERIC(10, 2), \n\tstatus paymentstatus, \n\tdescription TEXT, \n\treference_id VARCHAR(100), \n\tsource_type VARCHAR(50), \n\tsource_id VARCHAR(100), \n\tidempotency_key VARCHAR(100), \n\tcreated_by_user_id UUID, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(rider_id) REFERENCES riders (id), \n\tFOREIGN KEY(shift_id) REFERENCES shifts (id), \n\tFOREIGN KEY(created_by_user_id) REFERENCES users (id)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_financials_created_by_user_id ON financials (created_by_user_id)",
+      "CREATE INDEX ix_financials_id ON financials (id)",
+      "CREATE INDEX ix_financials_rider_id ON financials (rider_id)",
+      "CREATE INDEX ix_financials_shift_id ON financials (shift_id)",
+      "CREATE INDEX ix_financials_source_id ON financials (source_id)",
+      "CREATE INDEX ix_financials_source_type ON financials (source_type)",
+      "CREATE UNIQUE INDEX ix_financials_idempotency_key ON financials (idempotency_key)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "rider_id": [
+        null,
+        null
+      ],
+      "shift_id": [
+        null,
+        null
+      ],
+      "transaction_type": [
+        null,
+        null
+      ],
+      "amount": [
+        "0.0",
+        null
+      ],
+      "balance_before": [
+        "0.0",
+        null
+      ],
+      "balance_after": [
+        "0.0",
+        null
+      ],
+      "status": [
+        "PaymentStatus.PENDIENTE",
+        null
+      ],
+      "description": [
+        null,
+        null
+      ],
+      "reference_id": [
+        null,
+        null
+      ],
+      "source_type": [
+        null,
+        null
+      ],
+      "source_id": [
+        null,
+        null
+      ],
+      "idempotency_key": [
+        null,
+        null
+      ],
+      "created_by_user_id": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {
+      "transaction_type": [
+        "PAGO_ENTREGA",
+        "PAGO_INTENTO_FALLIDO",
+        "BONO_RENDIMIENTO",
+        "PENALIZACION",
+        "AJUSTE_MANUAL",
+        "INGRESO",
+        "RETIRO",
+        "BONO",
+        "DESCUENTO",
+        "AJUSTE",
+        "DELIVERY_BONUS",
+        "FAILED_ATTEMPT_BONUS",
+        "WITHDRAWAL_REQUEST",
+        "WITHDRAWAL_COMPLETION",
+        "STRIPE_PAYOUT",
+        "STRIPE_INSTANT",
+        "BANK_TRANSFER",
+        "WALLET_ADJUSTMENT"
+      ],
+      "status": [
+        "PENDIENTE",
+        "PROCESADO",
+        "PAGADO",
+        "RECHAZADO"
+      ]
+    }
+  }
+}

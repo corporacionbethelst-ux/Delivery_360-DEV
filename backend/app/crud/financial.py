@@ -31,7 +31,7 @@ class CRUDFinancial:
             .offset(skip)
             .limit(limit)
         )
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     async def create_transaction(
         self,
@@ -49,7 +49,7 @@ class CRUDFinancial:
         created_by_user_id: Optional[uuid.UUID] = None,
     ) -> Financial:
         return await FinancialService(db).create_ledger_entry(
-            rider_id=rider_id,
+            rider_id=str(rider_id),
             amount=amount,
             transaction_type=transaction_type,
             description=description,
@@ -58,7 +58,7 @@ class CRUDFinancial:
             idempotency_key=idempotency_key,
             source_type=source_type or ("ORDER" if order_id else None),
             source_id=source_id or (str(order_id) if order_id else None),
-            created_by_user_id=created_by_user_id,
+            created_by_user_id=str(created_by_user_id) if created_by_user_id else None,
         )
 
     async def get_consolidated(

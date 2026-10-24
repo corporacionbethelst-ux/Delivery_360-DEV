@@ -30,7 +30,7 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
         result = await db.execute(
             select(User).where(User.role == role).offset(skip).limit(limit)
         )
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     async def create_with_password(self, db: AsyncSession, obj_in: UserCreate) -> User:
         """Create user with hashed password"""

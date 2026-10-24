@@ -2,9 +2,8 @@
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, List, Optional
-from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum, text
-from sqlalchemy.orm import relationship
+from sqlalchemy import String, Boolean, DateTime, Enum as SQLEnum, text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
 from passlib.context import CryptContext
@@ -32,26 +31,46 @@ class UserRole(str, enum.Enum):
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    email = Column(String(255), unique=True, index=True, nullable=False)
-    hashed_password = Column(String(255), nullable=False)
-    is_active = Column(Boolean, default=True)
-    is_superuser = Column(Boolean, default=False)
-    first_name = Column(String(100), nullable=False)
-    last_name = Column(String(100), nullable=False)
-    phone = Column(String(20))
-    role: Any = Column(SQLEnum(UserRole), default=UserRole.OPERADOR)
-    avatar_url = Column(String(500))
-    last_login = Column(DateTime)
-    failed_login_attempts = Column(String, default="0")
-    locked_until = Column(DateTime)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True,
+        nullable=False,
+    )
+    email: Mapped[str] = mapped_column(
+        String(255), unique=True, index=True, nullable=False
+    )
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
+    is_superuser: Mapped[bool | None] = mapped_column(
+        Boolean, default=False, nullable=True
+    )
+    first_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    role: Mapped[UserRole | None] = mapped_column(
+        SQLEnum(UserRole), default=UserRole.OPERADOR, nullable=True
+    )
+    avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    last_login: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    failed_login_attempts: Mapped[str | None] = mapped_column(
+        String, default="0", nullable=True
+    )
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    reset_token = Column(String(500), nullable=True)
-    reset_token_expires = Column(DateTime, nullable=True)
+    reset_token: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    reset_token_expires: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
 
     # Timestamps
-    created_at = Column(DateTime, default=utc_now_naive)
-    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=True
+    )
 
     def verify_password(self, password: str) -> bool:
         return pwd_context.verify(password, self.hashed_password)

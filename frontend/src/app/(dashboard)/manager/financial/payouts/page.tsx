@@ -114,7 +114,7 @@ export default function ManagerPayoutsPage() {
       .filter((p) => {
         const payoutDate = new Date(p.created_at);
         return (
-          p.status === 'PROCESADO' &&
+          p.status === 'COMPLETADO' &&
           payoutDate.getMonth() === currentMonth &&
           payoutDate.getFullYear() === currentYear
         );
@@ -124,7 +124,7 @@ export default function ManagerPayoutsPage() {
     setMetrics({
       totalPaidMonth: paidThisMonth,
       pendingCount: data.filter((p) => p.status === 'PENDIENTE').length,
-      processedCount: data.filter((p) => p.status === 'PROCESADO').length,
+      processedCount: data.filter((p) => p.status === 'COMPLETADO').length,
       rejectedCount: data.filter((p) => p.status === 'RECHAZADO').length,
     });
   };
@@ -150,6 +150,14 @@ export default function ManagerPayoutsPage() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case 'APROBADO':
+        return <Badge className="bg-blue-100 text-blue-800">Aprobado</Badge>;
+      case 'EN_PROCESO':
+        return <Badge className="bg-blue-100 text-blue-800">En proceso</Badge>;
+      case 'COMPLETADO':
+        return <Badge className="bg-green-100 text-green-800">Completado</Badge>;
+      case 'FALLIDO':
+        return <Badge className="bg-red-100 text-red-800">Fallido</Badge>;
       case 'PROCESADO':
         return <Badge className="bg-green-100 text-green-800">Procesado</Badge>;
       case 'PENDIENTE':
@@ -291,7 +299,11 @@ export default function ManagerPayoutsPage() {
               <SelectContent>
                 <SelectItem value="all">Todos los estados</SelectItem>
                 <SelectItem value="PENDIENTE">Pendientes</SelectItem>
-                <SelectItem value="PROCESADO">Procesados</SelectItem>
+                <SelectItem value="APROBADO">Aprobados</SelectItem>
+                <SelectItem value="EN_PROCESO">En proceso</SelectItem>
+                <SelectItem value="COMPLETADO">Completados</SelectItem>
+                <SelectItem value="FALLIDO">Fallidos</SelectItem>
+                <SelectItem value="PROCESADO">Procesados (histórico)</SelectItem>
                 <SelectItem value="RECHAZADO">Rechazados</SelectItem>
                 <SelectItem value="CANCELADO">Cancelados</SelectItem>
               </SelectContent>

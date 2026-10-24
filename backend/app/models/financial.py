@@ -3,9 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Optional
 from sqlalchemy import (
-    Column,
     DateTime,
     Enum as SQLEnum,
     ForeignKey,
@@ -15,7 +13,7 @@ from sqlalchemy import (
     Integer,
     Boolean,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
 from app.core.database import Base
@@ -95,8 +93,10 @@ class RiderWallet(Base):
 
     __tablename__ = "rider_wallets"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    rider_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False
+    )
+    rider_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("riders.id", ondelete="CASCADE"),
         unique=True,
@@ -105,16 +105,22 @@ class RiderWallet(Base):
     )
 
     # Balance en centavos
-    balance_cents = Column(Integer, default=0, nullable=False)
-    currency = Column(String(3), default="USD", nullable=False)
+    balance_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
 
     # Metadata
-    is_active = Column(Boolean, default=True, nullable=False)
-    last_transaction_at = Column(DateTime, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_transaction_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
 
     # Timestamps
-    created_at = Column(DateTime, default=utc_now_naive)
-    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=True
+    )
 
     # Relationships
     rider = relationship("Rider", back_populates="wallet")
@@ -149,8 +155,10 @@ class FinancialTransaction(Base):
 
     __tablename__ = "financial_transactions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    wallet_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False
+    )
+    wallet_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("rider_wallets.id", ondelete="CASCADE"),
         nullable=False,
@@ -158,30 +166,40 @@ class FinancialTransaction(Base):
     )
 
     # Tipo y monto (en centavos)
-    transaction_type: Any = Column(SQLEnum(TransactionType), nullable=False)
-    amount_cents = Column(Integer, nullable=False)  # Positivo=ingreso, Negativo=egreso
+    transaction_type: Mapped[TransactionType] = mapped_column(
+        SQLEnum(TransactionType), nullable=False
+    )
+    amount_cents: Mapped[int] = mapped_column(
+        Integer, nullable=False
+    )  # Positivo=ingreso, Negativo=egreso
 
     # Metadata contextual
-    description = Column(Text, nullable=True)
-    reference_id = Column(String(255), nullable=True)  # ID de entrega, payout, etc.
-    metadata_json = Column(Text, nullable=True)  # JSON extra
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reference_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )  # ID de entrega, payout, etc.
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON extra
 
     # Estados
-    status: Any = Column(
+    status: Mapped[TransactionStatus] = mapped_column(
         SQLEnum(TransactionStatus), default=TransactionStatus.PENDING, nullable=False
     )
 
     # Snapshot del balance después de esta transacción (auditoría)
-    balance_after_cents = Column(Integer, nullable=False)
+    balance_after_cents: Mapped[int] = mapped_column(Integer, nullable=False)
 
     # Auditoría
-    created_by_user_id = Column(
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
-    idempotency_key = Column(String(100), unique=True, index=True, nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(100), unique=True, index=True, nullable=True
+    )
 
     # Timestamps
-    created_at = Column(DateTime, default=utc_now_naive, index=True)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, index=True, nullable=True
+    )
 
     # Relationships
     wallet = relationship("RiderWallet", back_populates="transactions")
@@ -196,14 +214,16 @@ class PayoutRequest(Base):
 
     __tablename__ = "payout_requests"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    wallet_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False
+    )
+    wallet_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("rider_wallets.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    rider_id = Column(
+    rider_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("riders.id", ondelete="CASCADE"),
         nullable=False,
@@ -211,41 +231,45 @@ class PayoutRequest(Base):
     )
 
     # Monto solicitado en centavos
-    amount_cents = Column(Integer, nullable=False)
-    currency = Column(String(3), default="USD", nullable=False)
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
 
     # Datos bancarios (en producción usar tokenización Stripe)
-    bank_account_last4 = Column(String(4), nullable=True)
-    bank_name = Column(String(100), nullable=True)
-    account_holder_name = Column(String(255), nullable=True)
+    bank_account_last4: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    bank_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    account_holder_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # ID externo de pasarela (Stripe Transfer ID, etc.)
-    provider_payout_id = Column(String(255), nullable=True)
-    provider_response_json = Column(Text, nullable=True)
+    provider_payout_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    provider_response_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Estados
     # FIX FASE 7: se fija explícitamente name="payoutstatus" y create_type=False para
     # que SQLAlchemy SIEMPRE referencie el tipo PG estándar 'payoutstatus' (6 valores en
     # español, normalizado por la migración 20260818) y nunca intente crear tipos con
     # otros nombres ni colisione con definiciones duplicadas del enum.
-    status: Any = Column(
+    status: Mapped[PayoutStatus] = mapped_column(
         SQLEnum(PayoutStatus, name="payoutstatus", create_type=False),
         default=PayoutStatus.PENDIENTE,
         nullable=False,
         index=True,
     )
-    rejection_reason = Column(Text, nullable=True)
-    failure_reason = Column(
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )  # Razón del fallo cuando status=FALLIDO
-    idempotency_key = Column(String(100), unique=True, index=True, nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(100), unique=True, index=True, nullable=True
+    )
 
     # Timestamps
-    created_at = Column(DateTime, default=utc_now_naive)
-    approved_at = Column(DateTime, nullable=True)
-    processed_at = Column(DateTime, nullable=True)
-    completed_at = Column(DateTime, nullable=True)
-    failed_at = Column(DateTime, nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships
     wallet = relationship("RiderWallet", back_populates="payout_requests")
@@ -261,36 +285,60 @@ class Financial(Base):
 
     __tablename__ = "financials"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid4)
-    rider_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        index=True,
+        default=uuid.uuid4,
+        nullable=False,
+    )
+    rider_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("riders.id"), nullable=False, index=True
     )
-    shift_id = Column(
+    shift_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("shifts.id"), nullable=True, index=True
     )
 
     # Transaction Details
-    transaction_type: Any = Column(SQLEnum(TransactionType), nullable=False)
-    amount = Column(Numeric(10, 2), nullable=False, default=0.0)
-    balance_before = Column(Numeric(10, 2), default=0.0)
-    balance_after = Column(Numeric(10, 2), default=0.0)
+    transaction_type: Mapped[TransactionType] = mapped_column(
+        SQLEnum(TransactionType), nullable=False
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0.0)
+    balance_before: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), default=0.0, nullable=True
+    )
+    balance_after: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), default=0.0, nullable=True
+    )
 
     # Status
-    status: Any = Column(SQLEnum(PaymentStatus), default=PaymentStatus.PENDIENTE)
+    status: Mapped[PaymentStatus | None] = mapped_column(
+        SQLEnum(PaymentStatus), default=PaymentStatus.PENDIENTE, nullable=True
+    )
 
     # Description
-    description = Column(Text)
-    reference_id = Column(String(100))
-    source_type = Column(String(50), index=True)
-    source_id = Column(String(100), index=True)
-    idempotency_key = Column(String(100), unique=True, index=True)
-    created_by_user_id = Column(
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reference_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_type: Mapped[str | None] = mapped_column(
+        String(50), index=True, nullable=True
+    )
+    source_id: Mapped[str | None] = mapped_column(
+        String(100), index=True, nullable=True
+    )
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(100), unique=True, index=True, nullable=True
+    )
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
     )
 
     # Timestamps
-    created_at = Column(DateTime, default=utc_now_naive)
-    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=True
+    )
 
     # Relationships
     rider = relationship("Rider", back_populates="transactions")

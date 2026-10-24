@@ -1,6 +1,7 @@
 import { api } from '@/lib/api';
 
-export type PayoutStatus = 'PENDIENTE' | 'PROCESADO' | 'RECHAZADO' | 'CANCELADO';
+// Six canonical backend states plus two values kept for historical responses.
+export type PayoutStatus = 'PENDIENTE' | 'APROBADO' | 'EN_PROCESO' | 'COMPLETADO' | 'RECHAZADO' | 'FALLIDO' | 'PROCESADO' | 'CANCELADO';
 export type PayoutMethod = 'TRANSFERENCIA' | 'EFECTIVO' | 'BILLETERA_DIGITAL';
 
 type ApiPayout = Partial<Payout> & {
@@ -70,7 +71,7 @@ export interface PayoutFilters {
   status?: PayoutStatus | 'ALL' | 'all';
 }
 
-const VALID_STATUSES = new Set<PayoutStatus>(['PENDIENTE', 'PROCESADO', 'RECHAZADO', 'CANCELADO']);
+const VALID_STATUSES = new Set<PayoutStatus>(['PENDIENTE', 'APROBADO', 'EN_PROCESO', 'COMPLETADO', 'RECHAZADO', 'FALLIDO', 'PROCESADO', 'CANCELADO']);
 const VALID_METHODS = new Set<PayoutMethod>(['TRANSFERENCIA', 'EFECTIVO', 'BILLETERA_DIGITAL']);
 
 const normalizePayout = (payout: ApiPayout): Payout => {
@@ -81,6 +82,9 @@ const normalizePayout = (payout: ApiPayout): Payout => {
   const status = payout.status as PayoutStatus;
   const method = (payout.method || payout.payment_method || 'TRANSFERENCIA') as PayoutMethod;
   const amount = Number(payout.amount ?? payout.total_amount ?? 0);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('[PayoutService] Monto de retiro inválido recibido del backend');
+  }
   const requestedAt = payout.requested_at || payout.created_at || new Date().toISOString();
 
   if (!VALID_STATUSES.has(status)) {
@@ -158,7 +162,7 @@ export const payoutService = {
 
   /** Solicitar un nuevo retiro con payload JSON real. */
   requestPayout: async (data: PayoutRequestInput): Promise<Payout> => {
-    if (!data.amount || data.amount <= 0) {
+    if (!Number.isFinite(data.amount) || data.amount <= 0) {
       throw new Error('[PayoutService] El monto del retiro debe ser mayor a cero');
     }
     if (!data.method) {

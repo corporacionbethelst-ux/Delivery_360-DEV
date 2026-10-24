@@ -65,7 +65,11 @@ class PayoutRequestCreate(BaseModel):
     """Schema para crear solicitud de retiro."""
 
     amount_cents: int = Field(
-        ..., gt=0, description="Monto en centavos (debe ser positivo)"
+        ...,
+        gt=0,
+        le=2_147_483_647,
+        strict=True,
+        description="Monto en centavos (debe ser positivo)",
     )
     bank_account_last4: str = Field(
         ..., min_length=4, max_length=4, description="Últimos 4 dígitos de la cuenta"
@@ -76,6 +80,8 @@ class PayoutRequestCreate(BaseModel):
     account_holder_name: str = Field(
         ..., min_length=1, max_length=255, description="Nombre del titular"
     )
+
+    idempotency_key: Optional[str] = Field(None, min_length=1, max_length=100)
 
     @field_validator("bank_account_last4")
     @classmethod
