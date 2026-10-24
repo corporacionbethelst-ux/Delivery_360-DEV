@@ -6,6 +6,7 @@ Tablas:
     - rider_live_locations : historial de posiciones GPS (retención configurable, default 7 días)
     - delivery_route_snapshots : resultados del optimizador VRP con TTL de caché
 """
+
 import uuid
 from datetime import datetime, timezone
 
@@ -35,9 +36,11 @@ class RiderLiveLocation(Base):
     )
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
-    accuracy_meters = Column(Float, nullable=True)      # Precisión GPS reportada por el dispositivo
-    speed_kmh = Column(Float, nullable=True)            # Velocidad instantánea normalizada a km/h
-    heading_degrees = Column(Float, nullable=True)      # Dirección de brújula (0-360)
+    accuracy_meters = Column(
+        Float, nullable=True
+    )  # Precisión GPS reportada por el dispositivo
+    speed_kmh = Column(Float, nullable=True)  # Velocidad instantánea normalizada a km/h
+    heading_degrees = Column(Float, nullable=True)  # Dirección de brújula (0-360)
     recorded_at = Column(DateTime, default=utc_now_naive, nullable=False, index=True)
     created_at = Column(DateTime, default=utc_now_naive, nullable=False)
 
@@ -67,12 +70,16 @@ class DeliveryRouteSnapshot(Base):
         nullable=False,
         index=True,
     )
-    optimized_sequence_json = Column(String, nullable=False)  # JSON array de waypoints calculados
+    optimized_sequence_json = Column(
+        String, nullable=False
+    )  # JSON array de waypoints calculados
     original_distance_km = Column(Float, nullable=False)
     optimized_distance_km = Column(Float, nullable=False)
     savings_percentage = Column(Float, nullable=False, default=0.0)
     calculated_at = Column(DateTime, default=utc_now_naive, nullable=False)
-    expires_at = Column(DateTime, nullable=True, index=True)  # TTL: job periódico elimina snapshots vencidos
+    expires_at = Column(
+        DateTime, nullable=True, index=True
+    )  # TTL: job periódico elimina snapshots vencidos
 
     __table_args__ = (
         Index("idx_route_snapshots_delivery", "delivery_id"),

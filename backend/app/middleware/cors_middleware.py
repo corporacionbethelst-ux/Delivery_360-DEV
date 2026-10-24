@@ -1,6 +1,7 @@
 """
 CORS Middleware mejorado para configuración de acceso cruzado con seguridad reforzada
 """
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
@@ -13,11 +14,11 @@ def setup_cors_middleware(
     allow_credentials: bool = True,
     allow_methods: Optional[List[str]] = None,
     allow_headers: Optional[List[str]] = None,
-    expose_headers: Optional[List[str]] = None
+    expose_headers: Optional[List[str]] = None,
 ):
     """
     Configurar middleware CORS en la aplicación FastAPI con seguridad reforzada
-    
+
     Args:
         app: Instancia de FastAPI
         allow_origins: Lista de orígenes permitidos (default: desde settings)
@@ -26,16 +27,18 @@ def setup_cors_middleware(
         allow_headers: Headers permitidos (default: todos)
         expose_headers: Headers expuestos al cliente (default: rate limiting + request ID)
     """
-    
+
     # Configuración por defecto desde settings o lista específica
     origins = allow_origins or settings.cors_origins
-    
+
     # Validar que no haya comodines (*) cuando allow_credentials es True
     if allow_credentials and "*" in origins:
         # En producción, nunca usar * con credentials
-        print("⚠️  WARNING: CORS configurado con '*' y allow_credentials=True. "
-              "Esto puede ser un riesgo de seguridad. Especifica dominios explícitos.")
-    
+        print(
+            "⚠️  WARNING: CORS configurado con '*' y allow_credentials=True. "
+            "Esto puede ser un riesgo de seguridad. Especifica dominios explícitos."
+        )
+
     methods = allow_methods or [
         "GET",
         "POST",
@@ -44,7 +47,7 @@ def setup_cors_middleware(
         "DELETE",
         "OPTIONS",
     ]
-    
+
     headers = allow_headers or [
         "Content-Type",
         "Authorization",
@@ -55,15 +58,15 @@ def setup_cors_middleware(
         "Access-Control-Request-Headers",
         "X-Request-ID",  # Para trazabilidad
     ]
-    
+
     # Headers expuestos al cliente (JavaScript puede acceder a ellos)
     exposed = expose_headers or [
-        "X-Request-ID",           # ID único para debugging
-        "X-RateLimit-Limit",      # Límite de rate limiting
+        "X-Request-ID",  # ID único para debugging
+        "X-RateLimit-Limit",  # Límite de rate limiting
         "X-RateLimit-Remaining",  # Requests restantes
-        "X-RateLimit-Reset",      # Tiempo de reseteo
+        "X-RateLimit-Reset",  # Tiempo de reseteo
     ]
-    
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
@@ -73,7 +76,7 @@ def setup_cors_middleware(
         expose_headers=exposed,
         max_age=600,  # Cache de preflight por 10 minutos
     )
-    
+
     return app
 
 
@@ -110,21 +113,21 @@ def validate_origin(origin: str, allowed_origins: List[str]) -> bool:
     """
     Validar si un origen está permitido
     Soporta patrones simples y validación estricta
-    
+
     Args:
         origin: El origen a validar
         allowed_origins: Lista de orígenes permitidos
-    
+
     Returns:
         bool: True si el origen es válido
     """
     if not origin:
         return False
-    
+
     # Si hay un comodín, aceptar todo (no recomendado en producción)
     if "*" in allowed_origins:
         return True
-    
+
     # Validación exacta
     return origin in allowed_origins
 
@@ -132,7 +135,7 @@ def validate_origin(origin: str, allowed_origins: List[str]) -> bool:
 def get_security_headers() -> dict:
     """
     Obtener headers de seguridad recomendados para agregar a las respuestas
-    
+
     Returns:
         dict: Headers de seguridad
     """

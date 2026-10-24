@@ -12,6 +12,7 @@ Servicio responsable de:
 Diseño anti MissingGreenlet/Async: todas las relaciones se cargan con selectinload
 y no se accede a lazy-loads fuera del await.
 """
+
 from __future__ import annotations
 
 import json
@@ -133,8 +134,12 @@ class TrackingService:
                     logger.debug("Publish canal dashboard falló: %s", exc_dash)
                 # Canal principal por rider (garantizado en última posición)
                 await self.redis.publish(channel, json.dumps(payload))
-            except Exception as exc:  # pragma: no cover - fallo de infra no debe tumbar ingesta
-                logger.warning("Redis publish falló (%s). Broadcast degradado a WS local.", exc)
+            except (
+                Exception
+            ) as exc:  # pragma: no cover - fallo de infra no debe tumbar ingesta
+                logger.warning(
+                    "Redis publish falló (%s). Broadcast degradado a WS local.", exc
+                )
 
     # ------------------------------------------------------------------
     # 2) Consultas geográficas
@@ -152,10 +157,14 @@ class TrackingService:
         Usa bounding box SQL plano (compatible sin PostGIS). Con PostGIS disponible
         puede promoverse a ST_Contains con el índice GiST creado en la migración 20260901.
         """
-        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=stale_minutes)
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+            minutes=stale_minutes
+        )
         query = (
             select(Rider)
-            .options(selectinload(Rider.user))  # selectinload => evita MissingGreenlet en async
+            .options(
+                selectinload(Rider.user)
+            )  # selectinload => evita MissingGreenlet en async
             .where(
                 and_(
                     Rider.is_online.is_(True),
@@ -172,9 +181,15 @@ class TrackingService:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def get_latest_positions(self, rider_ids: Optional[List[uuid.UUID]] = None) -> List[Dict[str, Any]]:
+    async def get_latest_positions(
+        self, rider_ids: Optional[List[uuid.UUID]] = None
+    ) -> List[Dict[str, Any]]:
         """Últimas N posiciones registradas (para hidratación inicial del mapa)."""
-        query = select(RiderLiveLocation).order_by(RiderLiveLocation.recorded_at.desc()).limit(500)
+        query = (
+            select(RiderLiveLocation)
+            .order_by(RiderLiveLocation.recorded_at.desc())
+            .limit(500)
+        )
         if rider_ids:
             query = query.where(RiderLiveLocation.rider_id.in_(rider_ids))
         result = await self.db.execute(query)
@@ -192,14 +207,18 @@ class TrackingService:
                     "speedKmh": row.speed_kmh,
                     "headingDegrees": row.heading_degrees,
                     "accuracyMeters": row.accuracy_meters,
-                    "timestamp": row.recorded_at.isoformat() if row.recorded_at else None,
+                    "timestamp": (
+                        row.recorded_at.isoformat() if row.recorded_at else None
+                    ),
                 }
         return list(seen.values())
 
     # ------------------------------------------------------------------
     # 3) ETA dinámico
     # ------------------------------------------------------------------
-    async def calculate_eta(self, delivery_id: uuid.UUID, current_lat: float, current_lng: float) -> int:
+    async def calculate_eta(
+        self, delivery_id: uuid.UUID, current_lat: float, current_lng: float
+    ) -> int:
         """ETA en minutos hacia el punto de entrega.
 
         Base: Haversine local / velocidad promedio configurable (cero costo API).
@@ -207,7 +226,9 @@ class TrackingService:
         Coordenadas de destino: Order.delivery_latitude/delivery_longitude (esquema real).
         """
         result = await self.db.execute(
-            select(Delivery).options(selectinload(Delivery.order)).where(Delivery.id == delivery_id)
+            select(Delivery)
+            .options(selectinload(Delivery.order))
+            .where(Delivery.id == delivery_id)
         )
         delivery = result.scalar_one_or_none()
         if delivery is None:
@@ -222,7 +243,9 @@ class TrackingService:
         if dest_lat is None or dest_lng is None:
             raise ValueError("La entrega no tiene coordenadas de destino")
 
-        distance_km = haversine_km(current_lat, current_lng, float(dest_lat), float(dest_lng))
+        distance_km = haversine_km(
+            current_lat, current_lng, float(dest_lat), float(dest_lng)
+        )
         speed = float(getattr(settings, "AVG_RIDER_SPEED_KMH", 18.0)) or 18.0
         eta_minutes = int(math.ceil((distance_km / speed) * 60))
 
@@ -230,16 +253,30 @@ class TrackingService:
         api_key = getattr(settings, "GOOGLE_MAPS_API_KEY", None)
         if api_key:
             try:
-                eta_minutes = await self._google_distance_matrix_eta(
-                    api_key, current_lat, current_lng, float(dest_lat), float(dest_lng)
-                ) or eta_minutes
+                eta_minutes = (
+                    await self._google_distance_matrix_eta(
+                        api_key,
+                        current_lat,
+                        current_lng,
+                        float(dest_lat),
+                        float(dest_lng),
+                    )
+                    or eta_minutes
+                )
             except Exception as exc:  # pragma: no cover
-                logger.debug("Distance Matrix no disponible (%s). Usando ETA local.", exc)
+                logger.debug(
+                    "Distance Matrix no disponible (%s). Usando ETA local.", exc
+                )
 
         return max(1, eta_minutes)
 
     async def _google_distance_matrix_eta(
-        self, api_key: str, origin_lat: float, origin_lng: float, dest_lat: float, dest_lng: float
+        self,
+        api_key: str,
+        origin_lat: float,
+        origin_lng: float,
+        dest_lat: float,
+        dest_lng: float,
     ) -> Optional[int]:
         """Consulta ligera a Distance Matrix (solo si hay SDK/red disponibles)."""
         try:
@@ -255,7 +292,10 @@ class TrackingService:
         )
         elements = resp.get("rows", [{}])[0].get("elements", [])
         if elements and elements[0].get("status") == "OK":
-            seconds = elements[0].get("duration_in_traffic", {}).get("value") or elements[0]["duration"]["value"]
+            seconds = (
+                elements[0].get("duration_in_traffic", {}).get("value")
+                or elements[0]["duration"]["value"]
+            )
             return int(math.ceil(seconds / 60))
         return None
 
@@ -275,7 +315,9 @@ class TrackingService:
             raw_rc = raw_rc()
         deleted = int(raw_rc or 0)
         if deleted:
-            logger.info("Retención Fase 8: %s posiciones > %d días eliminadas.", deleted, days)
+            logger.info(
+                "Retención Fase 8: %s posiciones > %d días eliminadas.", deleted, days
+            )
         return deleted
 
 
@@ -295,5 +337,7 @@ async def build_redis_client():
         await client.ping()
         return client
     except Exception as exc:
-        logger.warning("Redis no disponible (%s). Tracking funcionará en modo WS-local.", exc)
+        logger.warning(
+            "Redis no disponible (%s). Tracking funcionará en modo WS-local.", exc
+        )
         return None

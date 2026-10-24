@@ -18,6 +18,7 @@ conf = ConnectionConfig(
     VALIDATE_CERTS=True,
 )
 
+
 async def send_reset_email(email: str, reset_link: str):
     """Envía el correo real de recuperación."""
     html = f"""
@@ -49,7 +50,7 @@ async def send_reset_email(email: str, reset_link: str):
         subject="🔐 Recuperación de Contraseña - Delivery360",
         recipients=[email],
         body=html,
-        subtype="html"
+        subtype="html",
     )
 
     fm = FastMail(conf)

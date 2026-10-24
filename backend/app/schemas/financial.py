@@ -13,6 +13,7 @@ from app.models.financial import PaymentStatus, TransactionType, PayoutStatus
 
 class PayoutStatusEnum(str, Enum):
     """Enum de estados de retiro en español para validación Pydantic."""
+
     PENDIENTE = "PENDIENTE"
     APROBADO = "APROBADO"
     EN_PROCESO = "EN_PROCESO"
@@ -22,8 +23,12 @@ class PayoutStatusEnum(str, Enum):
 
 
 class FinancialTransactionBase(BaseModel):
-    amount: Decimal = Field(..., description="Monto absoluto o firmado según el tipo de transacción")
-    transaction_type: TransactionType = Field(..., description="Tipo real del ledger financiero")
+    amount: Decimal = Field(
+        ..., description="Monto absoluto o firmado según el tipo de transacción"
+    )
+    transaction_type: TransactionType = Field(
+        ..., description="Tipo real del ledger financiero"
+    )
     status: PaymentStatus = Field(default=PaymentStatus.PENDIENTE)
     description: Optional[str] = Field(None, max_length=500)
     reference_id: Optional[str] = Field(None, max_length=100)
@@ -207,8 +212,10 @@ class LiquidationResponse(LiquidationBase):
 
 # === NUEVOS SCHEMAS PARA WALLET Y PAYOUTS - FASE 7 ===
 
+
 class RiderWalletResponse(BaseModel):
     """Respuesta de información de wallet del rider."""
+
     id: UUID
     rider_id: UUID
     balance_cents: int
@@ -224,6 +231,7 @@ class RiderWalletResponse(BaseModel):
 
 class FinancialTransactionDetail(BaseModel):
     """Detalle de transacción financiera."""
+
     id: UUID
     wallet_id: UUID
     transaction_type: TransactionType
@@ -240,21 +248,31 @@ class FinancialTransactionDetail(BaseModel):
 
 class PayoutRequestCreateSchema(BaseModel):
     """Schema para crear solicitud de retiro."""
-    amount_cents: int = Field(..., gt=0, description="Monto en centavos (debe ser positivo)")
-    bank_account_last4: str = Field(..., min_length=4, max_length=4, description="Últimos 4 dígitos de la cuenta")
-    bank_name: str = Field(..., min_length=1, max_length=100, description="Nombre del banco")
-    account_holder_name: str = Field(..., min_length=1, max_length=255, description="Nombre del titular")
 
-    @field_validator('bank_account_last4')
+    amount_cents: int = Field(
+        ..., gt=0, description="Monto en centavos (debe ser positivo)"
+    )
+    bank_account_last4: str = Field(
+        ..., min_length=4, max_length=4, description="Últimos 4 dígitos de la cuenta"
+    )
+    bank_name: str = Field(
+        ..., min_length=1, max_length=100, description="Nombre del banco"
+    )
+    account_holder_name: str = Field(
+        ..., min_length=1, max_length=255, description="Nombre del titular"
+    )
+
+    @field_validator("bank_account_last4")
     @classmethod
     def validate_bank_account(cls, v: str) -> str:
         if not v.isdigit():
-            raise ValueError('Los últimos 4 dígitos deben ser numéricos')
+            raise ValueError("Los últimos 4 dígitos deben ser numéricos")
         return v
 
 
 class PayoutRequestResponseSchema(BaseModel):
     """Respuesta de solicitud de retiro con estados en español."""
+
     id: UUID
     wallet_id: UUID
     rider_id: UUID
@@ -280,11 +298,15 @@ class PayoutRequestResponseSchema(BaseModel):
 
 class PayoutApprovalSchema(BaseModel):
     """Schema para aprobar retiro con ID de proveedor."""
-    provider_payout_id: Optional[str] = Field(None, max_length=255, description="ID del payout en la pasarela")
+
+    provider_payout_id: Optional[str] = Field(
+        None, max_length=255, description="ID del payout en la pasarela"
+    )
 
 
 class WalletSummarySchema(BaseModel):
     """Resumen de wallet para dashboard."""
+
     total_balance_cents: int
     total_balance_decimal: Decimal
     pending_payouts_cents: int

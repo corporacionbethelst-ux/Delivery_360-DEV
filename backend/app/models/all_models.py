@@ -23,7 +23,12 @@ except ImportError:
     CheckInOut = None
 
 try:
-    from app.models.financial import Financial, FinancialTransaction, TransactionType, PaymentStatus
+    from app.models.financial import (
+        Financial,
+        FinancialTransaction,
+        TransactionType,
+        PaymentStatus,
+    )
 except ImportError:
     Financial = None
     FinancialTransaction = None
@@ -44,7 +49,12 @@ except ImportError:
     ActionType = None
 
 try:
-    from app.models.notification import Notification, NotificationType, NotificationPriority, Alert
+    from app.models.notification import (
+        Notification,
+        NotificationType,
+        NotificationPriority,
+        Alert,
+    )
 except ImportError:
     Notification = None
     NotificationType = None
@@ -66,14 +76,35 @@ __all__ = [
     "Zone",
     "PlatformSetting",
     "Order",
-    "Delivery", "DeliveryStatus", "ProofType",
-    "Payout", "PayoutStatus", "PayoutMethod", "PayoutStatusHistory",
-    "Route", "RoutePoint", "RouteDeviation", "RouteStatus",
+    "Delivery",
+    "DeliveryStatus",
+    "ProofType",
+    "Payout",
+    "PayoutStatus",
+    "PayoutMethod",
+    "PayoutStatusHistory",
+    "Route",
+    "RoutePoint",
+    "RouteDeviation",
+    "RouteStatus",
     # Opcionales (solo si se importaron)
-    "Shift", "ShiftStatus", "CheckInOut",
-    "Financial", "FinancialTransaction", "TransactionType", "PaymentStatus",
-    "ProductivityRecord", "MetricType",
-    "AuditLog", "AuditAction", "ActionType",
-    "Notification", "NotificationType", "NotificationPriority", "Alert",
-    "Integration", "IntegrationType", "IntegrationStatus",
+    "Shift",
+    "ShiftStatus",
+    "CheckInOut",
+    "Financial",
+    "FinancialTransaction",
+    "TransactionType",
+    "PaymentStatus",
+    "ProductivityRecord",
+    "MetricType",
+    "AuditLog",
+    "AuditAction",
+    "ActionType",
+    "Notification",
+    "NotificationType",
+    "NotificationPriority",
+    "Alert",
+    "Integration",
+    "IntegrationType",
+    "IntegrationStatus",
 ]

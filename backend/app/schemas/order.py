@@ -9,6 +9,7 @@ from enum import Enum
 
 class OrderStatus(str, Enum):
     """Order status."""
+
     PENDIENTE = "PENDIENTE"
     ASIGNADO = "ASIGNADO"
     EN_RECOLECCION = "EN_RECOLECCION"
@@ -21,6 +22,7 @@ class OrderStatus(str, Enum):
 
 class OrderPriority(str, Enum):
     """Order priority."""
+
     NORMAL = "NORMAL"
     ALTA = "ALTA"
     URGENTE = "URGENTE"
@@ -29,33 +31,34 @@ class OrderPriority(str, Enum):
 # Base Schema
 class OrderBase(BaseModel):
     """Base schema for Order."""
+
     external_id: Optional[str] = None
     customer_name: str
     customer_phone: str
     customer_email: Optional[str] = None
-    
+
     pickup_address: str
     pickup_name: Optional[str] = None
     pickup_phone: Optional[str] = None
     pickup_latitude: Optional[float] = None
     pickup_longitude: Optional[float] = None
-    
+
     delivery_address: str
     delivery_reference: Optional[str] = None
     delivery_instructions: Optional[str] = None
     delivery_latitude: Optional[float] = None
     delivery_longitude: Optional[float] = None
-    
+
     items: Optional[List[Dict[str, Any]]] = None
     subtotal: Optional[float] = 0.0
     delivery_fee: Optional[float] = 0.0
     total: Optional[float] = 0.0
-    
+
     payment_method: Optional[str] = None
     payment_status: Optional[str] = "pendiente"
-    
+
     priority: Optional[OrderPriority] = OrderPriority.NORMAL
-    
+
     source: Optional[str] = "app"
     integration_id: Optional[str] = None
 
@@ -63,6 +66,7 @@ class OrderBase(BaseModel):
 # Create Schema
 class OrderCreate(OrderBase):
     """Schema for creating an Order."""
+
     assigned_rider_id: Optional[uuid.UUID] = None
     status: Optional[OrderStatus] = OrderStatus.PENDIENTE
 
@@ -70,6 +74,7 @@ class OrderCreate(OrderBase):
 # Update Schema
 class OrderUpdate(BaseModel):
     """Schema for updating an Order."""
+
     external_id: Optional[str] = None
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
@@ -102,8 +107,9 @@ class OrderUpdate(BaseModel):
 # Response Schema
 class OrderResponse(OrderBase):
     """Schema for Order response."""
+
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: uuid.UUID
     assigned_rider_id: Optional[uuid.UUID] = None
     status: OrderStatus
@@ -118,10 +124,12 @@ class OrderResponse(OrderBase):
 
     # Explícito para asegurar serialización correcta
     items: Optional[List[Dict[str, Any]]] = None
-    
+
+
 # List Response
 class OrderListResponse(BaseModel):
     """Schema for order list response."""
+
     total: int
     orders: List[OrderResponse]
 
@@ -129,16 +137,18 @@ class OrderListResponse(BaseModel):
 # Assignment Request
 class OrderAssignRequest(BaseModel):
     """Schema for assigning an order to a rider."""
+
     rider_id: uuid.UUID
     notes: Optional[str] = None
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 # Status Update
 class OrderStatusUpdate(BaseModel):
     """Schema for updating order status."""
+
     status: OrderStatus
     reason: Optional[str] = None
-    
+
     model_config = ConfigDict(from_attributes=True)

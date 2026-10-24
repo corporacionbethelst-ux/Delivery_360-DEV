@@ -14,8 +14,10 @@ async def _liquidate():
     from app.models.all_models import Financial
     from datetime import datetime, timezone, timedelta
 
-    yesterday_start = (datetime.now(timezone.utc) - timedelta(days=1)).replace(hour=0, minute=0, second=0)
-    yesterday_end   = yesterday_start.replace(hour=23, minute=59, second=59)
+    yesterday_start = (datetime.now(timezone.utc) - timedelta(days=1)).replace(
+        hour=0, minute=0, second=0
+    )
+    yesterday_end = yesterday_start.replace(hour=23, minute=59, second=59)
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -48,7 +50,7 @@ async def _calc_productivity():
     from datetime import datetime, timezone
 
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
-    today_end   = datetime.now(timezone.utc)
+    today_end = datetime.now(timezone.utc)
 
     async with AsyncSessionLocal() as db:
         riders_result = await db.execute(
@@ -70,7 +72,7 @@ async def _calc_productivity():
 
             total = len(orders)
             delivered = [o for o in orders if o.status == OrderStatus.ENTREGADO]
-            on_time   = [o for o in delivered if not o.sla_breached]
+            on_time = [o for o in delivered if not o.sla_breached]
 
             deliveries_result = await db.execute(
                 select(Delivery).where(
@@ -79,10 +81,14 @@ async def _calc_productivity():
                 )
             )
             deliveries = deliveries_result.scalars().all()
-            avg_time = sum(d.duration_minutes or 0 for d in deliveries) / max(len(deliveries), 1)
+            avg_time = sum(d.duration_minutes or 0 for d in deliveries) / max(
+                len(deliveries), 1
+            )
 
             sla_pct = len(on_time) / max(len(delivered), 1) * 100
-            score   = min(100, sla_pct * 0.5 + (len(delivered) / max(total, 1) * 100) * 0.5)
+            score = min(
+                100, sla_pct * 0.5 + (len(delivered) / max(total, 1) * 100) * 0.5
+            )
 
             p = Productivity(
                 rider_id=rider.id,

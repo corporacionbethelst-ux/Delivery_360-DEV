@@ -14,6 +14,7 @@ from app.models.order import Order, OrderStatus
 from app.models.rider import Rider
 from app.models.user import User, UserRole
 from app.models.zone import Zone
+
 # Asegúrate de que tus schemas en app/schemas/zone.py tengan bonus_multiplier: float = 1.0
 from app.schemas.zone import ZoneCreate, ZoneResponse, ZoneUpdate
 
@@ -28,7 +29,9 @@ def _parse_uuid(value: str, field_name: str = "ID") -> uuid.UUID:
     try:
         return uuid.UUID(value)
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} inválido")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} inválido"
+        )
 
 
 def _format_date(value: Any) -> Optional[str]:
@@ -103,7 +106,9 @@ async def _get_zone_or_404(db: AsyncSession, zone_id: str) -> Zone:
     result = await db.execute(select(Zone).where(Zone.id == zid))
     zone = result.scalar_one_or_none()
     if not zone:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Zona no encontrada")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Zona no encontrada"
+        )
     return zone
 
 
@@ -114,17 +119,27 @@ async def list_zones(
     limit: int = Query(100, ge=1, le=500),
     page: int = Query(1, ge=1),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)),
+    current_user: User = Depends(
+        require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)
+    ),
 ):
     stmt = select(Zone)
     if active_only:
         stmt = stmt.where(Zone.is_active.is_(True))
     if search:
         pattern = f"%{search.strip().lower()}%"
-        stmt = stmt.where(or_(func.lower(Zone.name).like(pattern), func.lower(Zone.code).like(pattern)))
+        stmt = stmt.where(
+            or_(
+                func.lower(Zone.name).like(pattern), func.lower(Zone.code).like(pattern)
+            )
+        )
 
     offset = (page - 1) * limit
-    result = await db.execute(stmt.order_by(Zone.is_priority.desc(), Zone.name.asc()).offset(offset).limit(limit))
+    result = await db.execute(
+        stmt.order_by(Zone.is_priority.desc(), Zone.name.asc())
+        .offset(offset)
+        .limit(limit)
+    )
     zones = result.scalars().all()
     return [await _build_zone_response(db, zone) for zone in zones]
 
@@ -148,10 +163,13 @@ async def create_zone(
     code = body.code.upper()
     exists = await db.execute(select(Zone).where(func.upper(Zone.code) == code))
     if exists.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"La zona '{code}' ya existe")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"La zona '{code}' ya existe",
+        )
 
     # FASE 3: Usar el multiplicador del body o default 1.0
-    multiplier = getattr(body, 'bonus_multiplier', 1.0) or 1.0
+    multiplier = getattr(body, "bonus_multiplier", 1.0) or 1.0
 
     zone = Zone(
         id=uuid.uuid4(),
@@ -191,13 +209,16 @@ async def update_zone(
             select(Zone).where(func.upper(Zone.code) == new_code, Zone.id != zone.id)
         )
         if duplicate.scalar_one_or_none():
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"La zona '{new_code}' ya está en uso")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"La zona '{new_code}' ya está en uso",
+            )
         data["code"] = new_code
 
     # FASE 3: Actualizar multiplicador si viene en el request
     for field, value in data.items():
         setattr(zone, field, value)
-    
+
     zone.updated_at = utc_now_naive()
 
     await db.commit()

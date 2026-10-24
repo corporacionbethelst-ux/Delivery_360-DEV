@@ -6,6 +6,7 @@ transacción de negocio. Por eso notify_event() abre su PROPIA sesión y envuelv
 todo en try/except. Si se le pasa una sesión existente, la usa sin commitear
 nada adicional (confía en el commit del llamador) y aun así atrapa errores.
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,16 +38,29 @@ async def notify_event(
 
         if db is not None:
             service = OmnichannelNotificationService(db)
-            await service.send(user_id, template_code, context,
-                               delivery_id=delivery_id, payout_id=payout_id, title=title)
+            await service.send(
+                user_id,
+                template_code,
+                context,
+                delivery_id=delivery_id,
+                payout_id=payout_id,
+                title=title,
+            )
             return
 
         # Sin sesión: usar sesión propia efímera (hooks desde schedulers/jobs)
         from app.core.database import AsyncSessionLocal
+
         async with AsyncSessionLocal() as own_db:
             service = OmnichannelNotificationService(own_db)
-            await service.send(user_id, template_code, context,
-                               delivery_id=delivery_id, payout_id=payout_id, title=title)
+            await service.send(
+                user_id,
+                template_code,
+                context,
+                delivery_id=delivery_id,
+                payout_id=payout_id,
+                title=title,
+            )
     except Exception as exc:  # noqa: BLE001 — por diseño: jamás propagar
         logger.warning("notify_event(%s) falló (no crítico): %s", template_code, exc)
 
@@ -55,14 +69,19 @@ async def resolve_payout_recipient(db: AsyncSession, payout: Any) -> Optional[An
     """user_id del rider dueño del payout (Payout→Rider→User)."""
     try:
         from app.models.rider import Rider
-        result = await db.execute(select(Rider.user_id).where(Rider.id == payout.rider_id))
+
+        result = await db.execute(
+            select(Rider.user_id).where(Rider.id == payout.rider_id)
+        )
         return result.scalar_one_or_none()
     except Exception as exc:  # noqa: BLE001
         logger.warning("No se pudo resolver destinatario del payout: %s", exc)
         return None
 
 
-def payout_context(payout: Any, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def payout_context(
+    payout: Any, extra: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """Contexto estándar para plantillas payout_* (amount_cents, bank_last4...)."""
     amount = getattr(payout, "amount", None)
     try:

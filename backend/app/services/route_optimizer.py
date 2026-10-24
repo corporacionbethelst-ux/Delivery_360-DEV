@@ -8,6 +8,7 @@ por lo que es segura para Docker/CI.
 v2 planificada (feature flag): swap interno a OR-Tools CP-SAT/pywrapcp con
 time limit de 500ms. La firma pública `solve_vrp()` NO cambia entre versiones.
 """
+
 from __future__ import annotations
 
 import json
@@ -96,7 +97,9 @@ class OptimizationResult(dict):
 class RouteOptimizer:
     """Solver VRP v1 (greedy nearest-neighbor con constraints de capacidad y zona)."""
 
-    DEFAULT_CAPACITY = 4  # entregas simultáneas máximas por rider (configurable por instancia)
+    DEFAULT_CAPACITY = (
+        4  # entregas simultáneas máximas por rider (configurable por instancia)
+    )
 
     def __init__(self, db: AsyncSession, capacity_per_rider: Optional[int] = None):
         self.db = db
@@ -124,7 +127,8 @@ class RouteOptimizer:
         start = time.monotonic()
 
         usable_riders = [
-            r for r in riders
+            r
+            for r in riders
             if r.status in (RiderStatus.ACTIVO, RiderStatus.OCUPADO)
             and getattr(r, "last_lat", None) is not None
             and getattr(r, "last_lng", None) is not None
@@ -132,7 +136,9 @@ class RouteOptimizer:
         pending = [d for d in deliveries if self._delivery_coords(d) is not None]
 
         assignments: Dict[str, List[str]] = {str(r.id): [] for r in usable_riders}
-        cursor: Dict[str, tuple] = {str(r.id): (r.last_lat, r.last_lng) for r in usable_riders}
+        cursor: Dict[str, tuple] = {
+            str(r.id): (r.last_lat, r.last_lng) for r in usable_riders
+        }
         load: Dict[str, int] = {str(r.id): 0 for r in usable_riders}
 
         optimized_km = 0.0
@@ -152,7 +158,9 @@ class RouteOptimizer:
                         continue
                     plat, plng, dlat, dlng = coords
                     # ir al pickup + ir al dropoff
-                    inc = cached_haversine(clat, clng, plat, plng) + cached_haversine(plat, plng, dlat, dlng)
+                    inc = cached_haversine(clat, clng, plat, plng) + cached_haversine(
+                        plat, plng, dlat, dlng
+                    )
                     if best is None or inc < best[0]:
                         best = (inc, rk, delivery, (dlat, dlng))
             if best is None:
@@ -167,7 +175,9 @@ class RouteOptimizer:
 
         # Línea base: round-robin secuencial (orden de cola) sobre los mismos riders
         baseline_km = 0.0
-        rr_cursor: Dict[str, tuple] = {str(r.id): (r.last_lat, r.last_lng) for r in usable_riders}
+        rr_cursor: Dict[str, tuple] = {
+            str(r.id): (r.last_lat, r.last_lng) for r in usable_riders
+        }
         rr_load: Dict[str, int] = {str(r.id): 0 for r in usable_riders}
         rider_keys = list(rr_cursor.keys()) or ["_none_"]
         idx = 0
@@ -183,7 +193,9 @@ class RouteOptimizer:
                 continue
             clat, clng = rr_cursor[rk]
             plat, plng, dlat, dlng = coords
-            baseline_km += cached_haversine(clat, clng, plat, plng) + cached_haversine(plat, plng, dlat, dlng)
+            baseline_km += cached_haversine(clat, clng, plat, plng) + cached_haversine(
+                plat, plng, dlat, dlng
+            )
             rr_cursor[rk] = (dlat, dlng)
             rr_load[rk] += 1
 
@@ -194,7 +206,12 @@ class RouteOptimizer:
         elapsed_ms = (time.monotonic() - start) * 1000
         logger.info(
             "VRP v1 resuelto: %d entregas / %d riders | opt=%.2fkm base=%.2fkm ahorro=%.1f%% (%.0fms)",
-            len(pending), len(usable_riders), optimized_km, baseline_km, savings, elapsed_ms,
+            len(pending),
+            len(usable_riders),
+            optimized_km,
+            baseline_km,
+            savings,
+            elapsed_ms,
         )
 
         return OptimizationResult(
@@ -212,8 +229,12 @@ class RouteOptimizer:
         order = getattr(delivery, "order", None)
         if order is None:
             return None
-        p_lat, p_lng = getattr(order, "pickup_latitude", None), getattr(order, "pickup_longitude", None)
-        d_lat, d_lng = getattr(order, "delivery_latitude", None), getattr(order, "delivery_longitude", None)
+        p_lat, p_lng = getattr(order, "pickup_latitude", None), getattr(
+            order, "pickup_longitude", None
+        )
+        d_lat, d_lng = getattr(order, "delivery_latitude", None), getattr(
+            order, "delivery_longitude", None
+        )
         if None in (p_lat, p_lng, d_lat, d_lng):
             return None
         return float(p_lat), float(p_lng), float(d_lat), float(d_lng)
@@ -225,9 +246,10 @@ class RouteOptimizer:
         """Carga riders activos + entregas pendientes (selectinload anti-MissingGreenlet),
         resuelve el VRP y persiste un snapshot por ruta asignada."""
         riders_result = await self.db.execute(
-            select(Rider).options(selectinload(Rider.user)).where(
-                Rider.status.in_([RiderStatus.ACTIVO, RiderStatus.OCUPADO])
-            ).limit(200)
+            select(Rider)
+            .options(selectinload(Rider.user))
+            .where(Rider.status.in_([RiderStatus.ACTIVO, RiderStatus.OCUPADO]))
+            .limit(200)
         )
         riders = list(riders_result.scalars().all())
 
@@ -249,7 +271,9 @@ class RouteOptimizer:
         for rider_id, seq in result.assignments.items():
             rider_uuid = uuid.UUID(rider_id)
             snapshot = DeliveryRouteSnapshot(
-                delivery_id=uuid.UUID(seq[0]),  # snapshot ancla: primera entrega de la secuencia
+                delivery_id=uuid.UUID(
+                    seq[0]
+                ),  # snapshot ancla: primera entrega de la secuencia
                 optimized_sequence_json=json.dumps(seq),
                 original_distance_km=round(result.baseline_distance_km, 3),
                 optimized_distance_km=round(result.total_distance_km, 3),
@@ -263,7 +287,12 @@ class RouteOptimizer:
                 d = delivery_by_id.get(did)
                 if d is not None:
                     d.rider_id = rider_uuid
-                    logger.debug("Entrega %s asignada a rider %s (posición %d)", did, rider_id, position)
+                    logger.debug(
+                        "Entrega %s asignada a rider %s (posición %d)",
+                        did,
+                        rider_id,
+                        position,
+                    )
 
         await self.db.commit()
         return result

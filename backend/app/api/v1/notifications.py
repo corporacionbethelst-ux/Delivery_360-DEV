@@ -19,6 +19,7 @@ WebSocket (montado en main.py, UN solo pool manager — regla anti-error 6):
        -> suscripción a Redis Pub/Sub `notifications:user:{id}` con fan-out único
        -> snapshot inicial {type: CONNECTED, unread_count} + NEW_NOTIFICATION push
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -29,8 +30,14 @@ from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 from fastapi import (
-    APIRouter, Depends, HTTPException, Query, Request, WebSocket,
-    WebSocketDisconnect, status,
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
 )
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -76,7 +83,7 @@ class PreferencesUpdate(BaseModel):
 
 class TestSendRequest(BaseModel):
     template_code: str = Field(..., min_length=1, max_length=50)
-    user_id: Optional[str] = None          # default: usuario autenticado
+    user_id: Optional[str] = None  # default: usuario autenticado
     context: dict = Field(default_factory=dict)
     channels: Optional[List[NotificationChannel]] = None
 
@@ -120,7 +127,9 @@ def _log_out(log: NotificationLog) -> NotificationOut:
     )
 
 
-async def _get_service(db: AsyncSession = Depends(get_db)) -> OmnichannelNotificationService:
+async def _get_service(
+    db: AsyncSession = Depends(get_db),
+) -> OmnichannelNotificationService:
     return OmnichannelNotificationService(db)
 
 
@@ -134,9 +143,13 @@ async def register_device(
     db: AsyncSession = Depends(get_db),
 ):
     """Upsert del token FCM/APNs por device_token único. Reactiva si estaba inactivo."""
-    existing = (await db.execute(
-        select(UserDeviceToken).where(UserDeviceToken.device_token == body.device_token)
-    )).scalar_one_or_none()
+    existing = (
+        await db.execute(
+            select(UserDeviceToken).where(
+                UserDeviceToken.device_token == body.device_token
+            )
+        )
+    ).scalar_one_or_none()
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     if existing:
@@ -149,16 +162,18 @@ async def register_device(
             existing.is_active = True
         action = "updated"
     else:
-        db.add(UserDeviceToken(
-            id=uuid.uuid4(),
-            user_id=current_user.id,
-            device_token=body.device_token,
-            platform=body.platform,
-            failure_count=0,
-            is_active=True,
-            last_seen_at=now,
-            created_at=now,
-        ))
+        db.add(
+            UserDeviceToken(
+                id=uuid.uuid4(),
+                user_id=current_user.id,
+                device_token=body.device_token,
+                platform=body.platform,
+                failure_count=0,
+                is_active=True,
+                last_seen_at=now,
+                created_at=now,
+            )
+        )
         action = "created"
     await db.commit()
     return {"status": "ok", "action": action}
@@ -171,7 +186,9 @@ async def register_device(
 async def get_inbox(
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1, le=100),
-    include_all_channels: bool = Query(False, description="Incluir también PUSH/EMAIL/SMS logs"),
+    include_all_channels: bool = Query(
+        False, description="Incluir también PUSH/EMAIL/SMS logs"
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -179,22 +196,31 @@ async def get_inbox(
     if not include_all_channels:
         query = query.where(NotificationLog.channel == NotificationChannel.IN_APP)
 
-    total = (await db.execute(
-        select(func.count()).select_from(query.subquery())
-    )).scalar() or 0
+    total = (
+        await db.execute(select(func.count()).select_from(query.subquery()))
+    ).scalar() or 0
 
-    rows = (await db.execute(
-        query.order_by(NotificationLog.created_at.desc())
-        .offset((page - 1) * size).limit(size)
-    )).scalars().all()
-
-    unread = (await db.execute(
-        select(func.count(NotificationLog.id)).where(
-            NotificationLog.user_id == current_user.id,
-            NotificationLog.channel == NotificationChannel.IN_APP,
-            NotificationLog.status != OmnichannelStatus.LEIDO,
+    rows = (
+        (
+            await db.execute(
+                query.order_by(NotificationLog.created_at.desc())
+                .offset((page - 1) * size)
+                .limit(size)
+            )
         )
-    )).scalar() or 0
+        .scalars()
+        .all()
+    )
+
+    unread = (
+        await db.execute(
+            select(func.count(NotificationLog.id)).where(
+                NotificationLog.user_id == current_user.id,
+                NotificationLog.channel == NotificationChannel.IN_APP,
+                NotificationLog.status != OmnichannelStatus.LEIDO,
+            )
+        )
+    ).scalar() or 0
 
     return {
         "items": [_log_out(r).model_dump() for r in rows],
@@ -211,13 +237,15 @@ async def get_unread_count(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    count = (await db.execute(
-        select(func.count(NotificationLog.id)).where(
-            NotificationLog.user_id == current_user.id,
-            NotificationLog.channel == NotificationChannel.IN_APP,
-            NotificationLog.status != OmnichannelStatus.LEIDO,
+    count = (
+        await db.execute(
+            select(func.count(NotificationLog.id)).where(
+                NotificationLog.user_id == current_user.id,
+                NotificationLog.channel == NotificationChannel.IN_APP,
+                NotificationLog.status != OmnichannelStatus.LEIDO,
+            )
         )
-    )).scalar() or 0
+    ).scalar() or 0
     return {"unread_count": int(count)}
 
 
@@ -231,16 +259,21 @@ async def mark_read(
     db: AsyncSession = Depends(get_db),
 ):
     log_id = _parse_uuid(notification_id, "notification_id")
-    log = (await db.execute(
-        select(NotificationLog).where(NotificationLog.id == log_id)
-    )).scalar_one_or_none()
+    log = (
+        await db.execute(select(NotificationLog).where(NotificationLog.id == log_id))
+    ).scalar_one_or_none()
     if log is None:
         raise HTTPException(status_code=404, detail="Notificación no encontrada")
 
     is_owner = str(log.user_id) == str(current_user.id)
-    is_super = getattr(current_user.role, "value", str(current_user.role)) == UserRole.SUPERADMIN.value
+    is_super = (
+        getattr(current_user.role, "value", str(current_user.role))
+        == UserRole.SUPERADMIN.value
+    )
     if not (is_owner or is_super):
-        raise HTTPException(status_code=403, detail="No autorizado sobre esta notificación")
+        raise HTTPException(
+            status_code=403, detail="No autorizado sobre esta notificación"
+        )
 
     if log.status != OmnichannelStatus.LEIDO:
         log.status = OmnichannelStatus.LEIDO
@@ -258,13 +291,15 @@ async def delete_notification(
     """Borrado lógico: marca FALLIDO-like removal vía error_message no aplica;
     se elimina el registro IN_APP solo por su dueño."""
     log_id = _parse_uuid(notification_id, "notification_id")
-    log = (await db.execute(
-        select(NotificationLog).where(NotificationLog.id == log_id)
-    )).scalar_one_or_none()
+    log = (
+        await db.execute(select(NotificationLog).where(NotificationLog.id == log_id))
+    ).scalar_one_or_none()
     if log is None:
         raise HTTPException(status_code=404, detail="Notificación no encontrada")
     if str(log.user_id) != str(current_user.id):
-        raise HTTPException(status_code=403, detail="No autorizado sobre esta notificación")
+        raise HTTPException(
+            status_code=403, detail="No autorizado sobre esta notificación"
+        )
     await db.delete(log)
     await db.commit()
     return {"status": "deleted"}
@@ -278,11 +313,19 @@ async def list_preferences(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    rows = (await db.execute(
-        select(NotificationPreference).where(
-            NotificationPreference.user_id == current_user.id
-        ).order_by(NotificationPreference.event_code, NotificationPreference.channel)
-    )).scalars().all()
+    rows = (
+        (
+            await db.execute(
+                select(NotificationPreference)
+                .where(NotificationPreference.user_id == current_user.id)
+                .order_by(
+                    NotificationPreference.event_code, NotificationPreference.channel
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     return {
         "preferences": [
             {
@@ -302,12 +345,18 @@ async def update_preferences(
     db: AsyncSession = Depends(get_db),
 ):
     """Upsert granular evento x canal. Regla por rol: riders solo PUSH/IN_APP;
-    clientes no pueden habilitar PUSH sin token registrado (se permite, dispatch stub)."""
+    clientes no pueden habilitar PUSH sin token registrado (se permite, dispatch stub).
+    """
     role_value = getattr(current_user.role, "value", str(current_user.role))
     allowed_by_role = {
-        UserRole.REPARTIDOR.value: {NotificationChannel.PUSH, NotificationChannel.IN_APP},
+        UserRole.REPARTIDOR.value: {
+            NotificationChannel.PUSH,
+            NotificationChannel.IN_APP,
+        },
         UserRole.CLIENTE.value: {NotificationChannel.IN_APP, NotificationChannel.EMAIL},
-    }.get(role_value, set(NotificationChannel))  # resto de roles: todos
+    }.get(
+        role_value, set(NotificationChannel)
+    )  # resto de roles: todos
 
     updated = 0
     for item in body.preferences:
@@ -316,23 +365,27 @@ async def update_preferences(
                 status_code=400,
                 detail=f"Canal {item.channel.value} no permitido para rol {role_value}",
             )
-        existing = (await db.execute(
-            select(NotificationPreference).where(
-                NotificationPreference.user_id == current_user.id,
-                NotificationPreference.event_code == item.event_code,
-                NotificationPreference.channel == item.channel,
+        existing = (
+            await db.execute(
+                select(NotificationPreference).where(
+                    NotificationPreference.user_id == current_user.id,
+                    NotificationPreference.event_code == item.event_code,
+                    NotificationPreference.channel == item.channel,
+                )
             )
-        )).scalar_one_or_none()
+        ).scalar_one_or_none()
         if existing:
             existing.enabled = item.enabled
         else:
-            db.add(NotificationPreference(
-                id=uuid.uuid4(),
-                user_id=current_user.id,
-                event_code=item.event_code,
-                channel=item.channel,
-                enabled=item.enabled,
-            ))
+            db.add(
+                NotificationPreference(
+                    id=uuid.uuid4(),
+                    user_id=current_user.id,
+                    event_code=item.event_code,
+                    channel=item.channel,
+                    enabled=item.enabled,
+                )
+            )
         updated += 1
     await db.commit()
     return {"status": "ok", "updated": updated}
@@ -357,14 +410,22 @@ async def test_send(
     context = dict(body.context or {})
     context.setdefault("entity_id", f"testsend:{uuid.uuid4().hex}")
     logs = await service.send(
-        parsed, body.template_code, context,
+        parsed,
+        body.template_code,
+        context,
         channels=body.channels,
     )
     return {
         "status": "ok",
         "sent": len(logs),
-        "logs": [{"id": str(l.id), "channel": getattr(l.channel, "value", str(l.channel)),
-                  "status": getattr(l.status, "value", str(l.status))} for l in logs],
+        "logs": [
+            {
+                "id": str(l.id),
+                "channel": getattr(l.channel, "value", str(l.channel)),
+                "status": getattr(l.status, "value", str(l.status)),
+            }
+            for l in logs
+        ],
     }
 
 
@@ -376,9 +437,15 @@ async def list_templates(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    rows = (await db.execute(
-        select(NotificationTemplate).order_by(NotificationTemplate.code)
-    )).scalars().all()
+    rows = (
+        (
+            await db.execute(
+                select(NotificationTemplate).order_by(NotificationTemplate.code)
+            )
+        )
+        .scalars()
+        .all()
+    )
     return {
         "templates": [
             {
@@ -402,9 +469,11 @@ async def toggle_template(
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
     db: AsyncSession = Depends(get_db),
 ):
-    tpl = (await db.execute(
-        select(NotificationTemplate).where(NotificationTemplate.code == code)
-    )).scalar_one_or_none()
+    tpl = (
+        await db.execute(
+            select(NotificationTemplate).where(NotificationTemplate.code == code)
+        )
+    ).scalar_one_or_none()
     if tpl is None:
         raise HTTPException(status_code=404, detail="Plantilla no encontrada")
     tpl.is_active = is_active
@@ -457,28 +526,35 @@ async def notifications_websocket(websocket: WebSocket):
         unread = 0
         try:
             from app.core.database import AsyncSessionLocal
+
             async with AsyncSessionLocal() as db:
-                unread = (await db.execute(
-                    select(func.count(NotificationLog.id)).where(
-                        NotificationLog.user_id == _safe_uuid(user_id),
-                        NotificationLog.channel == NotificationChannel.IN_APP,
-                        NotificationLog.status != OmnichannelStatus.LEIDO,
+                unread = (
+                    await db.execute(
+                        select(func.count(NotificationLog.id)).where(
+                            NotificationLog.user_id == _safe_uuid(user_id),
+                            NotificationLog.channel == NotificationChannel.IN_APP,
+                            NotificationLog.status != OmnichannelStatus.LEIDO,
+                        )
                     )
-                )).scalar() or 0
+                ).scalar() or 0
         except Exception as exc:  # noqa: BLE001
             logger.warning("WS notif: snapshot unread falló (no crítico): %s", exc)
 
-        await websocket.send_json({
-            "type": "CONNECTED",
-            "channel": topic,
-            "unread_count": int(unread),
-        })
+        await websocket.send_json(
+            {
+                "type": "CONNECTED",
+                "channel": topic,
+                "unread_count": int(unread),
+            }
+        )
 
         # Suscriptor Redis → fan-out a las conexiones de este usuario
         try:
             from redis import asyncio as aioredis  # librería nativa redis>=5 (regla)
-            redis_client = aioredis.from_url(settings.REDIS_URL, encoding="utf-8",
-                                             decode_responses=True)
+
+            redis_client = aioredis.from_url(
+                settings.REDIS_URL, encoding="utf-8", decode_responses=True
+            )
             pubsub = redis_client.pubsub()
             await pubsub.subscribe(topic)
 
@@ -497,7 +573,9 @@ async def notifications_websocket(websocket: WebSocket):
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("WS notif pump terminado: %s", exc)
 
-            pubsub_task = asyncio.create_task(_pump(), name=f"notif-pump-{connection_id}")
+            pubsub_task = asyncio.create_task(
+                _pump(), name=f"notif-pump-{connection_id}"
+            )
         except Exception as exc:  # noqa: BLE001 - Redis opcional
             logger.info("WS notif: Redis no disponible (%s); modo ping/pong", exc)
 

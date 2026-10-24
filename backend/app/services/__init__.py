@@ -1,4 +1,5 @@
 """Services module exports"""
+
 from app.services.user_service import UserService
 from app.services.rider_service import RiderService
 from app.services.order_service import OrderService
@@ -28,5 +29,5 @@ __all__ = [
     "AlertService",
     "AuditService",
     "IntegrationService",
-    "DashboardService"
+    "DashboardService",
 ]

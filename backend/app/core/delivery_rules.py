@@ -12,8 +12,12 @@ def validate_delivery_otp(delivery: Delivery, supplied_otp: str | None) -> None:
     required = delivery.proof_type == ProofType.OTP or bool(expected)
     if not required:
         return
-    if not expected or not supplied_otp or not secrets.compare_digest(
-        str(expected).encode("utf-8"), str(supplied_otp).encode("utf-8")
+    if (
+        not expected
+        or not supplied_otp
+        or not secrets.compare_digest(
+            str(expected).encode("utf-8"), str(supplied_otp).encode("utf-8")
+        )
     ):
         raise HTTPException(status_code=400, detail="Código OTP requerido o incorrecto")
 

@@ -3,7 +3,17 @@ Agrupa los routers secundarios para mantener el proyecto ordenado.
 Cada uno se monta en main.py por separado.
 Incluye: Deliveries, Shifts, Financial, Productivity, Routes, Dashboard, Alerts, Audit, Integrations, Users, Payouts.
 """
-from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File as FastAPIFile, Form as FastAPIForm
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    status,
+    UploadFile,
+    File as FastAPIFile,
+    Form as FastAPIForm,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from pydantic import BaseModel, Field
@@ -13,21 +23,29 @@ import uuid
 import random
 import string
 from decimal import Decimal
- 
+
 from app.core.database import get_db
 from app.models.all_models import (
-    Delivery, Shift, ShiftStatus, Financial,
-    Route, AuditLog, Integration, ProductivityRecord
+    Delivery,
+    Shift,
+    ShiftStatus,
+    Financial,
+    Route,
+    AuditLog,
+    Integration,
+    ProductivityRecord,
 )
 from app.models.order import Order, OrderStatus
 from app.models.rider import Rider, RiderStatus
 from app.models.user import User, UserRole
+
 # Asumimos que el modelo Payout ya fue creado en app/models/payout.py
-from app.models.payout import Payout, PayoutStatus, PayoutMethod 
+from app.models.payout import Payout, PayoutStatus, PayoutMethod
 from app.api.v1.auth import get_current_user, require_role
 from app.services.financial_service import CREDIT_TYPES
 
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # UTILS & HELPERS
@@ -37,6 +55,7 @@ def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
         return uuid.UUID(value)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"{field_name} inválido")
+
 
 async def _ensure_rider_scope(
     db: AsyncSession,
@@ -49,15 +68,20 @@ async def _ensure_rider_scope(
     result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
     rider = result.scalar_one_or_none()
     if not rider or rider.id != rider_id:
-        raise HTTPException(status_code=403, detail="No tienes permiso para acceder a este recurso")
+        raise HTTPException(
+            status_code=403, detail="No tienes permiso para acceder a este recurso"
+        )
+
 
 def utc_now_naive():
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DELIVERIES
 # ─────────────────────────────────────────────────────────────────────────────
 deliveries_router = APIRouter(prefix="/deliveries")
+
 
 class DeliveryProof(BaseModel):
     otp_code: Optional[str] = None
@@ -65,6 +89,7 @@ class DeliveryProof(BaseModel):
     delivery_lng: Optional[float] = None
     customer_rating: Optional[int] = None
     notes: Optional[str] = None
+
 
 @deliveries_router.get("")
 async def list_deliveries(
@@ -78,18 +103,23 @@ async def list_deliveries(
         result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
         current_rider = result.scalar_one_or_none()
         if not current_rider:
-            raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
+            raise HTTPException(
+                status_code=404, detail="Perfil de repartidor no encontrado"
+            )
         if rider_id:
             requested_rider = _parse_uuid(rider_id, "rider_id")
             if requested_rider != current_rider.id:
-                raise HTTPException(status_code=403, detail="No tienes permiso para consultar entregas de otro rider")
+                raise HTTPException(
+                    status_code=403,
+                    detail="No tienes permiso para consultar entregas de otro rider",
+                )
         q = q.where(Delivery.rider_id == current_rider.id)
     elif rider_id:
         q = q.where(Delivery.rider_id == _parse_uuid(rider_id, "rider_id"))
-    
+
     result = await db.execute(q.order_by(Delivery.created_at.desc()).limit(limit))
     items = result.scalars().all()
-    
+
     return [
         {
             "id": str(d.id),
@@ -110,13 +140,16 @@ async def list_deliveries(
         for d in items
     ]
 
+
 @deliveries_router.post("/{order_id}/start")
 async def start_delivery(
     order_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Order).where(Order.id == _parse_uuid(order_id, "order_id")))
+    result = await db.execute(
+        select(Order).where(Order.id == _parse_uuid(order_id, "order_id"))
+    )
     order = result.scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
@@ -127,7 +160,9 @@ async def start_delivery(
 
     otp = "".join(random.choices(string.digits, k=6))
     if not order.assigned_rider_id:
-        raise HTTPException(status_code=400, detail="El pedido no tiene repartidor asignado")
+        raise HTTPException(
+            status_code=400, detail="El pedido no tiene repartidor asignado"
+        )
 
     now_naive = utc_now_naive()
 
@@ -136,7 +171,7 @@ async def start_delivery(
         rider_id=order.assigned_rider_id,
         proof_otp=otp,
         started_at=now_naive,
-        status="INICIADA"
+        status="INICIADA",
     )
     db.add(delivery)
 
@@ -144,7 +179,11 @@ async def start_delivery(
     order.picked_up_at = now_naive
     await db.commit()
 
-    return {"otp_code": otp, "message": "Entrega iniciada. Comparte el OTP con el cliente."}
+    return {
+        "otp_code": otp,
+        "message": "Entrega iniciada. Comparte el OTP con el cliente.",
+    }
+
 
 @deliveries_router.patch("/{delivery_id}/complete")
 async def complete_delivery(
@@ -153,7 +192,9 @@ async def complete_delivery(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Delivery).where(Delivery.id == _parse_uuid(delivery_id, "delivery_id")))
+    result = await db.execute(
+        select(Delivery).where(Delivery.id == _parse_uuid(delivery_id, "delivery_id"))
+    )
     delivery = result.scalar_one_or_none()
     if not delivery:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
@@ -161,10 +202,10 @@ async def complete_delivery(
     if body.otp_code and delivery.proof_otp:
         if body.otp_code != delivery.proof_otp:
             raise HTTPException(status_code=400, detail="OTP incorrecto")
-        delivery.proof_otp = body.otp_code 
+        delivery.proof_otp = body.otp_code
 
     now_naive = utc_now_naive()
-    
+
     delivery.completed_at = now_naive
     delivery.current_latitude = body.delivery_lat
     delivery.current_longitude = body.delivery_lng
@@ -188,12 +229,17 @@ async def complete_delivery(
                 delivery.sla_actual_minutes = delivery.total_time
 
     await db.commit()
-    return {"message": "Entrega completada exitosamente", "duration_minutes": delivery.total_time}
+    return {
+        "message": "Entrega completada exitosamente",
+        "duration_minutes": delivery.total_time,
+    }
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SHIFTS
 # ─────────────────────────────────────────────────────────────────────────────
 shifts_router = APIRouter(prefix="/shifts")
+
 
 @shifts_router.post("/checkin")
 async def checkin(
@@ -205,10 +251,14 @@ async def checkin(
     result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
     rider = result.scalar_one_or_none()
     if not rider:
-        raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
+        raise HTTPException(
+            status_code=404, detail="Perfil de repartidor no encontrado"
+        )
 
     active = await db.execute(
-        select(Shift).where(Shift.rider_id == rider.id, Shift.status == ShiftStatus.EN_CURSO)
+        select(Shift).where(
+            Shift.rider_id == rider.id, Shift.status == ShiftStatus.EN_CURSO
+        )
     )
     if active.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Ya tienes un turno activo")
@@ -220,12 +270,13 @@ async def checkin(
         start_time=now_naive,
         start_lat=lat,
         start_lng=lng,
-        status=ShiftStatus.EN_CURSO
+        status=ShiftStatus.EN_CURSO,
     )
     db.add(shift)
     rider.is_online = True
     await db.commit()
     return {"message": "Check-in exitoso", "shift_id": str(shift.id)}
+
 
 @shifts_router.post("/checkout/{shift_id}")
 async def checkout(
@@ -233,16 +284,18 @@ async def checkout(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Shift).where(Shift.id == _parse_uuid(shift_id, "shift_id")))
+    result = await db.execute(
+        select(Shift).where(Shift.id == _parse_uuid(shift_id, "shift_id"))
+    )
     shift = result.scalar_one_or_none()
     if not shift:
         raise HTTPException(status_code=404, detail="Turno no encontrado")
 
     now_naive = utc_now_naive()
-    
+
     shift.end_time = now_naive
     shift.status = ShiftStatus.COMPLETADO
-    
+
     if shift.start_time:
         diff = now_naive - shift.start_time
         shift.duration_hours = diff.total_seconds() / 3600
@@ -259,6 +312,7 @@ async def checkout(
         "total_orders": shift.total_orders or 0,
         "total_earnings": shift.total_earnings or 0,
     }
+
 
 @shifts_router.get("")
 async def list_shifts(
@@ -287,10 +341,12 @@ async def list_shifts(
         for s in items
     ]
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # FINANCIAL
 # ─────────────────────────────────────────────────────────────────────────────
 financial_router = APIRouter(prefix="/financial")
+
 
 @financial_router.get("/summary")
 async def financial_summary(
@@ -299,14 +355,14 @@ async def financial_summary(
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ):
     now_naive = utc_now_naive()
-    
+
     if period == "today":
         start = now_naive.replace(hour=0, minute=0, second=0, microsecond=0)
     elif period == "week":
         start = now_naive - timedelta(days=7)
     else:
         start = now_naive - timedelta(days=30)
-    
+
     result = await db.execute(
         select(
             func.count(Financial.id),
@@ -315,11 +371,11 @@ async def financial_summary(
         ).where(Financial.created_at >= start)
     )
     row = result.one()
-    
+
     total_transactions = row[0] or 0
     total_paid = float(row[1] or 0)
     avg_per_delivery = float(row[2] or 0)
-    
+
     return {
         "period": period,
         "total_transactions": total_transactions,
@@ -328,6 +384,7 @@ async def financial_summary(
         "avg_per_delivery": round(avg_per_delivery, 2),
         "margin": round(total_paid, 2),
     }
+
 
 @financial_router.get("/rider/{rider_id}")
 async def rider_earnings(
@@ -340,28 +397,33 @@ async def rider_earnings(
     await _ensure_rider_scope(db, current_user, rider_uuid)
 
     now_naive = utc_now_naive()
-    start = now_naive.replace(hour=0, minute=0, second=0) if period == "today" else now_naive - timedelta(days=30)
-    
+    start = (
+        now_naive.replace(hour=0, minute=0, second=0)
+        if period == "today"
+        else now_naive - timedelta(days=30)
+    )
+
     # Nota: Ajusta 'period_date' si tu modelo Financial usa 'created_at'
     result = await db.execute(
-        select(func.sum(Financial.amount), func.count(Financial.id))
-        .where(Financial.rider_id == rider_uuid, Financial.created_at >= start)
+        select(func.sum(Financial.amount), func.count(Financial.id)).where(
+            Financial.rider_id == rider_uuid, Financial.created_at >= start
+        )
     )
     row = result.one()
-    
+
     # Calculamos saldo pendiente (Total ganado - Total retirado/procesado)
     # Esto es una simplificación. Lo ideal es sumar transacciones y restar payouts
     total_earned = float(row[0] or 0)
-    
+
     # Obtenemos lo ya retirado
     payouts_result = await db.execute(
         select(func.sum(Payout.amount)).where(
             Payout.rider_id == rider_uuid,
-            Payout.status.in_([PayoutStatus.EN_PROCESO, PayoutStatus.COMPLETADO])
+            Payout.status.in_([PayoutStatus.EN_PROCESO, PayoutStatus.COMPLETADO]),
         )
     )
     total_withdrawn = float(payouts_result.scalar() or 0)
-    
+
     pending = max(0, total_earned - total_withdrawn)
 
     return {
@@ -372,14 +434,17 @@ async def rider_earnings(
         "completed_deliveries": row[1] or 0,
     }
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # PAYOUTS (RETIROS) - NUEVO
 # ─────────────────────────────────────────────────────────────────────────────
 payouts_router = APIRouter(prefix="/payouts")
 
+
 class PayoutRequestSchema(BaseModel):
     amount: float
     method: str = "TRANSFERENCIA"
+
 
 @payouts_router.get("/balance")
 async def get_available_balance(
@@ -391,17 +456,19 @@ async def get_available_balance(
         # Admins pueden ver el balance de un rider específico si se pasa query param
         # Por simplicidad, aquí solo manejamos el propio o lanzamos error si no es rider
         pass
-        
+
     result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
     rider = result.scalar_one_or_none()
     if not rider:
-        raise HTTPException(status_code=404, detail="Perfil de repartidor no encontrado")
+        raise HTTPException(
+            status_code=404, detail="Perfil de repartidor no encontrado"
+        )
 
     # Calcular total ganado (usando CREDIT_TYPES del servicio financiero para incluir todos los tipos de crédito)
     fin_res = await db.execute(
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider.id,
-            Financial.transaction_type.in_(list(CREDIT_TYPES))
+            Financial.transaction_type.in_(list(CREDIT_TYPES)),
         )
     )
     total_earned = float(fin_res.scalar() or 0)
@@ -410,7 +477,7 @@ async def get_available_balance(
     pay_res = await db.execute(
         select(func.sum(Payout.amount)).where(
             Payout.rider_id == rider.id,
-            Payout.status.in_([PayoutStatus.EN_PROCESO, PayoutStatus.COMPLETADO])
+            Payout.status.in_([PayoutStatus.EN_PROCESO, PayoutStatus.COMPLETADO]),
         )
     )
     total_withdrawn = float(pay_res.scalar() or 0)
@@ -419,8 +486,9 @@ async def get_available_balance(
 
     return {
         "available": round(available, 2),
-        "pending": 0.0 # Podría calcularse si hubiera payouts pendientes
+        "pending": 0.0,  # Podría calcularse si hubiera payouts pendientes
     }
+
 
 @payouts_router.get("")
 async def list_payouts(
@@ -430,7 +498,7 @@ async def list_payouts(
 ):
     """Lista los retiros del usuario actual (o todos si es admin)."""
     q = select(Payout)
-    
+
     if current_user.role != UserRole.REPARTIDOR:
         # Admin ve todo, quizás filtrado por query params si se agregan
         pass
@@ -439,7 +507,7 @@ async def list_payouts(
         result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
         rider = result.scalar_one_or_none()
         if not rider:
-             raise HTTPException(status_code=404, detail="Perfil no encontrado")
+            raise HTTPException(status_code=404, detail="Perfil no encontrado")
         q = q.where(Payout.rider_id == rider.id)
 
     q = q.order_by(Payout.requested_at.desc()).limit(limit)
@@ -461,6 +529,7 @@ async def list_payouts(
         for p in items
     ]
 
+
 @payouts_router.post("/request", status_code=201)
 async def request_payout(
     body: PayoutRequestSchema,
@@ -469,7 +538,9 @@ async def request_payout(
 ):
     """Solicita un nuevo retiro."""
     if current_user.role != UserRole.REPARTIDOR:
-        raise HTTPException(status_code=403, detail="Solo repartidores pueden solicitar retiros")
+        raise HTTPException(
+            status_code=403, detail="Solo repartidores pueden solicitar retiros"
+        )
 
     if body.amount < 10:
         raise HTTPException(status_code=400, detail="El monto mínimo es 10.00")
@@ -483,7 +554,7 @@ async def request_payout(
     fin_res = await db.execute(
         select(func.sum(Financial.amount)).where(
             Financial.rider_id == rider.id,
-            Financial.transaction_type.in_(list(CREDIT_TYPES))
+            Financial.transaction_type.in_(list(CREDIT_TYPES)),
         )
     )
     total_earned = float(fin_res.scalar() or 0)
@@ -491,7 +562,7 @@ async def request_payout(
     pay_res = await db.execute(
         select(func.sum(Payout.amount)).where(
             Payout.rider_id == rider.id,
-            Payout.status.in_([PayoutStatus.EN_PROCESO, PayoutStatus.COMPLETADO])
+            Payout.status.in_([PayoutStatus.EN_PROCESO, PayoutStatus.COMPLETADO]),
         )
     )
     total_withdrawn = float(pay_res.scalar() or 0)
@@ -505,7 +576,7 @@ async def request_payout(
         amount=body.amount,
         method=body.method,
         status=PayoutStatus.PENDIENTE,
-        requested_at=utc_now_naive()
+        requested_at=utc_now_naive(),
     )
     db.add(payout)
     await db.commit()
@@ -515,8 +586,9 @@ async def request_payout(
         "id": str(payout.id),
         "amount": float(payout.amount),
         "status": payout.status.value,
-        "message": "Solicitud creada exitosamente"
+        "message": "Solicitud creada exitosamente",
     }
+
 
 @payouts_router.patch("/{payout_id}/approve")
 async def approve_payout(
@@ -524,7 +596,9 @@ async def approve_payout(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ):
-    result = await db.execute(select(Payout).where(Payout.id == _parse_uuid(payout_id, "payout_id")))
+    result = await db.execute(
+        select(Payout).where(Payout.id == _parse_uuid(payout_id, "payout_id"))
+    )
     payout = result.scalar_one_or_none()
     if not payout:
         raise HTTPException(status_code=404, detail="Retiro no encontrado")
@@ -533,18 +607,21 @@ async def approve_payout(
     payout.processed_at = utc_now_naive()
     # Generar código de referencia simple
     payout.reference_code = f"PAY-{uuid.uuid4().hex[:8].upper()}"
-    
+
     await db.commit()
     return {"message": "Retiro aprobado", "reference": payout.reference_code}
 
+
 @payouts_router.patch("/{payout_id}/reject")
 async def reject_payout(
-    payout_id: str, 
+    payout_id: str,
     reason: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ):
-    result = await db.execute(select(Payout).where(Payout.id == _parse_uuid(payout_id, "payout_id")))
+    result = await db.execute(
+        select(Payout).where(Payout.id == _parse_uuid(payout_id, "payout_id"))
+    )
     payout = result.scalar_one_or_none()
     if not payout:
         raise HTTPException(status_code=404, detail="Retiro no encontrado")
@@ -552,14 +629,16 @@ async def reject_payout(
     payout.status = PayoutStatus.RECHAZADO
     payout.rejection_reason = reason
     payout.processed_at = utc_now_naive()
-    
+
     await db.commit()
     return {"message": "Retiro rechazado"}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PRODUCTIVITY
 # ─────────────────────────────────────────────────────────────────────────────
 productivity_router = APIRouter(prefix="/productivity")
+
 
 @productivity_router.get("/rider/{rider_id}")
 async def rider_productivity(
@@ -577,40 +656,45 @@ async def rider_productivity(
         .limit(30)
     )
     items = result.scalars().all()
-    
+
     response_data = []
     for p in items:
         sla_score = p.sla_compliance_pct or 0
         efficiency_score = min((p.orders_per_hour or 0) * 10, 100)
         calculated_score = (sla_score * 0.7) + (efficiency_score * 0.3)
 
-        response_data.append({
-            "date": p.date.isoformat(),
-            "total_orders": p.total_orders,
-            "orders_on_time": p.orders_on_time,
-            "avg_delivery_time_min": p.avg_delivery_time_min,
-            "orders_per_hour": p.orders_per_hour,
-            "sla_compliance_pct": p.sla_compliance_pct,
-            "total_earnings": p.total_earnings,
-            "performance_score": getattr(p, 'performance_score', calculated_score),
-        })
-    
+        response_data.append(
+            {
+                "date": p.date.isoformat(),
+                "total_orders": p.total_orders,
+                "orders_on_time": p.orders_on_time,
+                "avg_delivery_time_min": p.avg_delivery_time_min,
+                "orders_per_hour": p.orders_per_hour,
+                "sla_compliance_pct": p.sla_compliance_pct,
+                "total_earnings": p.total_earnings,
+                "performance_score": getattr(p, "performance_score", calculated_score),
+            }
+        )
+
     return response_data
+
 
 @productivity_router.get("/ranking")
 async def performance_ranking(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)),
+    current_user: User = Depends(
+        require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)
+    ),
 ):
     now_naive = utc_now_naive()
     today = now_naive.date()
-    
+
     try:
-        if hasattr(ProductivityRecord, 'performance_score'):
+        if hasattr(ProductivityRecord, "performance_score"):
             order_clause = ProductivityRecord.performance_score.desc()
         else:
             order_clause = ProductivityRecord.sla_compliance_pct.desc()
-            
+
         result = await db.execute(
             select(ProductivityRecord)
             .where(ProductivityRecord.date == today)
@@ -619,45 +703,48 @@ async def performance_ranking(
         )
     except Exception:
         result = await db.execute(
-            select(ProductivityRecord)
-            .where(ProductivityRecord.date == today)
-            .limit(50)
+            select(ProductivityRecord).where(ProductivityRecord.date == today).limit(50)
         )
 
     items = result.scalars().all()
-    
+
     ranked_list = []
     for i, p in enumerate(items):
         sla_score = p.sla_compliance_pct or 0
         efficiency_score = min((p.orders_per_hour or 0) * 10, 100)
         calculated_score = (sla_score * 0.7) + (efficiency_score * 0.3)
-        final_score = getattr(p, 'performance_score', calculated_score)
+        final_score = getattr(p, "performance_score", calculated_score)
 
-        ranked_list.append({
-            "rank": i + 1,
-            "rider_id": str(p.rider_id),
-            "orders": p.total_orders,
-            "on_time_pct": p.sla_compliance_pct,
-            "avg_time_min": p.avg_delivery_time_min,
-            "earnings": p.total_earnings,
-            "score": round(final_score, 2),
-        })
-    
-    if not hasattr(ProductivityRecord, 'performance_score'):
-        ranked_list.sort(key=lambda x: x['score'], reverse=True)
+        ranked_list.append(
+            {
+                "rank": i + 1,
+                "rider_id": str(p.rider_id),
+                "orders": p.total_orders,
+                "on_time_pct": p.sla_compliance_pct,
+                "avg_time_min": p.avg_delivery_time_min,
+                "earnings": p.total_earnings,
+                "score": round(final_score, 2),
+            }
+        )
+
+    if not hasattr(ProductivityRecord, "performance_score"):
+        ranked_list.sort(key=lambda x: x["score"], reverse=True)
         for idx, item in enumerate(ranked_list):
-            item['rank'] = idx + 1
+            item["rank"] = idx + 1
 
     return ranked_list
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ROUTES GPS
 # ─────────────────────────────────────────────────────────────────────────────
 routes_router = APIRouter(prefix="/routes")
 
+
 class GPSPoint(BaseModel):
     lat: float
     lng: float
+
 
 @routes_router.post("/{rider_id}/track")
 async def add_gps_point(
@@ -680,10 +767,7 @@ async def add_gps_point(
 
     if not route:
         route = Route(
-            rider_id=rider_uuid,
-            points=[],
-            start_time=now_naive,
-            status="EN_PROGRESO"
+            rider_id=rider_uuid, points=[], start_time=now_naive, status="EN_PROGRESO"
         )
         db.add(route)
         await db.flush()
@@ -702,10 +786,12 @@ async def add_gps_point(
     await db.commit()
     return {"ok": True, "points_count": len(points)}
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DASHBOARD
 # ─────────────────────────────────────────────────────────────────────────────
 dashboard_router = APIRouter(prefix="/dashboard")
+
 
 @dashboard_router.get("/manager")
 async def manager_dashboard(
@@ -743,7 +829,9 @@ async def manager_dashboard(
     total_orders = orders_today.scalar() or 0
     total_delivered = delivered_today.scalar() or 0
     total_breached = sla_breached.scalar() or 0
-    sla_pct = round((total_delivered - total_breached) / max(total_delivered, 1) * 100, 1)
+    sla_pct = round(
+        (total_delivered - total_breached) / max(total_delivered, 1) * 100, 1
+    )
 
     return {
         "orders_today": total_orders,
@@ -755,21 +843,33 @@ async def manager_dashboard(
         "avg_delivery_time_min": round(float(avg_time.scalar() or 0), 1),
     }
 
+
 @dashboard_router.get("/operator")
 async def operator_dashboard(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)),
+    current_user: User = Depends(
+        require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)
+    ),
 ):
     pending = await db.execute(
-        select(Order).where(Order.status.in_([OrderStatus.PENDIENTE, OrderStatus.ASIGNADO])).limit(20)
+        select(Order)
+        .where(Order.status.in_([OrderStatus.PENDIENTE, OrderStatus.ASIGNADO]))
+        .limit(20)
     )
     in_route = await db.execute(
-        select(Rider).where(Rider.is_online.is_(True), Rider.last_lat.is_not(None)).limit(50)
+        select(Rider)
+        .where(Rider.is_online.is_(True), Rider.last_lat.is_not(None))
+        .limit(50)
     )
     return {
         "pending_orders": [
-            {"id": str(o.id), "number": o.external_id, "status": o.status.value,
-             "address": o.delivery_address, "priority": o.priority}
+            {
+                "id": str(o.id),
+                "number": o.external_id,
+                "status": o.status.value,
+                "address": o.delivery_address,
+                "priority": o.priority,
+            }
             for o in pending.scalars().all()
         ],
         "riders_online": [
@@ -778,10 +878,12 @@ async def operator_dashboard(
         ],
     }
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ALERTS
 # ─────────────────────────────────────────────────────────────────────────────
 alerts_router = APIRouter(prefix="/alerts")
+
 
 @alerts_router.get("")
 async def get_alerts(
@@ -789,24 +891,32 @@ async def get_alerts(
     current_user: User = Depends(get_current_user),
 ):
     breached = await db.execute(
-        select(Order).where(
+        select(Order)
+        .where(
             Order.delivered_at.is_not(None),
             Order.sla_deadline.is_not(None),
             Order.delivered_at > Order.sla_deadline,
             Order.status.notin_([OrderStatus.ENTREGADO, OrderStatus.CANCELADO]),
-        ).limit(20)
+        )
+        .limit(20)
     )
     return {
         "sla_breaches": [
-            {"order_id": str(o.id), "number": o.external_id, "address": o.delivery_address}
+            {
+                "order_id": str(o.id),
+                "number": o.external_id,
+                "address": o.delivery_address,
+            }
             for o in breached.scalars().all()
         ]
     }
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AUDIT
 # ─────────────────────────────────────────────────────────────────────────────
 audit_router = APIRouter(prefix="/audit")
+
 
 @audit_router.get("")
 async def get_audit_logs(
@@ -831,19 +941,19 @@ async def get_audit_logs(
         for a in items
     ]
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # INTEGRATIONS
 # ─────────────────────────────────────────────────────────────────────────────
 integrations_router = APIRouter(prefix="/integrations")
+
 
 @integrations_router.get("")
 async def list_integrations(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ):
-    result = await db.execute(
-        select(Integration).order_by(Integration.name)
-    )
+    result = await db.execute(select(Integration).order_by(Integration.name))
     items = result.scalars().all()
     return [
         {
@@ -856,19 +966,19 @@ async def list_integrations(
         for i in items
     ]
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # USERS
 # ─────────────────────────────────────────────────────────────────────────────
 users_router = APIRouter(prefix="/users")
+
 
 @users_router.get("")
 async def list_users(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ):
-    result = await db.execute(
-        select(User).order_by(User.created_at.desc())
-    )
+    result = await db.execute(select(User).order_by(User.created_at.desc()))
     items = result.scalars().all()
     return [
         {

@@ -30,7 +30,9 @@ def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
     try:
         return uuid.UUID(value)
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} inválido")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} inválido"
+        )
 
 
 def _parse_datetime(value: str, field_name: str, end_of_day: bool = False) -> datetime:
@@ -47,7 +49,9 @@ def _parse_datetime(value: str, field_name: str, end_of_day: bool = False) -> da
             )
         return parsed
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} inválida")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} inválida"
+        )
 
 
 def _enum_value(value: Any) -> Union[str, int, float, None]:
@@ -62,9 +66,13 @@ def _action_name(value: Any) -> str:
 
 def _audit_status(log: AuditLog) -> str:
     action_name = _action_name(log.action_type)
-    if log.success is False or (log.status_code is not None and int(log.status_code) >= 500):
+    if log.success is False or (
+        log.status_code is not None and int(log.status_code) >= 500
+    ):
         return "FAILURE"
-    if action_name == ActionType.ACCESS_DENIED.name or (log.status_code is not None and int(log.status_code) >= 400):
+    if action_name == ActionType.ACCESS_DENIED.name or (
+        log.status_code is not None and int(log.status_code) >= 400
+    ):
         return "WARNING"
     return "SUCCESS"
 
@@ -76,7 +84,9 @@ def _serialize_audit(log: AuditLog) -> dict[str, Any]:
         "action": _action_name(log.action_type),
         "action_type": _enum_value(log.action_type),
         "status": status_label,
-        "success": bool(log.success) if log.success is not None else status_label != "FAILURE",
+        "success": (
+            bool(log.success) if log.success is not None else status_label != "FAILURE"
+        ),
         "user_id": str(log.user_id) if log.user_id else None,
         "user_email": log.user_email,
         "user_role": log.user_role,
@@ -115,15 +125,21 @@ def _build_filters(
         try:
             filters.append(AuditLog.action_type == ActionType[action.upper()])
         except KeyError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="action inválida")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="action inválida"
+            )
 
     if status_filter and status_filter.upper() != "ALL":
         normalized_status = status_filter.upper()
         if normalized_status == "SUCCESS":
             filters.append(AuditLog.success.is_(True))
-            filters.append(or_(AuditLog.status_code.is_(None), AuditLog.status_code < 400))
+            filters.append(
+                or_(AuditLog.status_code.is_(None), AuditLog.status_code < 400)
+            )
         elif normalized_status == "FAILURE":
-            filters.append(or_(AuditLog.success.is_(False), AuditLog.status_code >= 500))
+            filters.append(
+                or_(AuditLog.success.is_(False), AuditLog.status_code >= 500)
+            )
         elif normalized_status == "WARNING":
             filters.append(
                 or_(
@@ -132,18 +148,24 @@ def _build_filters(
                 )
             )
         else:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="status inválido")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="status inválido"
+            )
 
     if user_id:
         filters.append(AuditLog.user_id == _parse_uuid(user_id, "user_id"))
     if resource_type:
-        filters.append(func.lower(AuditLog.resource_type) == resource_type.strip().lower())
+        filters.append(
+            func.lower(AuditLog.resource_type) == resource_type.strip().lower()
+        )
     if resource_id:
         filters.append(AuditLog.resource_id == resource_id.strip())
     if date_from:
         filters.append(AuditLog.created_at >= _parse_datetime(date_from, "date_from"))
     if date_to:
-        filters.append(AuditLog.created_at <= _parse_datetime(date_to, "date_to", end_of_day=True))
+        filters.append(
+            AuditLog.created_at <= _parse_datetime(date_to, "date_to", end_of_day=True)
+        )
     if search and search.strip():
         pattern = f"%{search.strip().lower()}%"
         filters.append(
@@ -188,8 +210,12 @@ async def _query_audit_logs(
 async def list_audit_logs(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    action: Optional[str] = Query(None, description="Nombre de ActionType, por ejemplo LOGIN, UPDATE"),
-    status_filter: Optional[str] = Query(None, alias="status", description="SUCCESS, WARNING o FAILURE"),
+    action: Optional[str] = Query(
+        None, description="Nombre de ActionType, por ejemplo LOGIN, UPDATE"
+    ),
+    status_filter: Optional[str] = Query(
+        None, alias="status", description="SUCCESS, WARNING o FAILURE"
+    ),
     user_id: Optional[str] = Query(None),
     resource_type: Optional[str] = Query(None),
     resource_id: Optional[str] = Query(None),
@@ -283,7 +309,19 @@ async def export_audit_logs(
     output = io.StringIO()
     writer = csv.DictWriter(
         output,
-        fieldnames=["id", "created_at", "status", "action", "user_email", "user_role", "resource_type", "resource_id", "ip_address", "status_code", "description"],
+        fieldnames=[
+            "id",
+            "created_at",
+            "status",
+            "action",
+            "user_email",
+            "user_role",
+            "resource_type",
+            "resource_id",
+            "ip_address",
+            "status_code",
+            "description",
+        ],
     )
     writer.writeheader()
     for log in logs:
@@ -308,5 +346,8 @@ async def get_audit_log(
     result = await db.execute(select(AuditLog).where(AuditLog.id == audit_uuid))
     log = result.scalar_one_or_none()
     if not log:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evento de auditoría no encontrado")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Evento de auditoría no encontrado",
+        )
     return _serialize_audit(log)

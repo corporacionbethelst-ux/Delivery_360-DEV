@@ -2,11 +2,21 @@
 Delivery360 - Modelo de Alerta (Alias de Notification para compatibilidad)
 Las alertas operacionales se almacenan en la tabla de notificaciones con tipo específico.
 """
+
 from datetime import datetime
 from typing import Optional, Dict, Any
 import uuid as uuid_pkg
 
-from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, Enum as SQLEnum, Integer
+from sqlalchemy import (
+    Column,
+    String,
+    Text,
+    DateTime,
+    Boolean,
+    ForeignKey,
+    Enum as SQLEnum,
+    Integer,
+)
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from enum import Enum
@@ -39,12 +49,11 @@ class AlertType(str, Enum):
 
 class Alert(Base):
     """Modelo de Alerta Operacional"""
+
     __tablename__ = "alerts"
 
     id: Mapped[uuid_pkg.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid_pkg.uuid4
+        UUID(as_uuid=True), primary_key=True, default=uuid_pkg.uuid4
     )
 
     # Tipo y Severidad
@@ -56,23 +65,39 @@ class Alert(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
 
     # Estado
-    status: Mapped[str] = mapped_column(String(20), default=AlertStatus.NUEVA.value, index=True)
+    status: Mapped[str] = mapped_column(
+        String(20), default=AlertStatus.NUEVA.value, index=True
+    )
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_dismissed: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
     # Relaciones (Opcionales)
-    order_id: Mapped[Optional[uuid_pkg.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("orders.id"), nullable=True)
-    rider_id: Mapped[Optional[uuid_pkg.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("riders.id"), nullable=True)
-    user_id: Mapped[Optional[uuid_pkg.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    order_id: Mapped[Optional[uuid_pkg.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orders.id"), nullable=True
+    )
+    rider_id: Mapped[Optional[uuid_pkg.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("riders.id"), nullable=True
+    )
+    user_id: Mapped[Optional[uuid_pkg.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
 
     # Metadata extra (JSON)
     metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
 
     # Fechas
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    resolved_by: Mapped[Optional[uuid_pkg.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    resolved_by: Mapped[Optional[uuid_pkg.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
 
     # Relaciones ORM
     order = relationship("Order", back_populates="alerts")

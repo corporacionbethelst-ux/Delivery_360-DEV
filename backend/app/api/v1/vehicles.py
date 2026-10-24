@@ -25,14 +25,22 @@ router = APIRouter(prefix="/vehicles", tags=["Vehicles"])
 # SCHEMAS (Modelos de Datos)
 # ==============================================================================
 
+
 class VehicleCreate(BaseModel):
     """Datos para crear un nuevo vehículo."""
-    plate: str = Field(..., min_length=1, max_length=20, description="Placa o patente del vehículo")
+
+    plate: str = Field(
+        ..., min_length=1, max_length=20, description="Placa o patente del vehículo"
+    )
     type: VehicleType
-    model: str = Field(..., min_length=1, max_length=100, description="Modelo del vehículo")
+    model: str = Field(
+        ..., min_length=1, max_length=100, description="Modelo del vehículo"
+    )
     color: str = Field(..., min_length=1, max_length=50, description="Color principal")
     year: int = Field(..., ge=1900, le=2100, description="Año de fabricación")
-    insurance_expiry: Optional[date] = Field(None, description="Fecha de vencimiento del seguro (YYYY-MM-DD)")
+    insurance_expiry: Optional[date] = Field(
+        None, description="Fecha de vencimiento del seguro (YYYY-MM-DD)"
+    )
     notes: Optional[str] = Field(None, description="Notas adicionales")
 
     @field_validator("plate", "model", "color", mode="before")
@@ -44,8 +52,10 @@ class VehicleCreate(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True)
 
+
 class VehicleUpdate(BaseModel):
     """Datos parciales para actualizar un vehículo."""
+
     plate: Optional[str] = Field(None, min_length=1, max_length=20)
     type: Optional[VehicleType] = None
     model: Optional[str] = Field(None, min_length=1, max_length=100)
@@ -64,8 +74,10 @@ class VehicleUpdate(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True)
 
+
 class VehicleResponse(BaseModel):
     """Esquema de respuesta estándar."""
+
     id: str
     plate: str
     type: str
@@ -75,7 +87,9 @@ class VehicleResponse(BaseModel):
     status: str
     insurance_expiry: Optional[str] = None
     rider_id: Optional[str] = None  # ID del usuario (users.id)
-    rider_profile_id: Optional[str] = None  # ID del perfil de rider (riders.id) - USAR ESTE PARA LLAMAR A /api/v1/riders/{id}
+    rider_profile_id: Optional[str] = (
+        None  # ID del perfil de rider (riders.id) - USAR ESTE PARA LLAMAR A /api/v1/riders/{id}
+    )
     rider_name: Optional[str] = None
     notes: Optional[str] = None
     created_at: str
@@ -83,9 +97,11 @@ class VehicleResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 # ==============================================================================
 # HELPERS & MODELOS
 # ==============================================================================
+
 
 def _parse_uuid(value: str, field_name: str = "ID") -> uuid.UUID:
     """Convierte string a UUID o lanza error 400."""
@@ -94,9 +110,11 @@ def _parse_uuid(value: str, field_name: str = "ID") -> uuid.UUID:
     except ValueError:
         raise HTTPException(status_code=400, detail=f"{field_name} inválido")
 
+
 def utc_now_naive() -> datetime:
     """Obtiene la hora actual UTC naive (sin zona horaria)."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
 
 def _format_date(date_val: Any) -> Optional[str]:
     """Normaliza fechas a string ISO o retorna None."""
@@ -106,13 +124,15 @@ def _format_date(date_val: Any) -> Optional[str]:
         return date_val.isoformat()
     return str(date_val)
 
+
 def _get_enum_value(enum_obj: Any) -> str:
     """Extrae el valor string de un Enum de SQLAlchemy o Pydantic de forma segura."""
     if enum_obj is None:
         return ""
-    if hasattr(enum_obj, 'value'):
+    if hasattr(enum_obj, "value"):
         return enum_obj.value
     return str(enum_obj)
+
 
 def _safe_parse_enum(enum_class, value: Optional[str]) -> Optional[Any]:
     """
@@ -122,10 +142,10 @@ def _safe_parse_enum(enum_class, value: Optional[str]) -> Optional[Any]:
     """
     if not value or value.strip() == "":
         return None
-    
+
     # Normalizar entrada
     val_upper = str(value).strip().upper()
-    
+
     if val_upper in {"ALL", "TODOS", "TODAS"}:
         return None
 
@@ -133,13 +153,13 @@ def _safe_parse_enum(enum_class, value: Optional[str]) -> Optional[Any]:
     for item in enum_class:
         if item.value == val_upper:
             return item
-            
+
     # Intentar coincidir por nombre (ej: "MOTO" == VehicleType.MOTO.name)
     try:
         return enum_class[val_upper]
     except KeyError:
         pass
-            
+
     return None
 
 
@@ -148,16 +168,16 @@ def _build_vehicle_response(vehicle: Vehicle) -> dict:
     rider_name = None
     rider_user_id = None
     rider_profile_id = None  # El ID real del rider (de la tabla riders)
-    
+
     rider = vehicle.__dict__.get("rider")
     if rider:
         rider_name = f"{rider.first_name or ''} {rider.last_name or ''}".strip()
         if not rider_name and rider.email:
             rider_name = rider.email
         rider_user_id = str(rider.id)
-        
+
         # Si el user tiene un perfil rider, obtener ese ID (este es el ID que necesita el frontend para llamar a /api/v1/riders/{id})
-        if hasattr(rider, 'rider_profile') and rider.rider_profile:
+        if hasattr(rider, "rider_profile") and rider.rider_profile:
             rider_profile_id = str(rider.rider_profile.id)
 
     return {
@@ -177,6 +197,7 @@ def _build_vehicle_response(vehicle: Vehicle) -> dict:
         "updated_at": _format_date(vehicle.updated_at),
     }
 
+
 # ==============================================================================
 # ENDPOINTS
 # ==============================================================================
@@ -184,11 +205,18 @@ def _build_vehicle_response(vehicle: Vehicle) -> dict:
 
 @router.get("/available", response_model=List[VehicleResponse])
 async def get_available_vehicles(
-    ownership_type: Optional[str] = Query(None, description="Filtrar por tipo de propiedad (EMPRESA para vehículos de flota)"),
-    type: Optional[str] = Query(None, description="Filtrar por tipo de vehículo (MOTO, AUTO, etc.)"),
+    ownership_type: Optional[str] = Query(
+        None,
+        description="Filtrar por tipo de propiedad (EMPRESA para vehículos de flota)",
+    ),
+    type: Optional[str] = Query(
+        None, description="Filtrar por tipo de vehículo (MOTO, AUTO, etc.)"
+    ),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR))
+    current_user: User = Depends(
+        require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)
+    ),
 ):
     """
     Obtiene vehículos disponibles (no asignados) para asignar a repartidores.
@@ -196,52 +224,62 @@ async def get_available_vehicles(
     Accesible para: SUPERADMIN, GERENTE, OPERADOR.
     """
     from sqlalchemy.orm import selectinload
-    
-    stmt = select(Vehicle).options(selectinload(Vehicle.rider).selectinload(User.rider_profile))
-    
+
+    stmt = select(Vehicle).options(
+        selectinload(Vehicle.rider).selectinload(User.rider_profile)
+    )
+
     # Filtrar vehículos no asignados (disponibles)
     stmt = stmt.where(Vehicle.rider_id.is_(None))
-    
+
     # Si se especifica ownership_type EMPRESA, filtrar solo vehículos de la empresa
     if ownership_type and ownership_type.upper() == "EMPRESA":
         # Los vehículos de empresa son aquellos que no tienen rider_id y están activos
         stmt = stmt.where(Vehicle.status == VehicleStatus.ACTIVO.value)
-    
+
     # Filtro opcional por tipo de vehículo
     type_enum = _safe_parse_enum(VehicleType, type)
     if type_enum:
         stmt = stmt.where(Vehicle.type == type_enum.value)
-    
+
     # Limitar resultados
     stmt = stmt.limit(limit).order_by(Vehicle.created_at.desc())
-    
+
     result = await db.execute(stmt)
     vehicles = result.scalars().unique().all()
-    
+
     return [_build_vehicle_response(vehicle) for vehicle in vehicles]
 
 
 @router.get("", response_model=List[VehicleResponse])
 async def list_vehicles(
     # FORZAMOS QUE SEAN STRINGS PARA EVITAR VALIDACIÓN AUTOMÁTICA DE FASTAPI
-    type: Optional[str] = Query(None, description="Filtrar por tipo (MOTO, AUTO, etc.)"),
-    status: Optional[str] = Query(None, description="Filtrar por estado (ACTIVO, MANTENIMIENTO, etc.)"),
+    type: Optional[str] = Query(
+        None, description="Filtrar por tipo (MOTO, AUTO, etc.)"
+    ),
+    status: Optional[str] = Query(
+        None, description="Filtrar por estado (ACTIVO, MANTENIMIENTO, etc.)"
+    ),
     search: Optional[str] = Query(None),
     available_only: bool = Query(False),
     limit: int = Query(100, ge=1, le=500),
     page: int = Query(1, ge=1),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR))
+    current_user: User = Depends(
+        require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)
+    ),
 ):
     """
     Lista vehículos con filtros opcionales.
     Accesible para: SUPERADMIN, GERENTE, OPERADOR.
     """
     from sqlalchemy.orm import selectinload
-    
+
     # Usar selectinload para cargar eager la relación rider (User) y su perfil rider anidado
-    stmt = select(Vehicle).options(selectinload(Vehicle.rider).selectinload(User.rider_profile))
-    
+    stmt = select(Vehicle).options(
+        selectinload(Vehicle.rider).selectinload(User.rider_profile)
+    )
+
     # Convertir strings a Enums de forma segura MANUALMENTE
     type_enum = _safe_parse_enum(VehicleType, type)
     status_enum = _safe_parse_enum(VehicleStatus, status)
@@ -249,7 +287,7 @@ async def list_vehicles(
     # Aplicar filtros solo si la conversión fue exitosa
     if type_enum:
         stmt = stmt.where(Vehicle.type == type_enum.value)
-    elif type: 
+    elif type:
         logger.warning(f"Tipo de vehículo '{type}' no reconocido. Se omite el filtro.")
 
     if status_enum:
@@ -260,14 +298,14 @@ async def list_vehicles(
     if search:
         search_lower = f"%{search.lower()}%"
         stmt = stmt.where(
-            (func.lower(Vehicle.plate).like(search_lower)) | 
-            (func.lower(Vehicle.model).like(search_lower))
+            (func.lower(Vehicle.plate).like(search_lower))
+            | (func.lower(Vehicle.model).like(search_lower))
         )
-    
+
     if available_only:
         stmt = stmt.where(
-            (Vehicle.rider_id.is_(None)) & 
-            (Vehicle.status == VehicleStatus.ACTIVO.value)
+            (Vehicle.rider_id.is_(None))
+            & (Vehicle.status == VehicleStatus.ACTIVO.value)
         )
 
     # Paginación y Ordenamiento
@@ -284,19 +322,17 @@ async def list_vehicles(
 async def get_vehicle(
     vehicle_id: str = Path(..., description="ID del vehículo (UUID)"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Obtiene detalles de un vehículo específico por ID."""
     from sqlalchemy.orm import selectinload
-    
+
     vid = _parse_uuid(vehicle_id)
-    
+
     # Cargar el rider (User) y su perfil de rider (Rider) anidado
     stmt = (
         select(Vehicle)
-        .options(
-            selectinload(Vehicle.rider).selectinload(User.rider_profile)
-        )
+        .options(selectinload(Vehicle.rider).selectinload(User.rider_profile))
         .where(Vehicle.id == vid)
     )
     result = await db.execute(stmt)
@@ -312,16 +348,18 @@ async def get_vehicle(
 async def create_vehicle(
     body: VehicleCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE))
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ):
     """Registra un nuevo vehículo en la flota."""
-    
+
     plate_upper = body.plate.strip().upper()
 
     stmt = select(Vehicle).where(func.upper(Vehicle.plate) == plate_upper)
     result = await db.execute(stmt)
     if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail=f"La placa '{plate_upper}' ya está registrada")
+        raise HTTPException(
+            status_code=400, detail=f"La placa '{plate_upper}' ya está registrada"
+        )
 
     new_vehicle = Vehicle(
         id=uuid.uuid4(),
@@ -333,9 +371,9 @@ async def create_vehicle(
         status=VehicleStatus.ACTIVO.value,
         insurance_expiry=body.insurance_expiry,
         notes=body.notes,
-        created_at=utc_now_naive()
+        created_at=utc_now_naive(),
     )
-    
+
     db.add(new_vehicle)
     await db.commit()
     await db.refresh(new_vehicle)
@@ -348,11 +386,11 @@ async def update_vehicle(
     vehicle_id: str = Path(..., description="ID del vehículo (UUID)"),
     body: VehicleUpdate = ...,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE))
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ):
     """Actualiza datos parciales de un vehículo existente."""
     vid = _parse_uuid(vehicle_id)
-    
+
     stmt = select(Vehicle).where(Vehicle.id == vid)
     result = await db.execute(stmt)
     vehicle = result.scalar_one_or_none()
@@ -361,27 +399,28 @@ async def update_vehicle(
         raise HTTPException(status_code=404, detail="Vehículo no encontrado")
 
     update_data = body.model_dump(exclude_unset=True)
-    
+
     if "plate" in update_data:
         new_plate = update_data["plate"].strip().upper()
         if new_plate != vehicle.plate:
             check_stmt = select(Vehicle).where(
-                (func.upper(Vehicle.plate) == new_plate) & 
-                (Vehicle.id != vid)
+                (func.upper(Vehicle.plate) == new_plate) & (Vehicle.id != vid)
             )
             check_res = await db.execute(check_stmt)
             if check_res.scalar_one_or_none():
-                raise HTTPException(status_code=400, detail=f"La placa '{new_plate}' ya está en uso")
+                raise HTTPException(
+                    status_code=400, detail=f"La placa '{new_plate}' ya está en uso"
+                )
         vehicle.plate = new_plate
 
     for field, value in update_data.items():
-        if field == "plate": 
+        if field == "plate":
             continue
         if hasattr(vehicle, field):
             setattr(vehicle, field, value)
 
     vehicle.updated_at = utc_now_naive()
-    
+
     await db.commit()
     await db.refresh(vehicle)
 
@@ -392,25 +431,25 @@ async def update_vehicle(
 async def delete_vehicle(
     vehicle_id: str = Path(..., description="ID del vehículo (UUID)"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE))
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ):
     """Elimina permanentemente un vehículo."""
     vid = _parse_uuid(vehicle_id)
-    
+
     stmt = select(Vehicle).where(Vehicle.id == vid)
     result = await db.execute(stmt)
     vehicle = result.scalar_one_or_none()
 
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehículo no encontrado")
-    
+
     if vehicle.rider_id:
         raise HTTPException(
-            status_code=400, 
-            detail="No se puede eliminar un vehículo asignado a un repartidor."
+            status_code=400,
+            detail="No se puede eliminar un vehículo asignado a un repartidor.",
         )
 
     await db.delete(vehicle)
     await db.commit()
-    
+
     return {"message": "Vehículo eliminado exitosamente", "id": str(vid)}

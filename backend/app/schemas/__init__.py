@@ -98,21 +98,18 @@ __all__ = [
     "LoginRequest",
     "RegisterRequest",
     "RefreshTokenRequest",
-    
     # User
     "UserBase",
     "UserCreate",
     "UserUpdate",
     "UserResponse",
     "UserInDB",
-    
     # Rider
     "RiderBase",
     "RiderCreate",
     "RiderUpdate",
     "RiderResponse",
     "RiderStatusUpdate",
-    
     # Order
     "OrderBase",
     "OrderCreate",
@@ -120,7 +117,6 @@ __all__ = [
     "OrderResponse",
     "OrderAssignRequest",
     "OrderStatusUpdate",
-    
     # Delivery
     "DeliveryBase",
     "DeliveryCreate",
@@ -129,14 +125,12 @@ __all__ = [
     "StartDeliveryRequest",
     "FinishDeliveryRequest",
     "ProofOfDeliveryCreate",
-    
     # Shift
     "ShiftBase",
     "ShiftCreate",
     "ShiftResponse",
     "CheckInOutRequest",
     "CheckInOutResponse",
-    
     # Financial
     "FinancialTransactionBase",
     "FinancialTransactionCreate",
@@ -153,18 +147,15 @@ __all__ = [
     "PaymentRuleCreate",
     "PaymentRuleResponse",
     "LiquidationResponse",
-    
     # Productivity
     "ProductivityMetricsResponse",
     "SLARecordResponse",
     "ProductivitySummary",
-    
     # Dashboard
     "DashboardSummary",
     "OrderMetrics",
     "RiderMetrics",
     "FinancialMetrics",
-
     # Zones
     "ZoneCreate",
     "ZoneUpdate",

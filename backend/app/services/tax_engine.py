@@ -12,6 +12,7 @@ Reglas duras respetadas:
 - Retenciones (código empieza con 'RET') descuentan del total final.
 - Timbre Bogotá: condicional, solo si base >= umbral (default 100.000 COP = 10_000_000 centavos).
 """
+
 from __future__ import annotations
 
 import logging
@@ -49,10 +50,10 @@ def q2(value: Decimal) -> Decimal:
 class TaxRule:
     code: str
     name: str
-    rate: Decimal                      # 0.19 = 19%
-    applicability: str = "always"      # always | conditional | exempt_below_threshold
+    rate: Decimal  # 0.19 = 19%
+    applicability: str = "always"  # always | conditional | exempt_below_threshold
     threshold_cents: Optional[int] = None
-    taxable_base: str = "gross"        # gross | net_after_other_taxes
+    taxable_base: str = "gross"  # gross | net_after_other_taxes
     included_in_price: bool = False
     priority: int = 0
 
@@ -64,11 +65,12 @@ class TaxRule:
 @dataclass
 class TaxLineResult:
     """Resultado de aplicar el motor a UNA línea de factura."""
-    base_amount_cents: int              # base imponible en centavos
+
+    base_amount_cents: int  # base imponible en centavos
     taxes: List[dict] = field(default_factory=list)
-    total_tax_cents: int = 0            # impuestos trasladados (no retenciones)
-    total_retentions_cents: int = 0     # retenciones (descuentan del total)
-    line_total_cents: int = 0           # base + taxes - retentions
+    total_tax_cents: int = 0  # impuestos trasladados (no retenciones)
+    total_retentions_cents: int = 0  # retenciones (descuentan del total)
+    line_total_cents: int = 0  # base + taxes - retentions
 
     def to_dict(self) -> dict:
         return {
@@ -86,24 +88,72 @@ class TaxLineResult:
 # ──────────────────────────────────────────────────────────────
 DEFAULT_RULES: dict[CountryTaxRegime, List[TaxRule]] = {
     CountryTaxRegime.COLOMBIA: [
-        TaxRule("IVA", "Impuesto sobre Ventas", Decimal("0.1900"), "always",
-                None, "gross", False, 0),
-        TaxRule("RET_IVA", "Retención en la Fuente IVA", Decimal("0.0150"),
-                "conditional", None, "gross", False, 1),
-        TaxRule("Timbre_Bogota", "Timbre Departamental Bogotá", Decimal("0.0150"),
-                "conditional", TIMBRE_THRESHOLD_CENTS, "gross", False, 2),
+        TaxRule(
+            "IVA",
+            "Impuesto sobre Ventas",
+            Decimal("0.1900"),
+            "always",
+            None,
+            "gross",
+            False,
+            0,
+        ),
+        TaxRule(
+            "RET_IVA",
+            "Retención en la Fuente IVA",
+            Decimal("0.0150"),
+            "conditional",
+            None,
+            "gross",
+            False,
+            1,
+        ),
+        TaxRule(
+            "Timbre_Bogota",
+            "Timbre Departamental Bogotá",
+            Decimal("0.0150"),
+            "conditional",
+            TIMBRE_THRESHOLD_CENTS,
+            "gross",
+            False,
+            2,
+        ),
     ],
     CountryTaxRegime.MEXICO: [
-        TaxRule("IVA", "Impuesto al Valor Agregado", Decimal("0.1600"), "always",
-                None, "gross", True, 0),
+        TaxRule(
+            "IVA",
+            "Impuesto al Valor Agregado",
+            Decimal("0.1600"),
+            "always",
+            None,
+            "gross",
+            True,
+            0,
+        ),
     ],
     CountryTaxRegime.CHILE: [
-        TaxRule("IVA", "Impuesto al Valor Agregado", Decimal("0.1900"), "always",
-                None, "gross", False, 0),
+        TaxRule(
+            "IVA",
+            "Impuesto al Valor Agregado",
+            Decimal("0.1900"),
+            "always",
+            None,
+            "gross",
+            False,
+            0,
+        ),
     ],
     CountryTaxRegime.PERU: [
-        TaxRule("IGV", "Impuesto General a las Ventas", Decimal("0.1800"), "always",
-                None, "gross", False, 0),
+        TaxRule(
+            "IGV",
+            "Impuesto General a las Ventas",
+            Decimal("0.1800"),
+            "always",
+            None,
+            "gross",
+            False,
+            0,
+        ),
     ],
 }
 
@@ -116,7 +166,9 @@ class TaxCalculator:
         line = calc.apply_taxes(unit_price_cents=10_000_000, quantity=2, category='food')
     """
 
-    def __init__(self, country: CountryTaxRegime, rules: Optional[List[TaxRule]] = None):
+    def __init__(
+        self, country: CountryTaxRegime, rules: Optional[List[TaxRule]] = None
+    ):
         self.country = country
         self.rules = sorted(
             rules if rules is not None else DEFAULT_RULES.get(country, []),
@@ -156,8 +208,9 @@ class TaxCalculator:
             ]
 
     # ------------------------------------------------------------------
-    def _evaluate_applicability(self, rule: TaxRule, base_cents: int,
-                                category: str) -> bool:
+    def _evaluate_applicability(
+        self, rule: TaxRule, base_cents: int, category: str
+    ) -> bool:
         if rule.applicability == "always":
             return True
         if rule.applicability == "exempt_below_threshold":
@@ -173,13 +226,17 @@ class TaxCalculator:
                 return True
             return False
         # Expresión desconocida → conservador: no aplica, pero deja evidencia.
-        logger.warning("Regla %s con applicability desconocida (%s): se omite",
-                       rule.code, rule.applicability)
+        logger.warning(
+            "Regla %s con applicability desconocida (%s): se omite",
+            rule.code,
+            rule.applicability,
+        )
         return False
 
     # ------------------------------------------------------------------
-    def apply_taxes(self, unit_price_cents: int, quantity: int = 1,
-                    category: str = "general") -> TaxLineResult:
+    def apply_taxes(
+        self, unit_price_cents: int, quantity: int = 1, category: str = "general"
+    ) -> TaxLineResult:
         """Aplica todas las reglas al monto de una línea (centavos enteros).
 
         Para impuestos INCLUIDOS en precio (MX) la base bruta recibida se
@@ -204,31 +261,46 @@ class TaxCalculator:
                 tax_i = q2(_c(gross_cents) - base_i)
                 base_cents = int(base_i)  # la siguiente regla gravará la base neta
                 amount = int(tax_i)
-                taxes_out.append({
-                    "code": rule.code, "name": rule.name,
-                    "rate": float(rule.rate), "amount_cents": amount,
-                    "base_amount_cents": int(base_i), "included": True,
-                })
+                taxes_out.append(
+                    {
+                        "code": rule.code,
+                        "name": rule.name,
+                        "rate": float(rule.rate),
+                        "amount_cents": amount,
+                        "base_amount_cents": int(base_i),
+                        "included": True,
+                    }
+                )
                 # No se suma al total: ya está dentro del bruto.
                 continue
 
             if rule.is_retention:
                 amount = int(q2(_c(base_cents) * rule.rate))
                 total_ret += amount
-                taxes_out.append({
-                    "code": rule.code, "name": rule.name,
-                    "rate": float(rule.rate), "amount_cents": amount,
-                    "base_amount_cents": int(base_cents), "retention": True,
-                })
+                taxes_out.append(
+                    {
+                        "code": rule.code,
+                        "name": rule.name,
+                        "rate": float(rule.rate),
+                        "amount_cents": amount,
+                        "base_amount_cents": int(base_cents),
+                        "retention": True,
+                    }
+                )
                 continue
 
             amount = int(q2(_c(base_cents) * rule.rate))
             total_tax += amount
-            taxes_out.append({
-                "code": rule.code, "name": rule.name,
-                "rate": float(rule.rate), "amount_cents": amount,
-                "base_amount_cents": int(base_cents), "included": False,
-            })
+            taxes_out.append(
+                {
+                    "code": rule.code,
+                    "name": rule.name,
+                    "rate": float(rule.rate),
+                    "amount_cents": amount,
+                    "base_amount_cents": int(base_cents),
+                    "included": False,
+                }
+            )
 
         line_total = base_cents + total_tax - total_ret
         return TaxLineResult(
@@ -244,16 +316,19 @@ class TaxCalculator:
         """items: [{'unit_price_cents': int, 'quantity': int, 'category': str}]"""
         results = []
         for it in items:
-            results.append(self.apply_taxes(
-                unit_price_cents=int(it.get("unit_price_cents", 0)),
-                quantity=int(it.get("quantity", 1)),
-                category=str(it.get("category", "general")),
-            ))
+            results.append(
+                self.apply_taxes(
+                    unit_price_cents=int(it.get("unit_price_cents", 0)),
+                    quantity=int(it.get("quantity", 1)),
+                    category=str(it.get("category", "general")),
+                )
+            )
         return results
 
 
-async def get_tax_calculator(country: CountryTaxRegime,
-                             db: Optional[AsyncSession] = None) -> TaxCalculator:
+async def get_tax_calculator(
+    country: CountryTaxRegime, db: Optional[AsyncSession] = None
+) -> TaxCalculator:
     """Fábrica: calculator con reglas DB si hay sesión, sino defaults."""
     calc = TaxCalculator(country)
     if db is not None:

@@ -42,7 +42,9 @@ class CRUDOrder:
         await db.refresh(db_obj)
         return db_obj
 
-    async def update(self, db: AsyncSession, db_obj: Order, obj_in: dict[str, Any]) -> Order:
+    async def update(
+        self, db: AsyncSession, db_obj: Order, obj_in: dict[str, Any]
+    ) -> Order:
         for field, value in obj_in.items():
             setattr(db_obj, field, value)
         db.add(db_obj)
@@ -50,7 +52,9 @@ class CRUDOrder:
         await db.refresh(db_obj)
         return db_obj
 
-    async def assign_rider(self, db: AsyncSession, order: Order, rider_id: uuid.UUID) -> Order:
+    async def assign_rider(
+        self, db: AsyncSession, order: Order, rider_id: uuid.UUID
+    ) -> Order:
         order.assigned_rider_id = rider_id  # type: ignore[assignment]
         order.status = OrderStatus.ASIGNADO
         order.accepted_at = datetime.utcnow()  # type: ignore[assignment]

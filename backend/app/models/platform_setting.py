@@ -23,9 +23,15 @@ class PlatformSetting(Base):
     key = Column(String(100), primary_key=True, index=True)
     value: Any = Column(JSON, nullable=False)
     description = Column(String(255), nullable=True)
-    updated_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
-    created_at = Column(DateTime, default=utc_now_naive, server_default=text("NOW()"), nullable=False)
-    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=True)
+    updated_by_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
+    )
+    created_at = Column(
+        DateTime, default=utc_now_naive, server_default=text("NOW()"), nullable=False
+    )
+    updated_at = Column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=True
+    )
 
     updated_by = relationship("User")
 

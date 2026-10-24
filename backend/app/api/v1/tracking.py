@@ -16,6 +16,7 @@ Canales soportados:
     order:{order_id}   -> alias resuelto al rider asignado de la entrega
     dashboard          -> fan-out global (solo SUPERADMIN / GERENTE)
 """
+
 from __future__ import annotations
 
 import logging
@@ -24,7 +25,15 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from pydantic import BaseModel, Field
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,7 +50,11 @@ from app.models.delivery import Delivery
 from app.models.order import Order
 from app.models.location import RiderLiveLocation
 from app.schemas.rider_location import LocationUpdate
-from app.services.tracking_service import TrackingService, haversine_km, build_redis_client
+from app.services.tracking_service import (
+    TrackingService,
+    haversine_km,
+    build_redis_client,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tracking", tags=["Tracking (Fase 8)"])
@@ -93,9 +106,15 @@ async def update_location(
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
 
     # Solo el propio rider, un GERENTE o SUPERADMIN pueden reportar su ubicación
-    role = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    role = (
+        current_user.role.value
+        if hasattr(current_user.role, "value")
+        else str(current_user.role)
+    )
     if role not in ("SUPERADMIN", "GERENTE") and rider.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="No autorizado para actualizar este repartidor")
+        raise HTTPException(
+            status_code=403, detail="No autorizado para actualizar este repartidor"
+        )
 
     _check_location_rate(str(rider_id))
 
@@ -127,7 +146,14 @@ async def update_location(
             topic=f"rider:{rider_id}",
         )
         await manager.broadcast_to_topic(
-            {"type": "POSITION_UPDATE", "payload": {"riderId": str(rider_id), "lat": payload.lat, "lng": payload.lng}},
+            {
+                "type": "POSITION_UPDATE",
+                "payload": {
+                    "riderId": str(rider_id),
+                    "lat": payload.lat,
+                    "lng": payload.lng,
+                },
+            },
             topic="dashboard",
         )
     except Exception as exc:  # WS nunca debe tumbar la ingesta
@@ -154,7 +180,9 @@ async def get_live_tracking(
     )
     delivery = result.scalar_one_or_none()
     if delivery is None:
-        raise HTTPException(status_code=404, detail="Entrega no encontrada para esta orden")
+        raise HTTPException(
+            status_code=404, detail="Entrega no encontrada para esta orden"
+        )
 
     rider = delivery.rider
     if rider is None or rider.last_lat is None or rider.last_lng is None:
@@ -167,7 +195,9 @@ async def get_live_tracking(
 
     eta_minutes = None
     try:
-        eta_minutes = await service.calculate_eta(delivery.id, float(rider.last_lat), float(rider.last_lng))
+        eta_minutes = await service.calculate_eta(
+            delivery.id, float(rider.last_lat), float(rider.last_lng)
+        )
     except ValueError:
         pass
 
@@ -175,18 +205,34 @@ async def get_live_tracking(
     distance_km = None
     if order and order.delivery_latitude is not None:
         distance_km = haversine_km(
-            float(rider.last_lat), float(rider.last_lng),
-            float(order.delivery_latitude), float(order.delivery_longitude),
+            float(rider.last_lat),
+            float(rider.last_lng),
+            float(order.delivery_latitude),
+            float(order.delivery_longitude),
         )
 
     return {
         "order_id": str(order_id),
         "delivery_id": str(delivery.id),
         "available": True,
-        "rider": {"id": str(rider.id), "name": (f"{rider.user.first_name} {rider.user.last_name}".strip() if rider.user else "") or "Repartidor"},
-        "position": {"lat": rider.last_lat, "lng": rider.last_lng, "recorded_at": rider.last_location_at},
-        "destination": {"lat": order.delivery_latitude if order else None,
-                        "lng": order.delivery_longitude if order else None},
+        "rider": {
+            "id": str(rider.id),
+            "name": (
+                f"{rider.user.first_name} {rider.user.last_name}".strip()
+                if rider.user
+                else ""
+            )
+            or "Repartidor",
+        },
+        "position": {
+            "lat": rider.last_lat,
+            "lng": rider.last_lng,
+            "recorded_at": rider.last_location_at,
+        },
+        "destination": {
+            "lat": order.delivery_latitude if order else None,
+            "lng": order.delivery_longitude if order else None,
+        },
         "distance_km": distance_km,
         "eta_minutes": eta_minutes,
     }
@@ -195,14 +241,23 @@ async def get_live_tracking(
 @router.get("/dashboard/active-riders")
 async def get_dashboard_data(
     bbox: Optional[str] = Query(None, description="min_lat,min_lng,max_lat,max_lng"),
-    minutes: int = Query(5, ge=1, le=120, description="Ventana de frescura de posición"),
+    minutes: int = Query(
+        5, ge=1, le=120, description="Ventana de frescura de posición"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Datos agregados para el dashboard operativo: riders online, posiciones y métricas."""
-    role = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    role = (
+        current_user.role.value
+        if hasattr(current_user.role, "value")
+        else str(current_user.role)
+    )
     if role not in ("SUPERADMIN", "GERENTE"):
-        raise HTTPException(status_code=403, detail="Solo managers/superadmin pueden ver el dashboard de tracking")
+        raise HTTPException(
+            status_code=403,
+            detail="Solo managers/superadmin pueden ver el dashboard de tracking",
+        )
 
     query = (
         select(Rider)
@@ -213,7 +268,9 @@ async def get_dashboard_data(
             Rider.last_lng.isnot(None),
         )
     )
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=minutes)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+        minutes=minutes
+    )
     query = query.where(Rider.last_location_at >= cutoff)
 
     if bbox:
@@ -221,12 +278,17 @@ async def get_dashboard_data(
             min_lat, min_lng, max_lat, max_lng = [float(x) for x in bbox.split(",")]
             query = query.where(
                 and_(
-                    Rider.last_lat >= min_lat, Rider.last_lat <= max_lat,
-                    Rider.last_lng >= min_lng, Rider.last_lng <= max_lng,
+                    Rider.last_lat >= min_lat,
+                    Rider.last_lat <= max_lat,
+                    Rider.last_lng >= min_lng,
+                    Rider.last_lng <= max_lng,
                 )
             )
         except ValueError:
-            raise HTTPException(status_code=400, detail="bbox inválido. Usa min_lat,min_lng,max_lat,max_lng")
+            raise HTTPException(
+                status_code=400,
+                detail="bbox inválido. Usa min_lat,min_lng,max_lat,max_lng",
+            )
 
     result = await db.execute(query.limit(500))
     riders = list(result.scalars().all())
@@ -236,17 +298,30 @@ async def get_dashboard_data(
     for r in riders:
         last_seen_min = None
         if r.last_location_at:
-            last_seen_min = round((datetime.now(timezone.utc).replace(tzinfo=None) - r.last_location_at).total_seconds() / 60, 1)
+            last_seen_min = round(
+                (
+                    datetime.now(timezone.utc).replace(tzinfo=None) - r.last_location_at
+                ).total_seconds()
+                / 60,
+                1,
+            )
             if last_seen_min > 15:
                 stale_count += 1
-        active_positions.append({
-            "riderId": str(r.id),
-            "name": (f"{r.user.first_name} {r.user.last_name}".strip() if r.user else "") or "Repartidor",
-            "status": r.status.value if hasattr(r.status, "value") else str(r.status),
-            "lat": r.last_lat,
-            "lng": r.last_lng,
-            "lastSeenMinutesAgo": last_seen_min,
-        })
+        active_positions.append(
+            {
+                "riderId": str(r.id),
+                "name": (
+                    f"{r.user.first_name} {r.user.last_name}".strip() if r.user else ""
+                )
+                or "Repartidor",
+                "status": (
+                    r.status.value if hasattr(r.status, "value") else str(r.status)
+                ),
+                "lat": r.last_lat,
+                "lng": r.last_lng,
+                "lastSeenMinutesAgo": last_seen_min,
+            }
+        )
 
     total_result = await db.execute(select(Rider).where(Rider.is_online.is_(True)))
     stats = {
@@ -266,9 +341,16 @@ async def optimize_routes_batch(
     current_user: User = Depends(get_current_user),
 ):
     """Trigger manual de re-optimización VRP (el cron interno usa la misma función)."""
-    role = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    role = (
+        current_user.role.value
+        if hasattr(current_user.role, "value")
+        else str(current_user.role)
+    )
     if role not in ("SUPERADMIN", "GERENTE"):
-        raise HTTPException(status_code=403, detail="Solo managers/superadmin pueden lanzar optimizaciones")
+        raise HTTPException(
+            status_code=403,
+            detail="Solo managers/superadmin pueden lanzar optimizaciones",
+        )
 
     from app.services.route_optimizer import RouteOptimizer  # import local: evita ciclo
 
@@ -349,7 +431,9 @@ async def tracking_websocket(websocket: WebSocket, channel: str):
                 elif action == "ping":
                     await websocket.send_json({"type": "pong"})
             except Exception:
-                await websocket.send_json({"type": "error", "message": "Mensaje JSON inválido"})
+                await websocket.send_json(
+                    {"type": "error", "message": "Mensaje JSON inválido"}
+                )
     except WebSocketDisconnect:
         manager.disconnect(connection_id)
     except Exception as exc:

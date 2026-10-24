@@ -46,14 +46,21 @@ class AuditLogger:
                 await session.commit()
                 await session.refresh(audit_log)
 
-            logger.info("Audit log created: %s on %s:%s", action.name, resource_type, resource_id)
+            logger.info(
+                "Audit log created: %s on %s:%s",
+                action.name,
+                resource_type,
+                resource_id,
+            )
             return audit_log
         except Exception as exc:
             logger.error("Failed to create audit log: %s", exc)
             return None
 
     @staticmethod
-    async def get_user_history(user_id: uuid.UUID, limit: int = 100, offset: int = 0) -> list[AuditLog]:
+    async def get_user_history(
+        user_id: uuid.UUID, limit: int = 100, offset: int = 0
+    ) -> list[AuditLog]:
         """Obtener historial de acciones de un usuario."""
         async with AsyncSessionLocal() as session:
             result = await session.execute(
@@ -66,12 +73,17 @@ class AuditLogger:
             return result.scalars().all()
 
     @staticmethod
-    async def get_resource_history(resource_type: str, resource_id: str, limit: int = 100) -> list[AuditLog]:
+    async def get_resource_history(
+        resource_type: str, resource_id: str, limit: int = 100
+    ) -> list[AuditLog]:
         """Obtener historial de cambios de un recurso."""
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(AuditLog)
-                .where(AuditLog.resource_type == resource_type, AuditLog.resource_id == resource_id)
+                .where(
+                    AuditLog.resource_type == resource_type,
+                    AuditLog.resource_id == resource_id,
+                )
                 .order_by(AuditLog.created_at.desc())
                 .limit(limit)
             )
@@ -97,7 +109,9 @@ class AuditLogger:
             if end_date:
                 stmt = stmt.where(AuditLog.created_at <= end_date)
 
-            result = await session.execute(stmt.order_by(AuditLog.created_at.desc()).limit(limit))
+            result = await session.execute(
+                stmt.order_by(AuditLog.created_at.desc()).limit(limit)
+            )
             return result.scalars().all()
 
 

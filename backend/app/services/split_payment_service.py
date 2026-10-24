@@ -12,6 +12,7 @@ Regla de negocio (alcance acordado, sin modelo Vendor):
   rollback completo y logger.exception, jamás rompe el flujo padre
   (se invoca post-commit vía create_task, patrón Fase 9).
 """
+
 from __future__ import annotations
 
 import json
@@ -36,12 +37,15 @@ logger = logging.getLogger("delivery360.split")
 @dataclass
 class RevenueShareRule:
     """División porcentual de la tarifa de envío."""
-    platform_pct: Decimal          # 0-100
-    rider_pct: Decimal             # 0-100 (=100 - platform_pct)
-    source: str = "global"         # global | platform_setting | zone_override
+
+    platform_pct: Decimal  # 0-100
+    rider_pct: Decimal  # 0-100 (=100 - platform_pct)
+    source: str = "global"  # global | platform_setting | zone_override
 
     @classmethod
-    def from_pct(cls, platform_pct: float, source: str = "global") -> "RevenueShareRule":
+    def from_pct(
+        cls, platform_pct: float, source: str = "global"
+    ) -> "RevenueShareRule":
         p = Decimal(str(platform_pct)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         if not (0 <= p <= 100):
             p = Decimal("20.00")
@@ -55,8 +59,9 @@ class RevenueShareRule:
         }
 
 
-async def resolve_share_rule(db: AsyncSession,
-                             zone_id: Optional[uuid.UUID] = None) -> RevenueShareRule:
+async def resolve_share_rule(
+    db: AsyncSession, zone_id: Optional[uuid.UUID] = None
+) -> RevenueShareRule:
     """Override por clave platform_settings 'revenue_share_rule' > default config.
 
     Valor esperado JSON: {"platform_pct": 20} o número simple "20".
@@ -73,7 +78,11 @@ async def resolve_share_rule(db: AsyncSession,
             try:
                 parsed = json.loads(raw)
                 if isinstance(parsed, dict):
-                    pct = float(parsed.get("platform_pct", parsed.get("platform_percentage", "")))
+                    pct = float(
+                        parsed.get(
+                            "platform_pct", parsed.get("platform_percentage", "")
+                        )
+                    )
                 else:
                     pct = float(parsed)
             except (ValueError, TypeError):
@@ -92,15 +101,19 @@ async def resolve_share_rule(db: AsyncSession,
 def compute_split(fee_cents: int, rule: RevenueShareRule) -> tuple[int, int]:
     """Centavos exactos: platform HALF_UP, rider = residuo. Suma == fee siempre."""
     fee = max(int(fee_cents), 0)
-    platform = int((Decimal(fee) * rule.platform_pct / Decimal(100))
-                   .quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    platform = int(
+        (Decimal(fee) * rule.platform_pct / Decimal(100)).quantize(
+            Decimal("1"), rounding=ROUND_HALF_UP
+        )
+    )
     platform = min(platform, fee)
     rider = fee - platform
     return platform, rider
 
 
-async def process_order_settlement(db: AsyncSession, order_id: uuid.UUID,
-                                   force: bool = False) -> Optional[PaymentDistributionSnapshot]:
+async def process_order_settlement(
+    db: AsyncSession, order_id: uuid.UUID, force: bool = False
+) -> Optional[PaymentDistributionSnapshot]:
     """Calcula y persiste el snapshot de distribución para una orden.
 
     Retorna None si no aplica (sin fee, orden inexistente o ya liquidado).
@@ -114,7 +127,8 @@ async def process_order_settlement(db: AsyncSession, order_id: uuid.UUID,
 
     existing = await db.execute(
         select(PaymentDistributionSnapshot).where(
-            PaymentDistributionSnapshot.order_id == order_id)
+            PaymentDistributionSnapshot.order_id == order_id
+        )
     )
     if existing.scalar_one_or_none() is not None and not force:
         logger.info("split: orden %s ya liquidada (idempotencia)", order_id)
@@ -142,8 +156,14 @@ async def process_order_settlement(db: AsyncSession, order_id: uuid.UUID,
     db.add(snapshot)
     await db.commit()
     await db.refresh(snapshot)
-    logger.info("split orden %s: fee=%d¢ → plataforma=%d¢ rider=%d¢ (%s)",
-                order_id, fee_cents, platform_cents, rider_cents, rule.source)
+    logger.info(
+        "split orden %s: fee=%d¢ → plataforma=%d¢ rider=%d¢ (%s)",
+        order_id,
+        fee_cents,
+        platform_cents,
+        rider_cents,
+        rule.source,
+    )
     return snapshot
 
 
@@ -159,6 +179,7 @@ async def settle_order_safe(order_id: uuid.UUID) -> None:
         return
     try:
         from app.core.database import AsyncSessionLocal
+
         async with AsyncSessionLocal() as db:
             await process_order_settlement(db, order_id)
     except Exception:

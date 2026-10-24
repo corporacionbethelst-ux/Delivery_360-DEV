@@ -14,12 +14,13 @@ from app.schemas.rider_location import HeartbeatRequest
 
 router = APIRouter(prefix="/telemetry", tags=["Telemetría"])
 
+
 @router.post("/riders/{rider_id}/heartbeat")
 async def rider_heartbeat(
     rider_id: str,
     payload: HeartbeatRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """
     Endpoint optimizado para actualizaciones frecuentes de ubicación.
@@ -40,17 +41,21 @@ async def rider_heartbeat(
     # Validar propiedad (solo el propio rider o admin pueden enviar datos)
     if current_user.role.value != "SUPERADMIN" and current_user.role.value != "GERENTE":
         if rider.user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="No autorizado para actualizar este repartidor")
+            raise HTTPException(
+                status_code=403, detail="No autorizado para actualizar este repartidor"
+            )
 
     # Actualizar datos críticos
     rider.last_lat = payload.lat
     rider.last_lng = payload.lng
-    rider.last_location = func.ST_SetSRID(func.ST_MakePoint(payload.lng, payload.lat), 4326)
+    rider.last_location = func.ST_SetSRID(
+        func.ST_MakePoint(payload.lng, payload.lat), 4326
+    )
     rider.last_location_at = utc_now_naive()
     rider.is_online = True
-    
+
     # Opcional: Guardar velocidad o dirección si tu modelo lo soporta en columnas separadas
-    # rider.speed = payload.speed 
+    # rider.speed = payload.speed
 
     await db.commit()
 

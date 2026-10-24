@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 class AuditEvent(TypedDict):
     """Tipo para evento de auditoría"""
+
     event_id: str
     event_type: str
     resource_type: str
@@ -33,22 +34,25 @@ class AuditEvent(TypedDict):
 class RedisAuditLogger:
     """
     Logger de auditoría que escribe en Redis para visualización en tiempo real.
-    
+
     Los eventos se almacenan en:
     - Redis Stream: 'audit:stream' para consumo en tiempo real
     - Redis List: 'audit:recent' para últimos N eventos
     - Redis Sorted Set: 'audit:by_resource:{resource_type}:{resource_id}' para historial por recurso
     """
-    
+
     def __init__(self, redis_client=None):
         self.redis = redis_client
         self.connected = redis_client is not None
-    
+
     async def connect(self, redis_url: str = "redis://localhost:6379/0") -> bool:
         """Conectar a Redis"""
         try:
             import redis.asyncio as redis
-            self.redis = redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
+
+            self.redis = redis.from_url(
+                redis_url, encoding="utf-8", decode_responses=True
+            )
             await self.redis.ping()
             self.connected = True
             logger.info("✅ Redis Audit Logger conectado")
@@ -57,7 +61,7 @@ class RedisAuditLogger:
             logger.warning(f"⚠️ No se pudo conectar a Redis para audit: {e}")
             self.connected = False
             return False
-    
+
     async def log_event(
         self,
         event_type: str,
@@ -69,7 +73,7 @@ class RedisAuditLogger:
     ) -> bool:
         """
         Registrar un evento de auditoría en Redis.
-        
+
         Args:
             event_type: Tipo de evento (ASSIGNED, COMPLETED, WITHDRAWAL_REQUESTED, etc.)
             resource_type: Tipo de recurso (ORDER, DELIVERY, PAYOUT, etc.)
@@ -80,7 +84,7 @@ class RedisAuditLogger:
         """
         if not self.connected or not self.redis:
             return False
-        
+
         try:
             ts = timestamp or datetime.now(timezone.utc)
             event = {
@@ -93,29 +97,31 @@ class RedisAuditLogger:
                 "timestamp": ts.isoformat(),
                 "created_at": ts.timestamp(),
             }
-            
+
             # 1. Escribir a Redis Stream para consumo en tiempo real
             await self.redis.xadd("audit:stream", event, maxlen=10000)
-            
+
             # 2. Añadir a lista de recientes (últimos 100 eventos)
             await self.redis.lpush("audit:recent", json.dumps(event))
             await self.redis.ltrim("audit:recent", 0, 99)
-            
+
             # 3. Indexar por recurso para consultas rápidas de historial
             resource_key = f"audit:by_resource:{resource_type}:{resource_id}"
             await self.redis.zadd(resource_key, {json.dumps(event): ts.timestamp()})
             await self.redis.expire(resource_key, 86400 * 30)  # 30 días
-            
+
             # 4. Publicar para subscribers (websockets, etc.)
             await self.redis.publish("audit:events", json.dumps(event))
-            
-            logger.debug(f"Audit event logged to Redis: {event_type} on {resource_type}:{resource_id}")
+
+            logger.debug(
+                f"Audit event logged to Redis: {event_type} on {resource_type}:{resource_id}"
+            )
             return True
-            
+
         except Exception as e:
             logger.error(f"Error writing audit event to Redis: {e}")
             return False
-    
+
     async def log_order_assigned(
         self,
         order_id: str,
@@ -133,7 +139,7 @@ class RedisAuditLogger:
                 "action": "assign",
             },
         )
-    
+
     async def log_order_completed(
         self,
         order_id: str,
@@ -155,7 +161,7 @@ class RedisAuditLogger:
                 "action": "complete",
             },
         )
-    
+
     async def log_delivery_started(
         self,
         delivery_id: str,
@@ -173,7 +179,7 @@ class RedisAuditLogger:
                 "action": "start",
             },
         )
-    
+
     async def log_withdrawal_requested(
         self,
         payout_id: str,
@@ -193,7 +199,7 @@ class RedisAuditLogger:
                 "action": "request",
             },
         )
-    
+
     async def log_withdrawal_approved(
         self,
         payout_id: str,
@@ -211,7 +217,7 @@ class RedisAuditLogger:
                 "action": "approve",
             },
         )
-    
+
     async def log_sla_breach(
         self,
         order_id: str,
@@ -230,19 +236,19 @@ class RedisAuditLogger:
                 "action": "sla_breach",
             },
         )
-    
+
     async def get_recent_events(self, limit: int = 50) -> List[AuditEvent]:
         """Obtener eventos recientes"""
         if not self.connected or not self.redis:
             return []
-        
+
         try:
             events = await self.redis.lrange("audit:recent", 0, limit - 1)
             return [json.loads(e) for e in events]
         except Exception as e:
             logger.error(f"Error getting recent audit events: {e}")
             return []
-    
+
     async def get_resource_history(
         self,
         resource_type: str,
@@ -252,7 +258,7 @@ class RedisAuditLogger:
         """Obtener historial de un recurso específico"""
         if not self.connected or not self.redis:
             return []
-        
+
         try:
             key = f"audit:by_resource:{resource_type}:{resource_id}"
             events = await self.redis.zrange(key, 0, -1, withscores=False)
