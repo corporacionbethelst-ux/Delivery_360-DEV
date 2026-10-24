@@ -49,6 +49,29 @@ interface AuthState {
 }
 
 const isClient = typeof window !== 'undefined';
+let authRevision = 0;
+
+const errorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'object' && error !== null && 'response' in error) {
+    const response = error.response;
+    if (typeof response === 'object' && response !== null && 'data' in response) {
+      const data = response.data;
+      if (typeof data === 'object' && data !== null) {
+        if ('detail' in data && typeof data.detail === 'string') return data.detail;
+        if ('message' in data && typeof data.message === 'string') return data.message;
+      }
+    }
+  }
+  return fallback;
+};
+
+const validateProfile = (user: User): void => {
+  if (!user || !user.id || !user.email || user.is_active !== true ||
+      !['SUPERADMIN', 'GERENTE', 'OPERADOR', 'REPARTIDOR', 'CLIENTE', 'AUDITOR'].includes(user.role)) {
+    throw new Error('Perfil de usuario no habilitado');
+  }
+};
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -59,9 +82,11 @@ export const useAuthStore = create<AuthState>()(
       error: null,
 
       login: async ({ email, password }: LoginCredentials) => {
+        const revision = ++authRevision;
         set({ isLoading: true, error: null });
         try {
           const tokensResponse = await authService.login(email, password);
+          if (revision !== authRevision) throw new Error('Inicio de sesión cancelado');
           
           const tokensToSave = {
             access_token: tokensResponse.access_token,
@@ -71,6 +96,8 @@ export const useAuthStore = create<AuthState>()(
           storeTokens(tokensToSave);
 
           const userData = await authService.getProfile();
+          if (revision !== authRevision) throw new Error('Sesión cancelada');
+          validateProfile(userData);
           
           const user: User = {
             id: userData.id,
@@ -90,6 +117,7 @@ export const useAuthStore = create<AuthState>()(
           };
 
           if (isClient) {
+            localStorage.setItem('app_version', APP_VERSION);
             localStorage.setItem('user', JSON.stringify(user));
             
             // Cookie para el token (ya existente)
@@ -107,13 +135,9 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false 
           });
 
-        } catch (error: any) {
-          console.error('❌ Login failed:', error.response?.data || error.message);
-          
-          let errorMsg = 'Credenciales inválidas o error de conexión';
-          if (error.response?.data?.detail) errorMsg = error.response.data.detail;
-          else if (error.response?.data?.message) errorMsg = error.response.data.message;
-          else if (error.message) errorMsg = error.message;
+        } catch (error: unknown) {
+          if (revision !== authRevision) throw error;
+          const errorMsg = errorMessage(error, 'Credenciales inválidas o error de conexión');
 
           clearStoredTokens();
           if (isClient) {
@@ -134,16 +158,16 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: async () => {
-        try { 
-          await authService.logout(); 
-        } catch (e) { 
-          console.warn('⚠️ Logout backend failed', e); 
-        } finally {
-          get().forceLogout();
+        get().forceLogout();
+        try {
+          await authService.logout();
+        } catch {
+          // Local logout is immediate even when the server is unavailable.
         }
       },
 
       forceLogout: () => {
+        ++authRevision;
         clearStoredTokens();
         if (isClient) {
           localStorage.removeItem('user');
@@ -164,19 +188,23 @@ export const useAuthStore = create<AuthState>()(
         try {
           await authService.register(data);
           set({ isLoading: false });
-        } catch (error: any) {
-          const msg = error.response?.data?.detail || error.response?.data?.message || 'Error en registro';
+        } catch (error: unknown) {
+          const msg = errorMessage(error, 'Error en registro');
           set({ error: msg, isLoading: false });
           throw new Error(msg);
         }
       },
 
       checkAuth: async () => {
+        if (get().isLoading) return;
+        const revision = ++authRevision;
+        set({ isLoading: true, isAuthenticated: false });
         if (isClient) {
           const storedVersion = localStorage.getItem('app_version');
           if (storedVersion !== APP_VERSION) {
-            console.log('🔄 Nueva versión detectada. Limpiando caché...');
-            localStorage.clear();
+            get().forceLogout();
+            Object.keys(localStorage).filter(key => key.startsWith('delivery360-auth-v'))
+              .forEach(key => localStorage.removeItem(key));
             localStorage.setItem('app_version', APP_VERSION);
             set({ isLoading: false, isAuthenticated: false, user: null });
             return;
@@ -186,25 +214,19 @@ export const useAuthStore = create<AuthState>()(
         const tokens = getStoredTokens();
         
         if (!tokens.accessToken) {
-          set({ isAuthenticated: false, user: null, isLoading: false });
+          get().forceLogout();
           return;
-        }
-
-        if (isClient) {
-          const storedUserStr = localStorage.getItem('user');
-          if (storedUserStr) {
-            try {
-              const storedUser = JSON.parse(storedUserStr);
-              set({ user: storedUser, isAuthenticated: true, isLoading: false });
-            } catch (e) {
-              localStorage.removeItem('user');
-            }
-          }
         }
 
         try {
           const userData = await authService.getProfile();
-          
+          if (revision !== authRevision) return;
+          validateProfile(userData);
+          const liveTokens = getStoredTokens();
+          if (!liveTokens.accessToken) {
+            get().forceLogout();
+            return;
+          }
           const user: User = {
             id: userData.id,
             email: userData.email,
@@ -221,15 +243,15 @@ export const useAuthStore = create<AuthState>()(
           
           if (isClient) {
             localStorage.setItem('user', JSON.stringify(user));
-            document.cookie = `auth-token=${tokens.accessToken}; path=/; max-age=86400; SameSite=Lax`;
+            document.cookie = `auth-token=${liveTokens.accessToken}; path=/; max-age=86400; SameSite=Lax`;
             
             const userJson = encodeURIComponent(JSON.stringify(user));
             document.cookie = `user-data=${userJson}; path=/; max-age=86400; SameSite=Lax`;
           }
           
           set({ user, isAuthenticated: true, isLoading: false });
-        } catch (e) {
-          console.warn('⚠️ Token inválido, cerrando sesión:', e);
+        } catch {
+          if (revision !== authRevision) return;
           get().forceLogout();
         }
       },
@@ -256,10 +278,9 @@ export const useAuthStore = create<AuthState>()(
         setItem: () => {},
         removeItem: () => {},
       })),
-      partialize: (state) => ({ 
-        user: state.user, 
-        isAuthenticated: state.isAuthenticated 
-      }),
+      // Cached storage is never proof of a valid server session.
+      partialize: () => ({}),
+      merge: (_persisted, current) => current,
     }
   )
 );

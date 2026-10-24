@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { SessionGate } from '@/components/layout/SessionGate';
 import { useAuthStore } from '@/stores/authStore';
 import { RoleMenu } from '@/components/navigation/RoleMenu';
 import { NotificationProvider } from '@/contexts/NotificationContext';
@@ -11,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useSidebar } from '@/hooks/useSidebar'; // Importar hook
 
-export default function DashboardLayout({
+function DashboardContent({
   children,
 }: {
   children: React.ReactNode;
@@ -213,4 +214,7 @@ export default function DashboardLayout({
       </div>
     </NotificationProvider>
   );
+}
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return <SessionGate><DashboardContent>{children}</DashboardContent></SessionGate>;
 }

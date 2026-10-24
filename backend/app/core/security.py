@@ -311,6 +311,9 @@ async def get_current_active_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     # Retornar usuario autenticado para usar en el endpoint
+    from app.services.session_policy import ensure_session_allowed
+
+    await ensure_session_allowed(db, current_user)
     return current_user
 
 
