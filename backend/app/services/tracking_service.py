@@ -24,11 +24,13 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select, and_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, load_only, raiseload
 
 from app.core.config import settings
 from app.models.location import RiderLiveLocation, DeliveryRouteSnapshot
 from app.models.rider import Rider
+from app.services.document_review import ensure_rider_can_report_online
+from fastapi import HTTPException
 from app.models.delivery import Delivery
 
 logger = logging.getLogger(__name__)
@@ -73,6 +75,25 @@ class TrackingService:
         heading_degrees: Optional[float] = None,
     ) -> RiderLiveLocation:
         """Persiste la posición y dispara el broadcast en tiempo real."""
+        result = await self.db.execute(
+            select(Rider)
+            .options(
+                raiseload("*"),
+                load_only(
+                    Rider.id,
+                    Rider.user_id,
+                    Rider.status,
+                    Rider.is_online,
+                    Rider.approved_at,
+                ),
+            )
+            .where(Rider.id == rider_id)
+        )
+        rider = result.scalar_one_or_none()
+        if rider is None:
+            raise HTTPException(status_code=404, detail="Repartidor no encontrado")
+        await ensure_rider_can_report_online(self.db, rider, allow_busy=True)
+
         location = RiderLiveLocation(
             rider_id=rider_id,
             latitude=lat,
@@ -85,13 +106,10 @@ class TrackingService:
         self.db.add(location)
 
         # Actualizar snapshot "última posición" en riders (columnas planas, sin PostGIS obligatorio)
-        result = await self.db.execute(select(Rider).where(Rider.id == rider_id))
-        rider = result.scalar_one_or_none()
-        if rider is not None:
-            rider.last_lat = lat
-            rider.last_lng = lng
-            rider.last_location_at = location.recorded_at
-            rider.is_online = True
+        rider.last_lat = lat
+        rider.last_lng = lng
+        rider.last_location_at = location.recorded_at
+        rider.is_online = True
 
         await self.db.commit()
         await self.db.refresh(location)

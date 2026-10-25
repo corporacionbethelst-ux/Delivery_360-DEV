@@ -32,6 +32,7 @@ from app.services.document_review import (
     document_readiness_error,
     lock_rider,
     restrict_rider_documents,
+    ensure_rider_can_report_online,
     review_document,
     delete_reviewed_document,
 )
@@ -56,23 +57,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/riders")
 
 
-async def _ensure_rider_can_go_online(db: AsyncSession, rider: Rider) -> None:
-    await lock_rider(db, rider.id)
-    await db.refresh(rider, attribute_names=["status", "is_online", "approved_at"])
-    if rider.status != RiderStatus.ACTIVO:
-        rider.is_online = False
-        await db.commit()
-        raise HTTPException(
-            status_code=403,
-            detail="No puedes conectarte hasta que un gerente active tu cuenta",
-        )
-    error = await document_readiness_error(db, rider.id)
-    if error:
-        await restrict_rider_documents(db, rider.id)
-        await db.commit()
-        raise HTTPException(
-            status_code=403, detail=f"La documentación requiere revisión. {error}"
-        )
+async def _ensure_rider_can_go_online(
+    db: AsyncSession, rider: Rider, *, allow_busy: bool = False
+) -> None:
+    await ensure_rider_can_report_online(db, rider, allow_busy=allow_busy)
 
 
 # ==============================================================================
@@ -727,6 +715,11 @@ async def update_my_rider_profile(
             status_code=404, detail="Perfil de repartidor no encontrado"
         )
 
+    await lock_rider(db, rider.id)
+    await db.refresh(
+        rider, attribute_names=["status", "is_online", "vehicle_type", "vehicle_plate"]
+    )
+
     payload = body.model_dump(exclude_none=True)
 
     old_vehicle_type = optional_enum_value(rider.vehicle_type)
@@ -754,7 +747,9 @@ async def update_my_rider_profile(
         print(f"   🔄 De: {old_vehicle_info}  -->  A: {new_vehicle_info}")
 
         docs_result = await db.execute(
-            select(RiderDocument).where(RiderDocument.rider_id == rider.id)
+            select(RiderDocument)
+            .where(RiderDocument.rider_id == rider.id)
+            .execution_options(populate_existing=True)
         )
         documents = docs_result.scalars().all()
 
@@ -769,11 +764,9 @@ async def update_my_rider_profile(
             f"   🗑️ {len(documents)} documentos marcados como RECHAZADOS automáticamente."
         )
 
-        if rider.status == RiderStatus.ACTIVO:
-            rider.status = RiderStatus.PENDIENTE
-            print(
-                f"   🚫 Estado del repartidor cambiado a PENDIENTE. Acceso a pedidos bloqueado."
-            )
+        await db.flush()
+        await restrict_rider_documents(db, rider.id)
+        await db.refresh(rider, attribute_names=["status", "is_online"])
 
         try:
             from app.models.audit_log import ActionType, AuditLog
@@ -795,9 +788,9 @@ async def update_my_rider_profile(
                 new_values={
                     "vehicle": new_vehicle_info,
                     "documents_invalidated": len(documents),
-                    "status_changed_to": "PENDIENTE",
+                    "status_changed_to": optional_enum_value(rider.status),
                 },
-                changes_summary="Cambio de vehículo; documentos invalidados y rider pendiente",
+                changes_summary="Cambio de vehículo; documentos invalidados y disponibilidad deshabilitada",
                 success=True,
                 created_at=utc_now_naive(),
             )
@@ -859,9 +852,9 @@ async def update_my_rider_profile(
 
     if vehicle_changed:
         response_data["warning"] = (
-            "Su vehículo ha sido actualizado. Sus documentos han sido reiniciados y su cuenta está pendiente de aprobación nuevamente."
+            "Su vehículo ha sido actualizado. Sus documentos requieren revisión y su disponibilidad ha sido deshabilitada."
         )
-        response_data["status"] = "PENDIENTE"
+        response_data["status"] = optional_enum_value(rider.status)
 
     return response_data
 
@@ -1357,7 +1350,7 @@ async def update_heartbeat(
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
 
     await _ensure_rider_self_scope(db, current_user, rider)
-    await _ensure_rider_can_go_online(db, rider)
+    await _ensure_rider_can_go_online(db, rider, allow_busy=True)
 
     rider.last_lat = body.lat
     rider.last_lng = body.lng

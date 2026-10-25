@@ -1,16 +1,17 @@
 """Endpoints dedicados a telemetría y tiempo real de alta frecuencia."""
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.orm import load_only, raiseload
 import uuid
-from datetime import datetime, timezone
 
 from app.core.database import get_db
 from app.models.rider import Rider, utc_now_naive
 from app.api.v1.auth import get_current_user
 from app.models.user import User
 from app.schemas.rider_location import HeartbeatRequest
+from app.services.document_review import ensure_rider_can_report_online
 
 router = APIRouter(prefix="/telemetry", tags=["Telemetría"])
 
@@ -32,7 +33,20 @@ async def rider_heartbeat(
         raise HTTPException(status_code=400, detail="ID de repartidor inválido")
 
     # Obtener rider
-    result = await db.execute(select(Rider).where(Rider.id == rider_uuid))
+    result = await db.execute(
+        select(Rider)
+        .options(
+            raiseload("*"),
+            load_only(
+                Rider.id,
+                Rider.user_id,
+                Rider.status,
+                Rider.is_online,
+                Rider.approved_at,
+            ),
+        )
+        .where(Rider.id == rider_uuid)
+    )
     rider = result.scalar_one_or_none()
 
     if not rider:
@@ -44,6 +58,8 @@ async def rider_heartbeat(
             raise HTTPException(
                 status_code=403, detail="No autorizado para actualizar este repartidor"
             )
+
+    await ensure_rider_can_report_online(db, rider, allow_busy=True)
 
     # Actualizar datos críticos
     rider.last_lat = payload.lat

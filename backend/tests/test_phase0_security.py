@@ -238,6 +238,7 @@ async def test_management_can_still_update_tier(http, db, user, role, monkeypatc
 
 async def test_rider_can_still_edit_ordinary_profile(http, db, user, monkeypatch):
     rider = SimpleNamespace(id=uuid.uuid4(), user_id=user.id, vehicle_type=VehicleType.MOTO, vehicle_plate="ABC", assigned_vehicle_id=None)
+    db.scalar = AsyncMock(return_value=rider.id)
     db.execute.return_value = result(rider)
     monkeypatch.setattr(riders, "_rider_to_dict", lambda r: {"phone": user.phone})
     async with http:

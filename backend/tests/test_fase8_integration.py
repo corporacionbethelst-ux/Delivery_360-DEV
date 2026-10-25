@@ -19,6 +19,7 @@ Se mockea SOLO la capa de persistencia (AsyncSession) e infraestructura
 import uuid
 from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 from jose import jwt
@@ -55,7 +56,7 @@ def _exec_result(scalars_list=None, scalar_one=None):
 class _RecordingDB:
     """AsyncSession fake que registra objetos add() y los refleja en execute().
 
-    El servicio real hace: db.add(location) -> select(Rider) -> commit -> refresh.
+    El servicio real valida rider/documentos antes de insertar y confirmar.
     Con un side_effect estático, `db.add` no se puede inspeccionar de forma fiable
     (MagicMock lo expone como wrapper), por eso este doble explícito.
     """
@@ -65,6 +66,17 @@ class _RecordingDB:
         self.added: list = []
         self.commits = 0
         self.refreshes = 0
+        from app.models.rider_document import DocumentType, DocumentStatus
+        folder = Path("uploads/documents") / str(rider.id)
+        folder.mkdir(parents=True)
+        self.documents = []
+        for kind in DocumentType:
+            path = folder / f"{kind.value}.pdf"
+            path.write_bytes(b"%PDF-1.4 test document")
+            self.documents.append(SimpleNamespace(
+                rider_id=rider.id, type=kind, status=DocumentStatus.APROBADO,
+                file_url=f"/uploads/documents/{rider.id}/{path.name}",
+            ))
 
     def add(self, obj):
         self.added.append(obj)
@@ -81,7 +93,13 @@ class _RecordingDB:
     async def flush(self):
         pass
 
-    async def refresh(self, obj):
+    async def scalar(self, stmt):
+        return self._rider.id
+
+    async def scalars(self, stmt):
+        return SimpleNamespace(all=lambda: self.documents)
+
+    async def refresh(self, obj, attribute_names=None):
         self.refreshes += 1
 
 
@@ -97,7 +115,8 @@ def _fake_db(execute_side_effect):
 
 
 @pytest.fixture()
-def client(monkeypatch):
+def client(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
     # 1) Evitar create_all sobre Postgres real en el lifespan (TestClient).
     import app.core.database as dbmod
 
