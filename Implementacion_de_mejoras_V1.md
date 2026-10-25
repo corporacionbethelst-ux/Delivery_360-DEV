@@ -1994,3 +1994,48 @@ Se mantienen pendientes la revisión operativa y reparación autorizada de dupli
 | Frontend | Sin cambios; se conserva la validación anterior de **233 pruebas**, TypeScript, lint y build, no repetida en este bloque |
 
 Las pruebas nativas usan PostgreSQL test_* con esquemas privados y las pruebas HTTP usan SQLite temporal. No se consultan ni corrigen duplicados en bases de negocio. Mypy conserva deuda anterior y la cobertura frontend previa (**13,53 % de líneas**) sigue bajo el mínimo global del 50 %. No se declara CI global verde ni producción lista. El PR se publica sin borrador y no se fusiona automáticamente.
+
+## Bloque 26 — Diagnóstico de fechas de seguro en el inventario
+
+Fecha: 25 de octubre de 2026 (America/Caracas). Base: main, commit 61a1775, con PR #267 fusionado. Rama: feat/fleet-insurance-diagnostics-v1.
+
+### Finalidad y contrato
+
+La fecha insurance_expiry ya estaba almacenada en Vehicle, pero no aparecía en los controles de conciliación. El informe incorpora dos diagnósticos independientes, sin introducir un bloqueo operativo basado en una política de seguros aún pendiente:
+
+| Código | Condición y significado |
+|---|---|
+| INSURANCE_EXPIRED | La fecha registrada es anterior al día de referencia UTC |
+| INSURANCE_EXPIRY_MISSING | No hay fecha registrada; la vigencia es desconocida |
+
+Se consultan en GET /api/v1/vehicles/reconciliation con code=INSURANCE_EXPIRED o code=INSURANCE_EXPIRY_MISSING. Si no se filtra por código, aparecen junto con las anomalías de vínculos y placas. Cada hallazgo representa un vehículo con entity_type=vehicle, entity_id igual a su UUID y related_id=null. Se incluyen vehículos ACTIVO, MANTENIMIENTO y BAJA, asignados o libres.
+
+### Regla temporal explícita
+
+La respuesta añade insurance_reference_date, en formato YYYY-MM-DD. Se obtiene del mismo instante UTC usado en generated_at antes de ejecutar la consulta; no depende de CURRENT_DATE ni de la zona horaria de la sesión SQL. La comparación con la columna Date se realiza dentro de la sentencia del informe.
+
+Una fecha igual al día de referencia no se marca vencida; empieza a aparecer como vencida al día siguiente UTC. Esta es una regla de diagnóstico de fechas registradas, no una determinación legal sobre horarios de cobertura de una aseguradora. Si una consulta cruza medianoche mientras espera, se mantiene el día de referencia capturado y publicado para esa página. Otras páginas pueden tener una referencia diferente al cruzar el cambio de día; el recorrido no fija una fotografía global.
+
+Una fecha ausente no se interpreta como seguro vencido ni como ausencia demostrada de póliza. Una fecha futura tampoco certifica cobertura válida: no se verifican contrato, aseguradora, pago, documentos, hora de vencimiento ni vigencia legal. No se añaden estos hallazgos a documentación personal de vehículos PROPIO que no pertenezcan al inventario Vehicle.
+
+### Preservación del comportamiento operativo
+
+El informe sigue usando una sola sentencia SELECT por página, sin autoflush, commit, reservas de placa, bloqueos de filas ni eventos de éxito de auditoría. Mantiene permisos GERENTE/SUPERADMIN, cabeceras privadas y límites/cursor. Funciona dentro de una transacción PostgreSQL READ ONLY. Los valores almacenados y estados de los vehículos no se cambian al consultar.
+
+No se rechaza una asignación, no se cambia el catálogo disponible, no se desconecta un repartidor y no se altera una entrega por estos diagnósticos. El endurecimiento operativo requiere completar una política de fechas/zonas, tratamiento de fechas desconocidas, acreditación de pólizas y continuidad de entregas activas antes de activarlo. Este bloque permite identificar los datos pendientes sin adoptar esas decisiones de forma implícita.
+
+El catálogo checks añade los dos códigos y el cuerpo añade insurance_reference_date; los consumidores con validación estricta deben admitirlos. No se cambian modelos, tablas, índices, migraciones ni frontend. El coste del diagnóstico depende del inventario examinado, además de la paginación de resultados. No se intervienen bases de negocio ni se despliega o fusiona automáticamente.
+
+### Evidencia final local del bloque 26
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **771 pruebas aprobadas**, once nuevas frente a 760; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **89 pruebas** incluidas; una nueva con columna Date nativa, fechas vencidas/ausentes y transacción READ ONLY |
+| Nuevas pruebas restantes | Diez casos HTTP/SQLite: dos códigos en el catálogo de anomalías, cuatro fechas límite/ausencia, tres estados con paginación y conservación de datos, y cambio de día UTC |
+| Regresión enfocada | **61 pruebas aprobadas** de conciliación, incluidas las de placas y los controles anteriores de lectura/permisos |
+| Mypy con --ignore-missing-imports | **329 errores en 52 archivos**, sin diagnósticos nuevos por archivo/mensaje; 169 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; formato comprobado en app y los dos archivos de pruebas modificados |
+| Frontend | Sin cambios; se conserva la validación anterior de **233 pruebas**, TypeScript, lint y build, no repetida |
+
+Las pruebas usan SQLite temporal y PostgreSQL test_* con esquemas privados. Los datos saludables de las pruebas de conciliación incluyen ahora una fecha futura conocida, para distinguirlos de un inventario con fecha desconocida. No se modifican las fechas de bases de negocio. Mypy conserva deuda anterior y la cobertura frontend previa (**13,53 % de líneas**) sigue bajo el mínimo global del 50 %. No se declara CI global verde ni producción lista. El PR se publica sin borrador y no se fusiona automáticamente.
