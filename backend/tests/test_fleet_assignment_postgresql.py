@@ -1,3 +1,5 @@
+from app.core.vehicle_revision import vehicle_revision
+
 """Real PostgreSQL assignment competition and vehicle mutation serialization."""
 
 import asyncio
@@ -77,12 +79,21 @@ async def assign(sessions, rider_id, vehicle_id):
             )
             .where(Rider.id == rider_id)
         )
+        candidate = await db.scalar(
+            select(Vehicle).options(raiseload("*")).where(Vehicle.id == vehicle_id)
+        )
         payload = {
             "vehicle_ownership_type": "EMPRESA",
             "assigned_vehicle_id": vehicle_id,
         }
         changed = await prepare_vehicle_update(
-            db, rider, payload, assignment_revision(rider)
+            db,
+            rider,
+            payload,
+            assignment_revision(rider),
+            expected_vehicle_revision=(
+                vehicle_revision(candidate) if candidate else None
+            ),
         )
         for key, value in payload.items():
             setattr(rider, key, value)

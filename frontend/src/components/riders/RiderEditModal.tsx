@@ -26,6 +26,7 @@ import { vehicleService } from '@/services/vehicle.service';
 import { riderService, type UpdateRiderPayload } from '@/services/rider.service';
 import { isAssignmentConflict, requireAssignmentRevision } from '@/lib/assignment-revision';
 import { toast } from 'sonner';
+import { requireVehicleRevision } from '@/lib/vehicle-revision';
 
 interface RiderEditModalProps {
   rider: Rider | null;
@@ -56,6 +57,7 @@ export default function RiderEditModal({
   const [phone, setPhone] = useState('');
   const [tier, setTier] = useState<RiderTier>('BRONCE');
   const [vehicleOwnershipType, setVehicleOwnershipType] = useState<'PROPIO' | 'EMPRESA'>('PROPIO');
+  const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [assignedVehicleId, setAssignedVehicleId] = useState<string>('');
 
   // Datos de vehículo propio
@@ -88,6 +90,7 @@ export default function RiderEditModal({
       setTier(rider.tier || 'BRONCE');
       setVehicleOwnershipType(rider.vehicle_ownership_type || 'PROPIO');
       setAssignedVehicleId(rider.assigned_vehicle_id || '');
+      setSelectedVehicle(null);
       setVehicleType(rider.vehicle_type || '');
       setVehiclePlate(rider.vehicle_plate || '');
       setVehicleModel(rider.vehicle_model || '');
@@ -142,15 +145,12 @@ export default function RiderEditModal({
         updateData.assigned_vehicle_id = null; // Limpiar vehículo asignado
       } else {
         // Para vehículo de empresa, solo enviar ID
+        updateData.expected_vehicle_revision = requireVehicleRevision(selectedVehicle?.revision ?? (assignedVehicleId === draft.assigned_vehicle_id ? draft.assigned_vehicle?.revision : undefined));
         updateData.assigned_vehicle_id = assignedVehicleId;
         updateData.vehicle_ownership_type = 'EMPRESA';
 
         // Obtener datos del vehículo seleccionado para enviar también tipo y placa
-        const selectedVehicle = companyVehicles.find(v => v.id === assignedVehicleId);
-        if (selectedVehicle) {
-          updateData.vehicle_type = selectedVehicle.type;
-          updateData.vehicle_plate = selectedVehicle.plate;
-        }
+        // El backend obtiene los datos canónicos tras comprobar la revisión.
 
         // Limpiar datos de vehículo propio
         updateData.vehicle_model = undefined;
@@ -175,7 +175,9 @@ export default function RiderEditModal({
     }
   };
 
-  const availableVehicles = companyVehicles.filter(v => v.status === 'ACTIVO');
+  const currentAvailable = companyVehicles.filter(v => v.status === 'ACTIVO').map(v => v.id === selectedVehicle?.id ? selectedVehicle : v);
+  const availableVehicles = selectedVehicle && !currentAvailable.some(v => v.id === selectedVehicle.id)
+    ? [...currentAvailable, selectedVehicle] : currentAvailable;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -244,6 +246,7 @@ export default function RiderEditModal({
                   const firstAvailable = availableVehicles[0];
                   if (firstAvailable) {
                     setAssignedVehicleId(firstAvailable.id);
+                    setSelectedVehicle({ ...firstAvailable });
                   }
                 }
               }}
@@ -317,7 +320,7 @@ export default function RiderEditModal({
               ) : (
                 <div>
                   <Label>Seleccionar Vehículo</Label>
-                  <Select value={assignedVehicleId} onValueChange={setAssignedVehicleId}>
+                  <Select value={assignedVehicleId} onValueChange={id => { setAssignedVehicleId(id); const chosen = companyVehicles.find(v => v.id === id); setSelectedVehicle(chosen ? { ...chosen } : null); }}>
                     <SelectTrigger>
                       <SelectValue placeholder="Seleccionar vehículo" />
                     </SelectTrigger>
@@ -336,7 +339,7 @@ export default function RiderEditModal({
                   {assignedVehicleId && (
                     <div className="mt-2 p-2 bg-white rounded border">
                       {(() => {
-                        const selected = companyVehicles.find(v => v.id === assignedVehicleId);
+                        const selected = selectedVehicle ?? companyVehicles.find(v => v.id === assignedVehicleId);
                         return selected ? (
                           <div className="text-sm space-y-1">
                             <div><strong>Tipo:</strong> {selected.type}</div>

@@ -62,7 +62,7 @@ it('captures a fresh snapshot only after closing and reopening', async () => {
 });
 
 it('retains the current company assignment when it is absent from the free catalog', async () => {
-  render(view({ ...row, vehicle_ownership_type:'EMPRESA', assigned_vehicle_id:row.id }));
+  render(view({ ...row, vehicle_ownership_type:'EMPRESA', assigned_vehicle_id:row.id, assigned_vehicle:{ id:row.id, revision, plate:'OWN-123', type:'MOTO', model:'Test', color:'Black', year:2025 } }));
   fireEvent.click(await screen.findByRole('button', { name:'Guardar Cambios' }));
   await waitFor(() => expect(service.updateRider).toHaveBeenCalledWith(row.id, expect.objectContaining({ assigned_vehicle_id:row.id, expected_assignment_revision:revision })));
 });

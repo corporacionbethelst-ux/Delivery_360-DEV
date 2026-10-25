@@ -1,3 +1,4 @@
+import { requireVehicleRevision } from '@/lib/vehicle-revision';
 import { hasFleetFields, requireAssignmentRevision } from '@/lib/assignment-revision';
 import { api } from '@/lib/api';
 import { requireDocumentRevision } from '@/lib/document-revision';
@@ -33,6 +34,9 @@ export interface HeartbeatPayload {
 }
 
 export interface CreateRiderPayload {
+  vehicle_ownership_type?: 'PROPIO' | 'EMPRESA';
+  assigned_vehicle_id?: string | null;
+  expected_vehicle_revision?: string;
   email: string;
   password: string;
   first_name: string;
@@ -48,6 +52,7 @@ export interface CreateRiderPayload {
 
 export interface UpdateProfilePayload {
   expected_assignment_revision?: string;
+  expected_vehicle_revision?: string;
   first_name?: string;
   last_name?: string;
   phone?: string;
@@ -57,6 +62,7 @@ export interface UpdateProfilePayload {
 
 export interface UpdateRiderPayload {
   expected_assignment_revision?: string;
+  expected_vehicle_revision?: string;
   tier?: 'BRONCE' | 'PLATA' | 'ORO' | 'PLATINO';
   phone?: string;
   vehicle_type?: string;
@@ -479,6 +485,7 @@ export const riderService = {
    */
   updateProfile: async (profileData: UpdateProfilePayload): Promise<Rider> => {
     if (hasFleetFields(profileData)) requireAssignmentRevision(profileData.expected_assignment_revision);
+    if (profileData.expected_vehicle_revision !== undefined) requireVehicleRevision(profileData.expected_vehicle_revision);
     // Validaciones básicas de campos
     if (profileData.phone && !/^\+?[0-9]{7,15}$/.test(profileData.phone.replace(/[\s-]/g, ''))) {
       console.warn('[RiderService] Formato de teléfono posiblemente inválido');
@@ -497,6 +504,7 @@ export const riderService = {
    * POST /riders
    */
   createRider: async (data: CreateRiderPayload): Promise<Rider> => {
+    if (data.vehicle_ownership_type === 'EMPRESA') requireVehicleRevision(data.expected_vehicle_revision);
     // Validaciones estrictas de creación (Frontend Defense)
     if (!data.email || !data.email.includes('@')) {
       throw new ServiceError('Email inválido', 400);
@@ -589,6 +597,7 @@ export const riderService = {
 
     const payload = { ...data };
     if (hasFleetFields(payload)) requireAssignmentRevision(payload.expected_assignment_revision);
+    if (payload.vehicle_ownership_type === 'EMPRESA' || payload.assigned_vehicle_id) requireVehicleRevision(payload.expected_vehicle_revision);
     if (payload.assigned_vehicle_id) {
       delete payload.vehicle_type;
       delete payload.vehicle_plate;

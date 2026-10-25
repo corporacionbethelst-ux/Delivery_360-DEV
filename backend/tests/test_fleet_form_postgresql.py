@@ -1,3 +1,5 @@
+from app.core.vehicle_revision import vehicle_revision
+
 """Observed fleet snapshots checked after acquiring real parent locks."""
 
 import asyncio
@@ -45,11 +47,22 @@ async def snapshot(sessions, rider_id):
 async def write(sessions, rider_id, vehicle_id, token):
     async with sessions() as db:
         rider = await current(db, rider_id)
+        candidate = await db.scalar(
+            select(Vehicle).options(raiseload("*")).where(Vehicle.id == vehicle_id)
+        )
         payload = {
             "vehicle_ownership_type": "EMPRESA",
             "assigned_vehicle_id": vehicle_id,
         }
-        changed = await prepare_vehicle_update(db, rider, payload, token)
+        changed = await prepare_vehicle_update(
+            db,
+            rider,
+            payload,
+            token,
+            expected_vehicle_revision=(
+                vehicle_revision(candidate) if candidate else None
+            ),
+        )
         for key, value in payload.items():
             setattr(rider, key, value)
         await db.flush()

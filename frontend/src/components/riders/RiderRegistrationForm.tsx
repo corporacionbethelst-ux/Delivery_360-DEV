@@ -13,6 +13,9 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { useRidersStore } from '@/stores/ridersStore';
 import { vehicleService, type Vehicle } from '@/services/vehicle.service';
 import { toast } from 'sonner';
+import type { CreateRiderPayload } from '@/services/rider.service';
+import { requireVehicleRevision, VehicleRevisionError } from '@/lib/vehicle-revision';
+import { isAssignmentConflict } from '@/lib/assignment-revision';
 import type { RiderVehicleType } from '@/types/rider';
 
 // Esquema de validación: Mantenemos fullName en el form para facilidad del usuario,
@@ -27,6 +30,8 @@ interface RiderRegistrationFormProps {
 
 export default function RiderRegistrationForm({ onSuccess, onCancel }: RiderRegistrationFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
+  const [conflicted, setConflicted] = useState(false);
   const [companyVehicles, setCompanyVehicles] = useState<Vehicle[]>([]);
   const [isLoadingVehicles, setIsLoadingVehicles] = useState(false);
   const { createRider } = useRidersStore();
@@ -59,6 +64,7 @@ export default function RiderRegistrationForm({ onSuccess, onCancel }: RiderRegi
           setCompanyVehicles(vehicles);
           if (vehicles.length > 0 && !form.getValues('assignedVehicleId')) {
             form.setValue('assignedVehicleId', vehicles[0].id);
+            setSelectedVehicle({ ...vehicles[0] });
           }
         })
         .catch((error) => {
@@ -72,6 +78,7 @@ export default function RiderRegistrationForm({ onSuccess, onCancel }: RiderRegi
   }, [vehicleOwnershipType]);
 
   const onSubmit = async (data: RiderFormValues) => {
+    if (conflicted || isSubmitting) return;
     setIsSubmitting(true);
     try {
       // Lógica robusta para dividir Nombre y Apellido
@@ -81,7 +88,8 @@ export default function RiderRegistrationForm({ onSuccess, onCancel }: RiderRegi
       const last_name = nameParts.length > 1 ? nameParts.slice(1).join(' ') : 'Apellido';
 
       // Construimos el payload manualmente para asegurar compatibilidad con RiderCreateInput del store
-      const payload: any = {
+      const payload: CreateRiderPayload = {
+        vehicle_type: data.vehicleType,
         email: data.email,
         password: data.password,
         first_name,       // Campo requerido por RiderCreateInput
@@ -98,12 +106,10 @@ export default function RiderRegistrationForm({ onSuccess, onCancel }: RiderRegi
       } else {
         // Si es vehículo de empresa, asignamos el ID del vehículo seleccionado
         payload.assigned_vehicle_id = data.assignedVehicleId;
-        // Obtenemos el tipo de vehículo del vehículo de empresa seleccionado
-        const selectedVehicle = companyVehicles.find(v => v.id === data.assignedVehicleId);
-        if (selectedVehicle) {
-          payload.vehicle_type = selectedVehicle.type;
-          payload.vehicle_plate = selectedVehicle.plate;
-        }
+        if (!selectedVehicle || selectedVehicle.id !== data.assignedVehicleId) throw new VehicleRevisionError();
+        payload.expected_vehicle_revision = requireVehicleRevision(selectedVehicle.revision);
+        payload.vehicle_type = selectedVehicle.type;
+        payload.vehicle_plate = selectedVehicle.plate;
       }
 
       // El store espera campos snake_case según la interfaz RiderCreateInput
@@ -113,11 +119,33 @@ export default function RiderRegistrationForm({ onSuccess, onCancel }: RiderRegi
       toast.success('Repartidor registrado exitosamente');
       onSuccess?.();
     } catch (error: any) {
-      console.error('Error al crear repartidor:', error);
+      if (isAssignmentConflict(error)) setConflicted(true);
       toast.error(error.message || 'Error al crear repartidor');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const displayedCompanyVehicles = selectedVehicle && !companyVehicles.some(v => v.id === selectedVehicle.id)
+    ? [...companyVehicles, selectedVehicle]
+    : companyVehicles.map(v => v.id === selectedVehicle?.id ? selectedVehicle : v);
+
+  const reloadVehicles = async () => {
+    setSelectedVehicle(null);
+    form.setValue('assignedVehicleId', '');
+    setConflicted(false);
+    setIsLoadingVehicles(true);
+    try {
+      const vehicles = await vehicleService.getAvailableCompanyVehicles();
+      setCompanyVehicles(vehicles);
+      if (vehicles[0]) {
+        form.setValue('assignedVehicleId', vehicles[0].id);
+        setSelectedVehicle({ ...vehicles[0] });
+      }
+    } catch {
+      setCompanyVehicles([]);
+      toast.error('No se pudieron recargar los vehículos');
+    } finally { setIsLoadingVehicles(false); }
   };
 
   return (
@@ -126,6 +154,7 @@ export default function RiderRegistrationForm({ onSuccess, onCancel }: RiderRegi
         <CardTitle>Registrar Nuevo Repartidor</CardTitle>
       </CardHeader>
       <CardContent>
+        {vehicleOwnershipType === 'EMPRESA' && <Button type="button" variant="outline" disabled={isSubmitting || isLoadingVehicles} onClick={reloadVehicles}>Recargar vehículos</Button>}
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
@@ -274,7 +303,7 @@ export default function RiderRegistrationForm({ onSuccess, onCancel }: RiderRegi
                     render={({ field }) => (
                       <FormItem className="md:col-span-2">
                         <FormLabel>Vehículo de Empresa Asignado</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select onValueChange={id => { field.onChange(id); const chosen = companyVehicles.find(v => v.id === id); setSelectedVehicle(chosen ? { ...chosen } : null); }} value={field.value}>
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder={isLoadingVehicles ? "Cargando vehículos..." : "Selecciona un vehículo"} />
@@ -342,7 +371,7 @@ export default function RiderRegistrationForm({ onSuccess, onCancel }: RiderRegi
               <Button 
                 type="submit" 
                 className="flex-1"
-                disabled={isSubmitting}
+                disabled={isSubmitting || conflicted || (vehicleOwnershipType === 'EMPRESA' && (isLoadingVehicles || !selectedVehicle))}
               >
                 {isSubmitting ? 'Registrando...' : 'Registrar Repartidor'}
               </Button>

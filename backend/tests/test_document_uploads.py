@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from starlette.datastructures import Headers
 
 from tests.test_private_documents import documents  # noqa: F401
-from app.api.v1 import riders as api, auth
+from app.api.v1 import riders as api, auth, vehicles
 from app.api.v1.auth import get_current_user
 from app.core.database import get_db
 from app.core.document_files import resolve_document_file, document_revision
@@ -111,6 +111,7 @@ async def submissions(documents):
     app = FastAPI()
     app.include_router(api.router, prefix="/api/v1")
     app.include_router(auth.router, prefix="/api/v1")
+    app.include_router(vehicles.router, prefix="/api/v1")
     app.add_middleware(DocumentUploadLimitMiddleware)
 
     async def database():

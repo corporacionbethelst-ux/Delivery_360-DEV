@@ -36,6 +36,7 @@ export interface User {
 export interface Rider extends User {
   // Datos específicos del Rider
   assignment_revision?: string;
+  assigned_vehicle?: { id: string; revision?: string; plate: string; type: string; model: string; color: string; year: number };
   tier?: 'BRONCE' | 'PLATA' | 'ORO' | 'PLATINO';
   vehicle_type?: VehicleType | string;
   vehicle_plate?: string;

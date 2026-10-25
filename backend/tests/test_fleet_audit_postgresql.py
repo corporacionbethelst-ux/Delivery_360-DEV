@@ -1,8 +1,11 @@
+from app.core.vehicle_revision import vehicle_revision
+
 """Durable fleet/audit coupling with native PostgreSQL transactions."""
 
 import asyncio
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.orm import raiseload
 from sqlalchemy import select, text, func
 from tests.test_wallet_postgresql import pg_wallets  # noqa: F401
 from tests.test_document_uploads_postgresql import pg_documents  # noqa: F401
@@ -42,10 +45,18 @@ async def audited(pg_fleet):
 
 async def apply(db, rider_id, vehicle_id, actor_id, token):
     rider = await current(db, rider_id)
+    candidate = await db.scalar(
+        select(Vehicle).options(raiseload("*")).where(Vehicle.id == vehicle_id)
+    )
     payload = {"vehicle_ownership_type": "EMPRESA", "assigned_vehicle_id": vehicle_id}
     before = {}
     changed = await prepare_vehicle_update(
-        db, rider, payload, token, before_state=before
+        db,
+        rider,
+        payload,
+        token,
+        before_state=before,
+        expected_vehicle_revision=vehicle_revision(candidate) if candidate else None,
     )
     for key, value in payload.items():
         setattr(rider, key, value)

@@ -11,6 +11,7 @@ export type VehicleStatus = (typeof VEHICLE_STATUSES)[number];
 
 export interface Vehicle {
   id: string;
+  revision?: string;
   plate: string;
   type: VehicleType;
   model: string;
@@ -83,7 +84,10 @@ const formatApiDetail = (data: any): string | undefined => {
 };
 
 const handleApiError = (error: unknown, context: string): never => {
-  console.error(`[VehicleService] ${context}:`, error);
+  console.error(`[VehicleService] ${context}:`, {
+    status: error instanceof AxiosError ? error.response?.status : undefined,
+    code: error instanceof AxiosError ? error.code : undefined,
+  });
 
   if (error instanceof AxiosError) {
     const message = formatApiDetail(error.response?.data) || error.message || 'Error desconocido';
