@@ -50,3 +50,14 @@ it('reports partial success if the separate password operation fails',async()=>{
  expect(service.update).toHaveBeenCalledTimes(1); expect(service.updatePassword).toHaveBeenCalledTimes(1);
  expect(service.getById).toHaveBeenCalledTimes(1); expect(mockRouter.push).not.toHaveBeenCalled();
 });
+it('allows correcting a duplicate email without replacing the observed user revision',async()=>{
+ service.update.mockRejectedValueOnce(Object.assign(new Error('Conflict'),{ response:{ status:409,data:{ detail:{ code:'USER_EMAIL_CONFLICT',message:'El correo ya está registrado. Use otro correo' } } } }));
+ render(<Page/>); await screen.findByDisplayValue('Original');
+ fireEvent.click(screen.getByRole('button',{ name:/Guardar/ }));
+ await screen.findByText('El correo ya está registrado. Use otro correo');
+ await waitFor(()=>expect(screen.getByRole('button',{ name:/Guardar/ })).toBeEnabled());
+ fireEvent.change(screen.getByDisplayValue('user@example.test'),{ target:{ value:'free@example.com' } });
+ fireEvent.click(screen.getByRole('button',{ name:/Guardar/ }));
+ await waitFor(()=>expect(service.update).toHaveBeenLastCalledWith(row.id,expect.objectContaining({ email:'free@example.com',expected_user_revision:revision })));
+ expect(service.getById).toHaveBeenCalledTimes(1);
+});

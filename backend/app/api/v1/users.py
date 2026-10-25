@@ -14,6 +14,7 @@ from app.api.v1.auth import get_current_user
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.models.user import User, UserRole
+from app.services.user_emails import claim_email, flush_email_change
 from app.services.user_revision import user_revision, lock_user, ensure_user_revision
 
 router = APIRouter()
@@ -137,21 +138,6 @@ async def _get_user_or_404(db: AsyncSession, user_id: str) -> User:
     return user
 
 
-async def _ensure_email_available(
-    db: AsyncSession, email: str, exclude_user_id: Optional[uuid.UUID] = None
-) -> None:
-    stmt = select(User).where(func.lower(User.email) == email.lower())
-    if exclude_user_id:
-        stmt = stmt.where(User.id != exclude_user_id)
-
-    result = await db.execute(stmt)
-    if result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El email ya está registrado",
-        )
-
-
 @router.get("/me", response_model=dict)
 async def get_me(current_user: User = Depends(get_current_user)):
     """Obtener el perfil del usuario autenticado."""
@@ -166,11 +152,15 @@ async def update_me(
     current_user: User = Depends(get_current_user),
 ):
     """Actualizar datos básicos del perfil propio sin permitir cambios de rol o estado."""
+    canonical = (
+        await claim_email(db, body.email, excluding=current_user.id)
+        if body.email is not None
+        else None
+    )
     user = await lock_user(db, current_user.id)
     ensure_user_revision(user, body.expected_user_revision)
     if body.email is not None:
-        await _ensure_email_available(db, body.email, exclude_user_id=user.id)
-        user.email = body.email.lower()
+        user.email = canonical if canonical is not None else user.email
     if body.first_name is not None:
         user.first_name = body.first_name.strip()
     if body.last_name is not None:
@@ -180,6 +170,8 @@ async def update_me(
     if body.avatar_url is not None:
         user.avatar_url = body.avatar_url.strip() or None
 
+    if body.email is not None:
+        await flush_email_change(db)
     await db.commit()
     await db.refresh(user)
     return _serialize_user(user)
@@ -233,10 +225,10 @@ async def create_user(
     """Crear un usuario administrativo/operativo."""
     _require_user_manager(current_user)
     _ensure_can_manage_role(current_user, body.role)
-    await _ensure_email_available(db, body.email)
+    canonical = await claim_email(db, body.email)
 
     user = User(
-        email=body.email.lower(),
+        email=canonical,
         hashed_password=hash_password(body.password),
         first_name=body.first_name.strip(),
         last_name=body.last_name.strip(),
@@ -246,6 +238,7 @@ async def create_user(
         is_superuser=body.role == UserRole.SUPERADMIN,
     )
     db.add(user)
+    await flush_email_change(db)
     await db.commit()
     await db.refresh(user)
     return _serialize_user(user)
@@ -281,15 +274,20 @@ async def update_user(
 ):
     """Actualizar datos básicos, estado y rol de un usuario."""
     _require_user_manager(current_user)
-    user = await lock_user(db, _parse_uuid(user_id, "user_id"))
+    uid = _parse_uuid(user_id, "user_id")
+    canonical = (
+        await claim_email(db, body.email, excluding=uid)
+        if body.email is not None
+        else None
+    )
+    user = await lock_user(db, uid)
     _ensure_not_self_lockout(current_user, user, body)
     _ensure_can_manage_role(current_user, body.role or user.role, user)
 
     ensure_user_revision(user, body.expected_user_revision)
 
     if body.email is not None:
-        await _ensure_email_available(db, body.email, exclude_user_id=user.id)
-        user.email = body.email.lower()
+        user.email = canonical if canonical is not None else user.email
     if body.first_name is not None:
         user.first_name = body.first_name.strip()
     if body.last_name is not None:
@@ -302,6 +300,8 @@ async def update_user(
     if body.is_active is not None:
         user.is_active = body.is_active
 
+    if body.email is not None:
+        await flush_email_change(db)
     await db.commit()
     await db.refresh(user)
     return _serialize_user(user)

@@ -1,5 +1,6 @@
 'use client';
 
+import { emailConflictMessage } from '@/lib/email-conflict';
 import { DOCUMENT_ACCEPT, validateDocumentSelection } from '@/lib/document-upload';
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -120,8 +121,8 @@ export default function RegisterRiderPage() {
         router.push('/login');
       }, 2000);
     } catch (err: any) {
-      console.error('Error registrando:', err);
-      setError(err.response?.data?.detail || err.message || 'Error al registrar. Intenta nuevamente.');
+      console.error('Error registrando:', { status:err?.response?.status ?? err?.status });
+      setError(emailConflictMessage(err) || (typeof err.response?.data?.detail === 'string' ? err.response.data.detail : undefined) || err.message || 'Error al registrar. Intenta nuevamente.');
     } finally {
       setLoading(false);
     }

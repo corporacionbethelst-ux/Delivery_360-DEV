@@ -153,8 +153,9 @@ const handleApiError = (error: unknown, context: string): never => {
   });
 
   if (error instanceof AxiosError) {
-    const message = error.response?.data?.detail || error.message || 'Error desconocido';
-    throw new ServiceError(message, error.response?.status, error.code);
+    const detail = error.response?.data?.detail;
+    const message = (typeof detail === 'string' ? detail : typeof detail?.message === 'string' ? detail.message : undefined) || error.message || 'Error desconocido';
+    throw new ServiceError(message, error.response?.status, typeof detail?.code === 'string' ? detail.code : error.code);
   }
 
   if (error instanceof Error) {

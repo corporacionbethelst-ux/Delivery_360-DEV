@@ -50,6 +50,7 @@ from app.models.payout import Payout, PayoutStatus
 from app.models.enums import VehicleOwnershipType
 from app.api.v1.auth import get_current_user, require_role
 from app.services.financial_service import CREDIT_TYPES
+from app.services.user_emails import claim_email, flush_email_change
 from app.services.rider_profile_revision import (
     PROFILE_FIELDS,
     profile_revision,
@@ -547,9 +548,7 @@ async def create_rider(
     from app.core.security import hash_password
     from sqlalchemy import select
 
-    existing_user = await db.execute(select(User).where(User.email == body.email))
-    if existing_user.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="El email ya está registrado")
+    canonical_email = await claim_email(db, body.email)
 
     # Validación: Si es EMPRESA, debe proporcionar assigned_vehicle_id
     if body.vehicle_ownership_type == "EMPRESA" and not body.assigned_vehicle_id:
@@ -573,7 +572,7 @@ async def create_rider(
     last_name = body.last_name
 
     user = User(
-        email=body.email,
+        email=canonical_email,
         hashed_password=hash_password(body.password),
         first_name=first_name,
         last_name=last_name,
@@ -582,7 +581,7 @@ async def create_rider(
         is_active=True,
     )
     db.add(user)
-    await db.flush()
+    await flush_email_change(db)
 
     if body.vehicle_ownership_type not in (None, "PROPIO", "EMPRESA"):
         raise HTTPException(status_code=422, detail="Propiedad de vehículo inválida")

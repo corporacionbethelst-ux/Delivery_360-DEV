@@ -1,5 +1,6 @@
 'use client';
 
+import { isEmailConflict } from '@/lib/email-conflict';
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -119,7 +120,7 @@ export default function RiderRegistrationForm({ onSuccess, onCancel }: RiderRegi
       toast.success('Repartidor registrado exitosamente');
       onSuccess?.();
     } catch (error: any) {
-      if (isAssignmentConflict(error)) setConflicted(true);
+      if (isAssignmentConflict(error) && !isEmailConflict(error)) setConflicted(true);
       toast.error(error.message || 'Error al crear repartidor');
     } finally {
       setIsSubmitting(false);
