@@ -52,6 +52,10 @@ async def fleet(submissions):
 
 
 async def change(client, ctx, **payload):
+    if "expected_assignment_revision" not in payload:
+        current = await client.get(f"/api/v1/riders/{ctx['rider_id']}")
+        assert current.status_code == 200, current.text
+        payload["expected_assignment_revision"] = current.json()["assignment_revision"]
     return await client.patch(f"/api/v1/riders/{ctx['rider_id']}", json=payload)
 
 

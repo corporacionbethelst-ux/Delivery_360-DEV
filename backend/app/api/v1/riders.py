@@ -51,6 +51,7 @@ from app.models.payout import Payout, PayoutStatus
 from app.models.enums import VehicleOwnershipType
 from app.api.v1.auth import get_current_user, require_role
 from app.services.financial_service import CREDIT_TYPES
+from app.core.fleet_revision import assignment_revision
 from app.services.fleet_assignment import (
     VEHICLE_FIELDS,
     lock_vehicles,
@@ -116,6 +117,8 @@ class RiderUpdate(BaseModel):
     # Campos para vehículo de empresa (opcionales)
     vehicle_ownership_type: Optional[str] = None
     assigned_vehicle_id: Optional[uuid.UUID] = None
+
+    expected_assignment_revision: Optional[str] = Field(None, pattern=r"^[a-f0-9]{64}$")
 
     # Campo para nivel/gamificación (Fase 4)
     tier: Optional[str] = None
@@ -252,6 +255,7 @@ def _rider_to_dict(r: Rider, include_user: bool = False) -> dict:
             r.tier.value if hasattr(r.tier, "value") else r.tier
         ),  # ✅ AGREGADO: Campo tier para gamificación
         "vehicle_type": optional_enum_value(r.vehicle_type),
+        "assignment_revision": assignment_revision(r),
         "vehicle_plate": r.vehicle_plate or "",
         "vehicle_model": r.vehicle_model,
         "operating_zone": r.operating_zone,
@@ -663,6 +667,7 @@ async def get_my_rider_profile(
         select(Rider)
         .options(joinedload(Rider.user), joinedload(Rider.assigned_vehicle))
         .where(Rider.user_id == current_user.id)
+        .execution_options(populate_existing=True)
     )
     result = await db.execute(stmt)
     rider = result.unique().scalar_one_or_none()
@@ -698,10 +703,14 @@ async def update_my_rider_profile(
             status_code=404, detail="Perfil de repartidor no encontrado"
         )
 
-    payload = body.model_dump(exclude_none=True)
+    payload = body.model_dump(
+        exclude_none=True, exclude={"expected_assignment_revision"}
+    )
     vehicle_changed = False
     if VEHICLE_FIELDS.intersection(payload):
-        vehicle_changed = await prepare_vehicle_update(db, rider, payload)
+        vehicle_changed = await prepare_vehicle_update(
+            db, rider, payload, body.expected_assignment_revision
+        )
     old_vehicle_type = optional_enum_value(rider.vehicle_type)
     old_vehicle_info = f"{old_vehicle_type} - {rider.vehicle_plate}"
     new_vehicle_info = f"{payload.get('vehicle_type', old_vehicle_type)} - {payload.get('vehicle_plate', rider.vehicle_plate)}"
@@ -1062,7 +1071,12 @@ async def get_rider(
     rid = _parse_uuid(rider_id, "rider_id")
 
     # Cargar rider con relación user
-    stmt = select(Rider).options(joinedload(Rider.user)).where(Rider.id == rid)
+    stmt = (
+        select(Rider)
+        .options(joinedload(Rider.user))
+        .where(Rider.id == rid)
+        .execution_options(populate_existing=True)
+    )
     result = await db.execute(stmt)
     rider = result.unique().scalar_one_or_none()
 
@@ -1108,11 +1122,15 @@ async def update_rider(
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
     await _ensure_rider_self_scope(db, current_user, rider)
 
-    payload = body.model_dump(exclude_none=True)
+    payload = body.model_dump(
+        exclude_none=True, exclude={"expected_assignment_revision"}
+    )
 
     vehicle_changed = False
     if VEHICLE_FIELDS.intersection(payload):
-        vehicle_changed = await prepare_vehicle_update(db, rider, payload)
+        vehicle_changed = await prepare_vehicle_update(
+            db, rider, payload, body.expected_assignment_revision
+        )
 
     if "vehicle_type" in payload:
         payload["vehicle_type"] = _parse_vehicle_type(payload["vehicle_type"])
@@ -1131,7 +1149,10 @@ async def update_rider(
             )
 
     for field, value in payload.items():
-        setattr(rider, field, value)
+        if field in {"first_name", "last_name", "phone"}:
+            setattr(rider.user, field, value)
+        else:
+            setattr(rider, field, value)
 
     if vehicle_changed:
         await db.flush()

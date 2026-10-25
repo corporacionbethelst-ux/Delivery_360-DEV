@@ -8,6 +8,7 @@ from sqlalchemy.orm import load_only, raiseload
 from tests.test_wallet_postgresql import pg_wallets  # noqa: F401
 from tests.test_document_uploads_postgresql import pg_documents  # noqa: F401
 from app.models.rider import Rider, RiderStatus
+from app.core.fleet_revision import assignment_revision
 from app.models.vehicle import Vehicle
 from app.services.fleet_assignment import (
     prepare_vehicle_update,
@@ -64,7 +65,15 @@ async def assign(sessions, rider_id, vehicle_id):
             select(Rider)
             .options(
                 raiseload("*"),
-                load_only(Rider.id, Rider.user_id, Rider.assigned_vehicle_id),
+                load_only(
+                    Rider.id,
+                    Rider.user_id,
+                    Rider.assigned_vehicle_id,
+                    Rider.vehicle_ownership_type,
+                    Rider.vehicle_type,
+                    Rider.vehicle_plate,
+                    Rider.vehicle_model,
+                ),
             )
             .where(Rider.id == rider_id)
         )
@@ -72,7 +81,9 @@ async def assign(sessions, rider_id, vehicle_id):
             "vehicle_ownership_type": "EMPRESA",
             "assigned_vehicle_id": vehicle_id,
         }
-        changed = await prepare_vehicle_update(db, rider, payload)
+        changed = await prepare_vehicle_update(
+            db, rider, payload, assignment_revision(rider)
+        )
         for key, value in payload.items():
             setattr(rider, key, value)
         await db.flush()

@@ -35,6 +35,8 @@ export interface User {
 // Interfaz extendida para Repartidores con datos específicos del modelo Rider
 export interface Rider extends User {
   // Datos específicos del Rider
+  assignment_revision?: string;
+  tier?: 'BRONCE' | 'PLATA' | 'ORO' | 'PLATINO';
   vehicle_type?: VehicleType | string;
   vehicle_plate?: string;
   vehicle_model?: string;

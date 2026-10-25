@@ -1561,3 +1561,64 @@ Al cambiar el filtro code debe iniciarse de nuevo sin cursor. El cursor es una c
 | Frontend | Sin cambios; validación anterior de 183 pruebas y compilación conservada, no repetida en este bloque backend |
 
 Las pruebas usan SQLite temporal y una base PostgreSQL test_* con esquemas privados. No se consulta ni repara una base de negocio. La prueba PostgreSQL ejecuta el servicio dentro de SET TRANSACTION READ ONLY; las pruebas HTTP verifican que roles denegados no llegan a consultar datos y que la salida no incluye campos personales. No se declara CI global verde ni producción lista: persisten Mypy y cobertura pendientes. El PR se publica sin borrador, sin fusión ni despliegue automáticos.
+
+## Bloque 19 — Precondiciones de estado para formularios de asignación
+
+Fecha: 25 de octubre de 2026 (America/Caracas). Base: main, commit 4a18785, con PR #260 fusionado. Rama: fix/fleet-form-preconditions-v1.
+
+### Problema y contrato nuevo
+
+El bloque 17 detectaba cambios entre la lectura inicial del servidor y la adquisición de los bloqueos, pero un formulario abierto anteriormente podía enviar datos antiguos después de una reasignación ya confirmada. Se añade assignment_revision a las respuestas serializadas de repartidores y expected_assignment_revision a RiderUpdate.
+
+La revisión es SHA-256 de la identidad del perfil/usuario y sus campos de vehículo: propiedad, vehículo asignado, tipo, placa y modelo. El servidor compara el valor esperado después de bloquear vehículos/repartidor y refrescar esos campos, antes de modificar vínculos, documentos o campos personales del mismo envío.
+
+- PATCH /api/v1/riders/{rider_id} y PUT /api/v1/riders/me exigen la revisión cuando el payload aplicado incluye campos de vehículo; los no-op que incluyen esos campos también se condicionan.
+- Una revisión ausente o distinta del estado actual devuelve 409. Un formato distinto de 64 caracteres hexadecimales minúsculos devuelve 422.
+- La revisión se excluye del payload aplicado al ORM: no se guarda como un atributo transitorio ni como columna.
+- Las actualizaciones exclusivamente ajenas al vehículo conservan su contrato sin revisión de asignación. Crear un repartidor no requiere una revisión anterior inexistente.
+- Las lecturas individuales y propias refrescan metadata previamente cargada en la sesión para devolver el estado actual.
+
+No se reutiliza Rider.version, reservado para concurrencia financiera, ni updated_at, modificado por GPS y otras operaciones. Ubicación, conexión, estado administrativo, fechas y balance no invalidan por sí mismos el formulario de flota. La invalidación documental y preservación de suspensiones del bloque 17 permanecen vigentes.
+
+### Editor de gerencia
+
+Se corrige riderService.updateRider: enviaba PUT a /riders/{id}, mientras que el endpoint real acepta PATCH. El servicio conserva una copia del payload al retirar datos propios incompatibles con una asignación de empresa; no modifica el objeto del llamador.
+
+RiderEditModal captura el perfil completo al abrir y conserva tanto los datos editados como la revisión inicial. Un refresco de props para el mismo perfil no reemplaza silenciosamente la revisión ni reinicia el borrador. La carga del catálogo tampoco cambia la selección del formulario. El vehículo actualmente asignado puede conservarse aunque no aparezca entre los disponibles.
+
+Ante 409 el guardado queda bloqueado. El operador puede cerrar y recargar para revisar el estado vigente; no se descarga una revisión nueva para reenviar automáticamente los cambios antiguos. Cerrar/reabrir inicia un borrador nuevo. Las respuestas de una petición que ya no corresponde al borrador activo no cierran ni confirman otro editor.
+
+El payload tiene tipo UpdateRiderPayload y declara tier/revisión. Además, el backend persiste phone/first_name/last_name administrativos en el User relacionado: antes los asignaba como atributos no persistidos del objeto Rider. La prueba nueva verifica persistencia real del teléfono y ausencia de cambios parciales ante conflicto de flota.
+
+### Perfil propio
+
+El formulario carga la revisión junto con los datos de la API, sin reemplazarla por refrescos del mismo usuario en el store de autenticación. El fallback del store permite visualizar datos, pero no habilita un guardado de vehículo sin revisión del servidor.
+
+Un conflicto bloquea nuevos envíos y solicita Recargar perfil. Esta acción explícita repone datos y revisión juntos; no reenvía la edición anterior. El guardado también se deshabilita mientras se recarga. El 409 no se interpreta como si los documentos hubieran sido reiniciados ni redirige a documentos por ese motivo.
+
+### Compatibilidad y límites de la garantía
+
+Backend y frontend requieren publicación coordinada. Los clientes anteriores que escriban campos de vehículo sin expected_assignment_revision recibirán 409 y deben recargar con la versión nueva del cliente. La lectura sigue siendo compatible; el campo TypeScript es opcional para representar respuestas históricas, pero los servicios validan la revisión antes de enviar una escritura de flota.
+
+**Es una precondición del estado actual, no un contador monotónico ni una prueba de eventos.** Si el sistema vuelve exactamente a los mismos valores de vehículo, la huella vuelve a ser la misma (caso A→B→A). No detecta por sí sola una historia intermedia ni acredita revisión humana. No es una credencial de autorización y no sustituye los permisos existentes.
+
+La huella tampoco incluye la metadata del vehículo candidato todavía libre: la asignación toma los datos canónicos actuales bajo bloqueo. Si se requiere confirmar exactamente la ficha del candidato que vio el operador, hace falta una precondición adicional sobre ese vehículo. Tampoco protege de forma general ediciones concurrentes de teléfono, nombres o nivel cuando el estado de flota no cambia; queda pendiente un contrato de concurrencia específico de esos datos.
+
+No se modifica esquema, modelos ni migraciones. Los escritores SQL externos o servicios alternativos no incorporados pueden modificar datos fuera del protocolo; no se declara un historial durable de asignaciones. Sigue pendiente auditoría uniforme de actor/cambio, reparaciones explícitas de históricos, conflictos de placas y continuidad de entregas activas.
+
+### Evidencia final local del bloque 19
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **657 pruebas aprobadas**, 18 nuevas frente a 639; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **64 pruebas** incluidas; tres nuevas para formulario anterior, dos gestores con la misma revisión y cambio físico mientras una petición espera el bloqueo |
+| Nuevas pruebas restantes de backend | 15 casos HTTP/SQLite: revisión ausente/malformada/incorrecta en ambas rutas, conflictos sin escrituras parciales, independencia GPS/finanzas, teléfono persistido y semántica A→B→A |
+| Frontend | **204 pruebas aprobadas** en 18 suites; 21 nuevas para servicios, modal y perfil propio |
+| TypeScript / ESLint / Next.js build | Aprobados; advertencias anteriores conservadas |
+| Mypy con --ignore-missing-imports | **330 errores en 52 archivos**, sin diagnósticos nuevos por archivo/mensaje; 165 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; 165 archivos de app; cero errores críticos de lint |
+| Cobertura frontend | Statements **9,72 %**, branches **8,23 %**, functions **6,77 %**, lines **9,82 %** |
+
+La suite frontend pasa, pero su comando con cobertura mantiene salida con error por el umbral global del 50 %. Mypy conserva su deuda previa. No se declara CI global verde ni producción lista.
+
+Las pruebas anteriores de flota se adaptan para enviar una revisión capturada antes de su operación. Los nuevos casos de conflicto conservan expresamente la revisión anterior; el frontend comprueba que no obtiene ni reenvía automáticamente una revisión nueva ante error. Las pruebas usan bases temporales/esquemas test_* aislados, nunca datos de negocio. No se aplican migraciones, pagos ni despliegues. El PR se publica listo para revisión, sin borrador; no se fusiona automáticamente.
