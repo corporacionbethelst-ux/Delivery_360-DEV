@@ -17,6 +17,11 @@ from fastapi import HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.document_review import (
+    lock_document as lock_document,
+    restrict_rider_documents,
+)
+from app.core.document_files import document_revision
 from app.models.rider import Rider, utc_now_naive
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
 
@@ -166,28 +171,6 @@ class DocumentUploadBatch:
         ) from None
 
 
-async def lock_document(db: AsyncSession, document_id: UUID) -> RiderDocument:
-    rider_id = await db.scalar(
-        select(RiderDocument.rider_id).where(RiderDocument.id == document_id)
-    )
-    if rider_id is None:
-        raise HTTPException(status_code=404, detail="Documento no encontrado")
-    if (
-        await db.scalar(select(Rider.id).where(Rider.id == rider_id).with_for_update())
-        is None
-    ):
-        raise HTTPException(status_code=404, detail="Documento no encontrado")
-    doc = await db.scalar(
-        select(RiderDocument)
-        .where(RiderDocument.id == document_id, RiderDocument.rider_id == rider_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Documento no encontrado")
-    return doc
-
-
 async def replace_document(
     db: AsyncSession,
     rider_id: UUID,
@@ -244,11 +227,13 @@ async def replace_document(
         doc.rejection_reason = None
         doc.updated_at = utc_now_naive()
         await db.flush()
+        await restrict_rider_documents(db, rider_id)
         response = {
             "id": str(doc.id),
             "type": doc.type.value,
             "status": doc.status.value,
             "file_url": document_download_url(doc.id, doc.file_url),
+            "revision": document_revision(doc),
             "message": "Documento subido exitosamente.",
         }
         await batch.commit()

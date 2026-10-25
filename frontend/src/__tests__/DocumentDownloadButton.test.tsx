@@ -89,3 +89,23 @@ it('aborts the previous document on prop change and permits the new download', a
   await screen.findByRole('alert');
   expect(getFile.mock.calls[1][0]).toBe(next);
 });
+
+it('uses the displayed revision and cancels a pending request if it changes', async () => {
+  getFile.mockReturnValueOnce(new Promise(() => undefined));
+  const revision = 'a'.repeat(64);
+  const { rerender } = render(<DocumentDownloadButton documentId={id} revision={revision} />);
+  fireEvent.click(screen.getByRole('button'));
+  expect(getFile).toHaveBeenCalledWith(id, expect.any(AbortSignal), revision);
+  const signal = getFile.mock.calls[0][1];
+  rerender(<DocumentDownloadButton documentId={id} revision={'b'.repeat(64)} />);
+  expect(signal?.aborted).toBe(true);
+  await waitFor(() => expect(screen.getByRole('button')).toBeEnabled());
+});
+
+it('asks to reload a changed revision instead of offering a blind retry', async () => {
+  getFile.mockRejectedValueOnce(Object.assign(new Error('Changed'), { status: 409 }));
+  render(<DocumentDownloadButton documentId={id} revision={'a'.repeat(64)} />);
+  fireEvent.click(screen.getByRole('button'));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Recarga la lista');
+  expect(createURL).not.toHaveBeenCalled();
+});

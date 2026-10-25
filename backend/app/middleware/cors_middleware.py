@@ -51,6 +51,7 @@ def setup_cors_middleware(
     headers = allow_headers or [
         "Content-Type",
         "Authorization",
+        "If-Match",
         "X-Requested-With",
         "Accept",
         "Origin",
@@ -62,6 +63,7 @@ def setup_cors_middleware(
     # Headers expuestos al cliente (JavaScript puede acceder a ellos)
     exposed = expose_headers or [
         "X-Request-ID",  # ID único para debugging
+        "ETag",
         "X-RateLimit-Limit",  # Límite de rate limiting
         "X-RateLimit-Remaining",  # Requests restantes
         "X-RateLimit-Reset",  # Tiempo de reseteo
@@ -94,6 +96,7 @@ def get_default_cors_config() -> dict:
         "allow_headers": [
             "Content-Type",
             "Authorization",
+            "If-Match",
             "X-Requested-With",
             "Accept",
             "Origin",
@@ -101,6 +104,7 @@ def get_default_cors_config() -> dict:
         ],
         "expose_headers": [
             "X-Request-ID",
+            "ETag",
             "X-RateLimit-Limit",
             "X-RateLimit-Remaining",
             "X-RateLimit-Reset",

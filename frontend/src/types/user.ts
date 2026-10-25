@@ -126,6 +126,7 @@ export interface UserFilters {
 }
 
 export interface RiderDocument {
+  revision?: string;
   id: string;
   type: 'LICENCIA' | 'DOCUMENTO_IDENTIDAD' | 'REGISTRO_VEHICULO' | 'SEGURO';
   status: 'PENDIENTE' | 'APROBADO' | 'RECHAZADO';

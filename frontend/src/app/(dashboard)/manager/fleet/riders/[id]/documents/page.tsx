@@ -1,4 +1,5 @@
 'use client';
+import { requireDocumentRevision, isDocumentRevisionConflict } from '@/lib/document-revision';
 import { DocumentDownloadButton } from '@/components/DocumentDownloadButton';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -52,7 +53,7 @@ export default function ManagerRiderDocumentsPage() {
   
   // Estados Modal Rechazo
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
-  const [docToReject, setDocToReject] = useState<string | null>(null);
+  const [docToReject, setDocToReject] = useState<{ id: string; revision: string } | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
 
   // Estados Modal Subida
@@ -86,25 +87,40 @@ export default function ManagerRiderDocumentsPage() {
     }
   }, [riderId]);
 
-  // --- Acciones: Aprobación ---
+  const snapshotForReview = (docId: string) => {
+    try {
+      const doc = documents.find(item => item.id === docId);
+      return { id: docId, revision: requireDocumentRevision(doc?.revision) };
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Recarga la documentación');
+      return null;
+    }
+  };
+
+  const showReviewError = async (error: unknown, fallback: string) => {
+    toast.error(error instanceof Error ? error.message : fallback);
+    if (isDocumentRevisionConflict(error)) await loadDocuments();
+  };
+
   const handleApprove = async (docId: string) => {
-    if (!confirm('¿Estás seguro de aprobar este documento?')) return;
-    
+    const snapshot = snapshotForReview(docId);
+    if (!snapshot || !confirm('¿Estás seguro de aprobar este documento?')) return;
     setActionLoading(docId);
     try {
-      await riderService.approveDocument(docId);
+      await riderService.approveDocument(snapshot.id, snapshot.revision);
       toast.success('Documento aprobado correctamente');
       await loadDocuments();
-    } catch (err: any) {
-      toast.error(err.message || 'Error al aprobar');
+    } catch (error) {
+      await showReviewError(error, 'Error al aprobar');
     } finally {
       setActionLoading(null);
     }
   };
 
-  // --- Acciones: Rechazo (Flujo Modal) ---
   const initiateReject = (docId: string) => {
-    setDocToReject(docId);
+    const snapshot = snapshotForReview(docId);
+    if (!snapshot) return;
+    setDocToReject(snapshot);
     setRejectionReason('No cumple con los requisitos de legibilidad o vigencia.');
     setRejectModalOpen(true);
   };
@@ -114,31 +130,31 @@ export default function ManagerRiderDocumentsPage() {
       toast.warning('Por favor ingrese un motivo');
       return;
     }
-    setActionLoading(docToReject);
+    const snapshot = docToReject;
+    setActionLoading(snapshot.id);
     setRejectModalOpen(false);
     try {
-      await riderService.rejectDocument(docToReject, rejectionReason.trim());
+      await riderService.rejectDocument(snapshot.id, rejectionReason.trim(), snapshot.revision);
       toast.success('Documento rechazado');
       await loadDocuments();
-    } catch (err: any) {
-      toast.error(err.message || 'Error al rechazar');
+    } catch (error) {
+      await showReviewError(error, 'Error al rechazar');
     } finally {
       setActionLoading(null);
       setDocToReject(null);
     }
   };
 
-  // --- Acciones: Eliminación ---
   const handleDelete = async (docId: string) => {
-    if (!confirm('⚠️ ¿Estás seguro de ELIMINAR este documento permanentemente? Esta acción no se puede deshacer.')) return;
-
+    const snapshot = snapshotForReview(docId);
+    if (!snapshot || !confirm('¿Eliminar este documento? Su referencia se eliminará permanentemente.')) return;
     setActionLoading(docId);
     try {
-      await riderService.deleteDocument(docId);
+      await riderService.deleteDocument(snapshot.id, snapshot.revision);
       toast.success('Documento eliminado');
       await loadDocuments();
-    } catch (err: any) {
-      toast.error(err.message || 'Error al eliminar');
+    } catch (error) {
+      await showReviewError(error, 'Error al eliminar');
     } finally {
       setActionLoading(null);
     }
@@ -334,7 +350,7 @@ export default function ManagerRiderDocumentsPage() {
                       {hasUrl ? (
                         <>
                           <div className="absolute inset-0 bg-black/0 group-hover/view:bg-black/5 transition-colors" />
-                          <DocumentDownloadButton documentId={doc.id}
+                          <DocumentDownloadButton documentId={doc.id} revision={doc.revision}
                             className="z-10 flex flex-col items-center p-4 rounded-lg hover:bg-white/80"
                           />
                         </>

@@ -19,7 +19,7 @@ from tests.test_private_documents import documents  # noqa: F401
 from app.api.v1 import riders as api, auth
 from app.api.v1.auth import get_current_user
 from app.core.database import get_db
-from app.core.document_files import resolve_document_file
+from app.core.document_files import resolve_document_file, document_revision
 from app.middleware.document_upload_limit import DocumentUploadLimitMiddleware
 from app.models.user import User, UserRole
 from app.models.rider import Rider
@@ -462,7 +462,12 @@ async def test_review_routes_keep_upload_rules_and_rider_state_coherent(submissi
     context["current"][0].role = UserRole.GERENTE
     assert (await post_document(client, context, admin=True)).status_code == 200
     path = f"/api/v1/riders/documents/{context['doc_id']}/status"
-    approved = await client.patch(path, json={"status": "APROBADO"})
+    revision = (
+        await client.get(f"/api/v1/riders/{context['rider_id']}/documents")
+    ).json()[0]["revision"]
+    approved = await client.patch(
+        path, json={"status": "APROBADO", "expected_revision": revision}
+    )
     assert approved.status_code == 200, approved.text
     assert (await references(db, context["doc_id"]))[1] == DocumentStatus.APROBADO
     context["current"][0].role = UserRole.REPARTIDOR
@@ -470,7 +475,11 @@ async def test_review_routes_keep_upload_rules_and_rider_state_coherent(submissi
     context["current"][0].role = UserRole.GERENTE
     rejected = await client.patch(
         path,
-        json={"status": "RECHAZADO", "rejection_reason": "Nueva revisión requerida"},
+        json={
+            "status": "RECHAZADO",
+            "rejection_reason": "Nueva revisión requerida",
+            "expected_revision": approved.json()["revision"],
+        },
     )
     assert rejected.status_code == 200, rejected.text
     assert (await references(db, context["doc_id"]))[1] == DocumentStatus.RECHAZADO
@@ -486,7 +495,12 @@ async def test_delete_removes_reference_but_does_not_delete_historical_file(
 ):
     client, db, context = submissions
     context["current"][0].role = UserRole.GERENTE
-    response = await client.delete(f"/api/v1/riders/documents/{context['doc_id']}")
+    row = await db.get(RiderDocument, context["doc_id"])
+    await db.refresh(row)
+    response = await client.delete(
+        f"/api/v1/riders/documents/{context['doc_id']}",
+        headers={"If-Match": document_revision(row)},
+    )
     assert response.status_code == 200, response.text
     assert (
         await db.scalar(
