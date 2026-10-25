@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -23,7 +23,8 @@ import type { Rider } from '@/types/user';
 import type { RiderTier } from '@/types/rider';
 import type { Vehicle } from '@/services/vehicle.service';
 import { vehicleService } from '@/services/vehicle.service';
-import { riderService } from '@/services/rider.service';
+import { riderService, type UpdateRiderPayload } from '@/services/rider.service';
+import { isAssignmentConflict, requireAssignmentRevision } from '@/lib/assignment-revision';
 import { toast } from 'sonner';
 
 interface RiderEditModalProps {
@@ -41,10 +42,13 @@ export default function RiderEditModal({
   onSuccess,
   companyVehicles: propCompanyVehicles = [],
 }: RiderEditModalProps) {
+  const [draft, setDraft] = useState<Rider | null>(null);
+  const draftRef = useRef<Rider | null>(null);
+  const [conflicted, setConflicted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isLoadingVehicles, setIsLoadingVehicles] = useState(false);
   const [internalCompanyVehicles, setInternalCompanyVehicles] = useState<Vehicle[]>([]);
-  
+
   // Usar los vehículos pasados por props o cargar internamente si no se proporcionan
   const companyVehicles = propCompanyVehicles.length > 0 ? propCompanyVehicles : internalCompanyVehicles;
 
@@ -53,11 +57,13 @@ export default function RiderEditModal({
   const [tier, setTier] = useState<RiderTier>('BRONCE');
   const [vehicleOwnershipType, setVehicleOwnershipType] = useState<'PROPIO' | 'EMPRESA'>('PROPIO');
   const [assignedVehicleId, setAssignedVehicleId] = useState<string>('');
-  
+
   // Datos de vehículo propio
   const [vehicleType, setVehicleType] = useState('');
   const [vehiclePlate, setVehiclePlate] = useState('');
   const [vehicleModel, setVehicleModel] = useState('');
+
+  useEffect(() => () => { draftRef.current = null; }, []);
 
   // Cargar vehículos de empresa cuando se abre el modal (solo si no vienen por props)
   useEffect(() => {
@@ -68,30 +74,32 @@ export default function RiderEditModal({
 
   // Cargar datos del rider cuando cambia
   useEffect(() => {
-    if (rider) {
+    if (!open) {
+      draftRef.current = null;
+      setDraft(null);
+      return;
+    }
+    if (rider && draftRef.current?.id !== rider.id) {
+      const snapshot = { ...rider };
+      draftRef.current = snapshot;
+      setDraft(snapshot);
+      setConflicted(false);
       setPhone(rider.phone || '');
-      setTier((rider as any).tier || 'BRONCE');
+      setTier(rider.tier || 'BRONCE');
       setVehicleOwnershipType(rider.vehicle_ownership_type || 'PROPIO');
       setAssignedVehicleId(rider.assigned_vehicle_id || '');
       setVehicleType(rider.vehicle_type || '');
       setVehiclePlate(rider.vehicle_plate || '');
       setVehicleModel(rider.vehicle_model || '');
     }
-  }, [rider]);
+  }, [open, rider]);
 
   const loadCompanyVehicles = async () => {
     setIsLoadingVehicles(true);
     try {
       const vehicles = await vehicleService.getAvailableCompanyVehicles();
       setInternalCompanyVehicles(vehicles);
-      
-      // Auto-seleccionar si el rider ya tiene un vehículo asignado
-      if (rider?.assigned_vehicle_id) {
-        const stillAvailable = vehicles.find(v => v.id === rider.assigned_vehicle_id);
-        if (stillAvailable) {
-          setAssignedVehicleId(rider.assigned_vehicle_id);
-        }
-      }
+
     } catch (error) {
       console.error('Error loading company vehicles:', error);
       toast.error('No se pudieron cargar los vehículos de empresa');
@@ -102,7 +110,8 @@ export default function RiderEditModal({
   };
 
   const handleSave = async () => {
-    if (!rider) return;
+    if (!draft || conflicted) return;
+    const submittedDraft = draft;
 
     // Validaciones estrictas antes de enviar
     if (vehicleOwnershipType === 'PROPIO' && !vehiclePlate.trim()) {
@@ -118,7 +127,8 @@ export default function RiderEditModal({
     setLoading(true);
     try {
       // Construir payload según el tipo de vehículo
-      const updateData: any = {
+      const updateData: UpdateRiderPayload = {
+        expected_assignment_revision: requireAssignmentRevision(draft.assignment_revision),
         phone: phone || undefined,
         tier: tier || undefined,  // Incluir nivel del repartidor
       };
@@ -134,26 +144,32 @@ export default function RiderEditModal({
         // Para vehículo de empresa, solo enviar ID
         updateData.assigned_vehicle_id = assignedVehicleId;
         updateData.vehicle_ownership_type = 'EMPRESA';
-        
+
         // Obtener datos del vehículo seleccionado para enviar también tipo y placa
         const selectedVehicle = companyVehicles.find(v => v.id === assignedVehicleId);
         if (selectedVehicle) {
           updateData.vehicle_type = selectedVehicle.type;
           updateData.vehicle_plate = selectedVehicle.plate;
         }
-        
+
         // Limpiar datos de vehículo propio
         updateData.vehicle_model = undefined;
       }
 
-      await riderService.updateRider(rider.id, updateData);
-      
+      await riderService.updateRider(draft.id, updateData);
+      if (draftRef.current !== submittedDraft) return;
+
       toast.success('Repartidor actualizado correctamente');
       onSuccess();
       onOpenChange(false);
-    } catch (error: any) {
-      console.error('Error updating rider:', error);
-      toast.error(error.response?.data?.detail || 'Error al actualizar el repartidor');
+    } catch (error: unknown) {
+      if (draftRef.current !== submittedDraft) return;
+      if (isAssignmentConflict(error)) {
+        setConflicted(true);
+        toast.error('Los datos del vehículo cambiaron. Cierra y recarga para revisarlos.');
+      } else {
+        toast.error(error instanceof Error ? error.message : 'Error al actualizar el repartidor');
+      }
     } finally {
       setLoading(false);
     }
@@ -174,13 +190,13 @@ export default function RiderEditModal({
             <div>
               <Label>Nombre</Label>
               <Input
-                value={`${rider?.first_name || ''} ${rider?.last_name || ''}`.trim()}
+                value={`${draft?.first_name || ''} ${draft?.last_name || ''}`.trim()}
                 disabled
               />
             </div>
             <div>
               <Label>Email</Label>
-              <Input value={rider?.email || ''} disabled />
+              <Input value={draft?.email || ''} disabled />
             </div>
           </div>
 
@@ -246,7 +262,7 @@ export default function RiderEditModal({
           {vehicleOwnershipType === 'PROPIO' ? (
             <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
               <h4 className="font-medium text-sm text-gray-700">Datos del Vehículo Propio</h4>
-              
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label>Tipo</Label>
@@ -271,7 +287,7 @@ export default function RiderEditModal({
                   />
                 </div>
               </div>
-              
+
               <div>
                 <Label>Modelo</Label>
                 <Input
@@ -286,7 +302,7 @@ export default function RiderEditModal({
               <h4 className="font-medium text-sm text-blue-700 flex items-center gap-2">
                 🏢 Vehículo de Empresa Asignado
               </h4>
-              
+
               {isLoadingVehicles ? (
                 <div className="text-center py-8">
                   <div className="flex flex-col items-center gap-3">
@@ -294,7 +310,7 @@ export default function RiderEditModal({
                     <p className="text-gray-500 text-sm">Cargando vehículos disponibles...</p>
                   </div>
                 </div>
-              ) : availableVehicles.length === 0 ? (
+              ) : availableVehicles.length === 0 && !draft?.assigned_vehicle_id ? (
                 <div className="text-center py-4 text-gray-500">
                   No hay vehículos de empresa disponibles
                 </div>
@@ -306,6 +322,9 @@ export default function RiderEditModal({
                       <SelectValue placeholder="Seleccionar vehículo" />
                     </SelectTrigger>
                     <SelectContent>
+                      {draft?.assigned_vehicle_id && !availableVehicles.some(v => v.id === draft.assigned_vehicle_id) && (
+                        <SelectItem value={draft.assigned_vehicle_id}>Vehículo actual: {draft.vehicle_plate || draft.assigned_vehicle_id}</SelectItem>
+                      )}
                       {availableVehicles.map((vehicle) => (
                         <SelectItem key={vehicle.id} value={vehicle.id}>
                           {vehicle.type} - {vehicle.plate} ({vehicle.model})
@@ -313,7 +332,7 @@ export default function RiderEditModal({
                       ))}
                     </SelectContent>
                   </Select>
-                  
+
                   {assignedVehicleId && (
                     <div className="mt-2 p-2 bg-white rounded border">
                       {(() => {
@@ -324,7 +343,7 @@ export default function RiderEditModal({
                             <div><strong>Placa:</strong> {selected.plate}</div>
                             <div><strong>Modelo:</strong> {selected.model}</div>
                             <div><strong>Año:</strong> {selected.year}</div>
-                            <div><strong>Estado:</strong> 
+                            <div><strong>Estado:</strong>
                               <Badge variant="outline" className="ml-1 text-xs">
                                 {selected.status}
                               </Badge>
@@ -340,8 +359,8 @@ export default function RiderEditModal({
           )}
 
           {/* Advertencia al cambiar de tipo */}
-          {rider?.vehicle_ownership_type && 
-           rider.vehicle_ownership_type !== vehicleOwnershipType && (
+          {draft?.vehicle_ownership_type &&
+           draft.vehicle_ownership_type !== vehicleOwnershipType && (
             <div className="p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
               ⚠️ Estás cambiando el tipo de vehículo. Si cambias de &quot;Propio&quot; a &quot;Empresa&quot;,
               se perderán los datos del vehículo propio actual.
@@ -353,7 +372,8 @@ export default function RiderEditModal({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
             Cancelar
           </Button>
-          <Button onClick={handleSave} disabled={loading}>
+          {conflicted && <Button variant="outline" onClick={() => { onSuccess(); onOpenChange(false); }}>Cerrar y recargar</Button>}
+          <Button onClick={handleSave} disabled={loading || conflicted || !draft}>
             {loading ? 'Guardando...' : 'Guardar Cambios'}
           </Button>
         </DialogFooter>

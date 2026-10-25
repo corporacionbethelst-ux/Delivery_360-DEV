@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore'; // ✅ CORRECCIÓN: Usar Zustand
 import { riderService } from '@/services/rider.service';
+import { isAssignmentConflict } from '@/lib/assignment-revision';
 import { User, Mail, Phone, Bike, Shield, Save, FileText, ArrowRight, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +24,8 @@ export default function RiderProfilePage() {
   // ✅ CORRECCIÓN: Obtener datos del store
   const { user, isAuthenticated } = useAuthStore(); 
   
+  const [assignmentRevision, setAssignmentRevision] = useState<string | undefined>();
+  const loadedUserRef = useRef<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [formData, setFormData] = useState({
@@ -47,10 +50,14 @@ export default function RiderProfilePage() {
       return;
     }
 
+    if (loadedUserRef.current === user.id) return;
+    loadedUserRef.current = user.id;
+    setAssignmentRevision(undefined);
     loadProfileData();
   }, [user, isAuthenticated, router, isMounted]);
 
   const loadProfileData = async () => {
+    setAssignmentRevision(undefined);
     try {
       // ✅ CORRECCIÓN: El servicio ya devuelve el objeto directo, no hay .data
       const data = await riderService.getProfile();
@@ -60,6 +67,7 @@ export default function RiderProfilePage() {
       }
 
 
+      setAssignmentRevision(data.assignment_revision);
       setFormData({
         first_name: data.first_name || '',
         last_name: data.last_name || '',
@@ -69,6 +77,7 @@ export default function RiderProfilePage() {
       });
     } catch (error) {
       console.error("❌ Error cargando perfil desde API:", error);
+      setAssignmentRevision(undefined);
       // Fallback: Usar datos del store si falla la API (solo si son consistentes)
       if (user) {
         setFormData({
@@ -89,6 +98,7 @@ export default function RiderProfilePage() {
     setIsSubmitting(true);
     try {
       await riderService.updateProfile({
+        expected_assignment_revision: assignmentRevision,
         first_name: formData.first_name,
         last_name: formData.last_name,
         phone: formData.phone,
@@ -101,7 +111,11 @@ export default function RiderProfilePage() {
       loadProfileData();
       
     } catch (error: any) {
-      console.error('Error updating profile:', error);
+      if (isAssignmentConflict(error)) {
+        setAssignmentRevision(undefined);
+        alert('Los datos del vehículo cambiaron. Recarga el perfil y revisa los datos antes de guardar de nuevo.');
+        return;
+      }
       const msg = error.response?.data?.detail || error.message;
       
       if (msg && (msg.includes('vehículo') || msg.includes('documentos') || msg.includes('pendiente'))) {
@@ -140,6 +154,7 @@ export default function RiderProfilePage() {
             </div>
           </CardHeader>
           <CardContent>
+            <Button type="button" variant="outline" disabled={isSubmitting} onClick={() => loadProfileData()}>Recargar perfil</Button>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -186,7 +201,7 @@ export default function RiderProfilePage() {
               </div>
 
               <div className="pt-4 flex justify-end">
-                <Button type="submit" disabled={isSubmitting}>
+                <Button type="submit" disabled={isSubmitting || !assignmentRevision}>
                   {isSubmitting ? (
                     <>
                       <Loader2 className="mr-2 w-4 h-4 animate-spin" /> Guardando...

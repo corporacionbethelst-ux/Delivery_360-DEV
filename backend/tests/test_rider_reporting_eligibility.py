@@ -12,6 +12,7 @@ from tests.test_document_uploads import submissions  # noqa: F401
 from tests.test_private_documents import documents  # noqa: F401
 from app.api.v1.telemetry import rider_heartbeat
 from app.models.rider import Rider, RiderStatus
+from app.core.fleet_revision import assignment_revision
 from app.models.rider_document import RiderDocument, DocumentStatus
 from app.schemas.rider_location import HeartbeatRequest
 from app.services.tracking_service import TrackingService
@@ -156,7 +157,14 @@ async def test_vehicle_change_preserves_closed_status(submissions, status):
     )
     await db.commit()
     result = await update_my_rider_profile(
-        RiderUpdate(vehicle_plate="NEW-123"), db, user
+        RiderUpdate(
+            vehicle_plate="NEW-123",
+            expected_assignment_revision=assignment_revision(
+                await db.scalar(select(Rider).where(Rider.id == ctx["rider_id"]))
+            ),
+        ),
+        db,
+        user,
     )
     expected = (
         RiderStatus.PENDIENTE

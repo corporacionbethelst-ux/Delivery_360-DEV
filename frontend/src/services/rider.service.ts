@@ -1,3 +1,4 @@
+import { hasFleetFields, requireAssignmentRevision } from '@/lib/assignment-revision';
 import { api } from '@/lib/api';
 import { requireDocumentRevision } from '@/lib/document-revision';
 import { validateDocumentSelection } from '@/lib/document-upload';
@@ -46,6 +47,7 @@ export interface CreateRiderPayload {
 }
 
 export interface UpdateProfilePayload {
+  expected_assignment_revision?: string;
   first_name?: string;
   last_name?: string;
   phone?: string;
@@ -54,6 +56,8 @@ export interface UpdateProfilePayload {
 }
 
 export interface UpdateRiderPayload {
+  expected_assignment_revision?: string;
+  tier?: 'BRONCE' | 'PLATA' | 'ORO' | 'PLATINO';
   phone?: string;
   vehicle_type?: string;
   vehicle_plate?: string;
@@ -474,6 +478,7 @@ export const riderService = {
    * PUT /riders/me
    */
   updateProfile: async (profileData: UpdateProfilePayload): Promise<Rider> => {
+    if (hasFleetFields(profileData)) requireAssignmentRevision(profileData.expected_assignment_revision);
     // Validaciones básicas de campos
     if (profileData.phone && !/^\+?[0-9]{7,15}$/.test(profileData.phone.replace(/[\s-]/g, ''))) {
       console.warn('[RiderService] Formato de teléfono posiblemente inválido');
@@ -575,26 +580,23 @@ export const riderService = {
 
   /**
    * Actualiza un repartidor completo (Admin/Gerente).
-   * PUT /riders/{rider_id}
+   * PATCH /riders/{rider_id}
    */
   updateRider: async (riderId: string, data: UpdateRiderPayload): Promise<Rider> => {
     if (!riderId || !isValidUuid(riderId)) {
       throw new ServiceError('ID de repartidor inválido', 400);
     }
 
-    // Validación de exclusión mutua: no enviar vehicle_type/plate junto con assigned_vehicle_id
-    if (data.assigned_vehicle_id && (data.vehicle_type || data.vehicle_plate)) {
-      console.warn('[RiderService] Advertencia: Se están enviando datos de vehículo propio y asignado simultáneamente');
-      // El backend debería manejar esto, pero limpiamos por seguridad
-      if (data.assigned_vehicle_id) {
-        delete data.vehicle_type;
-        delete data.vehicle_plate;
-        delete data.vehicle_model;
-      }
+    const payload = { ...data };
+    if (hasFleetFields(payload)) requireAssignmentRevision(payload.expected_assignment_revision);
+    if (payload.assigned_vehicle_id) {
+      delete payload.vehicle_type;
+      delete payload.vehicle_plate;
+      delete payload.vehicle_model;
     }
 
     try {
-      const response = await api.put<Rider>(`/riders/${riderId}`, data);
+      const response = await api.patch<Rider>(`/riders/${riderId}`, payload);
       return extractData<Rider>(response);
     } catch (error) {
       throw handleApiError(error, `Error updating rider ${riderId}`);

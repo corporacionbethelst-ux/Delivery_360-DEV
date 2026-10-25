@@ -12,6 +12,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import raiseload
 from app.models.vehicle import Vehicle
+from app.core.fleet_revision import ensure_assignment_revision
 from app.models.rider import Rider, utc_now_naive
 from app.models.rider_document import DocumentStatus
 from app.services.document_review import (
@@ -99,7 +100,10 @@ async def invalidate_vehicle_documents(db: AsyncSession, rider_id: UUID) -> None
 
 
 async def prepare_vehicle_update(
-    db: AsyncSession, rider: Rider, payload: dict[str, Any]
+    db: AsyncSession,
+    rider: Rider,
+    payload: dict[str, Any],
+    expected_revision: str | None = None,
 ) -> bool:
     """Lock, validate both links and normalize fleet fields before caller applies them."""
     previous_id = rider.assigned_vehicle_id
@@ -114,6 +118,7 @@ async def prepare_vehicle_update(
             status_code=409,
             detail="La asignación cambió. Recargue el perfil antes de reintentar",
         )
+    ensure_assignment_revision(rider, expected_revision)
     ownership = payload.get("vehicle_ownership_type", rider.vehicle_ownership_type)
     if ownership not in ("PROPIO", "EMPRESA"):
         raise HTTPException(status_code=422, detail="Propiedad de vehículo inválida")
