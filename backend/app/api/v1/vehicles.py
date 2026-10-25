@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Path
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Path, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from pydantic import BaseModel, Field, ConfigDict, field_validator
@@ -12,7 +12,16 @@ from app.models.enums import VehicleType, VehicleStatus, VehicleOwnershipType
 from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.models.vehicle import Vehicle
-from app.services.fleet_assignment import lock_vehicles, ensure_vehicle_unassigned
+from app.services.fleet_assignment import (
+    lock_vehicles,
+    ensure_vehicle_unassigned,
+    available_vehicle_condition,
+)
+from app.services.fleet_reconciliation import (
+    FleetFindingCode,
+    FleetReconciliationReport,
+    reconcile_fleet,
+)
 from app.api.v1.auth import get_current_user, require_role
 
 logger = logging.getLogger(__name__)
@@ -230,13 +239,8 @@ async def get_available_vehicles(
         selectinload(Vehicle.rider).selectinload(User.rider_profile)
     )
 
-    # Filtrar vehículos no asignados (disponibles)
-    stmt = stmt.where(Vehicle.rider_id.is_(None))
-
-    # Si se especifica ownership_type EMPRESA, filtrar solo vehículos de la empresa
-    if ownership_type and ownership_type.upper() == "EMPRESA":
-        # Los vehículos de empresa son aquellos que no tienen rider_id y están activos
-        stmt = stmt.where(Vehicle.status == VehicleStatus.ACTIVO.value)
+    # Disponibilidad coherente con ambos vínculos y el estado operativo.
+    stmt = stmt.where(available_vehicle_condition())
 
     # Filtro opcional por tipo de vehículo
     type_enum = _safe_parse_enum(VehicleType, type)
@@ -244,7 +248,7 @@ async def get_available_vehicles(
         stmt = stmt.where(Vehicle.type == type_enum.value)
 
     # Limitar resultados
-    stmt = stmt.limit(limit).order_by(Vehicle.created_at.desc())
+    stmt = stmt.limit(limit).order_by(Vehicle.created_at.desc(), Vehicle.id)
 
     result = await db.execute(stmt)
     vehicles = result.scalars().unique().all()
@@ -304,19 +308,33 @@ async def list_vehicles(
         )
 
     if available_only:
-        stmt = stmt.where(
-            (Vehicle.rider_id.is_(None))
-            & (Vehicle.status == VehicleStatus.ACTIVO.value)
-        )
+        stmt = stmt.where(available_vehicle_condition())
 
     # Paginación y Ordenamiento
     offset = (page - 1) * limit
-    stmt = stmt.offset(offset).limit(limit).order_by(Vehicle.created_at.desc())
+    stmt = (
+        stmt.offset(offset).limit(limit).order_by(Vehicle.created_at.desc(), Vehicle.id)
+    )
 
     result = await db.execute(stmt)
     vehicles = result.scalars().unique().all()
 
     return [_build_vehicle_response(vehicle) for vehicle in vehicles]
+
+
+@router.get("/reconciliation", response_model=FleetReconciliationReport)
+async def fleet_reconciliation_report(
+    response: Response,
+    limit: int = Query(100, ge=1, le=500),
+    cursor: Optional[str] = Query(None, max_length=120),
+    code: Optional[FleetFindingCode] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+):
+    """Diagnóstico paginado de vínculos actuales. No repara ni certifica históricos."""
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Vary"] = "Authorization"
+    return await reconcile_fleet(db, limit=limit, cursor=cursor, code=code)
 
 
 @router.get("/{vehicle_id}", response_model=VehicleResponse)

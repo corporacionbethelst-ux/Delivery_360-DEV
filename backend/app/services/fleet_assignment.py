@@ -7,7 +7,8 @@ contradictory ownership is rejected rather than repaired by guessing.
 from uuid import UUID
 from typing import Any
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, and_
+from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import raiseload
 from app.models.vehicle import Vehicle
@@ -28,6 +29,14 @@ VEHICLE_FIELDS = frozenset(
         "assigned_vehicle_id",
     }
 )
+
+
+def available_vehicle_condition() -> ColumnElement[bool]:
+    """A catalog candidate must be active and unused from both sides."""
+    referenced = (
+        select(Rider.id).where(Rider.assigned_vehicle_id == Vehicle.id).exists()
+    )
+    return and_(Vehicle.status == "ACTIVO", Vehicle.rider_id.is_(None), ~referenced)
 
 
 async def lock_vehicles(db: AsyncSession, ids: set[UUID]) -> dict[UUID, Vehicle]:

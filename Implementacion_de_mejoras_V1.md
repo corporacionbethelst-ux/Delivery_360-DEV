@@ -1487,3 +1487,77 @@ El control de conflicto de asignación detecta cambios entre lectura inicial y a
 | Frontend | Sin cambios; se conserva su validación anterior de 183 pruebas y compilación, no repetida para este bloque backend |
 
 PostgreSQL se ejecuta sobre una base test_* y esquemas privados por prueba. Las adiciones de columnas/tipos dentro de los fixtures solo construyen esos esquemas efímeros y no son migraciones de la aplicación. No se modifica una base de negocio. La deuda Mypy y el umbral de cobertura frontend siguen pendientes; no se declara CI global verde. El PR se publica sin borrador, sin fusión ni despliegue automáticos.
+
+## Bloque 18 — Catálogo disponible coherente y conciliación de flota de solo lectura
+
+Fecha: 25 de octubre de 2026 (America/Caracas). Base: main, commit b3518b7, con PR #259 fusionado. Rama: fix/fleet-reconciliation-readonly-v1.
+
+### Catálogo de vehículos disponibles
+
+GET /api/v1/vehicles/available y GET /api/v1/vehicles?available_only=true comparten ahora available_vehicle_condition: el vehículo debe estar ACTIVO, Vehicle.rider_id debe ser null y ningún perfil puede referenciarlo mediante Rider.assigned_vehicle_id. Se excluyen referencias históricas incompletas, aunque el propietario del vehículo esté ausente, y se conservan reservas de perfiles suspendidos hasta una desasignación explícita.
+
+La ruta /available exige ACTIVO incluso sin ownership_type=EMPRESA; anteriormente podía devolver vehículos de mantenimiento o baja si se omitía ese filtro. Se mantienen filtros de tipo, límites y forma de respuesta, con desempate de orden por UUID. En el listado general, available_only=false conserva la consulta de vehículos asignados/inactivos según los filtros solicitados. Un filtro de estado incompatible con available_only=true devuelve cero candidatos.
+
+La disponibilidad es una lectura del momento, no una reserva: una solicitud concurrente puede asignar el candidato después. La escritura debe seguir usando los controles transaccionales del bloque 17.
+
+### Informe de conciliación
+
+Nueva ruta: **GET /api/v1/vehicles/reconciliation**. Acceso: GERENTE y SUPERADMIN. OPERADOR, REPARTIDOR, CLIENTE y AUDITOR no acceden al informe; las rutas del catálogo conservan sus permisos anteriores. La ruta está registrada antes de /{vehicle_id} para que no se interprete como UUID de vehículo.
+
+Parámetros:
+
+| Parámetro | Contrato |
+|---|---|
+| limit | 100 por defecto; entre 1 y 500 hallazgos por página |
+| code | Código opcional de la enumeración de controles; valores desconocidos devuelven 422 |
+| cursor | Cursor devuelto en next_cursor; hasta 120 caracteres, formato/código/UUID validados; inválidos devuelven 422 |
+
+El informe devuelve read_only=true, generated_at en UTC, snapshot_scope=single_statement_per_page, findings, page_count, has_more, next_cursor y checks. Cada hallazgo contiene únicamente code, entity_type, entity_id, related_id y description. No devuelve nombres, correos, placas, modelos ni documentos. Para entity_type=rider, related_id identifica el vehículo cuando existe referencia; para entity_type=vehicle, identifica users.id del vínculo propietario.
+
+### Diccionario de hallazgos
+
+| Código | Condición observada |
+|---|---|
+| COMPANY_WITHOUT_VEHICLE | Perfil EMPRESA sin vehículo asignado |
+| NONCOMPANY_WITH_VEHICLE | Perfil no EMPRESA con una referencia de vehículo de flota |
+| MISSING_VEHICLE | La referencia apunta a un vehículo inexistente; útil para importaciones/históricos sin integridad referencial |
+| OWNER_MISMATCH | Vehicle.rider_id está ausente o difiere del usuario del perfil que lo referencia |
+| MULTIPLE_RIDERS | Varios perfiles referencian el mismo vehículo; se informa cada perfil implicado |
+| METADATA_MISMATCH | Tipo, placa o modelo del perfil EMPRESA difieren del vehículo; la comparación distingue null y diferencias de formato |
+| INACTIVE_VEHICLE | Un perfil referencia un vehículo cuyo estado no es ACTIVO |
+| OWNER_WITHOUT_PROFILE | El usuario vinculado al vehículo no tiene perfil de repartidor |
+| OWNER_PROFILE_MISMATCH | El perfil del usuario vinculado al vehículo no referencia ese mismo vehículo |
+| INVALID_OWNERSHIP | Propiedad del vehículo del perfil ausente o distinta de PROPIO/EMPRESA |
+
+Una entidad puede producir varios hallazgos. page_count cuenta hallazgos de la página, no vehículos/repartidores ni el total global. checks enumera los controles disponibles, incluso al filtrar por un código. Una página vacía no certifica documentación, legalidad ni toda la salud del sistema.
+
+### Garantía de lectura y consistencia
+
+Se ejecuta una sola sentencia SELECT con CTE/UNION ALL por página, sin cargar entidades ORM, geometría ni relaciones. El servicio no hace commit, flush, delete, UPDATE ni FOR UPDATE; no_autoflush evita persistir cambios pendientes de una sesión llamadora. La respuesta usa Cache-Control: private, no-store y Vary: Authorization; el middleware existente excluye las rutas API/autenticadas de caché compartida.
+
+PostgreSQL ofrece una vista consistente de los controles dentro de esa sentencia. La paginación por clave ordena código e identificadores y lee hasta limit+1 resultados para indicar si queda otra página. No emite un conteo global separado ni conserva una transacción histórica entre peticiones.
+
+**Límite de snapshot:** cada página consulta el estado actual. Si cambian vínculos entre páginas, hallazgos pueden desaparecer, cambiar de clave o aparecer antes del cursor. No se promete una exportación inmutable ni un inventario completo de un instante al recorrer varias peticiones. Para una exportación histórica consistente haría falta un snapshot durable o una tarea específica. generated_at identifica la generación de la respuesta, no una certificación durable de los registros.
+
+### Alcance y siguientes prioridades
+
+No se cambian modelos, esquema, migraciones ni frontend. Este bloque habilita diagnóstico mediante API; no incorpora una pantalla de conciliación ni botones de reparación. No se ejecuta el informe sobre datos de producción durante el desarrollo y no se corrigen históricos automáticamente.
+
+Quedan pendientes revisión operativa de hallazgos reales, reparaciones explícitas con revisión esperada y auditoría durable, protección de formularios obsoletos de asignación, conflicto uniforme de placas, caducidad de seguros y continuidad de entregas activas. El informe no revisa bytes/documentos, aprobaciones humanas, permisos de archivos, balances ni validez legal.
+
+El límite controla la respuesta, no el coste total del escaneo/agregación SQL. No se ha medido un plan de ejecución ni latencia a escala de producción; hacen falta mediciones, índices efectivos y límites operativos antes de afirmar rendimiento bajo carga. Se conservan la deuda de Mypy, cobertura y los demás pendientes de producción previamente documentados.
+
+Al cambiar el filtro code debe iniciarse de nuevo sin cursor. El cursor es una clave de recorrido de los resultados actuales, no una revisión del inventario ni una credencial de autorización.
+
+### Evidencia final local del bloque 18
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **639 pruebas aprobadas**, 41 nuevas frente a 598; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **61 pruebas** incluidas; cuatro nuevas sobre READ ONLY, enums/comparación de metadata, duplicados/paginación, visibilidad de commits y desaparición de hallazgos entre páginas |
+| Nuevas pruebas restantes | 37 casos HTTP/SQLite: diez códigos, catálogos/filtros, paginación, permisos/autenticación, no-store, parámetros inválidos y una sola consulta sin mutaciones/autoflush |
+| Mypy con --ignore-missing-imports | **330 errores en 52 archivos**, sin diagnósticos nuevos por archivo/mensaje; 164 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; 164 archivos de app; cero errores críticos de lint |
+| Frontend | Sin cambios; validación anterior de 183 pruebas y compilación conservada, no repetida en este bloque backend |
+
+Las pruebas usan SQLite temporal y una base PostgreSQL test_* con esquemas privados. No se consulta ni repara una base de negocio. La prueba PostgreSQL ejecuta el servicio dentro de SET TRANSACTION READ ONLY; las pruebas HTTP verifican que roles denegados no llegan a consultar datos y que la salida no incluye campos personales. No se declara CI global verde ni producción lista: persisten Mypy y cobertura pendientes. El PR se publica sin borrador, sin fusión ni despliegue automáticos.
