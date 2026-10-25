@@ -2088,3 +2088,65 @@ Las garantías de espera y bloqueo se validan en PostgreSQL. SQLite permite comp
 Las pruebas anteriores de autorización con persistencia simulada aíslan ahora ese objetivo del servicio de precondición; las pruebas nuevas ejercitan la protección real con SQLite y PostgreSQL. Los auxiliares de pruebas obtienen la revisión antes de cambios independientes; los casos de conflicto conservan expresamente una revisión antigua. El almacén frontend puede incluir propiedades undefined sin convertirlas en cambios personales: se valida la revisión de los valores no nulos que realmente se enviarían.
 
 El comando de cobertura sigue terminando con error por el umbral global del 50 %, aunque todas las pruebas frontend pasan. Mypy mantiene deuda anterior; no se declara CI global verde ni producción lista. Se usan únicamente bases temporales/test_* con esquemas aislados. El PR se publica sin borrador, sin despliegue ni fusión automática.
+
+## Bloque 28 — Precondiciones en edición y desactivación de usuarios
+
+Fecha: 25 de octubre de 2026 (America/Caracas). Base: main, commit 6bf9ffc, con PR #269 fusionado. Rama: fix/user-edit-preconditions-v1.
+
+### Problema y rutas cubiertas
+
+El bloque 27 protegía las rutas Rider, pero las rutas generales de usuarios podían sobrescribir los mismos nombres y teléfonos sin comprobar la ficha observada. Se incorpora user_revision al serializador común de usuarios, incluyendo detalle, perfil propio, listado y respuestas de escritura.
+
+| Ruta | Precondición |
+|---|---|
+| PUT /api/v1/users/me | expected_user_revision en el cuerpo |
+| PATCH /api/v1/users/me | expected_user_revision en el cuerpo |
+| PATCH /api/v1/users/{id} | expected_user_revision en el cuerpo, incluidos cambios de rol/estado |
+| DELETE /api/v1/users/{id} | If-Match con la revisión capturada; admite el valor crudo o entre comillas |
+
+Una revisión ausente o desactualizada devuelve 409. El formato inválido devuelve 422; no se admiten tags débiles, comodines ni listas de revisiones en DELETE. Se exige la precondición también para una escritura sin cambios materiales. DELETE conserva la desactivación lógica: no elimina la fila.
+
+La huella cubre UUID, correo, nombre, apellido, teléfono, avatar, rol, is_active e is_superuser. Excluye contraseña, tokens, últimos accesos, intentos fallidos, bloqueo temporal y timestamps internos, para que la actividad de autenticación no invalide por sí sola una ficha de edición. Volver a valores exactamente iguales produce la misma revisión; no es un contador de eventos ni una credencial o anonimización.
+
+### Concurrencia y permisos
+
+La escritura obtiene la fila User con FOR UPDATE y populate_existing antes de comprobar la revisión. Este servicio no solicita un bloqueo Rider: es compatible con el orden vehículos → Rider → User del bloque anterior. La modificación del usuario y su respuesta permanecen en la transacción de la solicitud, sin commit independiente de la comprobación.
+
+Las reglas de acceso gerencial y las restricciones contra desactivación/cambio de rol propios se mantienen. La autorización para administrar el rol del destinatario se evalúa sobre su fila refrescada bajo bloqueo: si otro proceso lo convirtió en SUPERADMIN mientras el gerente esperaba, el cambio se rechaza con 403. La ruta administrativa de contraseña también obtiene esa fila fresca antes de comprobar el rol, pero conserva su contrato de credenciales independiente.
+
+Las huellas de User y Rider son distintas y cubren ámbitos diferentes. Comparten de forma natural los valores persistidos de nombre/apellido/teléfono: una escritura por /users invalida una revisión Rider anterior cuando modifica esos valores; una escritura por /riders invalida la revisión User anterior por el mismo motivo. Los bloqueos impiden que dos solicitudes de esos protocolos confirmen sobrescrituras del mismo teléfono desde sus respectivas fichas antiguas. Un cambio exclusivo de CPF/tier no invalida por sí solo user_revision.
+
+### Formularios, servicios y resultados parciales
+
+El editor administrativo captura ID/revisión al cargar la ficha. Descarta respuestas antiguas al cambiar de ruta o recargar, bloquea el guardado sin revisión y exige recarga explícita tras un conflicto. Los servicios validan y transmiten la revisión del llamante; no realizan un GET para conseguir un token nuevo ni reintentan automáticamente.
+
+La confirmación de desactivación guarda una copia de la fila observada. Un refresco de la lista no sustituye su revisión. Un conflicto deshabilita el reintento dentro de esa confirmación y ofrece cerrar/actualizar. La confirmación no se cierra mientras la solicitud está en curso.
+
+Los datos y la contraseña siguen usando dos solicitudes distintas. Si se guardan los datos y falla después la operación de contraseña, la interfaz lo informa expresamente y exige recargar antes de volver a guardar. No utiliza la revisión de esa respuesta para reenviar un borrador sin revisar, no afirma que toda la operación fue atómica ni reintenta la contraseña automáticamente. Una respuesta de una ficha anterior no inicia el cambio de contraseña ni navega desde otra ficha.
+
+Los errores del servicio de usuarios registran únicamente contexto y estado HTTP, sin imprimir el objeto Axios completo con posibles cabeceras de autorización. Los detalles estructurados de validación no se renderizan como objetos dentro del mensaje del formulario.
+
+### Alcance, compatibilidad y pendientes
+
+Los consumidores de estas rutas deben obtener user_revision desde /users/me, detalle o listado y presentarla al escribir. Las respuestas de autenticación no se convierten en una fuente nueva de esa revisión; authService.updateProfile exige la revisión explícita del llamante. Crear usuarios conserva su contrato. La ruta de contraseña mantiene su solicitud independiente y no forma parte de la huella de metadatos.
+
+Scripts, SQL directo y procesos que no participan del protocolo continúan pendientes de unificación. No se incorpora un contador monotónico, idempotencia ante pérdida del acuse de commit, auditoría de cambios de usuario, revocación general de sesiones ni una operación atómica de datos y contraseña. Las colisiones simultáneas de correo entre usuarios diferentes siguen requiriendo tratamiento uniforme; el bloqueo por usuario no es una reserva global de correo.
+
+La política de null y los normalizadores de nombres/correo/teléfono permanecen como antes. No cambian modelos, tablas, índices o migraciones. Se conservan los límites de acceso existentes y no se intervienen datos de negocio. No se despliega ni fusiona automáticamente.
+
+### Evidencia final local del bloque 28
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **810 pruebas aprobadas**, veinticinco nuevas frente a 785; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **96 pruebas** incluidas; cuatro nuevas: dos editores de usuario, competencia User/Rider por teléfono, edición/desactivación con una revisión y cambio de rol durante la espera del gerente |
+| Nuevas pruebas HTTP/SQLite | Veintiún casos: revisiones en PUT/PATCH propios y PATCH administrativo, cruces User/Rider en ambos sentidos, independencia de autenticación, precondiciones DELETE, desactivación lógica, rol actualizado y protección contra bloqueo propio |
+| Frontend | **254 pruebas aprobadas** en 26 suites; catorce nuevas para servicios, protección de cabeceras en logs, edición/recarga/cambio de ruta, respuesta sin revisión, fallo parcial de contraseña y confirmación de desactivación |
+| TypeScript / ESLint / Next.js build | Aprobados; advertencias anteriores conservadas |
+| Mypy con --ignore-missing-imports | **329 errores en 52 archivos**, sin diagnósticos nuevos por archivo/mensaje; 171 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; Black incluyó app y los dos archivos nuevos de pruebas Python |
+| Cobertura frontend | Statements **15,20 %**, branches **12,88 %**, functions **12,00 %**, lines **15,28 %** |
+
+Las pruebas usan SQLite temporal y PostgreSQL test_* con esquemas privados. Los escenarios nativos ejercitan esperas reales y límites de tiempo, no una simulación de FOR UPDATE. No se consultan ni modifican bases de negocio.
+
+El comando de cobertura mantiene salida con error por el mínimo global del 50 %, aunque todas sus pruebas pasan. Mypy conserva deuda anterior; no se declara CI global verde ni producción lista. El PR se publica sin borrador, sin despliegue ni fusión automática.

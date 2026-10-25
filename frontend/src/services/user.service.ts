@@ -1,5 +1,9 @@
+import { AxiosError } from 'axios';
+import { requireUserRevision } from '@/lib/user-revision';
 import { api } from '@/lib/api';
 import { User, UserRole } from '@/types/user';
+
+const reportError = (context:string, error:unknown) => console.error(context, { status:error instanceof AxiosError ? error.response?.status : undefined });
 
 export interface UserCreateInput {
   email: string;
@@ -21,6 +25,7 @@ export interface UserFilters {
 }
 
 export interface UserUpdateInput {
+  expected_user_revision?: string;
   email?: string;
   first_name?: string;
   last_name?: string;
@@ -63,7 +68,7 @@ export const userService = {
       const users = await api.get<ApiUser[]>(`/users${query}`);
       return users.map(normalizeUser);
     } catch (error) {
-      console.error('[UserService] Error fetching users:', error);
+      reportError('[UserService] Error fetching users:', error);
       throw error;
     }
   },
@@ -80,7 +85,7 @@ export const userService = {
     try {
       return normalizeUser(await api.get<ApiUser>(`/users/${id}`));
     } catch (error) {
-      console.error(`[UserService] Error fetching user ${id}:`, error);
+      reportError(`[UserService] Error fetching user ${id}:`, error);
       throw error;
     }
   },
@@ -98,7 +103,7 @@ export const userService = {
 
       return normalizeUser(await api.post<ApiUser>('/users', data));
     } catch (error) {
-      console.error('[UserService] Error creating user:', error);
+      reportError('[UserService] Error creating user:', error);
       throw error;
     }
   },
@@ -110,10 +115,11 @@ export const userService = {
   update: async (id: string, data: UserUpdateInput): Promise<User> => {
     if (!id) throw new Error('[UserService] ID requerido para actualizar usuario');
 
+    requireUserRevision(data.expected_user_revision);
     try {
       return normalizeUser(await api.patch<ApiUser>(`/users/${id}`, data));
     } catch (error) {
-      console.error(`[UserService] Error updating user ${id}:`, error);
+      reportError(`[UserService] Error updating user ${id}:`, error);
       throw error;
     }
   },
@@ -122,13 +128,13 @@ export const userService = {
    * Desactivar un usuario (soft delete).
    * PATCH /users/{id}
    */
-  deactivate: async (id: string): Promise<void> => {
+  deactivate: async (id: string, revision?: string): Promise<void> => {
     if (!id) throw new Error('[UserService] ID requerido para desactivar usuario');
 
     try {
-      await api.patch(`/users/${id}`, { is_active: false });
+      await api.patch(`/users/${id}`, { is_active: false, expected_user_revision:requireUserRevision(revision) });
     } catch (error) {
-      console.error(`[UserService] Error deactivating user ${id}:`, error);
+      reportError(`[UserService] Error deactivating user ${id}:`, error);
       throw error;
     }
   },
@@ -144,7 +150,7 @@ export const userService = {
       const response = await api.patch<{ user: ApiUser }>(`/users/${id}/password`, { password });
       return normalizeUser(response.user);
     } catch (error) {
-      console.error(`[UserService] Error updating password for user ${id}:`, error);
+      reportError(`[UserService] Error updating password for user ${id}:`, error);
       throw error;
     }
   },
@@ -153,13 +159,13 @@ export const userService = {
    * Desactivar un usuario vía DELETE seguro del backend (soft delete).
    * DELETE /users/{id}
    */
-  delete: async (id: string): Promise<void> => {
+  delete: async (id: string, revision?: string): Promise<void> => {
     if (!id) throw new Error('[UserService] ID requerido para eliminar usuario');
 
     try {
-      await api.delete(`/users/${id}`);
+      await api.delete(`/users/${id}`, { headers:{ 'If-Match':`"${requireUserRevision(revision)}"` } });
     } catch (error) {
-      console.error(`[UserService] Error deleting user ${id}:`, error);
+      reportError(`[UserService] Error deleting user ${id}:`, error);
       throw error;
     }
   }

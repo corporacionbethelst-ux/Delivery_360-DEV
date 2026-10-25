@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
+import { isUserConflict } from '@/lib/user-revision';
 import { userService } from '@/services/user.service';
 import { User, UserRole } from '@/types/user';
 // MODIFICACIÓN: Se agregó RefreshCw a los imports
@@ -45,6 +46,7 @@ export default function ManagerUsersPage() {
   
   // Estado para eliminación
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [deleteConflicted, setDeleteConflicted] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -105,7 +107,7 @@ export default function ManagerUsersPage() {
   };
 
   const handleDeleteConfirm = async () => {
-    if (!userToDelete) return;
+    if (!userToDelete || deleteConflicted || isDeleting) return;
     
     // Seguridad: No permitir borrarse a uno mismo
     if (userToDelete.id === user?.id) {
@@ -116,14 +118,15 @@ export default function ManagerUsersPage() {
 
     setIsDeleting(true);
     try {
-      await userService.deactivate(userToDelete.id);
+      await userService.deactivate(userToDelete.id, userToDelete.user_revision);
       setSuccessMessage(`El usuario ${userToDelete.email} ha sido desactivado correctamente.`);
       setUserToDelete(null);
       await loadUsers(); // Recargar lista
       
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err: any) {
-      setError(err.message || 'Error al desactivar el usuario.');
+      if (isUserConflict(err)) setDeleteConflicted(true);
+      setError((typeof err.response?.data?.detail === 'string' ? err.response.data.detail : undefined) || err.message || 'Error al desactivar el usuario.');
     } finally {
       setIsDeleting(false);
     }
@@ -302,7 +305,7 @@ export default function ManagerUsersPage() {
                           variant="ghost" 
                           size="sm" 
                           className="text-red-600 hover:bg-red-50 hover:text-red-800"
-                          onClick={() => setUserToDelete(u)}
+                          onClick={() => { setDeleteConflicted(false); setUserToDelete({ ...u }); }}
                           disabled={u.id === user?.id} // Deshabilitar si es el usuario actual
                           title={u.id === user?.id ? "No puedes desactivarte a ti mismo" : "Desactivar usuario"}
                         >
@@ -319,7 +322,7 @@ export default function ManagerUsersPage() {
       </div>
 
       {/* Diálogo de Confirmación de Eliminación */}
-      <Dialog open={!!userToDelete} onOpenChange={() => setUserToDelete(null)}>
+      <Dialog open={!!userToDelete} onOpenChange={() => { if (!isDeleting) setUserToDelete(null); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-600">
@@ -336,13 +339,14 @@ export default function ManagerUsersPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
+            {deleteConflicted && <Button onClick={() => { setUserToDelete(null); loadUsers(); }}>Cerrar y actualizar</Button>}
             <Button variant="outline" onClick={() => setUserToDelete(null)} disabled={isDeleting}>
               Cancelar
             </Button>
             <Button 
               variant="destructive" 
               onClick={handleDeleteConfirm} 
-              disabled={isDeleting}
+              disabled={isDeleting || deleteConflicted}
             >
               {isDeleting ? (
                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Procesando...</>
