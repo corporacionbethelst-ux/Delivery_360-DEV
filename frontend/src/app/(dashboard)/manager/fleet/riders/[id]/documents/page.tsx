@@ -1,4 +1,5 @@
 'use client';
+import { DocumentDownloadButton } from '@/components/DocumentDownloadButton';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -14,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  ArrowLeft, Check, X, Eye, FileText, AlertTriangle, ShieldCheck, 
+  ArrowLeft, Check, X, FileText, AlertTriangle, ShieldCheck,
   Loader2, MessageSquare, RefreshCw, Upload, Trash2, PlusCircle 
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -296,7 +297,6 @@ export default function ManagerRiderDocumentsPage() {
               const statusConfig = STATUS_CONFIG[doc.status as DocumentStatus] || STATUS_CONFIG.PENDIENTE;
               const StatusIcon = statusConfig.icon;
               const hasUrl = doc.file_url && doc.file_url !== '#' && doc.file_url !== '';
-              const documentUrl = riderService.getDocumentUrl(doc.file_url);
 
               return (
                 <Card key={doc.id} className={`flex flex-col overflow-hidden transition-all duration-200 hover:shadow-md border-t-4 relative group ${
@@ -334,15 +334,9 @@ export default function ManagerRiderDocumentsPage() {
                       {hasUrl ? (
                         <>
                           <div className="absolute inset-0 bg-black/0 group-hover/view:bg-black/5 transition-colors" />
-                          <a 
-                            href={documentUrl}
-                            target="_blank" 
-                            rel="noopener noreferrer" 
-                            className="z-10 flex flex-col items-center p-4 rounded-lg hover:bg-white/80 backdrop-blur-sm transition-all transform hover:scale-105"
-                          >
-                            <Eye className="w-10 h-10 text-gray-400 group-hover/view:text-blue-600 transition-colors" />
-                            <span className="text-xs font-medium text-gray-500 mt-2 group-hover/view:text-blue-700">Ver Documento</span>
-                          </a>
+                          <DocumentDownloadButton documentId={doc.id}
+                            className="z-10 flex flex-col items-center p-4 rounded-lg hover:bg-white/80"
+                          />
                         </>
                       ) : (
                         <div className="flex flex-col items-center text-gray-400 p-4 text-center">

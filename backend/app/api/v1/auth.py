@@ -43,7 +43,7 @@ def _safe_extension(filename: Optional[str]) -> str:
 def _save_rider_document_file(
     file: UploadFile, rider_id, doc_type: DocumentType
 ) -> str:
-    """Guarda físicamente el archivo del documento y devuelve la URL pública."""
+    """Guarda el archivo y devuelve su referencia interna para descarga autorizada."""
     upload_dir = Path("uploads/documents") / str(rider_id)
     upload_dir.mkdir(parents=True, exist_ok=True)
 

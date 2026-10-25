@@ -21,6 +21,8 @@ import inspect
 import shutil
 from pathlib import Path
 
+from fastapi.responses import FileResponse
+from app.core.document_files import document_download_url, resolve_document_file
 from app.core.serialization import optional_enum_value
 from app.core.database import get_db
 from app.core.operation_permissions import ensure_operation_role
@@ -373,19 +375,13 @@ async def get_my_documents(
             status_code=403, detail="Solo repartidores pueden acceder a sus documentos"
         )
 
-    result = await db.execute(
-        select(Rider)
-        .options(joinedload(Rider.user))
-        .where(Rider.user_id == current_user.id)
-    )
-    rider = result.unique().scalar_one_or_none()
-
-    if not rider:
+    rider_id = await db.scalar(select(Rider.id).where(Rider.user_id == current_user.id))
+    if rider_id is None:
         return []
 
     docs_result = await db.execute(
         select(RiderDocument)
-        .where(RiderDocument.rider_id == rider.id)
+        .where(RiderDocument.rider_id == rider_id)
         .order_by(RiderDocument.created_at.desc())
     )
     documents = docs_result.scalars().all()
@@ -395,7 +391,7 @@ async def get_my_documents(
             "id": str(d.id),
             "type": d.type.value,
             "status": d.status.value,
-            "file_url": d.file_url,
+            "file_url": document_download_url(d.id, d.file_url),
             "rejection_reason": d.rejection_reason,
             "created_at": d.created_at.isoformat() if d.created_at else None,
             "updated_at": d.updated_at.isoformat() if d.updated_at else None,
@@ -490,9 +486,52 @@ async def upload_my_document(
         "id": str(doc_to_return.id),
         "type": doc_to_return.type.value,
         "status": doc_to_return.status.value,
-        "file_url": doc_to_return.file_url,
+        "file_url": document_download_url(doc_to_return.id, doc_to_return.file_url),
         "message": "Documento subido exitosamente.",
     }
+
+
+@router.get("/documents/{doc_id}/download")
+async def download_document(
+    doc_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    allowed_staff = (UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)
+    if current_user.role not in (*allowed_staff, UserRole.REPARTIDOR):
+        raise HTTPException(
+            status_code=403, detail="No autorizado para consultar documentos"
+        )
+    doc = await db.scalar(select(RiderDocument).where(RiderDocument.id == doc_id))
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+    if current_user.role == UserRole.REPARTIDOR:
+        owner = await db.scalar(select(Rider.user_id).where(Rider.id == doc.rider_id))
+        if owner != current_user.id:
+            raise HTTPException(status_code=404, detail="Documento no encontrado")
+    path = resolve_document_file(doc.rider_id, doc.file_url)
+    extension = (
+        path.suffix.lower()
+        if path.suffix.lower() in (".pdf", ".png", ".jpg", ".jpeg")
+        else ".bin"
+    )
+    return FileResponse(
+        path,
+        media_type={
+            ".pdf": "application/pdf",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+        }.get(extension, "application/octet-stream"),
+        filename=f"documento-{doc.id}{extension}",
+        headers={
+            "Cache-Control": "private, no-store",
+            "Pragma": "no-cache",
+            "Vary": "Authorization",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        },
+    )
 
 
 # [ADMIN/GERENTE] Aprobar o rechazar documento específico
@@ -644,7 +683,7 @@ async def upload_document_for_rider(
         "id": str(doc_to_return.id),
         "type": doc_to_return.type.value,
         "status": doc_to_return.status.value,
-        "file_url": doc_to_return.file_url,
+        "file_url": document_download_url(doc_to_return.id, doc_to_return.file_url),
         "message": "Documento subido exitosamente por administrador.",
     }
 
@@ -1694,26 +1733,16 @@ async def get_rider_documents(
     [ADMIN/GERENTE/OPERADOR] Obtiene todos los documentos de un repartidor específico.
     NOTA: Esta ruta va al final deliberadamente para no interceptar /me/documents.
     """
-    rider_result = await db.execute(
-        select(Rider).where(Rider.id == _parse_uuid(rider_id, "rider_id"))
-    )
-    rider = rider_result.scalar_one_or_none()
-
-    if not rider:
+    rider_uuid = _parse_uuid(rider_id, "rider_id")
+    if await db.scalar(select(Rider.id).where(Rider.id == rider_uuid)) is None:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
 
     result = await db.execute(
         select(RiderDocument)
-        .where(RiderDocument.rider_id == rider.id)
+        .where(RiderDocument.rider_id == rider_uuid)
         .order_by(RiderDocument.created_at.desc())
     )
     documents = result.scalars().all()
-
-    api_base = (
-        settings.API_BASE_URL
-        if hasattr(settings, "API_BASE_URL")
-        else "http://localhost:8000"
-    )
 
     return [
         {
@@ -1721,7 +1750,7 @@ async def get_rider_documents(
             "rider_id": str(doc.rider_id),
             "type": doc.type.value if hasattr(doc.type, "value") else doc.type,
             "status": doc.status.value if hasattr(doc.status, "value") else doc.status,
-            "file_url": f"{api_base}/{doc.file_url}" if doc.file_url else None,
+            "file_url": document_download_url(doc.id, doc.file_url),
             "rejection_reason": doc.rejection_reason,
             "created_at": doc.created_at.isoformat() if doc.created_at else None,
             "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
