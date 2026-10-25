@@ -5,10 +5,10 @@ from sqlalchemy import select
 from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel, EmailStr
 from typing import Optional
-import shutil, logging, secrets, uuid
-from pathlib import Path
+import logging, secrets, uuid
 from app.core.config import settings
 
+from app.services.document_uploads import validate_document, DocumentUploadBatch
 from app.services.session_policy import ensure_session_allowed
 from app.core.database import get_db
 from app.core.security import (
@@ -29,33 +29,6 @@ router = APIRouter(prefix="/auth")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 logger = logging.getLogger(__name__)
-
-
-def _safe_extension(filename: Optional[str]) -> str:
-    """Devuelve una extensión simple y segura para archivos subidos."""
-    if not filename or "." not in filename:
-        return "pdf"
-    return (
-        filename.rsplit(".", 1)[-1].lower().replace("/", "").replace("\\", "") or "pdf"
-    )
-
-
-def _save_rider_document_file(
-    file: UploadFile, rider_id, doc_type: DocumentType
-) -> str:
-    """Guarda el archivo y devuelve su referencia interna para descarga autorizada."""
-    upload_dir = Path("uploads/documents") / str(rider_id)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-
-    filename = (
-        f"{doc_type.value.lower()}_{uuid.uuid4()}.{_safe_extension(file.filename)}"
-    )
-    file_path = upload_dir / filename
-
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    return f"/uploads/documents/{rider_id}/{filename}"
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -216,83 +189,51 @@ async def register_rider(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="El email ya está registrado")
 
-    # 2. Crear Usuario
-    user = User(
-        email=email,
-        hashed_password=hash_password(password),
-        first_name=first_name,
-        last_name=last_name,
-        phone=phone,
-        role=UserRole.REPARTIDOR,
-        is_active=True,
-    )
-    db.add(user)
-    await db.flush()  # Obtener user.id
-
-    # 3. Crear Perfil Rider
-    rider = Rider(
-        user_id=user.id,
-        vehicle_type=vehicle_type,
-        status=RiderStatus.PENDIENTE,  # Inicia pendiente hasta que el gerente apruebe docs
-        is_online=False,
-    )
-    if vehicle_plate:
-        rider.vehicle_plate = vehicle_plate
-
-    db.add(rider)
-    await db.flush()  # Obtener rider.id
-
-    try:
-        documents_to_create = [
-            RiderDocument(
-                rider_id=rider.id,
-                type=DocumentType.LICENCIA,
-                status=DocumentStatus.PENDIENTE,
-                file_url=_save_rider_document_file(
-                    license_file, rider.id, DocumentType.LICENCIA
-                ),
-            ),
-            RiderDocument(
-                rider_id=rider.id,
-                type=DocumentType.DOCUMENTO_IDENTIDAD,
-                status=DocumentStatus.PENDIENTE,
-                file_url=_save_rider_document_file(
-                    id_card_file, rider.id, DocumentType.DOCUMENTO_IDENTIDAD
-                ),
-            ),
-            RiderDocument(
-                rider_id=rider.id,
-                type=DocumentType.REGISTRO_VEHICULO,
-                status=DocumentStatus.PENDIENTE,
-                file_url=_save_rider_document_file(
-                    vehicle_registration_file, rider.id, DocumentType.REGISTRO_VEHICULO
-                ),
-            ),
-            RiderDocument(
-                rider_id=rider.id,
-                type=DocumentType.SEGURO,
-                status=DocumentStatus.PENDIENTE,
-                file_url=_save_rider_document_file(
-                    insurance_file, rider.id, DocumentType.SEGURO
-                ),
-            ),
-        ]
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error guardando documentos: {str(e)}"
+    uploads = [
+        (DocumentType.LICENCIA, license_file),
+        (DocumentType.DOCUMENTO_IDENTIDAD, id_card_file),
+        (DocumentType.REGISTRO_VEHICULO, vehicle_registration_file),
+        (DocumentType.SEGURO, insurance_file),
+    ]
+    validated = [(kind, await validate_document(file)) for kind, file in uploads]
+    async with DocumentUploadBatch(db) as batch:
+        user = User(
+            email=email,
+            hashed_password=hash_password(password),
+            first_name=first_name,
+            last_name=last_name,
+            phone=phone,
+            role=UserRole.REPARTIDOR,
+            is_active=True,
         )
-
-    # Agregar documentos a la sesión
-    for doc in documents_to_create:
-        db.add(doc)
-
-    # 5. Commit final
-    await db.commit()
-
-    return {
-        "message": "Registro exitoso. Tus documentos están siendo revisados por un gerente.",
-        "user_id": str(user.id),
-    }
+        db.add(user)
+        await db.flush()
+        rider = Rider(
+            user_id=user.id,
+            vehicle_type=vehicle_type,
+            status=RiderStatus.PENDIENTE,
+            is_online=False,
+        )
+        if vehicle_plate:
+            rider.vehicle_plate = vehicle_plate
+        db.add(rider)
+        await db.flush()
+        for kind, document in validated:
+            reference = await batch.store(document, rider.id, kind)
+            db.add(
+                RiderDocument(
+                    rider_id=rider.id,
+                    type=kind,
+                    status=DocumentStatus.PENDIENTE,
+                    file_url=reference,
+                )
+            )
+        response = {
+            "message": "Registro exitoso. Tus documentos están siendo revisados por un gerente.",
+            "user_id": str(user.id),
+        }
+        await batch.commit()
+    return response
 
 
 @router.post("/logout")

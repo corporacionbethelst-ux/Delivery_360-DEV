@@ -10,7 +10,7 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, load_only
 from pydantic import BaseModel
 from typing import Optional, Any, List
 from datetime import datetime, timezone, timedelta
@@ -18,11 +18,14 @@ import uuid
 import logging
 import os
 import inspect
-import shutil
-from pathlib import Path
 
 from fastapi.responses import FileResponse
 from app.core.document_files import document_download_url, resolve_document_file
+from app.services.document_uploads import (
+    validate_document,
+    replace_document,
+    lock_document,
+)
 from app.core.serialization import optional_enum_value
 from app.core.database import get_db
 from app.core.operation_permissions import ensure_operation_role
@@ -49,30 +52,6 @@ REQUIRED_DOCUMENT_TYPES = {
     DocumentType.REGISTRO_VEHICULO,
     DocumentType.SEGURO,
 }
-
-
-def _safe_extension(filename: Optional[str]) -> str:
-    if not filename or "." not in filename:
-        return "pdf"
-    return (
-        filename.rsplit(".", 1)[-1].lower().replace("/", "").replace("\\", "") or "pdf"
-    )
-
-
-def _store_document_file(
-    file: UploadFile, rider_id: uuid.UUID, doc_type: DocumentType
-) -> str:
-    upload_dir = Path("uploads/documents") / str(rider_id)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-
-    filename = (
-        f"{doc_type.value.lower()}_{uuid.uuid4()}.{_safe_extension(file.filename)}"
-    )
-    file_path = upload_dir / filename
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    return f"/uploads/documents/{rider_id}/{filename}"
 
 
 def _required_document_error(documents: List[RiderDocument]) -> Optional[str]:
@@ -425,70 +404,13 @@ async def upload_my_document(
             detail=f"Tipo inválido. Opciones: {[t.value for t in DocumentType]}",
         )
 
-    result = await db.execute(
-        select(Rider)
-        .options(joinedload(Rider.user))
-        .where(Rider.user_id == current_user.id)
-    )
-    rider = result.unique().scalar_one_or_none()
-
-    if not rider:
+    rider_id = await db.scalar(select(Rider.id).where(Rider.user_id == current_user.id))
+    if rider_id is None:
         raise HTTPException(
             status_code=404, detail="Perfil de repartidor no encontrado"
         )
-
-    existing = await db.execute(
-        select(RiderDocument).where(
-            RiderDocument.rider_id == rider.id, RiderDocument.type == doc_type
-        )
-    )
-    existing_doc = existing.scalar_one_or_none()
-
-    if existing_doc and existing_doc.status == DocumentStatus.APROBADO:
-        raise HTTPException(
-            status_code=400, detail="Documento ya aprobado. Contacta al administrador."
-        )
-
-    if existing_doc and existing_doc.status == DocumentStatus.PENDIENTE:
-        raise HTTPException(
-            status_code=400, detail="Documento en revisión. Espera la validación."
-        )
-
-    try:
-        file_url = _store_document_file(file, rider.id, doc_type)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500, detail=f"Error guardando documento: {str(exc)}"
-        )
-
-    if existing_doc:
-        existing_doc.file_url = file_url
-        existing_doc.status = DocumentStatus.PENDIENTE
-        existing_doc.rejection_reason = None
-        existing_doc.updated_at = utc_now_naive()
-        doc_to_return = existing_doc
-    else:
-        new_doc = RiderDocument(
-            id=uuid.uuid4(),
-            rider_id=rider.id,
-            type=doc_type,
-            status=DocumentStatus.PENDIENTE,
-            file_url=file_url,
-            rejection_reason=None,
-        )
-        db.add(new_doc)
-        doc_to_return = new_doc
-
-    await db.commit()
-    await db.refresh(doc_to_return)
-
-    return {
-        "id": str(doc_to_return.id),
-        "type": doc_to_return.type.value,
-        "status": doc_to_return.status.value,
-        "file_url": document_download_url(doc_to_return.id, doc_to_return.file_url),
-        "message": "Documento subido exitosamente.",
-    }
+    document = await validate_document(file)
+    return await replace_document(db, rider_id, doc_type, document, allow_pending=False)
 
 
 @router.get("/documents/{doc_id}/download")
@@ -557,23 +479,25 @@ async def update_document_status(
             status_code=400, detail="Se requiere un motivo para el rechazo"
         )
 
-    result = await db.execute(
-        select(RiderDocument).where(RiderDocument.id == _parse_uuid(doc_id, "doc_id"))
-    )
-    doc = result.scalar_one_or_none()
-
-    if not doc:
-        raise HTTPException(status_code=404, detail="Documento no encontrado")
+    doc = await lock_document(db, _parse_uuid(doc_id, "doc_id"))
 
     try:
         doc.status = DocumentStatus(new_status)
     except ValueError:
         raise HTTPException(status_code=400, detail="Estado de documento inválido")
 
+    doc.updated_at = utc_now_naive()
     doc.rejection_reason = rejection_reason if new_status == "RECHAZADO" else None
 
+    await db.flush()
     if new_status == "APROBADO":
-        rider_result = await db.execute(select(Rider).where(Rider.id == doc.rider_id))
+        rider_result = await db.execute(
+            select(Rider)
+            .options(
+                load_only(Rider.id, Rider.status, Rider.is_online, Rider.approved_at)
+            )
+            .where(Rider.id == doc.rider_id)
+        )
         rider = rider_result.scalar_one_or_none()
         if rider:
             all_docs_result = await db.execute(
@@ -584,7 +508,13 @@ async def update_document_status(
                 rider.status = RiderStatus.ACTIVO
                 rider.approved_at = utc_now_naive()
     elif new_status == "RECHAZADO":
-        rider_result = await db.execute(select(Rider).where(Rider.id == doc.rider_id))
+        rider_result = await db.execute(
+            select(Rider)
+            .options(
+                load_only(Rider.id, Rider.status, Rider.is_online, Rider.approved_at)
+            )
+            .where(Rider.id == doc.rider_id)
+        )
         rider = rider_result.scalar_one_or_none()
         if rider:
             rider.status = RiderStatus.PENDIENTE
@@ -616,76 +546,15 @@ async def upload_document_for_rider(
     [ADMIN/GERENTE] Sube un documento en nombre de un repartidor específico.
     Útil cuando el repartidor tiene problemas técnicos o se necesita corrección manual.
     """
-    # Validar ID del rider
     rid = _parse_uuid(rider_id, "rider_id")
-
-    # Verificar que el rider existe
-    rider_result = await db.execute(select(Rider).where(Rider.id == rid))
-    rider = rider_result.scalar_one_or_none()
-    if not rider:
-        raise HTTPException(status_code=404, detail="Repartidor no encontrado")
-
-    # Validar tipo de documento
     try:
         doc_type = DocumentType(type)
     except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Tipo inválido. Opciones: {[t.value for t in DocumentType]}",
-        )
-
-    # Buscar documento existente del mismo tipo
-    existing = await db.execute(
-        select(RiderDocument).where(
-            RiderDocument.rider_id == rider.id, RiderDocument.type == doc_type
-        )
-    )
-    existing_doc = existing.scalar_one_or_none()
-
-    # Regla: No sobrescribir si está APROBADO (a menos que sea una nueva versión, pero aquí prevenimos accidentes)
-    if existing_doc and existing_doc.status == DocumentStatus.APROBADO:
-        raise HTTPException(
-            status_code=400,
-            detail="Ya existe un documento aprobado de este tipo. Si necesita actualizarlo, rechace el anterior primero o contacte a superadmin.",
-        )
-
-    try:
-        file_url = _store_document_file(file, rider.id, doc_type)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500, detail=f"Error guardando documento: {str(exc)}"
-        )
-
-    if existing_doc:
-        # Actualizar existente (ej. estaba rechazado o incompleto)
-        existing_doc.file_url = file_url
-        existing_doc.status = DocumentStatus.PENDIENTE
-        existing_doc.rejection_reason = None
-        existing_doc.updated_at = utc_now_naive()
-        doc_to_return = existing_doc
-    else:
-        # Crear nuevo
-        new_doc = RiderDocument(
-            id=uuid.uuid4(),
-            rider_id=rider.id,
-            type=doc_type,
-            status=DocumentStatus.PENDIENTE,
-            file_url=file_url,
-            rejection_reason=None,
-        )
-        db.add(new_doc)
-        doc_to_return = new_doc
-
-    await db.commit()
-    await db.refresh(doc_to_return)
-
-    return {
-        "id": str(doc_to_return.id),
-        "type": doc_to_return.type.value,
-        "status": doc_to_return.status.value,
-        "file_url": document_download_url(doc_to_return.id, doc_to_return.file_url),
-        "message": "Documento subido exitosamente por administrador.",
-    }
+        raise HTTPException(status_code=400, detail="Tipo de documento inválido")
+    document = await validate_document(file)
+    response = await replace_document(db, rid, doc_type, document, allow_pending=True)
+    response["message"] = "Documento subido exitosamente por administrador."
+    return response
 
 
 # [ADMIN/GERENTE] Eliminar permanentemente un documento
@@ -699,14 +568,7 @@ async def delete_document(
     [ADMIN/GERENTE] Elimina permanentemente un documento de la base de datos.
     Útil para limpiar documentos corruptos, duplicados o subidos por error.
     """
-    did = _parse_uuid(doc_id, "doc_id")
-
-    result = await db.execute(select(RiderDocument).where(RiderDocument.id == did))
-    doc = result.scalar_one_or_none()
-
-    if not doc:
-        raise HTTPException(status_code=404, detail="Documento no encontrado")
-
+    doc = await lock_document(db, _parse_uuid(doc_id, "doc_id"))
     # Opcional: Guardar registro de auditoría antes de borrar (si tu sistema lo requiere)
     # logger.info(f"Admin {current_user.email} eliminó documento {doc_id} del rider {doc.rider_id}")
 

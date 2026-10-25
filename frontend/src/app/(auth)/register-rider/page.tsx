@@ -1,5 +1,6 @@
 'use client';
 
+import { DOCUMENT_ACCEPT, validateDocumentSelection } from '@/lib/document-upload';
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -54,8 +55,16 @@ export default function RegisterRiderPage() {
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: DocumentFileKey) => {
-    if (e.target.files && e.target.files[0]) {
-      setFiles(prev => ({ ...prev, [type]: e.target.files![0] }));
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      validateDocumentSelection(file);
+      setFiles(prev => ({ ...prev, [type]: file }));
+      setError(null);
+    } catch (error) {
+      setFiles(prev => { const next = { ...prev }; delete next[type]; return next; });
+      e.target.value = '';
+      setError(error instanceof Error ? error.message : 'Documento inválido');
     }
   };
 
@@ -243,12 +252,12 @@ export default function RegisterRiderPage() {
                             name={doc.fieldName}
                             type="file"
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                            accept="image/*,.pdf"
+                            accept={DOCUMENT_ACCEPT}
                             onChange={(e) => handleFileChange(e, doc.key)}
                           />
                         </div>
                         <p className="text-xs text-gray-500 truncate max-w-[150px] mx-auto">
-                          {files[doc.key] ? files[doc.key]?.name : 'PNG, JPG, PDF'}
+                          {files[doc.key] ? files[doc.key]?.name : 'PDF, PNG o JPEG · máximo 10 MiB'}
                         </p>
                       </div>
                     </div>

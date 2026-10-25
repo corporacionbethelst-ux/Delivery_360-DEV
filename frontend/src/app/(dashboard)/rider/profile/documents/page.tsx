@@ -1,4 +1,5 @@
 'use client';
+import { DOCUMENT_ACCEPT } from '@/lib/document-upload';
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -159,7 +160,7 @@ export default function RiderDocumentsPage() {
                         <div className="relative w-full md:w-auto">
                           <input
                             type="file"
-                            accept="image/*,.pdf"
+                            accept={DOCUMENT_ACCEPT}
                             onChange={(e) => handleFileUpload(e, docType.id)}
                             disabled={!!uploading}
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"

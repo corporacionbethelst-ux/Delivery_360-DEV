@@ -1,4 +1,5 @@
 import { api } from '@/lib/api';
+import { validateDocumentSelection } from '@/lib/document-upload';
 import { User, AuthResponse } from '@/types/user';
 import type { AxiosError } from 'axios';
 
@@ -56,7 +57,7 @@ export const authService = {
   /**
    * Registro de repartidor
    */
-  register: async (data: RegisterRiderData | FormData): Promise<AuthResponse> => {
+  register: async (data: RegisterRiderData | RegisterRiderWithFilesData | FormData): Promise<AuthResponse> => {
     let payload: FormData;
 
     if (data instanceof FormData) {
@@ -73,21 +74,23 @@ export const authService = {
       if (data.vehicle_plate) payload.append('vehicle_plate', data.vehicle_plate);
       
       if ('license_file' in data && data.license_file) {
-         // @ts-ignore
          payload.append('license_file', data.license_file);
       }
       if ('id_card_file' in data && data.id_card_file) {
-         // @ts-ignore
          payload.append('id_card_file', data.id_card_file);
       }
       if ('vehicle_registration_file' in data && data.vehicle_registration_file) {
-         // @ts-ignore
          payload.append('vehicle_registration_file', data.vehicle_registration_file);
       }
       if ('insurance_file' in data && data.insurance_file) {
-         // @ts-ignore
          payload.append('insurance_file', data.insurance_file);
       }
+    }
+
+    for (const field of ['license_file', 'id_card_file', 'vehicle_registration_file', 'insurance_file']) {
+      const file = payload.get(field);
+      if (!(file instanceof File)) throw new Error('Debes adjuntar los cuatro documentos requeridos');
+      validateDocumentSelection(file);
     }
 
     try {
