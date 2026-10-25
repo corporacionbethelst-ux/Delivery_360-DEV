@@ -41,6 +41,12 @@ const ACTIONS = [
   'ACCESS_DENIED',
 ];
 
+function auditDate(log: AuditLog): string {
+  const utc = log.new_values?.occurred_at_utc;
+  const timestamp = typeof utc === 'string' ? utc : log.created_at;
+  return timestamp ? new Date(timestamp).toLocaleString() : 'Sin fecha';
+}
+
 export default function AdminAuditPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [summary, setSummary] = useState<AuditSummary | null>(null);
@@ -267,12 +273,12 @@ export default function AdminAuditPage() {
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <div className="font-semibold text-gray-900">{log.user_email || 'SYSTEM'}</div>
+                          <div className="font-semibold text-gray-900 break-all">{log.user_email || (log.user_id ? `Usuario ${log.user_id}` : 'SYSTEM')}</div>
                           <div className="text-xs text-gray-500">{log.user_role || 'SYSTEM'}</div>
                         </td>
                         <td className="px-6 py-4 text-gray-500 whitespace-nowrap">
                           <div className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" /> {log.created_at ? new Date(log.created_at).toLocaleString() : 'Sin fecha'}
+                            <Clock className="w-3 h-3" /> {auditDate(log)}
                           </div>
                         </td>
                         <td className="px-6 py-4">

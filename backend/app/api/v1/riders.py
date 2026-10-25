@@ -33,7 +33,6 @@ from app.services.document_review import (
     lock_rider,
     restrict_rider_documents,
     ensure_rider_can_report_online,
-    rider_documents,
     review_document,
     delete_reviewed_document,
 )
@@ -52,6 +51,7 @@ from app.models.enums import VehicleOwnershipType
 from app.api.v1.auth import get_current_user, require_role
 from app.services.financial_service import CREDIT_TYPES
 from app.core.fleet_revision import assignment_revision
+from app.services.fleet_audit import record_fleet_change
 from app.services.fleet_assignment import (
     VEHICLE_FIELDS,
     lock_vehicles,
@@ -604,6 +604,11 @@ async def create_rider(
     if vehicle is not None:
         vehicle.rider_id = user.id
 
+    await db.flush()
+    await record_fleet_change(
+        db, rider, current_user, before=None, source="admin_create"
+    )
+
     await db.commit()
     await db.refresh(rider)
     await db.refresh(rider, attribute_names=["user"])
@@ -687,8 +692,8 @@ async def update_my_rider_profile(
 ):
     """
     [REPARTIDOR] Actualiza los datos de su propio perfil (User + Rider).
-    MEJORA LOTE 12.1.2: Si cambia el vehículo, invalida documentos, bloquea la cuenta
-    y notifica a administración mediante Audit Log y Alertas en consola.
+    Los cambios de vehículo invalidan documentos y registran la auditoría
+    en la misma transacción que el perfil y sus vínculos de flota.
     """
     _ensure_rider_update_fields(current_user, body)
     result = await db.execute(
@@ -706,56 +711,16 @@ async def update_my_rider_profile(
     payload = body.model_dump(
         exclude_none=True, exclude={"expected_assignment_revision"}
     )
+    before_state: dict = {}
     vehicle_changed = False
     if VEHICLE_FIELDS.intersection(payload):
         vehicle_changed = await prepare_vehicle_update(
-            db, rider, payload, body.expected_assignment_revision
+            db,
+            rider,
+            payload,
+            body.expected_assignment_revision,
+            before_state=before_state,
         )
-    old_vehicle_type = optional_enum_value(rider.vehicle_type)
-    old_vehicle_info = f"{old_vehicle_type} - {rider.vehicle_plate}"
-    new_vehicle_info = f"{payload.get('vehicle_type', old_vehicle_type)} - {payload.get('vehicle_plate', rider.vehicle_plate)}"
-
-    if vehicle_changed:
-        print(
-            f"⚠️ ALERTA DE SEGURIDAD: El repartidor {current_user.email} ha solicitado cambio de vehículo."
-        )
-        print(f"   🔄 De: {old_vehicle_info}  -->  A: {new_vehicle_info}")
-
-        documents = await rider_documents(db, rider.id)
-        await invalidate_vehicle_documents(db, rider.id)
-        await db.refresh(rider, attribute_names=["status", "is_online"])
-
-        try:
-            from app.models.audit_log import ActionType, AuditLog
-
-            audit_entry = AuditLog(
-                id=uuid.uuid4(),
-                user_id=current_user.id,
-                user_email=current_user.email,
-                user_role=(
-                    current_user.role.value
-                    if hasattr(current_user.role, "value")
-                    else str(current_user.role)
-                ),
-                action_type=ActionType.UPDATE,
-                resource_type="Rider",
-                resource_id=str(rider.id),
-                description="Solicitud de cambio de vehículo desde perfil",
-                old_values={"vehicle": old_vehicle_info},
-                new_values={
-                    "vehicle": new_vehicle_info,
-                    "documents_invalidated": len(documents),
-                    "status_changed_to": optional_enum_value(rider.status),
-                },
-                changes_summary="Cambio de vehículo; documentos invalidados y disponibilidad deshabilitada",
-                success=True,
-                created_at=utc_now_naive(),
-            )
-            db.add(audit_entry)
-            print(f"   📝 Registro de auditoría creado exitosamente.")
-        except Exception as e:
-            print(f"   ❌ Error al crear registro de auditoría: {str(e)}")
-
     if "vehicle_type" in payload:
         try:
             if isinstance(payload["vehicle_type"], str):
@@ -795,6 +760,18 @@ async def update_my_rider_profile(
     if "phone" in payload:
         current_user.phone = payload["phone"]
         user_updated = True
+
+    if vehicle_changed:
+        count = await invalidate_vehicle_documents(db, rider.id)
+        await db.refresh(rider, attribute_names=["status", "is_online"])
+        await record_fleet_change(
+            db,
+            rider,
+            current_user,
+            before=before_state,
+            source="self_profile",
+            documents_invalidated=count,
+        )
 
     await db.commit()
 
@@ -1126,10 +1103,15 @@ async def update_rider(
         exclude_none=True, exclude={"expected_assignment_revision"}
     )
 
+    before_state: dict = {}
     vehicle_changed = False
     if VEHICLE_FIELDS.intersection(payload):
         vehicle_changed = await prepare_vehicle_update(
-            db, rider, payload, body.expected_assignment_revision
+            db,
+            rider,
+            payload,
+            body.expected_assignment_revision,
+            before_state=before_state,
         )
 
     if "vehicle_type" in payload:
@@ -1156,8 +1138,16 @@ async def update_rider(
 
     if vehicle_changed:
         await db.flush()
-        await invalidate_vehicle_documents(db, rider.id)
+        count = await invalidate_vehicle_documents(db, rider.id)
         await db.refresh(rider, attribute_names=["status", "is_online"])
+        await record_fleet_change(
+            db,
+            rider,
+            current_user,
+            before=before_state,
+            source="rider_patch",
+            documents_invalidated=count,
+        )
 
     await db.commit()
 

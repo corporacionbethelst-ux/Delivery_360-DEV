@@ -11,6 +11,7 @@ from app.models.rider import Rider, RiderStatus
 from app.models.rider_document import RiderDocument, DocumentStatus
 from app.models.vehicle import Vehicle
 from app.models.user import UserRole
+from tests.fleet_audit_fixtures import create_sqlite_audit_table
 from app.api.v1 import vehicles as vehicles_api
 from app.services.fleet_assignment import lock_vehicles, ensure_vehicle_unassigned
 
@@ -18,6 +19,7 @@ from app.services.fleet_assignment import lock_vehicles, ensure_vehicle_unassign
 @pytest.fixture
 async def fleet(submissions):
     client, db, ctx = submissions
+    await create_sqlite_audit_table(db)
     connection = await db.connection()
     await connection.run_sync(
         lambda conn: conn.connection.dbapi_connection.create_function(
