@@ -1,6 +1,6 @@
 """Read-only, single-statement fleet diagnostics. No ORM entities or repairs."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from enum import Enum
 import re
 from uuid import UUID
@@ -16,6 +16,8 @@ from app.services.vehicle_plates import canonical_plate_expression
 
 class FleetFindingCode(str, Enum):
     DUPLICATE_PLATE = "DUPLICATE_PLATE"
+    INSURANCE_EXPIRED = "INSURANCE_EXPIRED"
+    INSURANCE_EXPIRY_MISSING = "INSURANCE_EXPIRY_MISSING"
     COMPANY_WITHOUT_VEHICLE = "COMPANY_WITHOUT_VEHICLE"
     NONCOMPANY_WITH_VEHICLE = "NONCOMPANY_WITH_VEHICLE"
     MISSING_VEHICLE = "MISSING_VEHICLE"
@@ -29,6 +31,8 @@ class FleetFindingCode(str, Enum):
 
 
 DESCRIPTIONS = {
+    FleetFindingCode.INSURANCE_EXPIRED: "La fecha registrada de vencimiento del seguro es anterior al día de referencia UTC",
+    FleetFindingCode.INSURANCE_EXPIRY_MISSING: "No hay fecha registrada de vencimiento del seguro; vigencia desconocida",
     FleetFindingCode.DUPLICATE_PLATE: "Varios vehículos comparten placa al normalizar mayúsculas y espacios ASCII exteriores",
     FleetFindingCode.COMPANY_WITHOUT_VEHICLE: "Perfil EMPRESA sin vehículo asignado",
     FleetFindingCode.NONCOMPANY_WITH_VEHICLE: "Perfil no EMPRESA con vehículo de flota asignado",
@@ -54,6 +58,7 @@ class FleetFinding(BaseModel):
 class FleetReconciliationReport(BaseModel):
     read_only: Literal[True] = True
     generated_at: datetime
+    insurance_reference_date: date
     snapshot_scope: Literal["single_statement_per_page"] = "single_statement_per_page"
     findings: list[FleetFinding]
     page_count: int
@@ -62,7 +67,7 @@ class FleetReconciliationReport(BaseModel):
     checks: list[FleetFindingCode]
 
 
-def _findings_query(*, postgres: bool = False):
+def _findings_query(*, insurance_reference_date: date, postgres: bool = False):
     r, v = Rider.__table__, Vehicle.__table__
     plate_key = canonical_plate_expression(v.c.plate, postgres=postgres)
     repeated_plates = select(plate_key).group_by(plate_key).having(func.count() > 1)
@@ -99,13 +104,26 @@ def _findings_query(*, postgres: bool = False):
 
     joined = r.join(v, r.c.assigned_vehicle_id == v.c.id)
     owner_profiles = v.outerjoin(r, v.c.rider_id == r.c.user_id)
-    return union_all(
-        select(
-            literal(FleetFindingCode.DUPLICATE_PLATE.value).label("code"),
+
+    def inventory_rows(code, condition):
+        return select(
+            literal(code.value).label("code"),
             literal("vehicle").label("entity_type"),
             v.c.id.label("entity_id"),
             literal(None, type_=v.c.id.type).label("related_id"),
-        ).where(plate_key.in_(repeated_plates)),
+        ).where(condition)
+
+    return union_all(
+        inventory_rows(
+            FleetFindingCode.DUPLICATE_PLATE, plate_key.in_(repeated_plates)
+        ),
+        inventory_rows(
+            FleetFindingCode.INSURANCE_EXPIRED,
+            v.c.insurance_expiry < insurance_reference_date,
+        ),
+        inventory_rows(
+            FleetFindingCode.INSURANCE_EXPIRY_MISSING, v.c.insurance_expiry.is_(None)
+        ),
         rider_rows(
             FleetFindingCode.COMPANY_WITHOUT_VEHICLE,
             (r.c.vehicle_ownership_type == "EMPRESA")
@@ -189,7 +207,12 @@ async def reconcile_fleet(
             raise HTTPException(
                 status_code=422, detail="Cursor de conciliación inválido"
             )
-    findings = _findings_query(postgres=db.get_bind().dialect.name == "postgresql")
+    generated_at = datetime.now(timezone.utc)
+    insurance_reference_date = generated_at.date()
+    findings = _findings_query(
+        insurance_reference_date=insurance_reference_date,
+        postgres=db.get_bind().dialect.name == "postgresql",
+    )
     key = (
         findings.c.code
         + literal(":")
@@ -207,7 +230,8 @@ async def reconcile_fleet(
     page = rows[:limit]
     more = len(rows) > limit
     return FleetReconciliationReport(
-        generated_at=datetime.now(timezone.utc),
+        generated_at=generated_at,
+        insurance_reference_date=insurance_reference_date,
         findings=[
             FleetFinding(
                 code=row["code"],

@@ -1,6 +1,7 @@
 """Native enum comparisons, read-only snapshots and committed assignments."""
 
 import asyncio
+from datetime import date
 import pytest
 from sqlalchemy import select, text, update
 from tests.test_wallet_postgresql import pg_wallets  # noqa: F401
@@ -12,9 +13,18 @@ from app.services.fleet_assignment import available_vehicle_condition
 from app.services.fleet_reconciliation import reconcile_fleet, FleetFindingCode
 
 
+@pytest.fixture
+async def insured_fleet(pg_fleet):
+    sessions, _, _ = pg_fleet
+    async with sessions() as db:
+        await db.execute(update(Vehicle).values(insurance_expiry=date.max))
+        await db.commit()
+    return pg_fleet
+
+
 @pytest.mark.asyncio
-async def test_report_succeeds_inside_postgresql_read_only_transaction(pg_fleet):
-    sessions, riders, _ = pg_fleet
+async def test_report_succeeds_inside_postgresql_read_only_transaction(insured_fleet):
+    sessions, riders, _ = insured_fleet
     async with sessions() as db:
         await db.execute(
             update(Rider)
@@ -37,8 +47,8 @@ async def test_report_succeeds_inside_postgresql_read_only_transaction(pg_fleet)
 
 
 @pytest.mark.asyncio
-async def test_native_enum_metadata_and_duplicate_checks_and_pagination(pg_fleet):
-    sessions, riders, vehicles = pg_fleet
+async def test_native_enum_metadata_and_duplicate_checks_and_pagination(insured_fleet):
+    sessions, riders, vehicles = insured_fleet
     await assign(sessions, riders[0], vehicles[0])
     async with sessions() as db:
         assert (await reconcile_fleet(db)).findings == []
@@ -92,9 +102,9 @@ async def test_native_enum_metadata_and_duplicate_checks_and_pagination(pg_fleet
 
 @pytest.mark.asyncio
 async def test_report_and_catalog_ignore_uncommitted_assignment_then_observe_commit(
-    pg_fleet,
+    insured_fleet,
 ):
-    sessions, riders, vehicles = pg_fleet
+    sessions, riders, vehicles = insured_fleet
     async with sessions() as writer:
         await writer.execute(
             update(Rider)
@@ -124,8 +134,8 @@ async def test_report_and_catalog_ignore_uncommitted_assignment_then_observe_com
 
 
 @pytest.mark.asyncio
-async def test_cursor_returns_new_current_page_after_committed_repair(pg_fleet):
-    sessions, riders, _ = pg_fleet
+async def test_cursor_returns_new_current_page_after_committed_repair(insured_fleet):
+    sessions, riders, _ = insured_fleet
     async with sessions() as db:
         await db.execute(update(Rider).values(vehicle_ownership_type="EMPRESA"))
         await db.commit()
@@ -146,9 +156,9 @@ async def test_cursor_returns_new_current_page_after_committed_repair(pg_fleet):
 
 @pytest.mark.asyncio
 async def test_native_duplicate_plate_report_is_read_only_and_pages_all_members(
-    pg_fleet,
+    insured_fleet,
 ):
-    sessions, _, vehicles = pg_fleet
+    sessions, _, vehicles = insured_fleet
     async with sessions() as db:
         await db.execute(
             update(Vehicle)
@@ -184,9 +194,9 @@ async def test_native_duplicate_plate_report_is_read_only_and_pages_all_members(
 
 @pytest.mark.asyncio
 async def test_duplicate_plate_report_ignores_uncommitted_edits_and_observes_commit(
-    pg_fleet,
+    insured_fleet,
 ):
-    sessions, _, vehicles = pg_fleet
+    sessions, _, vehicles = insured_fleet
 
     async def read():
         async with sessions() as db:
@@ -201,3 +211,37 @@ async def test_duplicate_plate_report_ignores_uncommitted_edits_and_observes_com
         await writer.commit()
     after = await read()
     assert {item.entity_id for item in after.findings} == set(vehicles)
+
+
+@pytest.mark.asyncio
+async def test_insurance_diagnostics_native_dates_in_read_only_transaction(
+    insured_fleet,
+):
+    from datetime import datetime, timezone
+    from unittest.mock import patch
+
+    sessions, _, vehicles = insured_fleet
+    async with sessions() as db:
+        await db.execute(
+            update(Vehicle)
+            .where(Vehicle.id == vehicles[0])
+            .values(insurance_expiry=date(2026, 10, 24))
+        )
+        await db.execute(
+            update(Vehicle)
+            .where(Vehicle.id == vehicles[1])
+            .values(insurance_expiry=None)
+        )
+        await db.commit()
+    async with sessions() as db:
+        await db.execute(text("SET TRANSACTION READ ONLY"))
+        with patch("app.services.fleet_reconciliation.datetime") as clock:
+            clock.now.return_value = datetime(2026, 10, 25, tzinfo=timezone.utc)
+            report = await reconcile_fleet(db)
+        assert report.insurance_reference_date == date(2026, 10, 25)
+        assert {(f.code, f.entity_id) for f in report.findings} == {
+            (FleetFindingCode.INSURANCE_EXPIRED, vehicles[0]),
+            (FleetFindingCode.INSURANCE_EXPIRY_MISSING, vehicles[1]),
+        }
+        assert not db.new and not db.dirty and not db.deleted
+        await db.rollback()

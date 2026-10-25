@@ -1,5 +1,6 @@
 """HTTP catalog alignment and read-only diagnostics on actual SQLite rows."""
 
+from datetime import date, datetime, timezone
 from unittest.mock import patch
 from uuid import uuid4
 import pytest
@@ -21,6 +22,8 @@ from app.services.fleet_reconciliation import reconcile_fleet, FleetFindingCode
 @pytest.fixture
 async def catalog(fleet):
     _, db, ctx, first, second = fleet
+    first.insurance_expiry = second.insurance_expiry = date.max
+    await db.commit()
     app = FastAPI()
     app.include_router(api.router, prefix="/api/v1")
 
@@ -109,6 +112,10 @@ async def test_detects_each_supported_historical_anomaly(catalog, code):
     await set_company(db, rider_id, first)
     if code == FleetFindingCode.DUPLICATE_PLATE:
         first.plate = " fleet-2 "
+    elif code == FleetFindingCode.INSURANCE_EXPIRED:
+        first.insurance_expiry = date(2000, 1, 1)
+    elif code == FleetFindingCode.INSURANCE_EXPIRY_MISSING:
+        first.insurance_expiry = None
     elif code == FleetFindingCode.COMPANY_WITHOUT_VEHICLE:
         await db.execute(
             update(Rider).where(Rider.id == rider_id).values(assigned_vehicle_id=None)
@@ -325,3 +332,87 @@ async def test_plate_diagnostic_does_not_remove_internal_characters_or_accents(
     await db.commit()
     result = await reconcile_fleet(db, code=FleetFindingCode.DUPLICATE_PLATE)
     assert result.findings == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "expiry,expected",
+    [
+        (None, "INSURANCE_EXPIRY_MISSING"),
+        (date(2026, 10, 24), "INSURANCE_EXPIRED"),
+        (date(2026, 10, 25), None),
+        (date(2026, 10, 26), None),
+    ],
+)
+async def test_insurance_date_boundary_and_missing_are_distinct(
+    catalog, expiry, expected
+):
+    client, db, _, first, _ = catalog
+    first.insurance_expiry = expiry
+    await db.commit()
+    now = datetime(2026, 10, 25, 23, 59, 59, tzinfo=timezone.utc)
+    with patch("app.services.fleet_reconciliation.datetime") as clock:
+        clock.now.return_value = now
+        response = await client.get("/api/v1/vehicles/reconciliation")
+    assert response.status_code == 200, response.text
+    report = response.json()
+    assert report["insurance_reference_date"] == "2026-10-25"
+    assert datetime.fromisoformat(report["generated_at"].replace("Z", "+00:00")) == now
+    findings = [f for f in report["findings"] if f["code"].startswith("INSURANCE_")]
+    assert [f["code"] for f in findings] == ([expected] if expected else [])
+    assert all(
+        f["entity_id"] == str(first.id) and f["related_id"] is None for f in findings
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["ACTIVO", "MANTENIMIENTO", "BAJA"])
+async def test_insurance_report_is_paginated_and_does_not_change_vehicle_state(
+    catalog, status
+):
+    client, db, _, first, second = catalog
+    first.insurance_expiry = second.insurance_expiry = date(2000, 1, 1)
+    first.status = status
+    await db.commit()
+    expected = {str(first.id), str(second.id)}
+    first_page = (
+        await client.get(
+            "/api/v1/vehicles/reconciliation",
+            params={"code": "INSURANCE_EXPIRED", "limit": 1},
+        )
+    ).json()
+    assert first_page["has_more"]
+    last = (
+        await client.get(
+            "/api/v1/vehicles/reconciliation",
+            params={
+                "code": "INSURANCE_EXPIRED",
+                "limit": 1,
+                "cursor": first_page["next_cursor"],
+            },
+        )
+    ).json()
+    assert not last["has_more"]
+    assert {
+        f["entity_id"] for f in first_page["findings"] + last["findings"]
+    } == expected
+    assert first.status == status and first.insurance_expiry == date(2000, 1, 1)
+    from app.models.audit_log import AuditLog
+
+    assert (await db.scalars(select(AuditLog))).all() == []
+
+
+@pytest.mark.asyncio
+async def test_insurance_diagnostic_rolls_over_at_utc_midnight_without_writes(catalog):
+    _, db, _, first, _ = catalog
+    first.insurance_expiry = date(2026, 10, 25)
+    await db.commit()
+    with patch("app.services.fleet_reconciliation.datetime") as clock:
+        clock.now.return_value = datetime(2026, 10, 25, 23, 59, 59, tzinfo=timezone.utc)
+        before = await reconcile_fleet(db, code=FleetFindingCode.INSURANCE_EXPIRED)
+        clock.now.return_value = datetime(2026, 10, 26, tzinfo=timezone.utc)
+        after = await reconcile_fleet(db, code=FleetFindingCode.INSURANCE_EXPIRED)
+    assert before.findings == []
+    assert [f.entity_id for f in after.findings] == [first.id]
+    assert after.insurance_reference_date == date(2026, 10, 26)
+    assert first.insurance_expiry == date(2026, 10, 25) and not db.dirty
