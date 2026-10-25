@@ -37,7 +37,7 @@ from fastapi import (
 from pydantic import BaseModel, Field
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, load_only, raiseload
 
 from app.core.config import settings
 from app.core.serialization import optional_enum_value
@@ -101,7 +101,20 @@ async def update_location(
     db: AsyncSession = Depends(get_db),
 ):
     """Ingesta de posición GPS del repartidor (persiste + broadcast Pub/Sub/WS)."""
-    result = await db.execute(select(Rider).where(Rider.id == rider_id))
+    result = await db.execute(
+        select(Rider)
+        .options(
+            raiseload("*"),
+            load_only(
+                Rider.id,
+                Rider.user_id,
+                Rider.status,
+                Rider.is_online,
+                Rider.approved_at,
+            ),
+        )
+        .where(Rider.id == rider_id)
+    )
     rider = result.scalar_one_or_none()
     if rider is None:
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")

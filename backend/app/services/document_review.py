@@ -186,3 +186,34 @@ async def delete_reviewed_document(
     await db.flush()
     await reconcile_document_eligibility(db, rider_id)
     return response
+
+
+async def ensure_rider_can_report_online(
+    db: AsyncSession, rider: Rider, *, allow_busy: bool = False
+) -> None:
+    """Authorize availability under the parent lock; caller commits success.
+
+    Denials persist the safety restriction before raising. Call before adding
+    location rows or other changes: a denied report must not commit its payload.
+    """
+    await lock_rider(db, rider.id)
+    await db.refresh(rider, attribute_names=["status", "is_online", "approved_at"])
+    permitted = (
+        (RiderStatus.ACTIVO, RiderStatus.OCUPADO)
+        if allow_busy
+        else (RiderStatus.ACTIVO,)
+    )
+    if rider.status not in permitted:
+        rider.is_online = False
+        await db.commit()
+        raise HTTPException(
+            status_code=403,
+            detail="No puedes conectarte hasta que un gerente active tu cuenta",
+        )
+    error = await document_readiness_error(db, rider.id)
+    if error:
+        await restrict_rider_documents(db, rider.id)
+        await db.commit()
+        raise HTTPException(
+            status_code=403, detail=f"La documentación requiere revisión. {error}"
+        )

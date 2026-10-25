@@ -1382,3 +1382,54 @@ Las pruebas cubren tokens ausentes/malformados/desactualizados, estados que inva
 5. **Operación de entregas activas.** Deshabilitar disponibilidad no cancela ni reasigna entregas existentes. Falta definir y probar la política operativa cuando se invalida documentación durante una entrega.
 
 No se fusiona ni despliega automáticamente. El PR se publica listo para revisión, sin borrador.
+
+## Bloque 16 — Disponibilidad coherente en GPS y cambio propio de vehículo
+
+Fecha: 25 de octubre de 2026 (America/Caracas). Base: main, commit 54c7a4f, con PR #257 fusionado. Rama: fix/rider-telemetry-eligibility-v1.
+
+### Problema y comportamiento resultante
+
+Los escritores de ubicación de telemetry.py y TrackingService podían asignar is_online=true sin verificar el estado administrativo ni la documentación. Un reporte concurrente podía reconectar la bandera de una cuenta suspendida o con documentos invalidados. El cambio propio de vehículo solo restringía ACTIVO y podía dejar OCUPADO conectado; además, su respuesta anunciaba PENDIENTE incluso si la cuenta conservaba una suspensión.
+
+Se centraliza ensure_rider_can_report_online en el servicio documental. Toma el bloqueo del repartidor, refresca su estado dentro del bloqueo y verifica los documentos aprobados y físicamente disponibles antes de permitir escrituras de posición. Los escritores incluidos mantienen el bloqueo hasta confirmar su actualización SQL.
+
+- Telemetría, TrackingService y heartbeat de riders admiten ACTIVO/OCUPADO con documentación válida. OCUPADO conserva su estado durante el seguimiento de una entrega. El interruptor explícito de conexión conserva su contrato anterior: exige ACTIVO.
+- PENDIENTE, SUSPENDIDO e INACTIVO se rechazan con 403 y se conserva la desconexión. Si falta documentación válida en una cuenta ACTIVO/OCUPADO, se restringe a PENDIENTE y se desconecta.
+- La comprobación se ejecuta antes de añadir historial GPS o cambiar coordenadas. Un reporte rechazado no guarda su posición ni emite su broadcast. La restricción de seguridad sí se confirma antes de devolver el error.
+- TrackingService devuelve 404 para un repartidor inexistente antes de insertar ubicación. La autorización de propiedad/roles permanece en los endpoints y precede las mutaciones de seguridad.
+- Las consultas calientes de ingreso cargan solo la identidad/estado necesario, sin cargar geometría ni relaciones como vehículos. Las actualizaciones geográficas de telemetría mantienen su escritura PostGIS anterior; el seguimiento conserva su snapshot plano.
+
+### Cambio propio de vehículo
+
+PUT /riders/me toma el mismo bloqueo y refresca tipo/placa/estado antes de detectar el cambio. La invalidación de documentos conserva su política previa y actualiza sus revisiones. ACTIVO y OCUPADO pasan a PENDIENTE; SUSPENDIDO e INACTIVO se conservan; todos quedan desconectados.
+
+Tras la actualización SQL se refrescan explícitamente status/is_online antes de construir la auditoría: la expresión CASE puede expirar atributos del ORM y su lectura implícita provocaba MissingGreenlet. El evento y la respuesta ahora reflejan el estado real y el mensaje indica revisión documental/disponibilidad deshabilitada sin afirmar una reactivación o cambio a PENDIENTE inexistente.
+
+### Compatibilidad y límites
+
+No se modifican modelos, esquema, migraciones ni frontend. Los reportes que antes podían aceptar cuentas no habilitadas ahora devuelven 403. Los reportes válidos conservan formatos de respuesta y persistencia; el heartbeat de riders incorpora el caso OCUPADO que antes rechazaba. Las restricciones anteriores de aprobación documental por versión permanecen vigentes.
+
+El helper confirma las restricciones al denegar y exige que sus llamadores lo invoquen antes de añadir cambios de negocio; no es un guard genérico para reutilizar después de acumular escrituras. Se preserva la emisión del evento de ubicación después del commit. Un evento correspondiente a un reporte válido ya confirmado puede llegar después de una suspensión posterior: no se garantiza orden global de eventos ni revocación retroactiva del historial.
+
+### Hallazgos y prioridades siguientes
+
+1. El cambio **administrativo** de vehículo/asignación y los demás flujos de flota requieren una revisión específica de invalidación documental y bloqueos. Este bloque cubre el cambio propio de tipo/placa; no declara cerrado todo el ciclo de vehículos.
+2. No se cancelan ni reasignan entregas activas al invalidar documentos o suspender una cuenta. Debe definirse la continuidad operativa y el acceso mínimo necesario para cerrar esas entregas.
+3. La comprobación física lee los archivos requeridos en cada intento de conexión/reporte; falta medir carga y latencia con concurrencia de producción antes de diseñar una caché coherente con las revisiones.
+4. El rate limit de tracking sigue siendo local al proceso; faltan un límite distribuido, cuotas y controles del proxy/volumen. No se corrigen mediante el bloqueo SQL.
+5. Persisten las limitaciones de históricos, análisis estructural/antimalware, auditoría durable de revisiones y conciliación/retención de archivos descritas en los bloques anteriores. Los logs heredados del cambio de vehículo todavía requieren revisión de minimización de datos personales.
+
+### Evidencia final local del bloque 16
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **564 pruebas aprobadas**, 27 nuevas frente a 537; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **51 pruebas** incluidas, cinco nuevas: persistencia válida ACTIVO/OCUPADO, suspensión antes/después del bloqueo GPS y borrado concurrente |
+| Nuevas pruebas restantes | 22 casos con base SQLite: denegación sin posición/broadcast, cuenta inexistente, propiedad, requisitos documentales, heartbeat nuevo/antiguo, cambio propio y auditoría en cuatro estados |
+| Mypy con --ignore-missing-imports | **330 errores en 52 archivos**, sin diagnósticos nuevos por archivo/mensaje |
+| Black / Flake8 crítico / git diff --check | Aprobados; 162 archivos de app, cero errores críticos de lint |
+| Frontend | Sin cambios; se conserva la validación anterior de 183 pruebas y build, no repetida en este bloque exclusivamente backend |
+
+Los dobles de sesión de Fase 8 se adaptan al contrato de consultas y documentos requeridos, con archivos reales temporales; no se omite la comprobación de elegibilidad para mantener esas pruebas. El doble de edición ordinaria incorpora la consulta asíncrona del bloqueo. Las pruebas PostgreSQL usan una base test_* y esquemas aislados, nunca datos de negocio.
+
+Se mantienen la deuda Mypy y el umbral de cobertura frontend incumplido. No se declara producción lista ni CI global verde. El PR se publica sin borrador; no se fusiona ni despliega automáticamente.
