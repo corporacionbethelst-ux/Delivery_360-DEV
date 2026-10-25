@@ -11,9 +11,11 @@ from sqlalchemy import String, cast, func, literal, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.rider import Rider
 from app.models.vehicle import Vehicle
+from app.services.vehicle_plates import canonical_plate_expression
 
 
 class FleetFindingCode(str, Enum):
+    DUPLICATE_PLATE = "DUPLICATE_PLATE"
     COMPANY_WITHOUT_VEHICLE = "COMPANY_WITHOUT_VEHICLE"
     NONCOMPANY_WITH_VEHICLE = "NONCOMPANY_WITH_VEHICLE"
     MISSING_VEHICLE = "MISSING_VEHICLE"
@@ -27,6 +29,7 @@ class FleetFindingCode(str, Enum):
 
 
 DESCRIPTIONS = {
+    FleetFindingCode.DUPLICATE_PLATE: "Varios vehículos comparten placa al normalizar mayúsculas y espacios ASCII exteriores",
     FleetFindingCode.COMPANY_WITHOUT_VEHICLE: "Perfil EMPRESA sin vehículo asignado",
     FleetFindingCode.NONCOMPANY_WITH_VEHICLE: "Perfil no EMPRESA con vehículo de flota asignado",
     FleetFindingCode.MISSING_VEHICLE: "El vehículo referenciado no existe",
@@ -59,8 +62,10 @@ class FleetReconciliationReport(BaseModel):
     checks: list[FleetFindingCode]
 
 
-def _findings_query():
+def _findings_query(*, postgres: bool = False):
     r, v = Rider.__table__, Vehicle.__table__
+    plate_key = canonical_plate_expression(v.c.plate, postgres=postgres)
+    repeated_plates = select(plate_key).group_by(plate_key).having(func.count() > 1)
     repeated = (
         select(r.c.assigned_vehicle_id)
         .where(r.c.assigned_vehicle_id.is_not(None))
@@ -95,6 +100,12 @@ def _findings_query():
     joined = r.join(v, r.c.assigned_vehicle_id == v.c.id)
     owner_profiles = v.outerjoin(r, v.c.rider_id == r.c.user_id)
     return union_all(
+        select(
+            literal(FleetFindingCode.DUPLICATE_PLATE.value).label("code"),
+            literal("vehicle").label("entity_type"),
+            v.c.id.label("entity_id"),
+            literal(None, type_=v.c.id.type).label("related_id"),
+        ).where(plate_key.in_(repeated_plates)),
         rider_rows(
             FleetFindingCode.COMPANY_WITHOUT_VEHICLE,
             (r.c.vehicle_ownership_type == "EMPRESA")
@@ -178,7 +189,7 @@ async def reconcile_fleet(
             raise HTTPException(
                 status_code=422, detail="Cursor de conciliación inválido"
             )
-    findings = _findings_query()
+    findings = _findings_query(postgres=db.get_bind().dialect.name == "postgresql")
     key = (
         findings.c.code
         + literal(":")

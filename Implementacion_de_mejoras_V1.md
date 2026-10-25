@@ -1948,3 +1948,49 @@ Continúan pendientes la gestión de duplicados históricos con revisión operat
 | Cobertura frontend | Statements **13,41 %**, branches **11,34 %**, functions **10,51 %**, lines **13,53 %** |
 
 El comando de cobertura conserva salida con error por el umbral global del 50 %, aunque todas las pruebas frontend pasan. Mypy mantiene deuda anterior; no se declara CI global verde ni producción lista. El PR se publica sin borrador y no se fusiona automáticamente.
+
+## Bloque 25 — Diagnóstico de placas históricas duplicadas
+
+Fecha: 25 de octubre de 2026 (America/Caracas). Base: main, commit 14e2f91, con PR #266 fusionado. Rama: fix/fleet-plate-reconciliation-v1.
+
+### Finalidad y consulta
+
+El control transaccional del bloque 24 evita nuevas colisiones desde las rutas de inventario, pero no identifica por sí solo todos los registros históricos que requieren revisión. Se amplía el informe existente con el código DUPLICATE_PLATE:
+
+```http
+GET /api/v1/vehicles/reconciliation?code=DUPLICATE_PLATE&limit=100
+```
+
+La consulta requiere GERENTE o SUPERADMIN. Se mantienen autenticación, Cache-Control: private, no-store, Vary: Authorization, límites entre 1 y 500 y paginación por cursor. El catálogo checks incorpora el nuevo código; el esquema de cada hallazgo conserva sus campos anteriores.
+
+### Qué se detecta
+
+El informe agrupa vehículos por UPPER(TRIM/BTRIM(plate)) retirando exclusivamente los espacios ASCII exteriores, incluyendo tabulaciones y saltos de línea. Se comparte la expresión SQL con la comprobación de placas de las altas/ediciones para evitar dos criterios distintos. Una agrupación con más de una fila produce un hallazgo por vehículo, con entity_type=vehicle, entity_id igual al UUID del registro y related_id=null. Este último campo no representa un propietario ni un duplicado elegido arbitrariamente.
+
+La detección incluye vehículos ACTIVO, MANTENIMIENTO y BAJA, tengan o no repartidor vinculado. Por ejemplo, `" abc-123 "` y `"ABC-123"` originan dos hallazgos. No se eliminan guiones ni espacios interiores, ni se aplica equivalencia de acentos. El informe no certifica que la placa cumpla el formato admitido para nuevas escrituras: un valor histórico inválido también puede formar un grupo repetido.
+
+Los hallazgos identifican registros; la revisión de su ficha se realiza con las rutas de inventario existentes. No se añaden placas, nombres ni información personal al cuerpo del diagnóstico. Cada registro aparece una vez para este código, sin multiplicar resultados por todos los pares de un grupo.
+
+### Solo lectura, consistencia y límites
+
+El diagnóstico conserva una única sentencia SELECT por página y no realiza flush, commit, bloqueo de filas, reserva advisory ni escrituras de auditoría. Funciona dentro de una transacción PostgreSQL READ ONLY y no descarga cambios pendientes de la sesión. La subconsulta de agrupación y los hallazgos pertenecen a la misma sentencia.
+
+Como en el informe anterior, snapshot_scope=single_statement_per_page: páginas consultadas en momentos distintos pueden reflejar cambios confirmados entre ellas. No se promete una fotografía estable de todo el recorrido ni se devuelve un recuento global. Los cursores existentes siguen admitidos; los consumidores que filtren códigos con una enumeración propia deben incorporar DUPLICATE_PLATE.
+
+No se fusionan, eliminan, renumeran ni corrigen registros automáticamente. Tampoco se modifica la disponibilidad del catálogo o la asignación de vehículos históricos por este hallazgo. Cualquier corrección posterior requiere revisar propietarios, documentación y entregas, y usar las precondiciones y controles de inventario existentes. No se añade índice funcional: la agrupación puede examinar el inventario completo aunque la página sea pequeña; debe medirse su coste en inventarios grandes antes de sondeos frecuentes.
+
+Se mantienen pendientes la revisión operativa y reparación autorizada de duplicados, validaciones de seguros, concurrencia de datos personales/nivel, continuidad de entregas activas y retención de auditoría. No se cambian modelos, esquema, frontend ni bases de negocio. No se aplican migraciones, despliegues ni fusiones automáticas.
+
+### Evidencia final local del bloque 25
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **760 pruebas aprobadas**, nueve nuevas frente a 751; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **88 pruebas** incluidas; dos nuevas para duplicados/paginación bajo READ ONLY y visibilidad antes/después del commit de otra sesión |
+| Nuevas pruebas restantes | Siete casos HTTP/SQLite: nuevo código en el catálogo de anomalías, tres estados de vehículo con paginación/sin reparación, y tres pares que no deben fusionarse al normalizar |
+| Regresión enfocada | **70 pruebas aprobadas** de conciliación y placas, incluyendo las carreras del bloque 24 |
+| Mypy con --ignore-missing-imports | **329 errores en 52 archivos**, sin diagnósticos nuevos por archivo/mensaje; 169 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; Black comprobó app y los dos archivos de pruebas modificados |
+| Frontend | Sin cambios; se conserva la validación anterior de **233 pruebas**, TypeScript, lint y build, no repetida en este bloque |
+
+Las pruebas nativas usan PostgreSQL test_* con esquemas privados y las pruebas HTTP usan SQLite temporal. No se consultan ni corrigen duplicados en bases de negocio. Mypy conserva deuda anterior y la cobertura frontend previa (**13,53 % de líneas**) sigue bajo el mínimo global del 50 %. No se declara CI global verde ni producción lista. El PR se publica sin borrador y no se fusiona automáticamente.
