@@ -17,3 +17,8 @@ export function requireVehicleEditRevision(value: unknown): string {
   if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) throw new VehicleEditRevisionError();
   return value;
 }
+
+
+export function isVehiclePlateConflict(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'VEHICLE_PLATE_CONFLICT';
+}

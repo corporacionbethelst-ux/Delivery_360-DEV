@@ -23,6 +23,7 @@ import {
 import { vehicleService, Vehicle, VehicleStatus, VehicleType, type VehicleUpdateInput } from '@/services/vehicle.service';
 import { toast } from 'sonner';
 import { isAssignmentConflict } from '@/lib/assignment-revision';
+import { isVehiclePlateConflict } from '@/lib/vehicle-revision';
 
 export default function EditVehiclePage() {
   const router = useRouter();
@@ -150,7 +151,7 @@ export default function EditVehiclePage() {
       }, 1500);
     } catch (err: any) {
       if (snapshotRef.current !== snapshot) return;
-      if (isAssignmentConflict(err)) setConflicted(true);
+      if (isAssignmentConflict(err) && !isVehiclePlateConflict(err)) setConflicted(true);
       setError(err.message || 'Error al guardar los cambios.');
       setSaving(false);
     }

@@ -35,3 +35,19 @@ it('does not fetch or retry with another precondition', async () => {
   expect(patch).toHaveBeenCalledTimes(1); expect(get).not.toHaveBeenCalled();
   log.mockRestore();
 });
+
+it('preserves the structured plate conflict message, code and status without fetching a new revision', async () => {
+  const { AxiosError } = await import('axios');
+  const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  const failure = new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, undefined, {
+    status:409, statusText:'Conflict', headers:{}, config:{} as any,
+    data:{ detail:{ code:'VEHICLE_PLATE_CONFLICT', message:'La placa ya está registrada. Use otra placa' } },
+  });
+  patch.mockRejectedValueOnce(failure);
+  await expect(vehicleService.update(id, { plate:'TAKEN-1' }, revision)).rejects.toMatchObject({
+    message:'La placa ya está registrada. Use otra placa', status:409, code:'VEHICLE_PLATE_CONFLICT',
+  });
+  expect(patch).toHaveBeenCalledWith(`/vehicles/${id}`, { plate:'TAKEN-1' }, { headers:{ 'If-Match':`"${revision}"` } });
+  expect(get).not.toHaveBeenCalled();
+  log.mockRestore();
+});

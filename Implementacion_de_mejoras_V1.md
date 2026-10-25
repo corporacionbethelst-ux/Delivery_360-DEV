@@ -1885,3 +1885,66 @@ Quedan pendientes retención y gestión de datos personales, tratamiento uniform
 Los fallos se fuerzan mediante un trigger SQLite y una restricción CHECK real de PostgreSQL. Las pruebas nativas vuelven a abrir sesiones para comprobar persistencia o rollback, y verifican que un vehículo eliminado por una transacción fallida siga disponible con la misma revisión. Se usan bases temporales/test_* y esquemas aislados; no se intervienen datos de negocio.
 
 Mypy conserva deuda previa y la cobertura frontend anterior (**13,48 % de líneas**) sigue bajo el mínimo global del 50 %. No se declara CI global verde ni producción lista. No se aplican migraciones ni despliegues. El PR se publica sin borrador y no se fusiona automáticamente.
+
+## Bloque 24 — Normalización y conflictos concurrentes de placas
+
+Fecha: 25 de octubre de 2026 (America/Caracas). Base: main, commit ad3f767, con PR #265 fusionado. Rama: fix/vehicle-plate-conflicts-v1.
+
+### Problema resuelto y contrato de entrada
+
+Las altas y ediciones consultaban placas antes de escribir, pero esa consulta por sí sola no protegía dos solicitudes simultáneas. Una colisión del índice UNIQUE podía terminar como error interno o como indisponibilidad de auditoría. La búsqueda también podía fallar al encontrar varias filas históricas con diferencias de mayúsculas o espacios.
+
+POST /api/v1/vehicles y PATCH /api/v1/vehicles/{id} comparten ahora un normalizador: elimina espacios ASCII exteriores (espacio, tabulación, CR, LF, tabulación vertical y salto de página), acepta entre 1 y 20 letras ASCII, números o guiones, y guarda mayúsculas. Rechaza vacío, espacios interiores, caracteres no ASCII y otros símbolos con 422. La validación se realiza antes de las escrituras y conserva las reglas de campos obligatorios.
+
+Esta restricción hace explícita en API la política de caracteres ya utilizada por el servicio frontend. Las integraciones que antes enviaban otros caracteres deberán adecuar sus solicitudes; no se transforma ni elimina automáticamente información histórica.
+
+### Reserva de placa dentro de la transacción
+
+En PostgreSQL cada alta o edición que incluye placa obtiene un pg_advisory_xact_lock para la placa canónica. La clave combina el espacio de nombres 0x44563350 con un entero firmado de 32 bits derivado de SHA-256. Solicitudes a la misma placa esperan la finalización de la transacción anterior; después vuelven a consultar las filas existentes. Una colisión del hash únicamente serializa placas diferentes y la consulta final distingue sus valores.
+
+El bloqueo es transaccional: commit o rollback lo liberan. PATCH mantiene primero el bloqueo de la fila del vehículo y la revisión If-Match; después reserva la placa. Las reglas de desasignación para cambios críticos siguen vigentes. El control se apoya en el aislamiento READ COMMITTED usado por las sesiones PostgreSQL del proyecto, para observar el resultado confirmado por el solicitante anterior al hacer la consulta siguiente.
+
+La búsqueda usa UPPER sobre TRIM/BTRIM de espacios ASCII, consulta solo un identificador y limita a una coincidencia. Reconoce diferencias históricas de mayúsculas y espacios exteriores, sin exigir que solo exista una coincidencia. La edición excluye su propia fila, pero no ignora otros registros equivalentes.
+
+### Error de negocio uniforme y atomicidad
+
+| Situación | Resultado |
+|---|---|
+| Placa ocupada detectada en la consulta | 409, detail.code=VEHICLE_PLATE_CONFLICT y mensaje legible |
+| Violación real del índice/restricción UNIQUE de placa | Mismo conflicto 409, con rollback |
+| Placa mal formada | 422, sin cambios |
+| Ficha modificada desde que fue cargada | Conserva el conflicto de revisión y exige recarga |
+| Fallo al insertar la auditoría | Conserva 503 y rollback del negocio; no se presenta como placa duplicada |
+
+El respaldo ante IntegrityError reconoce SQLSTATE 23505 y los nombres ix_vehicles_plate o vehicles_plate_key en los metadatos de PostgreSQL, incluida la causa del adaptador asyncpg. En SQLite exige el código extendido UNIQUE y la referencia exacta vehicles.plate. No interpreta cualquier excepción ni una coincidencia parcial del texto SQL como placa duplicada.
+
+La escritura del vehículo se descarga con flush antes de registrar la auditoría, dentro de la misma transacción. Una colisión no confirma cambios secundarios como notas y no crea un evento de éxito. Los fallos propios del registro de auditoría siguen siendo gestionados por su servicio. No se modifica la estructura ni el contenido del evento VEHICLE_INVENTORY.
+
+### Comportamiento del formulario
+
+El servicio frontend conserva el código estructurado, estado HTTP y mensaje de la API. El editor distingue VEHICLE_PLATE_CONFLICT de un conflicto de revisión: muestra el error, mantiene el borrador y permite corregir la placa y reenviar con la revisión originalmente cargada. No obtiene otra revisión ni reintenta automáticamente la operación.
+
+Si la ficha cambia mientras se corrige la placa, If-Match sigue protegiéndola y la nueva solicitud será rechazada por revisión. Los conflictos de ficha desactualizada continúan bloqueando el guardado hasta la recarga explícita.
+
+### Límites y pendientes
+
+No se añaden índices, restricciones, tablas ni migraciones. El índice UNIQUE existente continúa siendo sensible al valor almacenado; la equivalencia canónica entre escritores concurrentes se garantiza mediante este protocolo de API en PostgreSQL. SQL externo o procesos que no utilizan el protocolo pueden introducir variantes equivalentes. SQLite conserva la comprobación previa y el respaldo del índice, pero no ofrece esta serialización de reservas entre conexiones.
+
+No se reparan duplicados anteriores, no se recorre el inventario para limpiarlo y no se aplica equivalencia Unicode ni eliminación de espacios interiores. La cancelación/borrado de otra transacción puede hacer necesario reenviar una solicitud rechazada tras verificar el estado. No se incorpora idempotencia para altas ante pérdida del acuse de commit.
+
+Continúan pendientes la gestión de duplicados históricos con revisión operativa, retención de auditoría/datos personales, validaciones operativas de seguros, concurrencia de datos personales/nivel y continuidad de entregas activas. Las pruebas usan SQLite temporal y PostgreSQL test_* con esquemas aislados. No se modifican datos de negocio ni se despliega o fusiona automáticamente.
+
+### Evidencia final local del bloque 24
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **751 pruebas aprobadas**, 20 nuevas frente a 731; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **86 pruebas** incluidas; siete nuevas: tres carreras de altas/renombrados, espera hasta commit y liberación por rollback, dos violaciones reales del índice de placa y otra restricción UNIQUE que no se confunde con la placa |
+| Nuevas pruebas restantes de backend | 13 casos HTTP/SQLite: normalización, ocho entradas inválidas, rechazo atómico con corrección posterior, varias equivalencias históricas y dos fallos reales del índice sin comprobación previa |
+| Frontend | **233 pruebas aprobadas** en 23 suites; dos nuevas para conservar el error estructurado y corregir una placa duplicada sin perder borrador/revisión |
+| TypeScript / ESLint / Next.js build | Aprobados; advertencias anteriores conservadas |
+| Mypy con --ignore-missing-imports | **329 errores en 52 archivos**, sin diagnósticos nuevos por archivo/mensaje; 169 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; formato comprobado también en las dos suites nuevas |
+| Cobertura frontend | Statements **13,41 %**, branches **11,34 %**, functions **10,51 %**, lines **13,53 %** |
+
+El comando de cobertura conserva salida con error por el umbral global del 50 %, aunque todas las pruebas frontend pasan. Mypy mantiene deuda anterior; no se declara CI global verde ni producción lista. El PR se publica sin borrador y no se fusiona automáticamente.

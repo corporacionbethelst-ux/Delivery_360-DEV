@@ -36,6 +36,11 @@ from app.services.fleet_reconciliation import (
     FleetReconciliationReport,
     reconcile_fleet,
 )
+from app.services.vehicle_plates import (
+    normalize_vehicle_plate,
+    claim_vehicle_plate,
+    vehicle_plate_integrity,
+)
 from app.services.vehicle_inventory_audit import (
     inventory_snapshot,
     record_inventory_change,
@@ -71,12 +76,17 @@ class VehicleCreate(BaseModel):
     )
     notes: Optional[str] = Field(None, description="Notas adicionales")
 
-    @field_validator("plate", "model", "color", mode="before")
+    @field_validator("model", "color", mode="before")
     @classmethod
     def _strip_required_text(cls, value: str) -> str:
         if isinstance(value, str):
             return value.strip()
         return value
+
+    @field_validator("plate", mode="before")
+    @classmethod
+    def _normalize_plate(cls, value: str) -> str:
+        return normalize_vehicle_plate(value)
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -93,12 +103,17 @@ class VehicleUpdate(BaseModel):
     insurance_expiry: Optional[date] = None
     notes: Optional[str] = None
 
-    @field_validator("plate", "model", "color", mode="before")
+    @field_validator("model", "color", mode="before")
     @classmethod
     def _strip_optional_text(cls, value: Optional[str]) -> Optional[str]:
         if isinstance(value, str):
             return value.strip()
         return value
+
+    @field_validator("plate", mode="before")
+    @classmethod
+    def _normalize_plate(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_vehicle_plate(value) if value is not None else None
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -398,14 +413,8 @@ async def create_vehicle(
 ):
     """Registra un nuevo vehículo en la flota."""
 
-    plate_upper = body.plate.strip().upper()
-
-    stmt = select(Vehicle).where(func.upper(Vehicle.plate) == plate_upper)
-    result = await db.execute(stmt)
-    if result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=400, detail=f"La placa '{plate_upper}' ya está registrada"
-        )
+    plate_upper = normalize_vehicle_plate(body.plate)
+    await claim_vehicle_plate(db, plate_upper)
 
     new_vehicle = Vehicle(
         id=uuid.uuid4(),
@@ -420,16 +429,17 @@ async def create_vehicle(
         created_at=utc_now_naive(),
     )
 
-    db.add(new_vehicle)
-    await db.flush()
-    await record_inventory_change(
-        db,
-        current_user,
-        vehicle_id=new_vehicle.id,
-        before=None,
-        after=inventory_snapshot(new_vehicle),
-    )
-    await db.commit()
+    async with vehicle_plate_integrity(db):
+        db.add(new_vehicle)
+        await db.flush()
+        await record_inventory_change(
+            db,
+            current_user,
+            vehicle_id=new_vehicle.id,
+            before=None,
+            after=inventory_snapshot(new_vehicle),
+        )
+        await db.commit()
     await db.refresh(new_vehicle)
 
     return _build_vehicle_response(new_vehicle)
@@ -468,16 +478,8 @@ async def update_vehicle(
         await ensure_vehicle_unassigned(db, vehicle)
 
     if "plate" in update_data:
-        new_plate = update_data["plate"].strip().upper()
-        if new_plate != vehicle.plate:
-            check_stmt = select(Vehicle).where(
-                (func.upper(Vehicle.plate) == new_plate) & (Vehicle.id != vid)
-            )
-            check_res = await db.execute(check_stmt)
-            if check_res.scalar_one_or_none():
-                raise HTTPException(
-                    status_code=400, detail=f"La placa '{new_plate}' ya está en uso"
-                )
+        new_plate = normalize_vehicle_plate(update_data["plate"])
+        await claim_vehicle_plate(db, new_plate, excluding=vid)
         vehicle.plate = new_plate
 
     for field, value in update_data.items():
@@ -488,14 +490,16 @@ async def update_vehicle(
 
     vehicle.updated_at = utc_now_naive()
 
-    await record_inventory_change(
-        db,
-        current_user,
-        vehicle_id=vehicle.id,
-        before=before,
-        after=inventory_snapshot(vehicle),
-    )
-    await db.commit()
+    async with vehicle_plate_integrity(db):
+        await db.flush()
+        await record_inventory_change(
+            db,
+            current_user,
+            vehicle_id=vehicle.id,
+            before=before,
+            after=inventory_snapshot(vehicle),
+        )
+        await db.commit()
     from sqlalchemy.orm import selectinload
 
     refreshed_vehicle = await db.scalar(
