@@ -107,7 +107,9 @@ async def test_detects_each_supported_historical_anomaly(catalog, code):
     client, db, ctx, first, _ = catalog
     rider_id = ctx["rider_id"]
     await set_company(db, rider_id, first)
-    if code == FleetFindingCode.COMPANY_WITHOUT_VEHICLE:
+    if code == FleetFindingCode.DUPLICATE_PLATE:
+        first.plate = " fleet-2 "
+    elif code == FleetFindingCode.COMPANY_WITHOUT_VEHICLE:
         await db.execute(
             update(Rider).where(Rider.id == rider_id).values(assigned_vehicle_id=None)
         )
@@ -275,3 +277,51 @@ async def test_available_filters_preserve_type_and_exclude_maintenance(catalog, 
     response = await client.get("/api/v1/vehicles/available", params=params)
     assert response.status_code == 200
     assert [item["id"] for item in response.json()] == [str(second.id)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["ACTIVO", "MANTENIMIENTO", "BAJA"])
+async def test_duplicate_plate_report_lists_every_member_without_repair(
+    catalog, status
+):
+    client, db, _, first, second = catalog
+    first.plate, second.plate, second.status = " \tlegacy-1\r\n", "LEGACY-1", status
+    await db.commit()
+    expected_ids = {str(first.id), str(second.id)}
+    response = await client.get(
+        "/api/v1/vehicles/reconciliation",
+        params={"code": "DUPLICATE_PLATE", "limit": 1},
+    )
+    assert response.status_code == 200, response.text
+    page = response.json()
+    assert page["has_more"] and page["next_cursor"]
+    following = await client.get(
+        "/api/v1/vehicles/reconciliation",
+        params={"code": "DUPLICATE_PLATE", "limit": 1, "cursor": page["next_cursor"]},
+    )
+    last = following.json()
+    assert not last["has_more"] and last["next_cursor"] is None
+    findings = page["findings"] + last["findings"]
+    assert {item["entity_id"] for item in findings} == expected_ids
+    assert all(
+        item["entity_type"] == "vehicle" and item["related_id"] is None
+        for item in findings
+    )
+    assert all(item["code"] == "DUPLICATE_PLATE" for item in findings)
+    assert first.plate == " \tlegacy-1\r\n" and second.plate == "LEGACY-1"
+    from app.models.audit_log import AuditLog
+
+    assert (await db.scalars(select(AuditLog))).all() == []
+    assert response.headers["cache-control"] == "private, no-store"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("plates", [("AB-C", "ABC"), ("AB C", "ABC"), ("ÁBC", "ABC")])
+async def test_plate_diagnostic_does_not_remove_internal_characters_or_accents(
+    catalog, plates
+):
+    _, db, _, first, second = catalog
+    first.plate, second.plate = plates
+    await db.commit()
+    result = await reconcile_fleet(db, code=FleetFindingCode.DUPLICATE_PLATE)
+    assert result.findings == []

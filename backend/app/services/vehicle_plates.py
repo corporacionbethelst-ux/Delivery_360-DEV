@@ -41,6 +41,16 @@ def plate_conflict() -> HTTPException:
     )
 
 
+def canonical_plate_expression(column, *, postgres: bool):
+    """Match legacy ASCII padding/case without changing stored values."""
+    trimmed = (
+        func.btrim(column, ASCII_WHITESPACE)
+        if postgres
+        else func.trim(column, ASCII_WHITESPACE)
+    )
+    return func.upper(trimmed)
+
+
 async def claim_vehicle_plate(
     db: AsyncSession, plate: str, *, excluding: UUID | None = None
 ) -> None:
@@ -58,12 +68,13 @@ async def claim_vehicle_plate(
                 )
             )
         )
-    trimmed = (
-        func.btrim(Vehicle.plate, ASCII_WHITESPACE)
-        if postgres
-        else func.trim(Vehicle.plate, ASCII_WHITESPACE)
+    stmt = (
+        select(Vehicle.id)
+        .where(
+            canonical_plate_expression(Vehicle.plate, postgres=postgres) == canonical
+        )
+        .limit(1)
     )
-    stmt = select(Vehicle.id).where(func.upper(trimmed) == canonical).limit(1)
     if excluding is not None:
         stmt = stmt.where(Vehicle.id != excluding)
     with db.no_autoflush:

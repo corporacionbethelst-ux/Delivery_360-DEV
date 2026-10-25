@@ -142,3 +142,62 @@ async def test_cursor_returns_new_current_page_after_committed_repair(pg_fleet):
         await db.commit()
         second = await reconcile_fleet(db, limit=1, cursor=first.next_cursor)
         assert second.findings == [] and not second.has_more
+
+
+@pytest.mark.asyncio
+async def test_native_duplicate_plate_report_is_read_only_and_pages_all_members(
+    pg_fleet,
+):
+    sessions, _, vehicles = pg_fleet
+    async with sessions() as db:
+        await db.execute(
+            update(Vehicle)
+            .where(Vehicle.id == vehicles[0])
+            .values(plate=" \tlegacy-1\r\n", status="BAJA")
+        )
+        await db.execute(
+            update(Vehicle).where(Vehicle.id == vehicles[1]).values(plate="LEGACY-1")
+        )
+        await db.commit()
+    async with sessions() as db:
+        await db.execute(text("SET TRANSACTION READ ONLY"))
+        first = await reconcile_fleet(
+            db, code=FleetFindingCode.DUPLICATE_PLATE, limit=1
+        )
+        assert first.has_more and first.next_cursor
+        second = await reconcile_fleet(
+            db, code=FleetFindingCode.DUPLICATE_PLATE, limit=1, cursor=first.next_cursor
+        )
+        assert not second.has_more
+        findings = first.findings + second.findings
+        assert {item.entity_id for item in findings} == set(vehicles)
+        assert all(
+            item.entity_type == "vehicle" and item.related_id is None
+            for item in findings
+        )
+        assert set((await db.scalars(select(Vehicle.plate))).all()) == {
+            " \tlegacy-1\r\n",
+            "LEGACY-1",
+        }
+        assert not db.dirty and not db.new and not db.deleted
+
+
+@pytest.mark.asyncio
+async def test_duplicate_plate_report_ignores_uncommitted_edits_and_observes_commit(
+    pg_fleet,
+):
+    sessions, _, vehicles = pg_fleet
+
+    async def read():
+        async with sessions() as db:
+            return await reconcile_fleet(db, code=FleetFindingCode.DUPLICATE_PLATE)
+
+    async with sessions() as writer:
+        await writer.execute(
+            update(Vehicle).where(Vehicle.id == vehicles[0]).values(plate=" fleet-1 ")
+        )
+        before = await asyncio.wait_for(read(), 10)
+        assert not before.findings
+        await writer.commit()
+    after = await read()
+    assert {item.entity_id for item in after.findings} == set(vehicles)
