@@ -2,7 +2,9 @@
 // VERSIÓN DEFINITIVA: Consistente con user.ts (snake_case) y api wrapper
 
 import { create } from 'zustand';
-import { api } from '@/lib/api'; // ✅ Importación named correcta
+import { api } from '@/lib/api';
+import { riderService } from '@/services/rider.service';
+import { requireVehicleRevision } from '@/lib/vehicle-revision'; // ✅ Importación named correcta
 import type { Rider, RiderStatus, RiderDocument } from '@/types/user';
 
 // ==============================================================================
@@ -10,6 +12,7 @@ import type { Rider, RiderStatus, RiderDocument } from '@/types/user';
 // ==============================================================================
 
 interface RiderCreateInput extends Partial<Rider> {
+  expected_vehicle_revision?: string;
   email: string;
   password: string;
   first_name: string;
@@ -18,7 +21,7 @@ interface RiderCreateInput extends Partial<Rider> {
   role?: 'REPARTIDOR';
 }
 
-interface RiderUpdateInput extends Partial<Rider> {}
+interface RiderUpdateInput extends Partial<Rider> { expected_assignment_revision?: string; expected_vehicle_revision?: string; }
 
 interface RiderFilters {
   status?: RiderStatus[];
@@ -147,6 +150,7 @@ export const useRidersStore = create<RidersState>((set, get) => ({
   createRider: async (data: RiderCreateInput) => {
     set({ isLoading: true, error: null });
     try {
+      if (data.vehicle_ownership_type === 'EMPRESA') requireVehicleRevision(data.expected_vehicle_revision);
       const newRider = await api.post<Rider>('/riders', data);
       set((state) => ({ 
         riders: [...state.riders, newRider],
@@ -155,7 +159,7 @@ export const useRidersStore = create<RidersState>((set, get) => ({
       }));
       return newRider;
     } catch (error: any) {
-      console.error('[RidersStore] Error creating rider:', error);
+      console.error('[RidersStore] Error creating rider:', { status: error?.status ?? error?.response?.status });
       set({ error: error.message || 'Error al crear repartidor', isLoading: false });
       throw error;
     }
@@ -164,7 +168,7 @@ export const useRidersStore = create<RidersState>((set, get) => ({
   updateRider: async (id: string, data: RiderUpdateInput) => {
     set({ isLoading: true, error: null });
     try {
-      const updatedRider = await api.put<Rider>(`/riders/${id}`, data);
+      const updatedRider = await riderService.updateRider(id, { ...data, phone: data.phone ?? undefined });
       set((state) => ({
         riders: state.riders.map(r => r.id === id ? updatedRider : r),
         selectedRider: state.selectedRider?.id === id ? updatedRider : state.selectedRider,

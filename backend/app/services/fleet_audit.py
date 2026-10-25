@@ -52,6 +52,7 @@ async def record_fleet_change(
     before: dict[str, Any] | None,
     source: FleetAuditSource,
     documents_invalidated: int = 0,
+    selected_vehicle_revision: str | None = None,
 ) -> UUID:
     role = _value(actor.role)
     if not isinstance(actor.id, UUID) or role not in {
@@ -108,6 +109,7 @@ async def record_fleet_change(
                 "event_family": "RIDER_FLEET",
                 "occurred_at_utc": event_time.isoformat() + "Z",
                 "schema_version": 1,
+                "selected_vehicle_revision": selected_vehicle_revision,
                 "source": source,
                 "operation": operation,
                 "documents_invalidated": documents_invalidated,

@@ -12,6 +12,7 @@ from app.models.enums import VehicleType, VehicleStatus, VehicleOwnershipType
 from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.models.vehicle import Vehicle
+from app.core.vehicle_revision import vehicle_revision
 from app.services.fleet_assignment import (
     lock_vehicles,
     ensure_vehicle_unassigned,
@@ -89,6 +90,7 @@ class VehicleResponse(BaseModel):
     """Esquema de respuesta estándar."""
 
     id: str
+    revision: str
     plate: str
     type: str
     model: str
@@ -192,6 +194,7 @@ def _build_vehicle_response(vehicle: Vehicle) -> dict:
 
     return {
         "id": str(vehicle.id),
+        "revision": vehicle_revision(vehicle),
         "plate": vehicle.plate,
         "type": _get_enum_value(vehicle.type),
         "model": vehicle.model,

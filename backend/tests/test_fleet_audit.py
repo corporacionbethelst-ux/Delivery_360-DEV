@@ -1,3 +1,5 @@
+from app.core.vehicle_revision import vehicle_revision
+
 """Committed fleet history, no-op policy and real audit-insert rollback."""
 
 from types import SimpleNamespace
@@ -9,7 +11,7 @@ from sqlalchemy import select, func, text, update
 from tests.test_fleet_assignment import fleet, change  # noqa: F401
 from tests.test_document_uploads import submissions  # noqa: F401
 from tests.test_private_documents import documents  # noqa: F401
-from app.api.v1 import riders as api, audit
+from app.api.v1 import riders as api, audit, vehicles
 from app.api.v1.auth import get_current_user
 from app.core.database import get_db
 from app.models.audit_log import AuditLog, ActionType
@@ -24,6 +26,7 @@ async def history(fleet):
     _, db, ctx, first, second = fleet
     app = FastAPI()
     app.include_router(api.router, prefix="/api/v1")
+    app.include_router(vehicles.router, prefix="/api/v1")
     app.include_router(audit.router, prefix="/api/v1/audit")
 
     async def database():
@@ -229,6 +232,7 @@ async def test_real_audit_insert_failure_rolls_back_entire_operation(history, ki
                 "vehicle_type": "MOTO",
                 "vehicle_ownership_type": "EMPRESA",
                 "assigned_vehicle_id": str(vehicle_id),
+                "expected_vehicle_revision": vehicle_revision(first),
             },
         )
     elif kind == "self":
@@ -279,6 +283,7 @@ async def test_creation_audit_is_committed_with_profile(history):
             "vehicle_type": "MOTO",
             "vehicle_ownership_type": "EMPRESA",
             "assigned_vehicle_id": str(first.id),
+            "expected_vehicle_revision": vehicle_revision(first),
         },
     )
     assert response.status_code == 201, response.text

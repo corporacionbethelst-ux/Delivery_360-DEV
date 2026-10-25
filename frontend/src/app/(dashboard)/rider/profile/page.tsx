@@ -24,6 +24,7 @@ export default function RiderProfilePage() {
   // ✅ CORRECCIÓN: Obtener datos del store
   const { user, isAuthenticated } = useAuthStore(); 
   
+  const [vehicleRevision, setVehicleRevision] = useState<string | undefined>();
   const [assignmentRevision, setAssignmentRevision] = useState<string | undefined>();
   const loadedUserRef = useRef<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -68,6 +69,7 @@ export default function RiderProfilePage() {
 
 
       setAssignmentRevision(data.assignment_revision);
+      setVehicleRevision(data.vehicle_ownership_type === 'EMPRESA' ? data.assigned_vehicle?.revision : undefined);
       setFormData({
         first_name: data.first_name || '',
         last_name: data.last_name || '',
@@ -99,6 +101,7 @@ export default function RiderProfilePage() {
     try {
       await riderService.updateProfile({
         expected_assignment_revision: assignmentRevision,
+        expected_vehicle_revision: vehicleRevision,
         first_name: formData.first_name,
         last_name: formData.last_name,
         phone: formData.phone,

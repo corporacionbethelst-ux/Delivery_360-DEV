@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import raiseload
 from app.models.vehicle import Vehicle
 from app.core.fleet_revision import ensure_assignment_revision
+from app.core.vehicle_revision import ensure_vehicle_revision
 from app.services.fleet_audit import fleet_snapshot
 from app.models.rider import Rider, utc_now_naive
 from app.models.rider_document import DocumentStatus
@@ -109,6 +110,7 @@ async def prepare_vehicle_update(
     expected_revision: str | None = None,
     *,
     before_state: dict[str, Any] | None = None,
+    expected_vehicle_revision: str | None = None,
 ) -> bool:
     """Lock, validate both links and normalize fleet fields before caller applies them."""
     previous_id = rider.assigned_vehicle_id
@@ -134,6 +136,7 @@ async def prepare_vehicle_update(
                 status_code=400, detail="EMPRESA requiere un vehículo asignado"
             )
         vehicle = vehicles[target]
+        ensure_vehicle_revision(vehicle, expected_vehicle_revision)
         await ensure_vehicle_available(db, vehicle, rider.user_id, rider.id)
         canonical = {
             "vehicle_type": vehicle.type,

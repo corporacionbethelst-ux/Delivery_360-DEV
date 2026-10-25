@@ -8,11 +8,11 @@ const id = '123e4567-e89b-42d3-a456-426614174000', revision = 'a'.repeat(64);
 beforeEach(() => jest.clearAllMocks());
 
 it('uses the actual PATCH route and preserves the caller payload', async () => {
-  const payload = { vehicle_ownership_type: 'EMPRESA' as const, assigned_vehicle_id: id, vehicle_type: 'MOTO', vehicle_plate: 'OLD', vehicle_model: 'Old', expected_assignment_revision: revision };
+  const payload = { vehicle_ownership_type: 'EMPRESA' as const, assigned_vehicle_id: id, vehicle_type: 'MOTO', vehicle_plate: 'OLD', vehicle_model: 'Old', expected_assignment_revision: revision, expected_vehicle_revision: revision };
   const original = { ...payload };
   patch.mockResolvedValueOnce({ id, assignment_revision: 'b'.repeat(64) });
   await riderService.updateRider(id, payload);
-  expect(patch).toHaveBeenCalledWith(`/riders/${id}`, { vehicle_ownership_type: 'EMPRESA', assigned_vehicle_id: id, expected_assignment_revision: revision });
+  expect(patch).toHaveBeenCalledWith(`/riders/${id}`, { vehicle_ownership_type: 'EMPRESA', assigned_vehicle_id: id, expected_assignment_revision: revision, expected_vehicle_revision: revision });
   expect(put).not.toHaveBeenCalled();
   expect(payload).toEqual(original);
 });

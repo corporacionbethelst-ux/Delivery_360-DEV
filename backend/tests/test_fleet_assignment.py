@@ -1,3 +1,5 @@
+from app.core.vehicle_revision import vehicle_revision
+
 """Assignment contracts and administrative invalidation using real SQL rows."""
 
 from datetime import datetime
@@ -58,6 +60,18 @@ async def change(client, ctx, **payload):
         current = await client.get(f"/api/v1/riders/{ctx['rider_id']}")
         assert current.status_code == 200, current.text
         payload["expected_assignment_revision"] = current.json()["assignment_revision"]
+    if "expected_vehicle_revision" not in payload:
+        current = await client.get(f"/api/v1/riders/{ctx['rider_id']}")
+        target = payload.get("assigned_vehicle_id") or current.json().get(
+            "assigned_vehicle_id"
+        )
+        ownership = payload.get(
+            "vehicle_ownership_type", current.json().get("vehicle_ownership_type")
+        )
+        if target and ownership == "EMPRESA":
+            candidate = await client.get(f"/api/v1/vehicles/{target}")
+            if candidate.status_code == 200:
+                payload["expected_vehicle_revision"] = candidate.json()["revision"]
     return await client.patch(f"/api/v1/riders/{ctx['rider_id']}", json=payload)
 
 
@@ -318,6 +332,7 @@ async def test_company_rider_creation_uses_locked_vehicle_and_rolls_back_rejecti
             "vehicle_plate": "UNTRUSTED",
             "vehicle_ownership_type": "EMPRESA",
             "assigned_vehicle_id": str(vehicle_id),
+            "expected_vehicle_revision": vehicle_revision(first),
         },
     )
     assert response.status_code == (201 if available else 409), response.text

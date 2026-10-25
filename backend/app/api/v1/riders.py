@@ -51,6 +51,7 @@ from app.models.enums import VehicleOwnershipType
 from app.api.v1.auth import get_current_user, require_role
 from app.services.financial_service import CREDIT_TYPES
 from app.core.fleet_revision import assignment_revision
+from app.core.vehicle_revision import vehicle_revision, ensure_vehicle_revision
 from app.services.fleet_audit import record_fleet_change
 from app.services.fleet_assignment import (
     VEHICLE_FIELDS,
@@ -95,6 +96,7 @@ class RiderCreate(BaseModel):
     # Campos para vehículo de empresa (opcionales, solo si vehicle_ownership_type es EMPRESA)
     vehicle_ownership_type: Optional[str] = "PROPIO"
     assigned_vehicle_id: Optional[uuid.UUID] = None
+    expected_vehicle_revision: Optional[str] = Field(None, pattern=r"^[a-f0-9]{64}$")
 
     class Config:
         extra = "ignore"
@@ -117,6 +119,7 @@ class RiderUpdate(BaseModel):
     # Campos para vehículo de empresa (opcionales)
     vehicle_ownership_type: Optional[str] = None
     assigned_vehicle_id: Optional[uuid.UUID] = None
+    expected_vehicle_revision: Optional[str] = Field(None, pattern=r"^[a-f0-9]{64}$")
 
     expected_assignment_revision: Optional[str] = Field(None, pattern=r"^[a-f0-9]{64}$")
 
@@ -290,6 +293,7 @@ def _rider_to_dict(r: Rider, include_user: bool = False) -> dict:
     if hasattr(r, "assigned_vehicle") and r.assigned_vehicle:
         d["assigned_vehicle"] = {
             "id": str(r.assigned_vehicle.id),
+            "revision": vehicle_revision(r.assigned_vehicle),
             "plate": r.assigned_vehicle.plate,
             "model": r.assigned_vehicle.model,
             "type": r.assigned_vehicle.type,
@@ -579,6 +583,7 @@ async def create_rider(
     if body.vehicle_ownership_type == "EMPRESA" and body.assigned_vehicle_id:
         vehicles = await lock_vehicles(db, {body.assigned_vehicle_id})
         vehicle = vehicles[body.assigned_vehicle_id]
+        ensure_vehicle_revision(vehicle, body.expected_vehicle_revision)
         await ensure_vehicle_available(db, vehicle, user.id)
 
     rider = Rider(
@@ -606,7 +611,16 @@ async def create_rider(
 
     await db.flush()
     await record_fleet_change(
-        db, rider, current_user, before=None, source="admin_create"
+        db,
+        rider,
+        current_user,
+        before=None,
+        source="admin_create",
+        selected_vehicle_revision=(
+            body.expected_vehicle_revision
+            if rider.vehicle_ownership_type == "EMPRESA"
+            else None
+        ),
     )
 
     await db.commit()
@@ -709,7 +723,8 @@ async def update_my_rider_profile(
         )
 
     payload = body.model_dump(
-        exclude_none=True, exclude={"expected_assignment_revision"}
+        exclude_none=True,
+        exclude={"expected_assignment_revision", "expected_vehicle_revision"},
     )
     before_state: dict = {}
     vehicle_changed = False
@@ -720,6 +735,7 @@ async def update_my_rider_profile(
             payload,
             body.expected_assignment_revision,
             before_state=before_state,
+            expected_vehicle_revision=body.expected_vehicle_revision,
         )
     if "vehicle_type" in payload:
         try:
@@ -771,6 +787,11 @@ async def update_my_rider_profile(
             before=before_state,
             source="self_profile",
             documents_invalidated=count,
+            selected_vehicle_revision=(
+                body.expected_vehicle_revision
+                if rider.vehicle_ownership_type == "EMPRESA"
+                else None
+            ),
         )
 
     await db.commit()
@@ -1100,7 +1121,8 @@ async def update_rider(
     await _ensure_rider_self_scope(db, current_user, rider)
 
     payload = body.model_dump(
-        exclude_none=True, exclude={"expected_assignment_revision"}
+        exclude_none=True,
+        exclude={"expected_assignment_revision", "expected_vehicle_revision"},
     )
 
     before_state: dict = {}
@@ -1112,6 +1134,7 @@ async def update_rider(
             payload,
             body.expected_assignment_revision,
             before_state=before_state,
+            expected_vehicle_revision=body.expected_vehicle_revision,
         )
 
     if "vehicle_type" in payload:
@@ -1147,6 +1170,11 @@ async def update_rider(
             before=before_state,
             source="rider_patch",
             documents_invalidated=count,
+            selected_vehicle_revision=(
+                body.expected_vehicle_revision
+                if rider.vehicle_ownership_type == "EMPRESA"
+                else None
+            ),
         )
 
     await db.commit()

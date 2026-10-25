@@ -1700,3 +1700,61 @@ Quedan fuera los cambios exclusivamente de nombres/teléfono/nivel, las edicione
 El comando frontend con cobertura sigue fallando por el umbral global del 50 %, aunque las pruebas pasan. Mypy mantiene deuda anterior; no se declara CI global verde ni producción lista.
 
 Los fallos de auditoría se provocan con triggers SQLite y una restricción CHECK real en PostgreSQL aislado. No se intervienen datos de negocio ni se ejecutan cambios de esquema sobre producción. La adaptación de DDL SQLite para el default de UUID solo afecta al fixture y restaura el metadata original. No se aplican migraciones ni se despliega. El PR se publica sin borrador, sin fusión automática.
+
+## Bloque 21 — Revisión esperada del vehículo seleccionado
+
+Fecha: 25 de octubre de 2026 (America/Caracas). Base: main, commit de555ee, con PR #262 fusionado. Rama: fix/selected-vehicle-preconditions-v1.
+
+### Problema y contrato de lectura
+
+La precondición del bloque 19 protege el estado del repartidor, pero no la ficha del vehículo candidato. Un vehículo libre podía cambiar de placa/modelo/tipo después de mostrarse en el catálogo y ser asignado usando datos distintos de los elegidos por el operador.
+
+Las respuestas de vehículos incorporan revision. El vehículo ya asignado, incluido dentro del perfil del repartidor, también devuelve su revisión. Es SHA-256 de id, tipo, placa, modelo, color, año, estado, vencimiento del seguro y usuario vinculado. No incluye notas administrativas ni updated_at/created_at, para no invalidar una selección por cambios de notas/fechas que no alteran la ficha protegida.
+
+### Precondición de escritura
+
+RiderCreate y RiderUpdate aceptan expected_vehicle_revision: 64 caracteres hexadecimales minúsculos. Al crear o guardar un perfil EMPRESA se exige la revisión del vehículo asignado, incluso cuando se conserva la asignación actual. Para PROPIO no se requiere ficha de empresa.
+
+- Ausencia o diferencia respecto de la ficha actual: 409 y solicitud de recarga/reselección.
+- Formato inválido: 422.
+- La comparación ocurre bajo el bloqueo del vehículo, después del bloqueo/refresco del repartidor en las actualizaciones y antes de cambiar vínculos o documentos.
+- La creación administrativa toma el mismo bloqueo; un rechazo revierte también el usuario/perfil parcialmente preparados.
+- La revisión del repartidor sigue siendo necesaria en actualizaciones de flota. Las dos condiciones protegen estados distintos; una revisión fresca del repartidor no autoriza una ficha candidata antigua.
+- Las reglas de estado ACTIVO, propietario y referencias de otros perfiles permanecen vigentes. La revisión no sustituye esas validaciones.
+
+La auditoría RIDER_FLEET guarda selected_vehicle_revision con la revisión aceptada para EMPRESA. Para PROPIO se guarda null, sin presentar una huella suministrada pero no comprobada como si hubiera sido validada. Al asignar un vehículo libre cambia su propietario y, por tanto, su revisión resultante: el valor auditado identifica la ficha anterior a esa asignación.
+
+### Formularios y servicios
+
+El modal captura una copia del candidato en el momento de selección, incluido el caso de selección inicial. Un refresco del catálogo padre no sustituye esa copia ni la revisión que se enviará. El vehículo de empresa que ya estaba asignado usa la revisión incluida en el perfil capturado al abrir. Tras un conflicto se conserva el bloqueo de guardado y la recarga explícita del bloque 19.
+
+El registro de repartidores captura la ficha cargada/seleccionada y adjunta su revisión. Un 409 bloquea nuevos envíos; Recargar vehículos limpia la selección anterior y muestra datos/revisión actuales antes de un nuevo guardado manual. No se reenvía automáticamente la petición rechazada. El guardado queda deshabilitado mientras se carga el catálogo o falta candidato. La presentación del candidato seleccionado conserva su copia, sin cambiar silenciosamente sus datos mientras el formulario está abierto.
+
+El perfil propio conserva la revisión de su vehículo de empresa junto con los demás datos cargados. Los servicios de creación/edición validan la presencia/forma de la huella pertinente sin obtener una ficha nueva en el momento de enviar.
+
+El store de repartidores valida la revisión al crear y delega la edición al servicio compartido. Se corrige allí la llamada PUT heredada a /riders/{id} por PATCH, que es el método existente; las precondiciones viajan con el comando. La política restante de creación del store se conserva. Los logs de error de vehículos y de creación del store dejan de imprimir errores Axios completos con posibles cabeceras de autorización.
+
+### Compatibilidad y límites
+
+Backend y frontend requieren publicación coordinada. Los clientes anteriores sin expected_vehicle_revision reciben 409 en escrituras EMPRESA, incluidas las que conservan vehículo. Los clientes actualizados pueden obtener la revisión desde el catálogo/detalle o el vehículo incorporado al perfil. Las respuestas mantienen los demás campos. No se modifica esquema, modelos ni migraciones.
+
+Es una huella de estado actual, no un contador monotónico, firma, credencial ni comprobante de revisión humana. Si los datos vuelven exactamente al estado anterior, la huella también puede repetirse. No acredita una historia intermedia ni constituye una reserva de vehículo: los bloqueos y comprobaciones al escribir siguen siendo necesarios.
+
+Se comprueba que el vencimiento del seguro no haya cambiado desde la selección; no se añade una certificación legal ni una regla automática que prohíba todo seguro caducado. No se incorporan precondiciones a las ediciones/eliminaciones del inventario mismo ni se cierran los pendientes de concurrencia de nombres/teléfono/nivel, retención de auditoría, reparación de históricos o continuidad de entregas activas.
+
+### Evidencia final local del bloque 21
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **692 pruebas aprobadas**, 21 nuevas frente a 671; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **71 pruebas** incluidas; tres nuevas sobre ficha cambiada antes de la petición, cambio durante espera del bloqueo y dos perfiles compitiendo por la misma ficha libre |
+| Nuevas pruebas restantes de backend | 18 casos HTTP/SQLite: precondición ausente/malformada/incorrecta en tres rutas, siete cambios de ficha, revisión visible/auditada y notas sin invalidación de la huella |
+| Frontend | **218 pruebas aprobadas** en 21 suites; 12 nuevas para servicios/store, selección capturada, catálogo refrescado, recarga explícita y logs sin credenciales |
+| TypeScript / ESLint / Next.js build | Aprobados; advertencias anteriores conservadas |
+| Mypy con --ignore-missing-imports | **329 errores en 52 archivos**, sin diagnósticos nuevos por archivo/mensaje; 167 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; 167 archivos de app; cero errores críticos de lint |
+| Cobertura frontend | Statements **11,95 %**, branches **9,99 %**, functions **9,16 %**, lines **12,08 %** |
+
+La suite frontend pasa, pero su comando con cobertura sigue fallando por el mínimo global del 50 %. Mypy conserva deuda anterior; no se declara CI global verde ni producción lista.
+
+Las pruebas existentes se adaptan para presentar revisiones capturadas antes de su operación; los nuevos conflictos usan expresamente una revisión anterior y prueban ausencia de cambios parciales y de eventos de éxito. Las pruebas de formulario verifican que no se consulta una ficha fresca para reenviar automáticamente el comando. Se usan SQLite temporal y PostgreSQL test_* con esquemas aislados, nunca datos de negocio. No se aplican migraciones ni despliegues. El PR se publica sin borrador y no se fusiona automáticamente.
