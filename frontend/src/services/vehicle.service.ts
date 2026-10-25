@@ -74,6 +74,7 @@ class ServiceError extends Error {
 const formatApiDetail = (data: any): string | undefined => {
   if (!data) return undefined;
   if (typeof data.detail === 'string') return data.detail;
+  if (data.detail && typeof data.detail === 'object' && typeof data.detail.message === 'string') return data.detail.message;
   if (Array.isArray(data.detail)) {
     return data.detail
       .map((item: any) => `${Array.isArray(item.loc) ? item.loc.join('.') : 'campo'}: ${item.msg || item.message || 'inválido'}`)
@@ -99,7 +100,8 @@ const handleApiError = (error: unknown, context: string): never => {
 
   if (error instanceof AxiosError) {
     const message = formatApiDetail(error.response?.data) || error.message || 'Error desconocido';
-    throw new ServiceError(message, error.response?.status, error.code);
+    const remoteCode = error.response?.data?.detail?.code;
+    throw new ServiceError(message, error.response?.status, typeof remoteCode === 'string' ? remoteCode : error.code);
   }
 
   if (error instanceof Error) {

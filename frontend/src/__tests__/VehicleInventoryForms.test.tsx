@@ -78,3 +78,19 @@ it('deactivation conflict requires closing/reloading rather than retrying', asyn
   await waitFor(()=>expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   expect(service.deactivate).toHaveBeenCalledTimes(1);
 });
+
+it('allows correcting a duplicate plate with the original revision and preserves the draft', async () => {
+  service.update.mockRejectedValueOnce(Object.assign(new Error('La placa ya está registrada'), { status:409, code:'VEHICLE_PLATE_CONFLICT' }));
+  render(<EditPage />);
+  fireEvent.change(await screen.findByDisplayValue('Original note'), { target:{ value:'Keep my note' } });
+  fireEvent.change(screen.getByDisplayValue('TEST-123'), { target:{ value:'TAKEN-1' } });
+  fireEvent.click(screen.getByRole('button', { name:'Guardar Cambios' }));
+  await screen.findByText('La placa ya está registrada');
+  await waitFor(() => expect(screen.getByRole('button', { name:'Guardar Cambios' })).toBeEnabled());
+  expect(screen.getByDisplayValue('Keep my note')).toBeInTheDocument();
+  fireEvent.change(screen.getByDisplayValue('TAKEN-1'), { target:{ value:'FREE-1' } });
+  expect(screen.queryByText('La placa ya está registrada')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name:'Guardar Cambios' }));
+  await waitFor(() => expect(service.update).toHaveBeenLastCalledWith(row.id, expect.objectContaining({ plate:'FREE-1', notes:'Keep my note' }), revision));
+  expect(service.getById).toHaveBeenCalledTimes(1);
+});
