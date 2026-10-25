@@ -2,12 +2,6 @@ import { api } from '@/lib/api';
 import { Rider, RiderDocument } from '@/types/user';
 import { AxiosError } from 'axios';
 
-// URL base del API (debe coincidir con tu .env.local)
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-const STATIC_BASE_URL = API_BASE_URL.replace(/\/api\/v\d+\/?$/, '').replace(/\/$/, '');
-
-const normalizeUrlSlashes = (url: string): string => url.replace(/([^:]\/)\/+/g, '$1');
-
 // --- Tipos e Interfaces Estrictas ---
 
 export type { RiderDocument };
@@ -163,22 +157,16 @@ const isValidCoordinates = (lat: number, lng: number): boolean => {
 // --- Servicio Principal ---
 
 export const riderService = {
-  /**
-   * Construye la URL completa para acceder a un documento estático.
-   * Maneja rutas relativas, absolutas y casos nulos.
-   */
-  getDocumentUrl: (fileUrl?: string | null): string => {
-    if (!fileUrl || fileUrl === '#' || fileUrl === '') return '';
-    
-    if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
-      return normalizeUrlSlashes(fileUrl);
+  /** Descarga binaria autenticada; nunca navega a file_url ni envía tokens en URLs. */
+  getDocumentFile: async (documentId: string, signal?: AbortSignal): Promise<Blob> => {
+    if (!isValidUuid(documentId)) throw new ServiceError('ID de documento inválido', 400);
+    try {
+      return await api.get<Blob>(`/riders/documents/${documentId}/download`, {
+        responseType: 'blob', signal,
+      });
+    } catch (error) {
+      throw handleApiError(error, 'No fue posible descargar el documento');
     }
-    
-    const cleanPath = fileUrl
-      .replace(/^\/+/, '')
-      .replace(/^api\/v\d+\//, '');
-    // Evitar dobles slashes incluso si el backend persiste rutas con // inicial.
-    return normalizeUrlSlashes(`${STATIC_BASE_URL}/${cleanPath}`);
   },
 
   /**

@@ -1,0 +1,84 @@
+{
+  "rider_documents": {
+    "ddl": "\nCREATE TABLE rider_documents (\n\tid UUID NOT NULL, \n\trider_id UUID NOT NULL, \n\ttype documenttype NOT NULL, \n\tstatus documentstatus NOT NULL, \n\tfile_url TEXT, \n\trejection_reason TEXT, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(), \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(), \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(rider_id) REFERENCES riders (id) ON DELETE CASCADE\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_rider_documents_id ON rider_documents (id)",
+      "CREATE INDEX ix_rider_documents_rider_id ON rider_documents (rider_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "rider_id": [
+        null,
+        null
+      ],
+      "type": [
+        null,
+        null
+      ],
+      "status": [
+        "DocumentStatus.PENDIENTE",
+        null
+      ],
+      "file_url": [
+        null,
+        null
+      ],
+      "rejection_reason": [
+        null,
+        null
+      ],
+      "created_at": [
+        null,
+        null
+      ],
+      "updated_at": [
+        null,
+        "NOW()"
+      ]
+    },
+    "enums": {
+      "type": [
+        "LICENCIA",
+        "DOCUMENTO_IDENTIDAD",
+        "REGISTRO_VEHICULO",
+        "SEGURO"
+      ],
+      "status": [
+        "PENDIENTE",
+        "APROBADO",
+        "RECHAZADO"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "rider_id",
+        "target": "riders.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "type": {
+        "name": "documenttype",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "status": {
+        "name": "documentstatus",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    }
+  }
+}

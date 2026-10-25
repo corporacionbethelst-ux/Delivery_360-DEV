@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from contextlib import asynccontextmanager
-from fastapi.staticfiles import StaticFiles
+from app.core.document_files import PublicUploads
 from typing import AsyncGenerator
 from pathlib import Path
 import logging
@@ -222,7 +222,9 @@ def create_app() -> FastAPI:
     # --- ARCHIVOS ESTÁTICOS (DOCUMENTOS E IMÁGENES) ---
     uploads_path = Path("uploads")
     uploads_path.mkdir(exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory=str(uploads_path)), name="uploads")
+    app.mount(
+        "/uploads", PublicUploads(directory=str(uploads_path.resolve())), name="uploads"
+    )
     logger.info(f"Archivos estáticos servidos desde: {uploads_path.absolute()}")
 
     # --- ENDPOINTS RAÍZ ---

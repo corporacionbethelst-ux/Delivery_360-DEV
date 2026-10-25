@@ -46,6 +46,8 @@ class CacheMiddleware(BaseHTTPMiddleware):
         # Operational API responses must always execute authentication and authorization.
         if (
             request.url.path.startswith("/api/")
+            or request.url.path == "/uploads"
+            or request.url.path.startswith("/uploads/")
             or request.headers.get("authorization")
             or request.headers.get("cookie")
         ):
