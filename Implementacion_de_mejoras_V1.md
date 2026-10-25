@@ -1758,3 +1758,63 @@ Se comprueba que el vencimiento del seguro no haya cambiado desde la selección;
 La suite frontend pasa, pero su comando con cobertura sigue fallando por el mínimo global del 50 %. Mypy conserva deuda anterior; no se declara CI global verde ni producción lista.
 
 Las pruebas existentes se adaptan para presentar revisiones capturadas antes de su operación; los nuevos conflictos usan expresamente una revisión anterior y prueban ausencia de cambios parciales y de eventos de éxito. Las pruebas de formulario verifican que no se consulta una ficha fresca para reenviar automáticamente el comando. Se usan SQLite temporal y PostgreSQL test_* con esquemas aislados, nunca datos de negocio. No se aplican migraciones ni despliegues. El PR se publica sin borrador y no se fusiona automáticamente.
+
+## Bloque 22 — Edición, baja y eliminación de inventario con precondición
+
+Fecha: 25 de octubre de 2026 (America/Caracas). Base: main, commit db45c21, con PR #263 fusionado. Rama: fix/vehicle-inventory-preconditions-v1.
+
+### Revisión de selección y revisión de edición
+
+La revisión del bloque 21 excluye notas para no invalidar una selección de candidato por cambios administrativos. Usarla para editar inventario permitiría sobrescribir notas desde un formulario antiguo. Se añade edit_revision: SHA-256 de la revisión de selección y las notas actuales. Protege todos los campos editables de inventario, además del usuario vinculado.
+
+revision conserva su contrato de selección. edit_revision es la precondición para editar, dar de baja o eliminar la ficha; las dos huellas no son intercambiables. Ambas se devuelven en las respuestas de vehículos. No se añaden columnas ni se reutiliza una versión financiera.
+
+### Contrato HTTP
+
+| Operación | Requisito |
+|---|---|
+| GET /api/v1/vehicles/{id} | Refresca metadata de sesión, devuelve edit_revision y ETag entre comillas; Cache-Control: private, no-store y Vary: Authorization |
+| PATCH /api/v1/vehicles/{id} | If-Match con edit_revision observada, comprobada después de bloquear el vehículo y antes de modificarlo |
+| Baja lógica | PATCH de status=BAJA con la misma precondición |
+| DELETE /api/v1/vehicles/{id} | If-Match comprobado bajo bloqueo antes de validar desasignación y eliminar |
+
+La cabecera acepta una huella hexadecimal minúscula de 64 caracteres, cruda o entre comillas. Ausencia o estado distinto devuelven 409; formato incorrecto, comodín, lista o etiqueta débil devuelven 422. No se admite If-Match=* como forma de omitir la revisión concreta. Una ficha eliminada por otro proceso puede devolver 404.
+
+Los permisos previos siguen vigentes: solo GERENTE/SUPERADMIN pueden escribir inventario. La huella no autoriza una operación ni sustituye la exigencia de desasignar antes de cambios críticos o eliminación. Notas/color siguen pudiendo editarse en un vehículo asignado si la revisión vigente coincide. Un cambio de propietario invalida incluso una edición cosmética abierta anteriormente.
+
+ETag representa el estado editable que usa esta precondición; no se incorpora una caché ni un mecanismo de 304 por bytes de toda la respuesta con datos derivados de usuario. Las fechas internas y los nombres del usuario relacionado no forman parte de la huella de campos editables.
+
+### Formularios y servicios
+
+El editor conserva id y edit_revision cargados junto con el formulario. Guardar usa ese id capturado, no un parámetro de ruta que pudiera haber cambiado mientras terminaba una petición. Una carga obsoleta se descarta al navegar a otra ficha. La respuesta de un guardado anterior tampoco confirma ni redirige otro formulario activo.
+
+Tras 409 se bloquea guardar y se mantiene la indicación de conflicto aunque se edite un campo. Recargar ficha es una acción explícita que repone datos y revisión juntos; no reenvía automáticamente la edición anterior. La baja lógica captura una copia del registro al abrir la confirmación. Un refresco de la lista no reemplaza la revisión de ese diálogo; ante conflicto se exige cerrar/actualizar antes de intentarlo de nuevo.
+
+vehicleService.update, deactivate y delete validan la revisión capturada antes de enviar y construyen If-Match entre comillas. No consultan una ficha nueva para reemplazar la precondición durante el guardado. delete queda protegido aunque no se añada una pantalla nueva de borrado físico.
+
+Se corrige el vaciado de campos opcionales del editor: limpiar notas o fecha de seguro envía null. Antes se enviaba undefined, por lo que PATCH conservaba silenciosamente el dato anterior. VehicleUpdateInput admite estas anulaciones sin cambiar el contrato de creación.
+
+### Compatibilidad y límites
+
+Se requiere publicación coordinada de backend/frontend. Los clientes anteriores que editen, den de baja o eliminen sin If-Match reciben 409. Los listados y la creación conservan sus contratos, con el nuevo campo de lectura. Las revisiones de asignación del repartidor y del candidato continúan siendo independientes y necesarias en sus rutas correspondientes.
+
+No se modifican esquema, modelos ni migraciones. Las huellas comparan estado, no cuentan eventos: un retorno exacto A→B→A puede repetir una revisión. No son recibos firmados, credenciales ni una garantía universal exactamente-una-vez. La pérdida del acuse de commit puede dejar una operación confirmada con respuesta incierta; la precondición evita sobrescribir cambios posteriores, pero no certifica al cliente ese acuse.
+
+Este bloque protege la concurrencia del inventario; todavía no incorpora una auditoría transaccional específica de creación/edición/baja/borrado de vehículos. Siguen pendientes esa traza, el tratamiento uniforme de colisiones de placa, retención de auditoría, caducidad de seguros, concurrencia ajena a flota y continuidad de entregas activas. No se modifican datos de negocio ni se despliega automáticamente.
+
+### Evidencia final local del bloque 22
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **716 pruebas aprobadas**, 24 nuevas frente a 692; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **75 pruebas** incluidas; cuatro nuevas: editores con la misma revisión, notas cambiadas durante espera del bloqueo, edición/borrado concurrentes y cambio de propietario |
+| Nuevas pruebas restantes de backend | 20 casos HTTP/SQLite: precondiciones inválidas/ausentes, notas y revisión de selección independientes, tags crudos/citados, vaciado explícito, segundo editor, revisión equivocada y permisos |
+| Frontend | **231 pruebas aprobadas** en 23 suites; 13 nuevas para servicios, editor, cambios de ruta y confirmación de baja frente a refresco/conflicto |
+| TypeScript / ESLint / Next.js build | Aprobados; advertencias anteriores conservadas |
+| Mypy con --ignore-missing-imports | **329 errores en 52 archivos**, sin diagnósticos nuevos por archivo/mensaje; 167 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; 167 archivos de app; cero errores críticos de lint |
+| Cobertura frontend | Statements **13,35 %**, branches **11,15 %**, functions **10,43 %**, lines **13,48 %** |
+
+Las pruebas frontend pasan, pero el comando con cobertura mantiene salida con error por el umbral global del 50 %. Mypy conserva deuda anterior; no se declara CI global verde ni producción lista.
+
+Las pruebas existentes presentan una revisión obtenida antes de su escritura; los casos nuevos conservan expresamente un tag antiguo para comprobar rechazo sin sobrescritura. Las carreras se ejecutan en PostgreSQL test_* con esquemas privados y las pruebas HTTP en SQLite temporal, sin datos de negocio. No se aplican migraciones ni despliegues. El PR se publica sin borrador y no se fusiona automáticamente.

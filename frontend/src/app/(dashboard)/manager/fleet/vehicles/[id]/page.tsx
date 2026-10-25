@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -8,9 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { 
-  ArrowLeft, Save, Truck, AlertCircle, CheckCircle, Loader2, 
-  Calendar, MapPin, ShieldAlert, User, Edit3 
+import {
+  ArrowLeft, Save, Truck, AlertCircle, CheckCircle, Loader2,
+  Calendar, MapPin, ShieldAlert, User, Edit3
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
@@ -20,19 +20,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { vehicleService, Vehicle, VehicleStatus, VehicleType } from '@/services/vehicle.service';
+import { vehicleService, Vehicle, VehicleStatus, VehicleType, type VehicleUpdateInput } from '@/services/vehicle.service';
 import { toast } from 'sonner';
+import { isAssignmentConflict } from '@/lib/assignment-revision';
 
 export default function EditVehiclePage() {
   const router = useRouter();
   const params = useParams();
   const vehicleId = params.id as string;
 
+  const snapshotRef = useRef<{ id:string; revision?:string } | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [conflicted, setConflicted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  
+
   // Estado inicial vacío
   const [formData, setFormData] = useState<{
     plate: string;
@@ -61,13 +65,20 @@ export default function EditVehiclePage() {
   });
 
   useEffect(() => {
+    let active = true;
+    snapshotRef.current = null;
+    setConflicted(false);
+    setSuccess(false);
+    setSaving(false);
     const loadVehicle = async () => {
       if (!vehicleId) return;
-      
+
       setLoading(true);
       setError(null);
       try {
         const data = await vehicleService.getById(vehicleId);
+        if (!active) return;
+        snapshotRef.current = { id:vehicleId, revision:data.edit_revision };
         setFormData({
           plate: data.plate,
           type: data.type,
@@ -82,24 +93,27 @@ export default function EditVehiclePage() {
           rider_profile_id: data.rider_profile_id || data.rider_id // Usar rider_profile_id si existe, sino fallback a rider_id
         });
       } catch (err: any) {
-        console.error(err);
+        if (!active) return;
         const msg = err.message || 'No se pudo cargar la información del vehículo.';
         setError(msg);
         toast.error(msg);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
     loadVehicle();
-  }, [vehicleId]);
+    return () => { active = false; snapshotRef.current = null; };
+  }, [vehicleId, reloadKey]);
 
   const handleChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-    if (error) setError(null);
+    if (error && !conflicted) setError(null);
   };
 
     const handleSave = async () => {
+    const snapshot = snapshotRef.current;
+    if (!snapshot || snapshot.id !== vehicleId || conflicted || saving) return;
     // Validaciones básicas
     if (!formData.plate || !formData.model || !formData.color) {
       setError('Por favor completa los campos obligatorios (Placa, Modelo, Color).');
@@ -112,28 +126,31 @@ export default function EditVehiclePage() {
 
     setSaving(true);
     setError(null);
-    
+
     try {
       // Limpieza de datos: Convertir null a undefined y excluir campos de solo lectura
-      const payload = {
+      const payload: VehicleUpdateInput = {
         plate: formData.plate,
         type: formData.type,
         model: formData.model,
         color: formData.color,
         year: formData.year,
         status: formData.status,
-        // Si es string vacío o null, enviamos undefined (o null si el backend lo prefiere, pero undefined es más seguro para PATCH)
-        insurance_expiry: formData.insurance_expiry || undefined, 
-        notes: formData.notes || undefined,
+        // Null expresa que el usuario limpió el campo; undefined lo dejaría sin cambios.
+        insurance_expiry: formData.insurance_expiry || null,
+        notes: formData.notes || null,
       };
 
-      await vehicleService.update(params.id as string, payload);
-      
+      await vehicleService.update(snapshot.id, payload, snapshot.revision);
+      if (snapshotRef.current !== snapshot) return;
+
       setSuccess(true);
       setTimeout(() => {
-        router.push('/manager/fleet/vehicles');
+        if (snapshotRef.current === snapshot) router.push('/manager/fleet/vehicles');
       }, 1500);
     } catch (err: any) {
+      if (snapshotRef.current !== snapshot) return;
+      if (isAssignmentConflict(err)) setConflicted(true);
       setError(err.message || 'Error al guardar los cambios.');
       setSaving(false);
     }
@@ -152,6 +169,7 @@ export default function EditVehiclePage() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6 bg-gray-50 min-h-screen">
+      <Button variant="outline" disabled={saving} onClick={() => setReloadKey(key => key + 1)}>Recargar ficha</Button>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
@@ -193,16 +211,16 @@ export default function EditVehiclePage() {
           <CardDescription>Información técnica, estado y asignación actual.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6 p-6">
-          
+
           {/* Fila 1: Datos Básicos */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="plate">Placa / Matrícula *</Label>
-              <Input 
-                id="plate" 
-                value={formData.plate} 
+              <Input
+                id="plate"
+                value={formData.plate}
                 onChange={(e) => handleChange('plate', e.target.value.toUpperCase())}
-                placeholder="ABC-123" 
+                placeholder="ABC-123"
                 className="uppercase font-mono bg-white"
               />
             </div>
@@ -235,33 +253,33 @@ export default function EditVehiclePage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="model">Modelo *</Label>
-              <Input 
-                id="model" 
-                value={formData.model} 
-                onChange={(e) => handleChange('model', e.target.value)} 
-                placeholder="Ej: Yamaha MT-03" 
+              <Input
+                id="model"
+                value={formData.model}
+                onChange={(e) => handleChange('model', e.target.value)}
+                placeholder="Ej: Yamaha MT-03"
                 className="bg-white"
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="color">Color *</Label>
-              <Input 
-                id="color" 
-                value={formData.color} 
-                onChange={(e) => handleChange('color', e.target.value)} 
-                placeholder="Ej: Azul" 
+              <Input
+                id="color"
+                value={formData.color}
+                onChange={(e) => handleChange('color', e.target.value)}
+                placeholder="Ej: Azul"
                 className="bg-white"
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="year">Año *</Label>
-              <Input 
-                id="year" 
-                type="number" 
-                value={formData.year} 
-                onChange={(e) => handleChange('year', parseInt(e.target.value) || 0)} 
-                min={1900} 
-                max={new Date().getFullYear() + 1} 
+              <Input
+                id="year"
+                type="number"
+                value={formData.year}
+                onChange={(e) => handleChange('year', parseInt(e.target.value) || 0)}
+                min={1900}
+                max={new Date().getFullYear() + 1}
                 className="bg-white"
               />
             </div>
@@ -287,11 +305,11 @@ export default function EditVehiclePage() {
                     Sin asignar
                   </div>
                 )}
-                
+
                 {formData.rider_id && (
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                     onClick={() => router.push(`/manager/fleet/riders/${formData.rider_profile_id || formData.rider_id}`)}
                   >
@@ -308,11 +326,11 @@ export default function EditVehiclePage() {
               <Label htmlFor="insurance" className="flex items-center gap-2">
                 <Calendar className="w-4 h-4" /> Vencimiento Seguro
               </Label>
-              <Input 
-                id="insurance" 
-                type="date" 
-                value={formData.insurance_expiry || ''} 
-                onChange={(e) => handleChange('insurance_expiry', e.target.value)} 
+              <Input
+                id="insurance"
+                type="date"
+                value={formData.insurance_expiry || ''}
+                onChange={(e) => handleChange('insurance_expiry', e.target.value)}
                 className="bg-white"
               />
               {formData.insurance_expiry && (
@@ -326,24 +344,24 @@ export default function EditVehiclePage() {
           {/* Notas */}
           <div className="space-y-2">
             <Label htmlFor="notes">Notas Internas</Label>
-            <Textarea 
-              id="notes" 
-              value={formData.notes || ''} 
-              onChange={(e) => handleChange('notes', e.target.value)} 
-              placeholder="Observaciones sobre mantenimiento, multas, historial..." 
-              rows={3} 
+            <Textarea
+              id="notes"
+              value={formData.notes || ''}
+              onChange={(e) => handleChange('notes', e.target.value)}
+              placeholder="Observaciones sobre mantenimiento, multas, historial..."
+              rows={3}
               className="bg-white"
             />
           </div>
         </CardContent>
-        
+
         <CardFooter className="flex justify-between border-t border-gray-100 bg-gray-50 p-4 rounded-b-lg">
           <Button variant="outline" onClick={() => router.back()} disabled={saving} className="hover:bg-white">
             Cancelar
           </Button>
-          <Button 
-            onClick={handleSave} 
-            disabled={saving || success} 
+          <Button
+            onClick={handleSave}
+            disabled={saving || success || conflicted || snapshotRef.current?.id !== vehicleId}
             className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm min-w-[140px]"
           >
             {saving ? (
