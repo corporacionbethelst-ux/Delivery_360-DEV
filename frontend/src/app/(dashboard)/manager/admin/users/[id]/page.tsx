@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { isUserConflict } from '@/lib/user-revision';
 import { UserRole } from '@/types/user';
 import { userService, UserCreateInput } from '@/services/user.service';
 
@@ -34,6 +35,9 @@ const ROLES_OPTIONS: { value: UserRole; label: string }[] = [
 export default function EditUserPage() {
   const router = useRouter();
   const params = useParams();
+  const snapshotRef = useRef<{ id:string; revision?:string } | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [conflicted, setConflicted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,36 +51,34 @@ export default function EditUserPage() {
   });
 
   useEffect(() => {
-    loadUser();
-  }, [params.id]);
-
-  const loadUser = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const user = await userService.getById(params.id as string);
-      setFormData({
-        first_name: user.first_name,
-        last_name: user.last_name,
-        email: user.email,
-        role: user.role,
-        is_active: user.is_active,
-        phone: user.phone || '',
-        bio: '' // El bio usualmente no viene en el user standard, ajustado según tu tipo
-      });
-    } catch (err: any) {
-      setError(err.message || 'No se pudo cargar el usuario.');
-    } finally {
-      setLoading(false);
-    }
-  };
+    let active = true;
+    snapshotRef.current = null;
+    setLoading(true); setConflicted(false); setError(null); setSuccess(false); setSaving(false);
+    setChangePassword(false); setPasswords({ new:'', confirm:'' });
+    const load = async () => {
+      try {
+        const user = await userService.getById(params.id as string);
+        if (!active) return;
+        snapshotRef.current = { id:user.id, revision:user.user_revision };
+        setFormData({ first_name:user.first_name, last_name:user.last_name, email:user.email,
+          role:user.role, is_active:user.is_active, phone:user.phone || '', bio:'' });
+      } catch (err:any) {
+        if (active) setError(err.message || 'No se pudo cargar el usuario.');
+      } finally { if (active) setLoading(false); }
+    };
+    load();
+    return () => { active = false; snapshotRef.current = null; };
+  }, [params.id, reloadKey]);
 
   const handleChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-    if (error) setError(null);
+    if (error && !conflicted) setError(null);
   };
 
   const handleSave = async () => {
+    let submitted = snapshotRef.current;
+    if (!submitted || submitted.id !== params.id || saving || conflicted || success) return;
+    let metadataSaved = false;
     if (!formData.first_name || !formData.last_name || !formData.email) {
       setError('Nombre, apellido y email son obligatorios.');
       return;
@@ -100,7 +102,8 @@ export default function EditUserPage() {
     setError(null);
 
     try {
-      await userService.update(params.id as string, {
+      const updated = await userService.update(submitted.id, {
+        expected_user_revision:submitted.revision,
         first_name: formData.first_name,
         last_name: formData.last_name,
         email: formData.email,
@@ -109,16 +112,23 @@ export default function EditUserPage() {
         phone: formData.phone
       });
 
+      if (snapshotRef.current !== submitted) return;
+      metadataSaved = true;
+      submitted = { id:submitted.id, revision:updated.user_revision };
+      snapshotRef.current = submitted;
       if (changePassword) {
         await userService.updatePassword(params.id as string, passwords.new);
       }
 
+      if (snapshotRef.current !== submitted) return;
       setSuccess(true);
-      setTimeout(() => router.push('/manager/admin/users'), 1500);
+      setTimeout(() => { if (snapshotRef.current === submitted) router.push('/manager/admin/users'); }, 1500);
     } catch (err: any) {
-      setError(err.message || 'Error al guardar los cambios.');
+      if (snapshotRef.current !== submitted) return;
+      if (metadataSaved || isUserConflict(err)) setConflicted(true);
+      setError(metadataSaved ? 'Los datos se guardaron, pero no se confirmó el cambio de contraseña. Recarga y revisa la cuenta antes de volver a intentarlo.' : ((typeof err.response?.data?.detail === 'string' ? err.response.data.detail : undefined) || err.message || 'Error al guardar los cambios.'));
     } finally {
-      setSaving(false);
+      if (snapshotRef.current === submitted) setSaving(false);
     }
   };
 
@@ -138,6 +148,7 @@ export default function EditUserPage() {
         </div>
       </div>
 
+      <Button type="button" variant="outline" disabled={saving} onClick={() => setReloadKey(key => key + 1)}>Recargar usuario</Button>
       {error && <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>{error}</AlertDescription></Alert>}
       {success && <Alert className="bg-green-50 border-green-200 text-green-800"><CheckCircle className="h-4 w-4 text-green-600" /><AlertDescription>Usuario actualizado correctamente.</AlertDescription></Alert>}
 
@@ -220,7 +231,7 @@ export default function EditUserPage() {
         </CardContent>
         <CardFooter className="flex justify-between border-t bg-gray-50 p-4 rounded-b-lg">
           <Button variant="outline" onClick={() => router.back()}>Cancelar</Button>
-          <Button onClick={handleSave} disabled={saving} className="bg-blue-600 hover:bg-blue-700">
+          <Button onClick={handleSave} disabled={saving || success || conflicted || !snapshotRef.current?.revision} className="bg-blue-600 hover:bg-blue-700">
             {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Guardando...</> : <><Save className="mr-2 h-4 w-4" /> Guardar Cambios</>}
           </Button>
         </CardFooter>

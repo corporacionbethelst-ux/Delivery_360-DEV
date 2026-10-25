@@ -1,3 +1,4 @@
+import { requireUserRevision } from '@/lib/user-revision';
 import { api } from '@/lib/api';
 import { validateDocumentSelection } from '@/lib/document-upload';
 import { User, AuthResponse } from '@/types/user';
@@ -142,7 +143,8 @@ export const authService = {
   /**
    * Actualizar perfil
    */
-  updateProfile: async (data: Partial<User>): Promise<User> => {
+  updateProfile: async (data: Partial<User> & { expected_user_revision?: string }): Promise<User> => {
+    requireUserRevision(data.expected_user_revision);
     const response = await api.put<User>('/users/me', data);
     return response;
   },

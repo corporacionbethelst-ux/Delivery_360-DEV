@@ -7,6 +7,7 @@ export type RiderStatus = 'ACTIVO' | 'PENDIENTE' | 'SUSPENDIDO' | 'INACTIVO' | '
 export type VehicleType = 'MOTO' | 'BICICLETA' | 'AUTO' | 'FURGONETA' | 'PATINETA';
 
 export interface User {
+  user_revision?: string;
   id: string;
   email: string;
   first_name: string;

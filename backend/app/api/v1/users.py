@@ -5,7 +5,7 @@ Delivery360 - User Management API Endpoints
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import Header, APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,7 @@ from app.api.v1.auth import get_current_user
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.models.user import User, UserRole
+from app.services.user_revision import user_revision, lock_user, ensure_user_revision
 
 router = APIRouter()
 
@@ -29,6 +30,7 @@ class UserCreateBody(BaseModel):
 
 
 class UserUpdateBody(BaseModel):
+    expected_user_revision: Optional[str] = Field(None, pattern=r"^[a-f0-9]{64}$")
     email: Optional[EmailStr] = None
     first_name: Optional[str] = Field(None, min_length=1, max_length=100)
     last_name: Optional[str] = Field(None, min_length=1, max_length=100)
@@ -38,6 +40,7 @@ class UserUpdateBody(BaseModel):
 
 
 class UserSelfUpdateBody(BaseModel):
+    expected_user_revision: Optional[str] = Field(None, pattern=r"^[a-f0-9]{64}$")
     email: Optional[EmailStr] = None
     first_name: Optional[str] = Field(None, min_length=1, max_length=100)
     last_name: Optional[str] = Field(None, min_length=1, max_length=100)
@@ -63,6 +66,7 @@ def _serialize_user(user: User) -> dict:
     full_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
     return {
         "id": str(user.id),
+        "user_revision": user_revision(user),
         "email": user.email,
         "first_name": user.first_name,
         "last_name": user.last_name,
@@ -162,21 +166,23 @@ async def update_me(
     current_user: User = Depends(get_current_user),
 ):
     """Actualizar datos básicos del perfil propio sin permitir cambios de rol o estado."""
+    user = await lock_user(db, current_user.id)
+    ensure_user_revision(user, body.expected_user_revision)
     if body.email is not None:
-        await _ensure_email_available(db, body.email, exclude_user_id=current_user.id)
-        current_user.email = body.email.lower()
+        await _ensure_email_available(db, body.email, exclude_user_id=user.id)
+        user.email = body.email.lower()
     if body.first_name is not None:
-        current_user.first_name = body.first_name.strip()
+        user.first_name = body.first_name.strip()
     if body.last_name is not None:
-        current_user.last_name = body.last_name.strip()
+        user.last_name = body.last_name.strip()
     if body.phone is not None:
-        current_user.phone = body.phone.strip() or None
+        user.phone = body.phone.strip() or None
     if body.avatar_url is not None:
-        current_user.avatar_url = body.avatar_url.strip() or None
+        user.avatar_url = body.avatar_url.strip() or None
 
     await db.commit()
-    await db.refresh(current_user)
-    return _serialize_user(current_user)
+    await db.refresh(user)
+    return _serialize_user(user)
 
 
 @router.get("", response_model=List[dict])
@@ -275,9 +281,11 @@ async def update_user(
 ):
     """Actualizar datos básicos, estado y rol de un usuario."""
     _require_user_manager(current_user)
-    user = await _get_user_or_404(db, user_id)
+    user = await lock_user(db, _parse_uuid(user_id, "user_id"))
     _ensure_not_self_lockout(current_user, user, body)
     _ensure_can_manage_role(current_user, body.role or user.role, user)
+
+    ensure_user_revision(user, body.expected_user_revision)
 
     if body.email is not None:
         await _ensure_email_available(db, body.email, exclude_user_id=user.id)
@@ -308,7 +316,7 @@ async def update_user_password(
 ):
     """Cambiar contraseña de un usuario desde administración."""
     _require_user_manager(current_user)
-    user = await _get_user_or_404(db, user_id)
+    user = await lock_user(db, _parse_uuid(user_id, "user_id"))
     _ensure_can_manage_role(current_user, user.role, user)
 
     user.hashed_password = hash_password(body.password)
@@ -322,10 +330,11 @@ async def delete_user(
     user_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    if_match: Optional[str] = Header(None, alias="If-Match"),
 ):
     """Desactivar usuario como eliminación segura (soft delete)."""
     _require_user_manager(current_user)
-    user = await _get_user_or_404(db, user_id)
+    user = await lock_user(db, _parse_uuid(user_id, "user_id"))
     if user.id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -333,6 +342,7 @@ async def delete_user(
         )
     _ensure_can_manage_role(current_user, user.role, user)
 
+    ensure_user_revision(user, if_match)
     user.is_active = False
     await db.commit()
     return None
