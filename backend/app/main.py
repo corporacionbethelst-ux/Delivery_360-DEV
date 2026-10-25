@@ -109,6 +109,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    from app.middleware.document_upload_limit import DocumentUploadLimitMiddleware
+
+    app.add_middleware(DocumentUploadLimitMiddleware)
+
     # --- SEGURIDAD Y MIDDLEWARES ---
     from app.middleware.cors_middleware import (
         setup_cors_middleware,

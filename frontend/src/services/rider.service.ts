@@ -1,4 +1,5 @@
 import { api } from '@/lib/api';
+import { validateDocumentSelection } from '@/lib/document-upload';
 import { Rider, RiderDocument } from '@/types/user';
 import { AxiosError } from 'axios';
 
@@ -360,11 +361,7 @@ export const riderService = {
     if (!request.type || request.type.trim() === '') {
       throw new ServiceError('Tipo de documento requerido', 400);
     }
-    // Validación básica de tamaño (ej. 10MB)
-    const MAX_SIZE = 10 * 1024 * 1024;
-    if (request.file.size > MAX_SIZE) {
-      throw new ServiceError('El archivo excede el tamaño máximo de 10MB', 400);
-    }
+    validateDocumentSelection(request.file);
 
     const formData = new FormData();
     formData.append('type', request.type);
@@ -404,11 +401,7 @@ export const riderService = {
       throw new ServiceError('Tipo de documento requerido', 400);
     }
     
-    // Validación de tamaño
-    const MAX_SIZE = 10 * 1024 * 1024;
-    if (request.file.size > MAX_SIZE) {
-      throw new ServiceError('El archivo excede el tamaño máximo de 10MB', 400);
-    }
+    validateDocumentSelection(request.file);
 
     const formData = new FormData();
     formData.append('type', request.type);
