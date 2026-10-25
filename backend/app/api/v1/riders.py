@@ -33,6 +33,7 @@ from app.services.document_review import (
     lock_rider,
     restrict_rider_documents,
     ensure_rider_can_report_online,
+    rider_documents,
     review_document,
     delete_reviewed_document,
 )
@@ -50,6 +51,13 @@ from app.models.payout import Payout, PayoutStatus
 from app.models.enums import VehicleOwnershipType
 from app.api.v1.auth import get_current_user, require_role
 from app.services.financial_service import CREDIT_TYPES
+from app.services.fleet_assignment import (
+    VEHICLE_FIELDS,
+    lock_vehicles,
+    ensure_vehicle_available,
+    prepare_vehicle_update,
+    invalidate_vehicle_documents,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -561,38 +569,21 @@ async def create_rider(
     db.add(user)
     await db.flush()
 
-    # Si es EMPRESA, verificar que el vehículo existe y está disponible
+    if body.vehicle_ownership_type not in (None, "PROPIO", "EMPRESA"):
+        raise HTTPException(status_code=422, detail="Propiedad de vehículo inválida")
+    vehicle = None
     if body.vehicle_ownership_type == "EMPRESA" and body.assigned_vehicle_id:
-        from app.models.vehicle import Vehicle, VehicleStatus
-
-        vehicle_result = await db.execute(
-            select(Vehicle).where(Vehicle.id == body.assigned_vehicle_id)
-        )
-        vehicle = vehicle_result.scalar_one_or_none()
-
-        if not vehicle:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Vehículo {body.assigned_vehicle_id} no encontrado",
-            )
-
-        if vehicle.status != VehicleStatus.ACTIVO:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Vehículo no está disponible (estado: {vehicle.status})",
-            )
-
-        # Verificar que el vehículo no esté ya asignado a otro rider
-        if vehicle.rider_id is not None and vehicle.rider_id != user.id:
-            raise HTTPException(
-                status_code=400, detail="El vehículo ya está asignado a otro repartidor"
-            )
+        vehicles = await lock_vehicles(db, {body.assigned_vehicle_id})
+        vehicle = vehicles[body.assigned_vehicle_id]
+        await ensure_vehicle_available(db, vehicle, user.id)
 
     rider = Rider(
         user_id=user.id,
-        vehicle_type=_parse_vehicle_type(body.vehicle_type),
-        vehicle_plate=body.vehicle_plate,
-        vehicle_model=body.vehicle_model,
+        vehicle_type=_parse_vehicle_type(
+            vehicle.type if vehicle else body.vehicle_type
+        ),
+        vehicle_plate=vehicle.plate if vehicle else body.vehicle_plate,
+        vehicle_model=vehicle.model if vehicle else body.vehicle_model,
         operating_zone=body.operating_zone,
         cpf=body.cpf,
         cnh=body.cnh,
@@ -606,16 +597,8 @@ async def create_rider(
     )
     db.add(rider)
 
-    # Si es EMPRESA, actualizar el vehículo para asignarlo al usuario
-    if body.vehicle_ownership_type == "EMPRESA" and body.assigned_vehicle_id:
-        from app.models.vehicle import Vehicle
-
-        vehicle_result = await db.execute(
-            select(Vehicle).where(Vehicle.id == body.assigned_vehicle_id)
-        )
-        vehicle = vehicle_result.scalar_one_or_none()
-        if vehicle:
-            vehicle.rider_id = user.id
+    if vehicle is not None:
+        vehicle.rider_id = user.id
 
     await db.commit()
     await db.refresh(rider)
@@ -715,30 +698,13 @@ async def update_my_rider_profile(
             status_code=404, detail="Perfil de repartidor no encontrado"
         )
 
-    await lock_rider(db, rider.id)
-    await db.refresh(
-        rider, attribute_names=["status", "is_online", "vehicle_type", "vehicle_plate"]
-    )
-
     payload = body.model_dump(exclude_none=True)
-
-    old_vehicle_type = optional_enum_value(rider.vehicle_type)
     vehicle_changed = False
+    if VEHICLE_FIELDS.intersection(payload):
+        vehicle_changed = await prepare_vehicle_update(db, rider, payload)
+    old_vehicle_type = optional_enum_value(rider.vehicle_type)
     old_vehicle_info = f"{old_vehicle_type} - {rider.vehicle_plate}"
-    new_vehicle_info = ""
-
-    if "vehicle_type" in payload and str(payload["vehicle_type"]) != old_vehicle_type:
-        vehicle_changed = True
-        new_vehicle_info = f"{payload['vehicle_type']} - {rider.vehicle_plate}"
-
-    if "vehicle_plate" in payload and payload["vehicle_plate"] != rider.vehicle_plate:
-        vehicle_changed = True
-        if not new_vehicle_info:
-            new_vehicle_info = f"{old_vehicle_type} - {payload['vehicle_plate']}"
-        else:
-            new_vehicle_info = (
-                f"{new_vehicle_info.split(' - ')[0]} - {payload['vehicle_plate']}"
-            )
+    new_vehicle_info = f"{payload.get('vehicle_type', old_vehicle_type)} - {payload.get('vehicle_plate', rider.vehicle_plate)}"
 
     if vehicle_changed:
         print(
@@ -746,26 +712,8 @@ async def update_my_rider_profile(
         )
         print(f"   🔄 De: {old_vehicle_info}  -->  A: {new_vehicle_info}")
 
-        docs_result = await db.execute(
-            select(RiderDocument)
-            .where(RiderDocument.rider_id == rider.id)
-            .execution_options(populate_existing=True)
-        )
-        documents = docs_result.scalars().all()
-
-        for doc in documents:
-            doc.status = DocumentStatus.RECHAZADO
-            doc.rejection_reason = (
-                "Cambio de vehículo detectado. Por favor, suba la documentación nueva."
-            )
-            doc.updated_at = utc_now_naive()
-
-        print(
-            f"   🗑️ {len(documents)} documentos marcados como RECHAZADOS automáticamente."
-        )
-
-        await db.flush()
-        await restrict_rider_documents(db, rider.id)
+        documents = await rider_documents(db, rider.id)
+        await invalidate_vehicle_documents(db, rider.id)
         await db.refresh(rider, attribute_names=["status", "is_online"])
 
         try:
@@ -1162,57 +1110,9 @@ async def update_rider(
 
     payload = body.model_dump(exclude_none=True)
 
-    # Validar y procesar vehicle_ownership_type y assigned_vehicle_id
-    if "vehicle_ownership_type" in payload or "assigned_vehicle_id" in payload:
-        ownership_type = payload.get(
-            "vehicle_ownership_type", rider.vehicle_ownership_type
-        )
-        assigned_vehicle_id = payload.get(
-            "assigned_vehicle_id", rider.assigned_vehicle_id
-        )
-
-        # Si es EMPRESA, validar que tenga assigned_vehicle_id
-        if ownership_type == "EMPRESA" and not assigned_vehicle_id:
-            raise HTTPException(
-                status_code=400,
-                detail="Cuando vehicle_ownership_type es EMPRESA, debe proporcionar assigned_vehicle_id",
-            )
-
-        # Si es EMPRESA, validar que el vehículo exista y esté disponible
-        if ownership_type == "EMPRESA" and assigned_vehicle_id:
-            from app.models.vehicle import Vehicle, VehicleStatus
-
-            vehicle_result = await db.execute(
-                select(Vehicle).where(Vehicle.id == assigned_vehicle_id)
-            )
-            vehicle = vehicle_result.scalar_one_or_none()
-
-            if not vehicle:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Vehículo {assigned_vehicle_id} no encontrado",
-                )
-
-            if vehicle.status != VehicleStatus.ACTIVO:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Vehículo no está disponible (estado: {vehicle.status})",
-                )
-
-            # Verificar que el vehículo no esté asignado a otro rider
-            if vehicle.rider_id is not None and vehicle.rider_id != rider.user_id:
-                raise HTTPException(
-                    status_code=400,
-                    detail="El vehículo ya está asignado a otro repartidor",
-                )
-
-            # Actualizar el vehículo para asignarlo al rider
-            vehicle.rider_id = rider.user_id
-
-        # Si cambia a PROPIO, limpiar assigned_vehicle_id
-        if ownership_type == "PROPIO":
-            payload["assigned_vehicle_id"] = None
-            rider.assigned_vehicle_id = None
+    vehicle_changed = False
+    if VEHICLE_FIELDS.intersection(payload):
+        vehicle_changed = await prepare_vehicle_update(db, rider, payload)
 
     if "vehicle_type" in payload:
         payload["vehicle_type"] = _parse_vehicle_type(payload["vehicle_type"])
@@ -1232,6 +1132,11 @@ async def update_rider(
 
     for field, value in payload.items():
         setattr(rider, field, value)
+
+    if vehicle_changed:
+        await db.flush()
+        await invalidate_vehicle_documents(db, rider.id)
+        await db.refresh(rider, attribute_names=["status", "is_online"])
 
     await db.commit()
 

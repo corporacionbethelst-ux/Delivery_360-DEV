@@ -12,6 +12,7 @@ from app.models.enums import VehicleType, VehicleStatus, VehicleOwnershipType
 from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.models.vehicle import Vehicle
+from app.services.fleet_assignment import lock_vehicles, ensure_vehicle_unassigned
 from app.api.v1.auth import get_current_user, require_role
 
 logger = logging.getLogger(__name__)
@@ -391,14 +392,24 @@ async def update_vehicle(
     """Actualiza datos parciales de un vehículo existente."""
     vid = _parse_uuid(vehicle_id)
 
-    stmt = select(Vehicle).where(Vehicle.id == vid)
-    result = await db.execute(stmt)
-    vehicle = result.scalar_one_or_none()
-
-    if not vehicle:
-        raise HTTPException(status_code=404, detail="Vehículo no encontrado")
+    vehicle = (await lock_vehicles(db, {vid}))[vid]
 
     update_data = body.model_dump(exclude_unset=True)
+    required = {"plate", "type", "model", "color", "year", "status"}
+    if any(update_data.get(key) is None for key in required.intersection(update_data)):
+        raise HTTPException(
+            status_code=422,
+            detail="Los datos obligatorios del vehículo no pueden ser nulos",
+        )
+    if "plate" in update_data:
+        update_data["plate"] = update_data["plate"].strip().upper()
+    critical = {"plate", "type", "model", "year", "status", "insurance_expiry"}
+    if any(
+        getattr(vehicle, key) != value
+        for key, value in update_data.items()
+        if key in critical
+    ):
+        await ensure_vehicle_unassigned(db, vehicle)
 
     if "plate" in update_data:
         new_plate = update_data["plate"].strip().upper()
@@ -422,7 +433,18 @@ async def update_vehicle(
     vehicle.updated_at = utc_now_naive()
 
     await db.commit()
-    await db.refresh(vehicle)
+    from sqlalchemy.orm import selectinload
+
+    refreshed_vehicle = await db.scalar(
+        select(Vehicle)
+        .options(selectinload(Vehicle.rider).selectinload(User.rider_profile))
+        .where(Vehicle.id == vid)
+        .execution_options(populate_existing=True)
+    )
+    if refreshed_vehicle is None:
+        raise HTTPException(status_code=404, detail="Vehículo no encontrado")
+
+    vehicle = refreshed_vehicle
 
     return _build_vehicle_response(vehicle)
 
@@ -436,18 +458,8 @@ async def delete_vehicle(
     """Elimina permanentemente un vehículo."""
     vid = _parse_uuid(vehicle_id)
 
-    stmt = select(Vehicle).where(Vehicle.id == vid)
-    result = await db.execute(stmt)
-    vehicle = result.scalar_one_or_none()
-
-    if not vehicle:
-        raise HTTPException(status_code=404, detail="Vehículo no encontrado")
-
-    if vehicle.rider_id:
-        raise HTTPException(
-            status_code=400,
-            detail="No se puede eliminar un vehículo asignado a un repartidor.",
-        )
+    vehicle = (await lock_vehicles(db, {vid}))[vid]
+    await ensure_vehicle_unassigned(db, vehicle)
 
     await db.delete(vehicle)
     await db.commit()
