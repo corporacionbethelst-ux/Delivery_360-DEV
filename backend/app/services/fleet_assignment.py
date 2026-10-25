@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import raiseload
 from app.models.vehicle import Vehicle
 from app.core.fleet_revision import ensure_assignment_revision
+from app.services.fleet_audit import fleet_snapshot
 from app.models.rider import Rider, utc_now_naive
 from app.models.rider_document import DocumentStatus
 from app.services.document_review import (
@@ -88,8 +89,9 @@ async def ensure_vehicle_available(
         )
 
 
-async def invalidate_vehicle_documents(db: AsyncSession, rider_id: UUID) -> None:
-    for doc in await rider_documents(db, rider_id):
+async def invalidate_vehicle_documents(db: AsyncSession, rider_id: UUID) -> int:
+    documents = await rider_documents(db, rider_id)
+    for doc in documents:
         doc.status = DocumentStatus.RECHAZADO
         doc.rejection_reason = (
             "Cambio de vehículo o asignación. Suba la documentación actualizada."
@@ -97,6 +99,7 @@ async def invalidate_vehicle_documents(db: AsyncSession, rider_id: UUID) -> None
         doc.updated_at = utc_now_naive()
     await db.flush()
     await restrict_rider_documents(db, rider_id)
+    return len(documents)
 
 
 async def prepare_vehicle_update(
@@ -104,6 +107,8 @@ async def prepare_vehicle_update(
     rider: Rider,
     payload: dict[str, Any],
     expected_revision: str | None = None,
+    *,
+    before_state: dict[str, Any] | None = None,
 ) -> bool:
     """Lock, validate both links and normalize fleet fields before caller applies them."""
     previous_id = rider.assigned_vehicle_id
@@ -176,8 +181,11 @@ async def prepare_vehicle_update(
                 status_code=409,
                 detail="La asignación anterior requiere revisión de sus vínculos",
             )
-        if target != previous_id:
-            old.rider_id = None
+    if before_state is not None:
+        before_state.update(fleet_snapshot(rider, vehicles))
+    link_changed = target is not None and vehicles[target].rider_id != rider.user_id
+    if previous_id is not None and target != previous_id:
+        vehicles[previous_id].rider_id = None
     if target is not None:
         vehicles[target].rider_id = rider.user_id
-    return changed
+    return changed or link_changed

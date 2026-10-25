@@ -1622,3 +1622,81 @@ No se modifica esquema, modelos ni migraciones. Los escritores SQL externos o se
 La suite frontend pasa, pero su comando con cobertura mantiene salida con error por el umbral global del 50 %. Mypy conserva su deuda previa. No se declara CI global verde ni producción lista.
 
 Las pruebas anteriores de flota se adaptan para enviar una revisión capturada antes de su operación. Los nuevos casos de conflicto conservan expresamente la revisión anterior; el frontend comprueba que no obtiene ni reenvía automáticamente una revisión nueva ante error. Las pruebas usan bases temporales/esquemas test_* aislados, nunca datos de negocio. No se aplican migraciones, pagos ni despliegues. El PR se publica listo para revisión, sin borrador; no se fusiona automáticamente.
+
+## Bloque 20 — Auditoría transaccional de cambios de flota
+
+Fecha: 25 de octubre de 2026 (America/Caracas). Base: main, commit 74dd458, con PR #261 fusionado. Rama: fix/fleet-audit-transactions-v1.
+
+### Problema y resultado
+
+La edición propia tenía una auditoría parcial dentro de un try/except que podía continuar sin registrar el cambio. La edición administrativa y la creación administrativa de perfiles no compartían ese registro. Se incorpora fleet_audit sobre la tabla audit_logs existente, con eventos RIDER_FLEET v1 dentro de la misma transacción SQL que el cambio de perfil, vínculos y documentos.
+
+Rutas cubiertas:
+
+| Ruta | source del evento | Alcance |
+|---|---|---|
+| POST /api/v1/riders | admin_create | Creación administrativa de perfil, propio o de empresa |
+| PATCH /api/v1/riders/{id} | rider_patch | Cambios reales de vehículo/asignación autorizados en esa ruta |
+| PUT /api/v1/riders/me | self_profile | Cambios reales de vehículo/asignación desde el perfil propio |
+
+source identifica la ruta, no acredita por sí mismo un rol administrativo: la autorización previa del endpoint sigue siendo la autoridad. El actor se obtiene de la sesión autenticada, nunca del cuerpo enviado por el cliente.
+
+### Contenido durable del evento
+
+Se guarda el identificador del actor y su rol observado, resource_type=Rider y resource_id del perfil. No se duplica el correo, nombre, teléfono, tokens, IP ni user-agent del actor. El antes/después recoge usuario del perfil, propiedad, vehículo asignado, tipo, placa, modelo, estado, conexión, revisión de asignación y vínculos de los vehículos implicados.
+
+Los datos nuevos incluyen event_family=RIDER_FLEET, schema_version=1, source, operation, changed_fields y documents_invalidated. Este último cuenta los registros documentales procesados/marcados RECHAZADO, no solo los que estaban aprobados. Se conserva status_changed_to para compatibilidad con la traza propia anterior. La hora occurred_at_utc lleva Z explícita y coincide con created_at almacenado como UTC naive según el modelo existente; identifica la generación del evento antes del commit, no una hora certificada de confirmación de PostgreSQL.
+
+| operation | ActionType existente | Significado |
+|---|---|---|
+| CREATE | CREATE | Perfil creado desde administración |
+| ASSIGN | ASSIGN | Primera asignación de empresa desde un perfil sin asignación |
+| REASSIGN | REASSIGN | Sustitución de un vehículo asignado por otro |
+| UNASSIGN | UPDATE | Liberación de la asignación de empresa |
+| VEHICLE_UPDATE | UPDATE | Cambio de datos físicos/propiedad conservando la clasificación anterior de vínculos |
+| LINK_REPAIR | UPDATE | Corrección de un vínculo incompleto inequívoco durante un guardado autorizado |
+
+Los registros contienen datos personales operativos, incluidos placa e identificadores, y llevan contains_personal_data=true. No se presenta este historial como anonimizado ni como cumplimiento legal certificado.
+
+### Transacción y fallos
+
+El estado anterior se copia después de obtener bloqueos y validar la revisión esperada, antes de modificar los vínculos. Tras aplicar el cambio se invalidan documentos, se actualiza la disponibilidad y se registra el estado resultante. La inserción del evento hace flush, sin commit independiente. El endpoint confirma la operación completa.
+
+Si una operación SQL de auditoría falla antes del commit, se hace rollback y se devuelve 503 sin exponer el error SQL. No se confirma el cambio de negocio sin su evento. Un rollback del llamador después del flush de auditoría también elimina ambos. El almacenamiento/permisos de audit_logs son una dependencia obligatoria de estas escrituras; si están indisponibles, las operaciones cubiertas dejan de confirmarse.
+
+Las peticiones denegadas o con revisión desactualizada no producen eventos exitosos de cambio. Los no-op reales no añaden eventos ni invalidan documentos otra vez. Este flujo no registra todos los intentos fallidos ni sustituye los logs operativos de errores.
+
+**Vínculo incompleto:** el servicio ya podía completar Vehicle.rider_id cuando había una única referencia compatible desde el perfil. Antes ese caso podía pasar como no-op. Ahora se considera un cambio, queda registrado como LINK_REPAIR e invalida documentación para revisión. No se toma posesión de vehículos con propietario contradictorio ni de referencias de otro perfil; esos casos siguen rechazándose.
+
+Se eliminan las impresiones heredadas de correo/placa del cambio propio y el try/except que podía ocultar la ausencia de auditoría. Se conservan las revisiones y bloqueos de los bloques anteriores.
+
+### Consulta y panel
+
+Los eventos se consultan en el endpoint existente GET /api/v1/audit, filtrando resource_type=Rider y resource_id del perfil; search=RIDER_FLEET permite localizar esta familia. La API de lectura conserva sus permisos de GERENTE/SUPERADMIN y expone old_values/new_values existentes, sin añadir una API de escritura de eventos.
+
+El panel muestra el identificador del usuario cuando falta su correo, en lugar de atribuir una acción humana a SYSTEM. Los eventos que sí tienen correo conservan esa presentación; SYSTEM se usa cuando no hay identidad. Para eventos nuevos se muestra la hora occurred_at_utc explícita; los antiguos conservan el fallback de fecha previo.
+
+### Límites y próximos pendientes
+
+No se modifica esquema, modelos ni migraciones. El registro SQL es durable tras un commit confirmado, pero no es inmutable frente a un administrador de base de datos ni está firmado/encadenado criptográficamente. No reconstruye autores ni estados históricos anteriores a este bloque.
+
+Un fallo de comunicación durante commit puede dejar incierto el acuse para el cliente: negocio y auditoría pertenecen a la misma transacción, pero no se añade una clave de idempotencia de petición ni una garantía universal exactamente-una-vez. Debe consultarse el estado antes de repetir a ciegas.
+
+Quedan fuera los cambios exclusivamente de nombres/teléfono/nivel, las ediciones de inventario de vehículos, la inscripción propia de auth/register y escritores alternativos/SQL externos que no usan estas rutas. No se certifica que toda escritura del sistema esté auditada. Siguen pendientes retención, exportación/anónimos y políticas de acceso/operación de datos personales, revisión esperada de la ficha del vehículo candidato, concurrencia del perfil ajeno a flota y reparación operativa de históricos. No se cancelan ni reasignan entregas activas automáticamente.
+
+### Evidencia final local del bloque 20
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **671 pruebas aprobadas**, 14 nuevas frente a 657; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **68 pruebas** incluidas; cuatro nuevas para persistencia tras commit, rechazo por CHECK real de auditoría, rollback posterior al flush y dos cambios con la misma revisión |
+| Nuevas pruebas restantes de backend | 10 casos HTTP/SQLite: antes/después, actor distinto del usuario del perfil, rutas/orígenes, no-op, conflicto/denegación, corrección de vínculo, creación y tres fallos reales de inserción con rollback |
+| Frontend | **206 pruebas aprobadas** en 19 suites; dos nuevas para identidad humana/sistema/legado y fecha UTC explícita |
+| TypeScript / ESLint / Next.js build | Aprobados; advertencias anteriores conservadas |
+| Mypy con --ignore-missing-imports | **329 errores en 52 archivos**, uno menos que la base y sin diagnósticos nuevos por archivo/mensaje; 166 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; 166 archivos de app; cero errores críticos de lint |
+| Cobertura frontend | Statements **10,19 %**, branches **8,85 %**, functions **7,16 %**, lines **10,31 %** |
+
+El comando frontend con cobertura sigue fallando por el umbral global del 50 %, aunque las pruebas pasan. Mypy mantiene deuda anterior; no se declara CI global verde ni producción lista.
+
+Los fallos de auditoría se provocan con triggers SQLite y una restricción CHECK real en PostgreSQL aislado. No se intervienen datos de negocio ni se ejecutan cambios de esquema sobre producción. La adaptación de DDL SQLite para el default de UUID solo afecta al fixture y restaura el metadata original. No se aplican migraciones ni se despliega. El PR se publica sin borrador, sin fusión automática.
