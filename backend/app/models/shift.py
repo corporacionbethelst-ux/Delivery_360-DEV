@@ -2,9 +2,7 @@
 
 import uuid
 from datetime import datetime, timezone, time  # CORREGIDO
-from typing import Any
 from sqlalchemy import (
-    Column,
     String,
     DateTime,
     ForeignKey,
@@ -12,10 +10,8 @@ from sqlalchemy import (
     Float,
     Time,
     Integer,
-    Boolean,
-    text,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
 from app.core.database import Base
@@ -37,37 +33,55 @@ class ShiftStatus(str, enum.Enum):
 class Shift(Base):
     __tablename__ = "shifts"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    rider_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True,
+        nullable=False,
+    )
+    rider_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("riders.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
 
-    shift_date = Column(DateTime, nullable=False, index=True)
-    start_time = Column(Time, nullable=False)
-    end_time = Column(Time, nullable=False)
+    shift_date: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    start_time: Mapped[time] = mapped_column(Time, nullable=False)
+    end_time: Mapped[time] = mapped_column(Time, nullable=False)
 
-    check_in_at = Column(DateTime)
-    check_out_at = Column(DateTime)
+    check_in_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    check_out_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    status = Column(SQLEnum(ShiftStatus), default=ShiftStatus.PROGRAMADO)
+    status: Mapped[ShiftStatus | None] = mapped_column(
+        SQLEnum(ShiftStatus), default=ShiftStatus.PROGRAMADO, nullable=True
+    )
 
-    check_in_latitude = Column(Float)
-    check_in_longitude = Column(Float)
-    check_out_latitude = Column(Float)
-    check_out_longitude = Column(Float)
+    check_in_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    check_in_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    check_out_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    check_out_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    total_deliveries = Column(Integer, default=0)
-    completed_deliveries = Column(Integer, default=0)
-    total_earnings = Column(Float, default=0.0)
+    total_deliveries: Mapped[int | None] = mapped_column(
+        Integer, default=0, nullable=True
+    )
+    completed_deliveries: Mapped[int | None] = mapped_column(
+        Integer, default=0, nullable=True
+    )
+    total_earnings: Mapped[float | None] = mapped_column(
+        Float, default=0.0, nullable=True
+    )
 
-    notes = Column(String(500))
-    cancellation_reason = Column(String(255))
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    cancellation_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    created_at = Column(DateTime, default=utc_now_naive)
-    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=True
+    )
 
     rider = relationship("Rider")
     check_ins = relationship(
@@ -81,27 +95,37 @@ class Shift(Base):
 
 class CheckInOut(Base):
     __tablename__ = "check_in_out"
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    rider_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True,
+        nullable=False,
+    )
+    rider_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("riders.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    shift_id = Column(
+    shift_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("shifts.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
     )
-    check_type = Column(String(10), nullable=False)
-    timestamp = Column(DateTime, default=utc_now_naive, nullable=False)
-    latitude = Column(Float)
-    longitude = Column(Float)
-    device_id = Column(String(255))
-    ip_address = Column(String(45))
-    notes = Column(String(500))
-    created_at = Column(DateTime, default=utc_now_naive)
+    check_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=False
+    )
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    device_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
 
     rider = relationship("Rider")
     shift = relationship("Shift", back_populates="check_ins")

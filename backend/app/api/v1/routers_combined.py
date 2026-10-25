@@ -24,13 +24,14 @@ import random
 import string
 from decimal import Decimal
 
+from app.api.v1.shifts import (
+    router as shifts_router,
+)  # noqa: F401 (compatibility export)
 from app.core.serialization import optional_enum_value
 from app.models.delivery import DeliveryStatus
 from app.core.database import get_db
 from app.models.all_models import (
     Delivery,
-    Shift,
-    ShiftStatus,
     Financial,
     Route,
     AuditLog,
@@ -249,112 +250,8 @@ async def complete_delivery(
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SHIFTS
-# ─────────────────────────────────────────────────────────────────────────────
-shifts_router = APIRouter(prefix="/shifts")
-
-
-@shifts_router.post("/checkin")
-async def checkin(
-    lat: Optional[float] = None,
-    lng: Optional[float] = None,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
-    rider = result.scalar_one_or_none()
-    if not rider:
-        raise HTTPException(
-            status_code=404, detail="Perfil de repartidor no encontrado"
-        )
-
-    active = await db.execute(
-        select(Shift).where(
-            Shift.rider_id == rider.id, Shift.status == ShiftStatus.EN_CURSO
-        )
-    )
-    if active.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Ya tienes un turno activo")
-
-    now_naive = utc_now_naive()
-
-    shift = Shift(
-        rider_id=rider.id,
-        start_time=now_naive,
-        start_lat=lat,
-        start_lng=lng,
-        status=ShiftStatus.EN_CURSO,
-    )
-    db.add(shift)
-    rider.is_online = True
-    await db.commit()
-    return {"message": "Check-in exitoso", "shift_id": str(shift.id)}
-
-
-@shifts_router.post("/checkout/{shift_id}")
-async def checkout(
-    shift_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    result = await db.execute(
-        select(Shift).where(Shift.id == _parse_uuid(shift_id, "shift_id"))
-    )
-    shift = result.scalar_one_or_none()
-    if not shift:
-        raise HTTPException(status_code=404, detail="Turno no encontrado")
-
-    now_naive = utc_now_naive()
-
-    shift.end_time = now_naive
-    shift.status = ShiftStatus.COMPLETADO
-
-    if shift.start_time:
-        diff = now_naive - shift.start_time
-        shift.duration_hours = diff.total_seconds() / 3600
-
-    result2 = await db.execute(select(Rider).where(Rider.id == shift.rider_id))
-    rider = result2.scalar_one_or_none()
-    if rider:
-        rider.is_online = False
-
-    await db.commit()
-    return {
-        "message": "Check-out exitoso",
-        "duration_hours": round(shift.duration_hours, 2) if shift.duration_hours else 0,
-        "total_orders": shift.total_orders or 0,
-        "total_earnings": shift.total_earnings or 0,
-    }
-
-
-@shifts_router.get("")
-async def list_shifts(
-    rider_id: Optional[str] = Query(None),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    q = select(Shift)
-    if rider_id:
-        rider_uuid = _parse_uuid(rider_id, "rider_id")
-        await _ensure_rider_scope(db, current_user, rider_uuid)
-        q = q.where(Shift.rider_id == rider_uuid)
-    result = await db.execute(q.order_by(Shift.start_time.desc()).limit(100))
-    items = result.scalars().all()
-    return [
-        {
-            "id": str(s.id),
-            "rider_id": str(s.rider_id),
-            "status": s.status.value if s.status else None,
-            "start_time": s.start_time.isoformat() if s.start_time else None,
-            "end_time": s.end_time.isoformat() if s.end_time else None,
-            "duration_hours": s.duration_hours,
-            "total_orders": s.total_orders,
-            "total_earnings": s.total_earnings,
-        }
-        for s in items
-    ]
-
+# The unregistered, incompatible shift endpoints have been retired.
+# Keep the export pointing to the operator router, including its role checks.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # FINANCIAL
