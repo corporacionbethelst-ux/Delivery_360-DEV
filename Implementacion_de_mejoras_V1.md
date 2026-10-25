@@ -1433,3 +1433,57 @@ El helper confirma las restricciones al denegar y exige que sus llamadores lo in
 Los dobles de sesión de Fase 8 se adaptan al contrato de consultas y documentos requeridos, con archivos reales temporales; no se omite la comprobación de elegibilidad para mantener esas pruebas. El doble de edición ordinaria incorpora la consulta asíncrona del bloqueo. Las pruebas PostgreSQL usan una base test_* y esquemas aislados, nunca datos de negocio.
 
 Se mantienen la deuda Mypy y el umbral de cobertura frontend incumplido. No se declara producción lista ni CI global verde. El PR se publica sin borrador; no se fusiona ni despliega automáticamente.
+
+## Bloque 17 — Integridad de asignaciones y cambios administrativos de vehículo
+
+Fecha: 25 de octubre de 2026 (America/Caracas). Base: main, commit bcc0ae4, con PR #258 fusionado. Rama: fix/fleet-assignment-integrity-v1.
+
+### Hallazgos tratados
+
+La edición administrativa del repartidor no invalidaba sus documentos al cambiar tipo, placa, modelo o asignación. La reasignación actualizaba el vehículo nuevo, pero no liberaba siempre Vehicle.rider_id del anterior. Las comprobaciones de disponibilidad no bloqueaban el vehículo y podían aceptar solicitudes competidoras. La eliminación comprobaba únicamente Vehicle.rider_id, omitiendo referencias desde Rider.assigned_vehicle_id.
+
+El nuevo servicio fleet_assignment comparte validaciones, bloqueo e invalidación entre la edición administrativa y la propia. La creación administrativa de repartidores con vehículo de empresa también usa el bloqueo y comprueba ambos vínculos.
+
+### Protocolo transaccional
+
+1. Se bloquean los vehículos anterior/nuevo por UUID ordenado, antes de bloquear el repartidor. Después se refrescan los campos relevantes dentro del bloqueo. Las operaciones documentales siguen bloqueando repartidor y luego documentos; no toman bloqueos de vehículos.
+2. Si la asignación del repartidor cambió mientras esperaba, se devuelve 409 para recargar y revisar el perfil. No se aplica automáticamente la petición sobre una asignación distinta de la observada inicialmente.
+3. Un vehículo de empresa debe existir y estar ACTIVO. Se comprueban tanto su vínculo a users.id como las referencias de perfiles riders.id; una referencia de otro perfil o un propietario incompatible devuelve 409. Las contradicciones históricas detectadas no se reparan eligiendo un dueño arbitrario.
+4. Una reasignación libera el vínculo del vehículo anterior y establece el nuevo en la misma transacción que el perfil. Cambiar a PROPIO limpia la asignación de empresa y libera el vehículo anterior. Un fallo de validación produce rollback de la operación, incluida la creación de usuario cuando corresponda.
+5. Para EMPRESA, tipo/placa/modelo se obtienen del vehículo de flota al asignarlo. Una edición directa incompatible de esos datos en un perfil ya asignado se rechaza con 409: debe desasignarse antes de editar el vehículo desde flota.
+6. Un cambio real de tipo, placa, modelo, propiedad o asignación rechaza la documentación vigente y actualiza sus revisiones; ACTIVO/OCUPADO pasan a PENDIENTE y quedan desconectados. Se conservan SUSPENDIDO/INACTIVO. Reenviar exactamente la misma asignación/datos no invalida documentos aprobados sin motivo.
+
+Los helpers no confirman transacciones: cada endpoint conserva el commit/rollback de la operación completa. No se añade un bloqueo global de flota; se serializan las filas que comparten los cambios. La garantía concurrente se verifica sobre PostgreSQL; SQLite no ofrece bloqueos de fila equivalentes.
+
+### Edición y eliminación desde flota
+
+Las rutas PATCH/DELETE de vehículos bloquean primero la fila del vehículo. La eliminación y los cambios efectivos de placa, tipo, modelo, año, estado o vencimiento del seguro exigen ausencia de propietario y ausencia de referencias desde perfiles. Un vehículo asignado devuelve 409 indicando desasignarlo antes. Esto evita modificar silenciosamente el vehículo que respalda documentos ya aprobados.
+
+Color y notas pueden editarse conservando la asignación. Reenviar valores críticos sin cambios no se considera una modificación. Los campos obligatorios no admiten null y devuelven 422; insurance_expiry sigue admitiendo null, sujeto al control de asignación cuando cambia. Se conserva la normalización de placa y su comprobación previa de duplicados. La respuesta de edición vuelve a cargar explícitamente usuario/perfil para conservar los identificadores de asignación y evitar accesos lazy durante la serialización.
+
+No se modifican frontend, modelos ORM, esquema ni migraciones. Los clientes deben gestionar 409 por ocupación, conflicto o necesidad de desasignar. El formato de las respuestas se mantiene; para EMPRESA los datos físicos reflejan la flota y no valores contradictorios del formulario. La creación rechazada no deja usuario/perfil parcial.
+
+### Límites y próximos hallazgos
+
+- Falta una conciliación de solo lectura de todos los históricos para identificar vínculos huérfanos/contradictorios, vehículos inactivos ya asignados y metadata física desactualizada. Las operaciones nuevas no certifican automáticamente los datos antiguos.
+- Los listados heredados de disponibilidad aún se apoyan en Vehicle.rider_id; un vehículo con una referencia histórica incompleta puede anunciarse como libre aunque la nueva asignación se rechace. Debe alinearse la lectura con la validación de ambos vínculos.
+- No se incorpora una restricción única adicional en Rider.assigned_vehicle_id ni triggers para escritores externos. Los bloqueos protegen las rutas de aplicación incluidas; una escritura SQL externa puede violar los vínculos.
+- Sigue pendiente auditoría durable y uniforme de cambios administrativos de asignación. La auditoría propia conserva su circuito previo; no se declara un historial completo de flota.
+- La comprobación previa de placa duplicada no sustituye la restricción única existente: falta tratar uniformemente sus conflictos concurrentes y revisar normalización histórica.
+- No se programa automáticamente la caducidad de seguros ni se certifica validez legal de documentos. No hay reassignment/cancelación automática de entregas activas cuando un repartidor queda restringido.
+- Se mantienen las deudas generales de tipado, cobertura, rendimiento bajo carga, rate limit distribuido, archivos históricos, recuperación y retención de los bloques anteriores.
+
+El control de conflicto de asignación detecta cambios entre lectura inicial y adquisición del bloqueo en el servidor. Aún no exige una revisión esperada enviada por el formulario: no detecta por sí solo un formulario abierto antes de que comenzara la petición. Esa protección de edición obsoleta sigue pendiente.
+
+### Evidencia final local del bloque 17
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **598 pruebas aprobadas**, 34 nuevas frente a 564; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **57 pruebas** incluidas; seis nuevas para asignaciones competidoras, liberación/reutilización, borrado, suspensión, mantenimiento y asignaciones obsoletas concurrentes |
+| Pruebas nuevas restantes | 28 casos con SQLite: endpoints administrativos, estados, metadata canónica, no-op, rechazo sin vínculos parciales, creación/rollback, nulos, edición cosmética/crítica y eliminación |
+| Mypy con --ignore-missing-imports | **330 errores en 52 archivos**, sin diagnósticos nuevos por archivo/mensaje; 163 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; 163 archivos de app; cero errores críticos de lint |
+| Frontend | Sin cambios; se conserva su validación anterior de 183 pruebas y compilación, no repetida para este bloque backend |
+
+PostgreSQL se ejecuta sobre una base test_* y esquemas privados por prueba. Las adiciones de columnas/tipos dentro de los fixtures solo construyen esos esquemas efímeros y no son migraciones de la aplicación. No se modifica una base de negocio. La deuda Mypy y el umbral de cobertura frontend siguen pendientes; no se declara CI global verde. El PR se publica sin borrador, sin fusión ni despliegue automáticos.
