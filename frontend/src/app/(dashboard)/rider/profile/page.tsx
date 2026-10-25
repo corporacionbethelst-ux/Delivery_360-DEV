@@ -25,6 +25,7 @@ export default function RiderProfilePage() {
   const { user, isAuthenticated } = useAuthStore(); 
   
   const [vehicleRevision, setVehicleRevision] = useState<string | undefined>();
+  const [profileRevision, setProfileRevision] = useState<string | undefined>();
   const [assignmentRevision, setAssignmentRevision] = useState<string | undefined>();
   const loadedUserRef = useRef<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -54,11 +55,13 @@ export default function RiderProfilePage() {
     if (loadedUserRef.current === user.id) return;
     loadedUserRef.current = user.id;
     setAssignmentRevision(undefined);
+    setProfileRevision(undefined);
     loadProfileData();
   }, [user, isAuthenticated, router, isMounted]);
 
   const loadProfileData = async () => {
     setAssignmentRevision(undefined);
+    setProfileRevision(undefined);
     try {
       // ✅ CORRECCIÓN: El servicio ya devuelve el objeto directo, no hay .data
       const data = await riderService.getProfile();
@@ -69,6 +72,7 @@ export default function RiderProfilePage() {
 
 
       setAssignmentRevision(data.assignment_revision);
+      setProfileRevision(data.profile_revision);
       setVehicleRevision(data.vehicle_ownership_type === 'EMPRESA' ? data.assigned_vehicle?.revision : undefined);
       setFormData({
         first_name: data.first_name || '',
@@ -80,6 +84,7 @@ export default function RiderProfilePage() {
     } catch (error) {
       console.error("❌ Error cargando perfil desde API:", error);
       setAssignmentRevision(undefined);
+      setProfileRevision(undefined);
       // Fallback: Usar datos del store si falla la API (solo si son consistentes)
       if (user) {
         setFormData({
@@ -100,6 +105,7 @@ export default function RiderProfilePage() {
     setIsSubmitting(true);
     try {
       await riderService.updateProfile({
+        expected_profile_revision: profileRevision,
         expected_assignment_revision: assignmentRevision,
         expected_vehicle_revision: vehicleRevision,
         first_name: formData.first_name,
@@ -116,7 +122,8 @@ export default function RiderProfilePage() {
     } catch (error: any) {
       if (isAssignmentConflict(error)) {
         setAssignmentRevision(undefined);
-        alert('Los datos del vehículo cambiaron. Recarga el perfil y revisa los datos antes de guardar de nuevo.');
+        setProfileRevision(undefined);
+        alert('El perfil o su asignación cambiaron. Recarga el perfil y revisa los datos antes de guardar de nuevo.');
         return;
       }
       const msg = error.response?.data?.detail || error.message;
@@ -204,7 +211,7 @@ export default function RiderProfilePage() {
               </div>
 
               <div className="pt-4 flex justify-end">
-                <Button type="submit" disabled={isSubmitting || !assignmentRevision}>
+                <Button type="submit" disabled={isSubmitting || !assignmentRevision || !profileRevision}>
                   {isSubmitting ? (
                     <>
                       <Loader2 className="mr-2 w-4 h-4 animate-spin" /> Guardando...

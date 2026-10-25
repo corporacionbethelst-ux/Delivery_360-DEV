@@ -50,6 +50,11 @@ from app.models.payout import Payout, PayoutStatus
 from app.models.enums import VehicleOwnershipType
 from app.api.v1.auth import get_current_user, require_role
 from app.services.financial_service import CREDIT_TYPES
+from app.services.rider_profile_revision import (
+    PROFILE_FIELDS,
+    profile_revision,
+    ensure_profile_revision,
+)
 from app.core.fleet_revision import assignment_revision
 from app.core.vehicle_revision import vehicle_revision, ensure_vehicle_revision
 from app.services.fleet_audit import record_fleet_change
@@ -122,6 +127,7 @@ class RiderUpdate(BaseModel):
     expected_vehicle_revision: Optional[str] = Field(None, pattern=r"^[a-f0-9]{64}$")
 
     expected_assignment_revision: Optional[str] = Field(None, pattern=r"^[a-f0-9]{64}$")
+    expected_profile_revision: Optional[str] = Field(None, pattern=r"^[a-f0-9]{64}$")
 
     # Campo para nivel/gamificación (Fase 4)
     tier: Optional[str] = None
@@ -259,6 +265,7 @@ def _rider_to_dict(r: Rider, include_user: bool = False) -> dict:
         ),  # ✅ AGREGADO: Campo tier para gamificación
         "vehicle_type": optional_enum_value(r.vehicle_type),
         "assignment_revision": assignment_revision(r),
+        "profile_revision": profile_revision(r),
         "vehicle_plate": r.vehicle_plate or "",
         "vehicle_model": r.vehicle_model,
         "operating_zone": r.operating_zone,
@@ -724,7 +731,11 @@ async def update_my_rider_profile(
 
     payload = body.model_dump(
         exclude_none=True,
-        exclude={"expected_assignment_revision", "expected_vehicle_revision"},
+        exclude={
+            "expected_assignment_revision",
+            "expected_vehicle_revision",
+            "expected_profile_revision",
+        },
     )
     before_state: dict = {}
     vehicle_changed = False
@@ -737,6 +748,8 @@ async def update_my_rider_profile(
             before_state=before_state,
             expected_vehicle_revision=body.expected_vehicle_revision,
         )
+    if PROFILE_FIELDS.intersection(payload):
+        await ensure_profile_revision(db, rider, body.expected_profile_revision)
     if "vehicle_type" in payload:
         try:
             if isinstance(payload["vehicle_type"], str):
@@ -766,16 +779,12 @@ async def update_my_rider_profile(
         ]:
             setattr(rider, field, value)
 
-    user_updated = False
     if "first_name" in payload:
-        current_user.first_name = payload["first_name"]
-        user_updated = True
+        rider.user.first_name = payload["first_name"]
     if "last_name" in payload:
-        current_user.last_name = payload["last_name"]
-        user_updated = True
+        rider.user.last_name = payload["last_name"]
     if "phone" in payload:
-        current_user.phone = payload["phone"]
-        user_updated = True
+        rider.user.phone = payload["phone"]
 
     if vehicle_changed:
         count = await invalidate_vehicle_documents(db, rider.id)
@@ -1122,7 +1131,11 @@ async def update_rider(
 
     payload = body.model_dump(
         exclude_none=True,
-        exclude={"expected_assignment_revision", "expected_vehicle_revision"},
+        exclude={
+            "expected_assignment_revision",
+            "expected_vehicle_revision",
+            "expected_profile_revision",
+        },
     )
 
     before_state: dict = {}
@@ -1136,6 +1149,9 @@ async def update_rider(
             before_state=before_state,
             expected_vehicle_revision=body.expected_vehicle_revision,
         )
+
+    if PROFILE_FIELDS.intersection(payload):
+        await ensure_profile_revision(db, rider, body.expected_profile_revision)
 
     if "vehicle_type" in payload:
         payload["vehicle_type"] = _parse_vehicle_type(payload["vehicle_type"])

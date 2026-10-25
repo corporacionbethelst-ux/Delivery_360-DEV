@@ -30,11 +30,11 @@ it.each([undefined, '', 'bad', 'A'.repeat(64)])('refuses fleet writes without a 
   expect(patch).not.toHaveBeenCalled(); expect(put).not.toHaveBeenCalled(); expect(get).not.toHaveBeenCalled();
 });
 
-it('keeps nonfleet updates compatible', async () => {
+it('sends nonfleet updates with their own observed profile revision', async () => {
   patch.mockResolvedValueOnce({ id }); put.mockResolvedValueOnce({ id });
-  await riderService.updateRider(id, { phone: '+584121234567' });
-  await riderService.updateProfile({ first_name: 'New' });
-  expect(patch).toHaveBeenCalledWith(`/riders/${id}`, { phone: '+584121234567' });
+  await riderService.updateRider(id, { phone: '+584121234567', expected_profile_revision: revision });
+  await riderService.updateProfile({ first_name: 'New', expected_profile_revision: revision });
+  expect(patch).toHaveBeenCalledWith(`/riders/${id}`, { phone: '+584121234567', expected_profile_revision: revision });
 });
 
 it('does not fetch a fresh revision or retry a conflicted write', async () => {
@@ -45,3 +45,10 @@ it('does not fetch a fresh revision or retry a conflicted write', async () => {
 
 it.each([null, { status: 403 }, new Error('network')])('does not relabel unrelated failures as assignment conflicts', error => expect(isAssignmentConflict(error)).toBe(false));
 it('recognizes the local missing-revision conflict', () => expect(isAssignmentConflict(new AssignmentRevisionError())).toBe(true));
+
+it.each([undefined, '', 'bad', 'A'.repeat(64)])('refuses personal/tier writes without the captured profile revision: %s', async value => {
+  const { ProfileRevisionError } = await import('@/lib/profile-revision');
+  await expect(riderService.updateRider(id, { tier:'ORO', expected_profile_revision:value })).rejects.toBeInstanceOf(ProfileRevisionError);
+  await expect(riderService.updateProfile({ phone:'+584121234567', expected_profile_revision:value })).rejects.toBeInstanceOf(ProfileRevisionError);
+  expect(patch).not.toHaveBeenCalled(); expect(put).not.toHaveBeenCalled(); expect(get).not.toHaveBeenCalled();
+});

@@ -56,6 +56,15 @@ async def fleet(submissions):
 
 
 async def change(client, ctx, **payload):
+    from app.services.rider_profile_revision import PROFILE_FIELDS
+
+    if PROFILE_FIELDS.intersection(payload):
+        observed_profile = (
+            await client.get(f"/api/v1/riders/{ctx['rider_id']}")
+        ).json()
+        payload.setdefault(
+            "expected_profile_revision", observed_profile["profile_revision"]
+        )
     if "expected_assignment_revision" not in payload:
         current = await client.get(f"/api/v1/riders/{ctx['rider_id']}")
         assert current.status_code == 200, current.text

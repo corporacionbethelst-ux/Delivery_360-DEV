@@ -2039,3 +2039,52 @@ El catálogo checks añade los dos códigos y el cuerpo añade insurance_referen
 | Frontend | Sin cambios; se conserva la validación anterior de **233 pruebas**, TypeScript, lint y build, no repetida |
 
 Las pruebas usan SQLite temporal y PostgreSQL test_* con esquemas privados. Los datos saludables de las pruebas de conciliación incluyen ahora una fecha futura conocida, para distinguirlos de un inventario con fecha desconocida. No se modifican las fechas de bases de negocio. Mypy conserva deuda anterior y la cobertura frontend previa (**13,53 % de líneas**) sigue bajo el mínimo global del 50 %. No se declara CI global verde ni producción lista. El PR se publica sin borrador y no se fusiona automáticamente.
+
+## Bloque 27 — Precondiciones para datos personales y nivel del repartidor
+
+Fecha: 25 de octubre de 2026 (America/Caracas). Base: main, commit 0d333d6, con PR #268 fusionado. Rama: fix/rider-profile-preconditions-v1.
+
+### Problema y contrato de escritura
+
+La revisión de asignación protegía el vehículo, pero dos formularios podían sobrescribir teléfono, nombre o nivel usando información anterior. PUT /api/v1/riders/me y PATCH /api/v1/riders/{id} requieren ahora expected_profile_revision cuando actualizan valores no nulos de first_name, last_name, phone, operating_zone, cpf, cnh o tier. Una revisión ausente o desactualizada devuelve 409; una revisión mal formada devuelve 422. Los permisos sobre nivel y flota se verifican antes y no cambian.
+
+Las respuestas Rider generadas por el serializador común incluyen profile_revision. Es una huella SHA-256 de los identificadores del perfil/usuario y sus valores personales/nivel persistidos. Incluye campos de User y Rider para que una modificación en cualquiera de ellos invalide una ficha anterior. Es independiente de assignment_revision y de la revisión del vehículo seleccionado.
+
+No intervienen GPS, disponibilidad, estado administrativo, puntos, saldos, fechas internas ni metadatos del vehículo. Un cambio de flota no obliga por sí solo a descartar una edición exclusivamente personal. Una solicitud que cambia ambos ámbitos debe presentar ambas revisiones; las selecciones EMPRESA siguen requiriendo además expected_vehicle_revision.
+
+### Bloqueos y atomicidad
+
+Las actualizaciones personales bloquean primero Rider y luego User. Si la solicitud también toca flota, mantiene el orden previo de vehículos por UUID, Rider, User y finalmente documentos. Antes de comparar la revisión se vuelven a leer los campos personales de Rider y se refresca User bajo bloqueo; no se confía en valores antiguos de la sesión ORM.
+
+La comprobación precede a la aplicación de datos personales/nivel y no confirma una transacción propia. Si el cambio de flota había preparado vínculos y falla la revisión personal, el rollback de la solicitud revierte toda la operación, sin asignación parcial, invalidación de documentos ni evento de éxito. Los cambios de User se aplican al usuario cargado y bloqueado del perfil tanto en la ruta personal como en la administrativa.
+
+### Formularios y compatibilidad
+
+El editor de gerencia captura profile_revision junto con el borrador ya congelado. Un refresco de la lista del mismo repartidor no sustituye silenciosamente la revisión; cerrar y reabrir permite capturar la ficha nueva. El perfil del repartidor carga ambas revisiones desde el servidor, las envía al guardar y bloquea nuevos envíos tras un conflicto hasta una recarga explícita. Los datos de respaldo del almacén local no autorizan un guardado sin revisión de servidor.
+
+El servicio frontend valida la revisión antes de enviar cambios personales/nivel; no obtiene un token nuevo ni reintenta automáticamente. Los consumidores anteriores de estas dos rutas deben incorporar expected_profile_revision. Las escrituras exclusivamente de flota conservan su contrato anterior. Se mantiene el tratamiento previo de null como campo omitido en RiderUpdate; este bloque no añade borrado explícito de campos personales.
+
+### Límites y pendientes
+
+La huella representa valores, no un contador de eventos: volver exactamente a los valores anteriores produce la misma revisión. No es una credencial, firma de auditoría, anonimización ni prueba de que una persona revisó el contenido. La combinación de varios campos no implica que sus datos personales puedan divulgarse sin control.
+
+La exclusión optimista cubre las dos rutas Rider modificadas. Las rutas generales /users/me y /users/{id}, tareas, scripts y SQL que actualicen datos sin este protocolo siguen pendientes de unificación. Si un cambio externo ya se confirmó antes de la comprobación, la nueva lectura lo detecta; no se garantiza evitar sobrescrituras originadas después por escritores que no presentan su propia precondición. Tampoco se incorpora aquí una auditoría personal/nivel ni protección monotónica contra cambios y retornos al mismo valor.
+
+Las garantías de espera y bloqueo se validan en PostgreSQL. SQLite permite comprobar contrato HTTP y rollback, pero no representa esos bloqueos de fila. No cambian esquema, modelos, migraciones, reglas de cálculo de bonos o permisos. No se modifican datos de negocio ni se despliega o fusiona automáticamente.
+
+### Evidencia final local del bloque 27
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **785 pruebas aprobadas**, catorce nuevas frente a 771; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **92 pruebas** incluidas; tres nuevas para editores simultáneos, refresco del usuario tras esperar y coexistencia de perfil/flota sin orden inverso de bloqueos |
+| Nuevas pruebas restantes | Once casos HTTP/SQLite: revisiones ausentes/malformadas/desactualizadas en ambas rutas, segundo editor, rollback mixto de perfil/flota, independencia de telemetría/flota y denegación del cambio de tier a REPARTIDOR |
+| Frontend | **240 pruebas aprobadas** en 23 suites; siete nuevas para rechazos locales, ausencia de revisión en formularios y conservación de revisión en el almacén |
+| TypeScript / ESLint / Next.js build | Aprobados; advertencias anteriores conservadas |
+| Mypy con --ignore-missing-imports | **329 errores en 52 archivos**, sin diagnósticos nuevos por archivo/mensaje; 170 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; los archivos Python nuevos también fueron formateados |
+| Cobertura frontend | Statements **13,57 %**, branches **11,45 %**, functions **10,67 %**, lines **13,66 %** |
+
+Las pruebas anteriores de autorización con persistencia simulada aíslan ahora ese objetivo del servicio de precondición; las pruebas nuevas ejercitan la protección real con SQLite y PostgreSQL. Los auxiliares de pruebas obtienen la revisión antes de cambios independientes; los casos de conflicto conservan expresamente una revisión antigua. El almacén frontend puede incluir propiedades undefined sin convertirlas en cambios personales: se valida la revisión de los valores no nulos que realmente se enviarían.
+
+El comando de cobertura sigue terminando con error por el umbral global del 50 %, aunque todas las pruebas frontend pasan. Mypy mantiene deuda anterior; no se declara CI global verde ni producción lista. Se usan únicamente bases temporales/test_* con esquemas aislados. El PR se publica sin borrador, sin despliegue ni fusión automática.
