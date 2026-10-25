@@ -12,7 +12,27 @@ from tests.test_fleet_assignment_postgresql import pg_fleet, assign  # noqa: F40
 from app.api.v1 import vehicles as api
 from app.core.vehicle_revision import vehicle_edit_revision
 from app.models.vehicle import Vehicle
+from app.models.audit_log import AuditLog
+from app.models.user import User, UserRole
 from app.services.fleet_assignment import lock_vehicles
+
+
+@pytest.fixture
+async def inventory_fleet(pg_fleet):
+    sessions, riders, vehicles = pg_fleet
+    async with sessions() as db:
+        connection = await db.connection()
+        await connection.run_sync(
+            lambda conn: AuditLog.__table__.create(conn, checkfirst=True)
+        )
+        await db.commit()
+    return sessions, riders, vehicles
+
+
+async def actor(db):
+    return SimpleNamespace(
+        id=await db.scalar(select(User.id).limit(1)), role=UserRole.GERENTE
+    )
 
 
 async def token(sessions, vehicle_id):
@@ -30,14 +50,14 @@ async def edit(sessions, vehicle_id, expected, notes):
             str(vehicle_id),
             api.VehicleUpdate(notes=notes),
             db,
-            SimpleNamespace(),
+            await actor(db),
             if_match=expected,
         )
 
 
 @pytest.mark.asyncio
-async def test_two_editors_with_same_tag_only_one_can_commit(pg_fleet):
-    sessions, _, vehicles = pg_fleet
+async def test_two_editors_with_same_tag_only_one_can_commit(inventory_fleet):
+    sessions, _, vehicles = inventory_fleet
     expected = await token(sessions, vehicles[0])
     results = await asyncio.gather(
         *(edit(sessions, vehicles[0], expected, note) for note in ["FIRST", "SECOND"]),
@@ -53,8 +73,8 @@ async def test_two_editors_with_same_tag_only_one_can_commit(pg_fleet):
 
 
 @pytest.mark.asyncio
-async def test_waiting_editor_observes_new_note_under_lock(pg_fleet):
-    sessions, _, vehicles = pg_fleet
+async def test_waiting_editor_observes_new_note_under_lock(inventory_fleet):
+    sessions, _, vehicles = inventory_fleet
     expected = await token(sessions, vehicles[0])
     async with sessions() as editor:
         vehicle = (await lock_vehicles(editor, {vehicles[0]}))[vehicles[0]]
@@ -74,14 +94,14 @@ async def test_waiting_editor_observes_new_note_under_lock(pg_fleet):
 
 
 @pytest.mark.asyncio
-async def test_edit_and_delete_cannot_both_accept_old_tag(pg_fleet):
-    sessions, _, vehicles = pg_fleet
+async def test_edit_and_delete_cannot_both_accept_old_tag(inventory_fleet):
+    sessions, _, vehicles = inventory_fleet
     expected = await token(sessions, vehicles[0])
 
     async def delete():
         async with sessions() as db:
             return await api.delete_vehicle(
-                str(vehicles[0]), db, SimpleNamespace(), if_match=expected
+                str(vehicles[0]), db, await actor(db), if_match=expected
             )
 
     results = await asyncio.gather(
@@ -96,8 +116,8 @@ async def test_edit_and_delete_cannot_both_accept_old_tag(pg_fleet):
 
 
 @pytest.mark.asyncio
-async def test_owner_change_invalidates_even_cosmetic_editor(pg_fleet):
-    sessions, riders, vehicles = pg_fleet
+async def test_owner_change_invalidates_even_cosmetic_editor(inventory_fleet):
+    sessions, riders, vehicles = inventory_fleet
     expected = await token(sessions, vehicles[0])
     await assign(sessions, riders[0], vehicles[0])
     with pytest.raises(HTTPException) as error:

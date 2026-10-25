@@ -1818,3 +1818,70 @@ Este bloque protege la concurrencia del inventario; todavía no incorpora una au
 Las pruebas frontend pasan, pero el comando con cobertura mantiene salida con error por el umbral global del 50 %. Mypy conserva deuda anterior; no se declara CI global verde ni producción lista.
 
 Las pruebas existentes presentan una revisión obtenida antes de su escritura; los casos nuevos conservan expresamente un tag antiguo para comprobar rechazo sin sobrescritura. Las carreras se ejecutan en PostgreSQL test_* con esquemas privados y las pruebas HTTP en SQLite temporal, sin datos de negocio. No se aplican migraciones ni despliegues. El PR se publica sin borrador y no se fusiona automáticamente.
+
+## Bloque 23 — Auditoría transaccional del inventario de vehículos
+
+Fecha: 25 de octubre de 2026 (America/Caracas). Base: main, commit 203731c, con PR #264 fusionado. Rama: fix/vehicle-inventory-audit-v1.
+
+### Problema y rutas cubiertas
+
+Los bloques anteriores protegían asignaciones e inventario contra sobrescrituras, pero las operaciones de inventario no compartían una traza durable. Se incorpora vehicle_inventory_audit usando la tabla audit_logs existente; no se crea una tabla ni una migración nuevas.
+
+| Ruta | Evento |
+|---|---|
+| POST /api/v1/vehicles | CREATE, con el estado creado |
+| PATCH /api/v1/vehicles/{id} | UPDATE, STATUS_CHANGE o DEACTIVATE según los campos realmente modificados |
+| DELETE /api/v1/vehicles/{id} | DELETE, conservando el estado anterior aunque desaparezca la fila |
+
+Se mantienen If-Match, los bloqueos de vehículo, permisos de GERENTE/SUPERADMIN y los controles de desasignación. El registro de auditoría no permite omitir una revisión ni conceder acceso a otro rol.
+
+### Datos registrados
+
+El actor se toma del usuario autenticado: user_id y rol observado, sin duplicar correo/nombre, IP, user-agent ni cabeceras de autenticación. resource_type=Vehicle y resource_id conserva el UUID del vehículo sin depender de una FK hacia la fila que puede eliminarse.
+
+old_values contiene la ficha anterior o null en una creación. new_values contiene event_family=VEHICLE_INVENTORY, schema_version=1, source=vehicle_inventory, operation, vehicle_id, changed_fields, occurred_at_utc y state. state contiene la ficha resultante; es null cuando se elimina físicamente.
+
+La ficha registrada incluye tipo, placa, modelo, color, año, estado, seguro, notas, usuario vinculado, revision y edit_revision. Se conservan además created_at/updated_at como UTC explícito según la convención de timestamps del modelo. El evento lleva contains_personal_data=true: la placa, identificadores y notas son datos operativos que requieren gestión de retención/acceso. No se presenta el contenido como anonimizado.
+
+| operation | ActionType |
+|---|---|
+| CREATE | CREATE |
+| UPDATE | UPDATE |
+| STATUS_CHANGE | STATUS_CHANGE |
+| DEACTIVATE, cuando el nuevo estado es BAJA | STATUS_CHANGE |
+| DELETE | DELETE |
+
+Si un PATCH cambia estado y otros datos, la clasificación de estado no oculta los demás campos: changed_fields y las dos fichas conservan el conjunto completo. Se omiten eventos cuando los campos materiales editables no cambian; una actualización interna de updated_at no se considera por sí sola una edición de inventario a auditar.
+
+### Atomicidad y lectura después del borrado
+
+El estado anterior se captura bajo bloqueo después de comprobar If-Match. La escritura/eliminación y el INSERT de auditoría usan la misma sesión/transacción. El servicio hace flush, nunca commit independiente; el endpoint confirma ambos juntos.
+
+Un fallo SQL durante el registro revierte la operación y devuelve 503 con mensaje genérico, sin revelar la causa SQL. Una inserción de auditoría rechazada restaura también un vehículo que ya había sido eliminado dentro de la transacción. Un rollback posterior al flush del evento elimina la traza y revierte el negocio. No se generan eventos de éxito para conflictos, denegaciones o no-op materiales.
+
+La tabla audit_logs y los permisos de INSERT son ahora una dependencia obligatoria también para estas escrituras de inventario. Una indisponibilidad impide confirmar la operación, en lugar de guardar un cambio sin traza.
+
+Los registros se consultan en GET /api/v1/audit con resource_type=Vehicle y resource_id del vehículo. search=VEHICLE_INVENTORY localiza la familia mediante la descripción. El historial sigue disponible después de que GET /vehicles/{id} devuelva 404. El panel existente ya admite la identidad por UUID y occurred_at_utc; no se modifica frontend en este bloque.
+
+### Alcance y límites
+
+No se modifica esquema, modelos, precondiciones, forma de respuesta ni frontend. No se reconstruye la historia anterior a esta versión ni se añaden reparaciones/undo automáticos de vehículos borrados. La fecha del evento se genera antes del commit y no es una certificación de su instante de confirmación.
+
+La historia SQL no es inmutable frente a un administrador de base de datos, ni está firmada o encadenada. La transacción garantiza la pertenencia conjunta de negocio y evento, pero no una garantía universal exactamente-una-vez ante pérdida del acuse del commit. Debe consultarse estado/historial antes de reenviar a ciegas.
+
+Quedan pendientes retención y gestión de datos personales, tratamiento uniforme de colisiones de placa, validaciones operativas de seguros, concurrencia de datos personales/nivel y continuidad de entregas activas. Los scripts/SQL externos que no usan estas rutas no quedan automáticamente auditados. No se modifican bases de negocio ni se despliega o fusiona automáticamente.
+
+### Evidencia final local del bloque 23
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **731 pruebas aprobadas**, 15 nuevas frente a 716; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **79 pruebas** incluidas; cuatro nuevas para historia tras commit/borrado, restauración del borrado por fallo CHECK de auditoría, rollback externo tras flush y competencia por una revisión |
+| Nuevas pruebas restantes | 11 casos HTTP/SQLite: ciclo de inventario completo, consulta tras eliminación, estado/baja, no-op/conflicto, cuatro fallos de inserción con rollback y cuatro roles no autorizados |
+| Mypy con --ignore-missing-imports | **329 errores en 52 archivos**, sin diagnósticos nuevos por archivo/mensaje; 168 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; 168 archivos de app; cero errores críticos de lint |
+| Frontend | Sin cambios; se conserva la validación anterior de **231 pruebas**, TypeScript, lint y compilación, no repetida en este bloque backend |
+
+Los fallos se fuerzan mediante un trigger SQLite y una restricción CHECK real de PostgreSQL. Las pruebas nativas vuelven a abrir sesiones para comprobar persistencia o rollback, y verifican que un vehículo eliminado por una transacción fallida siga disponible con la misma revisión. Se usan bases temporales/test_* y esquemas aislados; no se intervienen datos de negocio.
+
+Mypy conserva deuda previa y la cobertura frontend anterior (**13,48 % de líneas**) sigue bajo el mínimo global del 50 %. No se declara CI global verde ni producción lista. No se aplican migraciones ni despliegues. El PR se publica sin borrador y no se fusiona automáticamente.
