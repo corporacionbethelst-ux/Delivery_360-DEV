@@ -1,4 +1,5 @@
 import { api } from '@/lib/api';
+import { requireDocumentRevision } from '@/lib/document-revision';
 import { validateDocumentSelection } from '@/lib/document-upload';
 import { Rider, RiderDocument } from '@/types/user';
 import { AxiosError } from 'axios';
@@ -8,6 +9,13 @@ import { AxiosError } from 'axios';
 export type { RiderDocument };
 
 export type RiderStatusType = 'ACTIVO' | 'SUSPENDIDO' | 'INACTIVO' | 'OCUPADO' | 'PENDIENTE';
+
+export interface DocumentReviewResponse {
+  message: string;
+  doc_id: string;
+  status: 'APROBADO' | 'RECHAZADO';
+  revision: string;
+}
 
 export interface UploadDocumentRequest {
   type: string; // Debería ser un Enum específico si existe en types
@@ -126,7 +134,10 @@ const extractData = <T>(response: any): T => {
  * Manejo centralizado de errores de API.
  */
 const handleApiError = (error: unknown, context: string): never => {
-  console.error(`[RiderService] ${context}:`, error);
+  console.error(`[RiderService] ${context}:`, {
+    status: error instanceof AxiosError ? error.response?.status : undefined,
+    code: error instanceof AxiosError ? error.code : undefined,
+  });
 
   if (error instanceof AxiosError) {
     const message = error.response?.data?.detail || error.message || 'Error desconocido';
@@ -159,11 +170,13 @@ const isValidCoordinates = (lat: number, lng: number): boolean => {
 
 export const riderService = {
   /** Descarga binaria autenticada; nunca navega a file_url ni envía tokens en URLs. */
-  getDocumentFile: async (documentId: string, signal?: AbortSignal): Promise<Blob> => {
+  getDocumentFile: async (documentId: string, signal?: AbortSignal, expectedRevision?: string): Promise<Blob> => {
     if (!isValidUuid(documentId)) throw new ServiceError('ID de documento inválido', 400);
+    const revision = expectedRevision === undefined ? undefined : requireDocumentRevision(expectedRevision);
     try {
       return await api.get<Blob>(`/riders/documents/${documentId}/download`, {
         responseType: 'blob', signal,
+        ...(revision ? { headers: { 'If-Match': `"${revision}"` } } : {}),
       });
     } catch (error) {
       throw handleApiError(error, 'No fue posible descargar el documento');
@@ -285,17 +298,18 @@ export const riderService = {
    * Aprueba un documento específico.
    * PATCH /riders/documents/{doc_id}/status
    */
-  approveDocument: async (documentId: string): Promise<RiderDocument> => {
+  approveDocument: async (documentId: string, expectedRevision?: string): Promise<DocumentReviewResponse> => {
     if (!documentId || !isValidUuid(documentId)) {
       throw new ServiceError('ID de documento inválido', 400);
     }
 
+    const revision = requireDocumentRevision(expectedRevision);
     try {
-      const response = await api.patch<RiderDocument>(
+      const response = await api.patch<DocumentReviewResponse>(
         `/riders/documents/${documentId}/status`, 
-        { status: 'APROBADO' }
+        { status: 'APROBADO', expected_revision: revision }
       );
-      return extractData<RiderDocument>(response);
+      return extractData<DocumentReviewResponse>(response);
     } catch (error) {
       throw handleApiError(error, `Error approving document ${documentId}`);
     }
@@ -305,7 +319,7 @@ export const riderService = {
    * Rechaza un documento específico con motivo.
    * PATCH /riders/documents/{doc_id}/status
    */
-  rejectDocument: async (documentId: string, reason: string): Promise<RiderDocument> => {
+  rejectDocument: async (documentId: string, reason: string, expectedRevision?: string): Promise<DocumentReviewResponse> => {
     if (!documentId || !isValidUuid(documentId)) {
       throw new ServiceError('ID de documento inválido', 400);
     }
@@ -313,15 +327,17 @@ export const riderService = {
       throw new ServiceError('Motivo de rechazo requerido', 400);
     }
 
+    const revision = requireDocumentRevision(expectedRevision);
     try {
-      const response = await api.patch<RiderDocument>(
+      const response = await api.patch<DocumentReviewResponse>(
         `/riders/documents/${documentId}/status`, 
         { 
           status: 'RECHAZADO',
-          rejection_reason: reason.trim()
+          rejection_reason: reason.trim(),
+          expected_revision: revision
         }
       );
-      return extractData<RiderDocument>(response);
+      return extractData<DocumentReviewResponse>(response);
     } catch (error) {
       throw handleApiError(error, `Error rejecting document ${documentId}`);
     }
@@ -427,13 +443,14 @@ export const riderService = {
    * [ADMIN] Elimina permanentemente un documento.
    * DELETE /riders/documents/{doc_id}
    */
-  deleteDocument: async (documentId: string): Promise<void> => {
+  deleteDocument: async (documentId: string, expectedRevision?: string): Promise<void> => {
     if (!documentId || !isValidUuid(documentId)) {
       throw new ServiceError('ID de documento inválido', 400);
     }
 
+    const revision = requireDocumentRevision(expectedRevision);
     try {
-      await api.delete(`/riders/documents/${documentId}`);
+      await api.delete(`/riders/documents/${documentId}`, { headers: { 'If-Match': `"${revision}"` } });
     } catch (error) {
       throw handleApiError(error, `Error deleting document ${documentId}`);
     }

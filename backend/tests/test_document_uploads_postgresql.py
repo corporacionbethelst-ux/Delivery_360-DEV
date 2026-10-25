@@ -5,7 +5,8 @@ from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from app.models.rider import Rider
 
 from tests.test_wallet_postgresql import pg_wallets  # noqa: F401
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
@@ -30,6 +31,14 @@ async def pg_documents(pg_wallets, tmp_path, monkeypatch):
     (folder / "old.pdf").write_bytes(PDF)
     async with sessions() as db:
         connection = await db.connection()
+        await connection.run_sync(
+            lambda conn: Rider.__table__.c.status.type.create(conn, checkfirst=True)
+        )
+        await db.execute(
+            text(
+                "ALTER TABLE riders ADD COLUMN status riderstatus DEFAULT 'ACTIVO', ADD COLUMN is_online BOOLEAN DEFAULT FALSE, ADD COLUMN approved_at TIMESTAMP, ADD COLUMN updated_at TIMESTAMP"
+            )
+        )
         await connection.run_sync(RiderDocument.__table__.create)
         doc = RiderDocument(
             rider_id=riders[0],

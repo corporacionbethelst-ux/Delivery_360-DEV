@@ -1,5 +1,10 @@
 """Private file access within the existing persistent uploads volume."""
 
+import hashlib
+import hmac
+import json
+import re
+from app.models.rider_document import RiderDocument
 from pathlib import Path
 from uuid import UUID
 
@@ -13,6 +18,48 @@ from starlette.types import Scope
 
 def document_download_url(document_id: UUID, reference: str | None) -> str | None:
     return f"/api/v1/riders/documents/{document_id}/download" if reference else None
+
+
+def document_revision(doc: RiderDocument) -> str:
+    """Fingerprint the immutable file reference and current review metadata.
+
+    This is an optimistic concurrency token, not an authorization credential or
+    a digest attesting to bytes modified outside the application's writers.
+    """
+    fields = [
+        str(doc.id),
+        str(doc.rider_id),
+        doc.type.value,
+        doc.file_url,
+        doc.status.value,
+        doc.rejection_reason,
+        doc.updated_at.isoformat() if doc.updated_at else None,
+    ]
+    return hashlib.sha256(
+        json.dumps(fields, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def ensure_document_revision(doc: RiderDocument, expected: str | None) -> None:
+    if (
+        expected is not None
+        and len(expected) == 66
+        and expected.startswith('"')
+        and expected.endswith('"')
+    ):
+        expected = expected[1:-1]
+    if expected is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Recarga la documentación para enviar la revisión actual",
+        )
+    if re.fullmatch(r"[a-f0-9]{64}", expected) is None:
+        raise HTTPException(status_code=422, detail="Revisión de documento inválida")
+    if not hmac.compare_digest(document_revision(doc), expected):
+        raise HTTPException(
+            status_code=409,
+            detail="El documento cambió. Recarga y revisa la nueva versión",
+        )
 
 
 def resolve_document_file(rider_id: UUID, reference: str | None) -> Path:

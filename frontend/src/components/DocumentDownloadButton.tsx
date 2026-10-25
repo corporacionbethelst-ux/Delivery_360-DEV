@@ -1,32 +1,35 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { isDocumentRevisionConflict } from '@/lib/document-revision';
 import { riderService } from '@/services/rider.service';
 
-export function DocumentDownloadButton({ documentId, className }: {
-  documentId: string; className?: string;
+export function DocumentDownloadButton({ documentId, revision, className }: {
+  documentId: string; revision?: string; className?: string;
 }) {
   const request = useRef<AbortController | null>(null);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setPending(false);
-    setError(false);
+    setError(null);
     return () => {
       request.current?.abort();
       request.current = null;
     };
-  }, [documentId]);
+  }, [documentId, revision]);
 
   const download = async () => {
     if (request.current) return;
     const controller = new AbortController();
     request.current = controller;
     setPending(true);
-    setError(false);
+    setError(null);
     try {
-      const blob = await riderService.getDocumentFile(documentId, controller.signal);
+      const blob = revision
+        ? await riderService.getDocumentFile(documentId, controller.signal, revision)
+        : await riderService.getDocumentFile(documentId, controller.signal);
       if (controller.signal.aborted) return;
       if (!(blob instanceof Blob) || !blob.size) throw new Error('Respuesta inválida');
       const extension = ({ 'application/pdf': 'pdf', 'image/png': 'png', 'image/jpeg': 'jpg' } as Record<string, string>)[blob.type] || 'bin';
@@ -41,8 +44,10 @@ export function DocumentDownloadButton({ documentId, className }: {
         link.remove();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
-    } catch {
-      if (!controller.signal.aborted) setError(true);
+    } catch (error: unknown) {
+      if (!controller.signal.aborted) setError(isDocumentRevisionConflict(error)
+        ? 'El documento cambió. Recarga la lista y revisa la nueva versión.'
+        : 'No fue posible descargar el documento. Intenta nuevamente.');
     } finally {
       if (request.current === controller) request.current = null;
       if (!controller.signal.aborted) setPending(false);
@@ -53,6 +58,6 @@ export function DocumentDownloadButton({ documentId, className }: {
     <button type="button" className={className} onClick={download} disabled={pending}>
       {pending ? 'Descargando…' : 'Descargar documento'}
     </button>
-    {error && <span role="alert">No fue posible descargar el documento. Intenta nuevamente.</span>}
+    {error && <span role="alert">{error}</span>}
   </div>;
 }

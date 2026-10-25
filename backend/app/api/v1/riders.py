@@ -7,11 +7,12 @@ from fastapi import (
     UploadFile,
     File,
     Form,
+    Header,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.orm import joinedload, load_only
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, Any, List
 from datetime import datetime, timezone, timedelta
 import uuid
@@ -20,11 +21,19 @@ import os
 import inspect
 
 from fastapi.responses import FileResponse
-from app.core.document_files import document_download_url, resolve_document_file
-from app.services.document_uploads import (
-    validate_document,
-    replace_document,
-    lock_document,
+from app.core.document_files import (
+    document_download_url,
+    resolve_document_file,
+    document_revision,
+    ensure_document_revision,
+)
+from app.services.document_uploads import validate_document, replace_document
+from app.services.document_review import (
+    document_readiness_error,
+    lock_rider,
+    restrict_rider_documents,
+    review_document,
+    delete_reviewed_document,
 )
 from app.core.serialization import optional_enum_value
 from app.core.database import get_db
@@ -46,61 +55,23 @@ logger = logging.getLogger(__name__)
 # El prefijo debe ser exactamente este para que coincida con lo que espera el frontend
 router = APIRouter(prefix="/riders")
 
-REQUIRED_DOCUMENT_TYPES = {
-    DocumentType.LICENCIA,
-    DocumentType.DOCUMENTO_IDENTIDAD,
-    DocumentType.REGISTRO_VEHICULO,
-    DocumentType.SEGURO,
-}
-
-
-def _required_document_error(documents: List[RiderDocument]) -> Optional[str]:
-    docs_by_type = {doc.type: doc for doc in documents}
-    missing = [
-        doc_type.value
-        for doc_type in REQUIRED_DOCUMENT_TYPES
-        if doc_type not in docs_by_type
-    ]
-    if missing:
-        return f"Documentos requeridos faltantes: {', '.join(sorted(missing))}."
-
-    invalid = [
-        doc_type.value
-        for doc_type, doc in docs_by_type.items()
-        if doc_type in REQUIRED_DOCUMENT_TYPES and doc.status != DocumentStatus.APROBADO
-    ]
-    if invalid:
-        return f"Documentos pendientes de aprobación: {', '.join(sorted(invalid))}."
-
-    return None
-
-
-async def _get_rider_documents(
-    db: AsyncSession, rider_id: uuid.UUID
-) -> List[RiderDocument]:
-    result = await db.execute(
-        select(RiderDocument).where(RiderDocument.rider_id == rider_id)
-    )
-    return list(result.scalars().all())
-
 
 async def _ensure_rider_can_go_online(db: AsyncSession, rider: Rider) -> None:
+    await lock_rider(db, rider.id)
+    await db.refresh(rider, attribute_names=["status", "is_online", "approved_at"])
     if rider.status != RiderStatus.ACTIVO:
         rider.is_online = False
         await db.commit()
         raise HTTPException(
             status_code=403,
-            detail="No puedes conectarte hasta que un gerente active tu cuenta.",
+            detail="No puedes conectarte hasta que un gerente active tu cuenta",
         )
-
-    documents = await _get_rider_documents(db, rider.id)
-    docs_error = _required_document_error(documents)
-    if docs_error:
-        rider.is_online = False
+    error = await document_readiness_error(db, rider.id)
+    if error:
+        await restrict_rider_documents(db, rider.id)
         await db.commit()
         raise HTTPException(
-            status_code=403,
-            detail=f"No puedes conectarte hasta que todos tus documentos requeridos estén aprobados. {docs_error}",
+            status_code=403, detail=f"La documentación requiere revisión. {error}"
         )
 
 
@@ -199,7 +170,8 @@ class DocumentStatusUpdate(BaseModel):
     """Actualización del estado de un documento."""
 
     status: str
-    rejection_reason: Optional[str] = None
+    rejection_reason: Optional[str] = Field(None, max_length=2000)
+    expected_revision: Optional[str] = Field(None, pattern=r"^[a-f0-9]{64}$")
 
 
 class NearbyRidersQuery(BaseModel):
@@ -362,6 +334,7 @@ async def get_my_documents(
         select(RiderDocument)
         .where(RiderDocument.rider_id == rider_id)
         .order_by(RiderDocument.created_at.desc())
+        .execution_options(populate_existing=True)
     )
     documents = docs_result.scalars().all()
 
@@ -371,6 +344,7 @@ async def get_my_documents(
             "type": d.type.value,
             "status": d.status.value,
             "file_url": document_download_url(d.id, d.file_url),
+            "revision": document_revision(d),
             "rejection_reason": d.rejection_reason,
             "created_at": d.created_at.isoformat() if d.created_at else None,
             "updated_at": d.updated_at.isoformat() if d.updated_at else None,
@@ -416,6 +390,7 @@ async def upload_my_document(
 @router.get("/documents/{doc_id}/download")
 async def download_document(
     doc_id: uuid.UUID,
+    if_match: Optional[str] = Header(None, alias="If-Match"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -424,13 +399,19 @@ async def download_document(
         raise HTTPException(
             status_code=403, detail="No autorizado para consultar documentos"
         )
-    doc = await db.scalar(select(RiderDocument).where(RiderDocument.id == doc_id))
+    doc = await db.scalar(
+        select(RiderDocument)
+        .where(RiderDocument.id == doc_id)
+        .execution_options(populate_existing=True)
+    )
     if doc is None:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
     if current_user.role == UserRole.REPARTIDOR:
         owner = await db.scalar(select(Rider.user_id).where(Rider.id == doc.rider_id))
         if owner != current_user.id:
             raise HTTPException(status_code=404, detail="Documento no encontrado")
+    if if_match is not None:
+        ensure_document_revision(doc, if_match)
     path = resolve_document_file(doc.rider_id, doc.file_url)
     extension = (
         path.suffix.lower()
@@ -450,6 +431,7 @@ async def download_document(
             "Cache-Control": "private, no-store",
             "Pragma": "no-cache",
             "Vary": "Authorization",
+            "ETag": f'"{document_revision(doc)}"',
             "X-Content-Type-Options": "nosniff",
             "Content-Security-Policy": "default-src 'none'; sandbox",
         },
@@ -468,64 +450,19 @@ async def update_document_status(
     [ADMIN/GERENTE] Aprueba o rechaza un documento específico.
     Si se aprueba y todos los documentos del rider están listos, activa al rider automáticamente.
     """
-    new_status = status_update.status
-    rejection_reason = status_update.rejection_reason
-
-    if new_status not in ["APROBADO", "RECHAZADO"]:
-        raise HTTPException(status_code=400, detail="Estado inválido")
-
-    if new_status == "RECHAZADO" and not rejection_reason:
-        raise HTTPException(
-            status_code=400, detail="Se requiere un motivo para el rechazo"
-        )
-
-    doc = await lock_document(db, _parse_uuid(doc_id, "doc_id"))
-
     try:
-        doc.status = DocumentStatus(new_status)
+        target = DocumentStatus(status_update.status)
     except ValueError:
         raise HTTPException(status_code=400, detail="Estado de documento inválido")
-
-    doc.updated_at = utc_now_naive()
-    doc.rejection_reason = rejection_reason if new_status == "RECHAZADO" else None
-
-    await db.flush()
-    if new_status == "APROBADO":
-        rider_result = await db.execute(
-            select(Rider)
-            .options(
-                load_only(Rider.id, Rider.status, Rider.is_online, Rider.approved_at)
-            )
-            .where(Rider.id == doc.rider_id)
-        )
-        rider = rider_result.scalar_one_or_none()
-        if rider:
-            all_docs_result = await db.execute(
-                select(RiderDocument).where(RiderDocument.rider_id == rider.id)
-            )
-            all_docs = all_docs_result.scalars().all()
-            if _required_document_error(list(all_docs)) is None:
-                rider.status = RiderStatus.ACTIVO
-                rider.approved_at = utc_now_naive()
-    elif new_status == "RECHAZADO":
-        rider_result = await db.execute(
-            select(Rider)
-            .options(
-                load_only(Rider.id, Rider.status, Rider.is_online, Rider.approved_at)
-            )
-            .where(Rider.id == doc.rider_id)
-        )
-        rider = rider_result.scalar_one_or_none()
-        if rider:
-            rider.status = RiderStatus.PENDIENTE
-            rider.is_online = False
-
+    response = await review_document(
+        db,
+        _parse_uuid(doc_id, "doc_id"),
+        target,
+        status_update.expected_revision,
+        status_update.rejection_reason,
+    )
     await db.commit()
-
-    return {
-        "message": f"Documento {new_status.lower()} correctamente",
-        "doc_id": str(doc.id),
-    }
+    return response
 
 
 # ==============================================================================
@@ -561,6 +498,7 @@ async def upload_document_for_rider(
 @router.delete("/documents/{doc_id}")
 async def delete_document(
     doc_id: str,
+    if_match: Optional[str] = Header(None, alias="If-Match"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.GERENTE, UserRole.SUPERADMIN)),
 ):
@@ -568,14 +506,11 @@ async def delete_document(
     [ADMIN/GERENTE] Elimina permanentemente un documento de la base de datos.
     Útil para limpiar documentos corruptos, duplicados o subidos por error.
     """
-    doc = await lock_document(db, _parse_uuid(doc_id, "doc_id"))
-    # Opcional: Guardar registro de auditoría antes de borrar (si tu sistema lo requiere)
-    # logger.info(f"Admin {current_user.email} eliminó documento {doc_id} del rider {doc.rider_id}")
-
-    await db.delete(doc)
+    response = await delete_reviewed_document(
+        db, _parse_uuid(doc_id, "doc_id"), if_match
+    )
     await db.commit()
-
-    return {"message": "Documento eliminado exitosamente", "doc_id": str(doc_id)}
+    return response
 
 
 # ------------------------------------------------------------------------------
@@ -1325,28 +1260,23 @@ async def approve_rider(
     """
     [ADMIN/GERENTE] Aprueba manualmente a un repartidor (cambia estado a ACTIVO).
     """
-    result = await db.execute(
-        select(Rider).where(Rider.id == _parse_uuid(rider_id, "rider_id"))
-    )
-    rider = result.unique().scalar_one_or_none()
-    if not rider:
-        raise HTTPException(status_code=404, detail="Repartidor no encontrado")
-
-    documents = await _get_rider_documents(db, rider.id)
-    docs_error = _required_document_error(documents)
-    if docs_error:
-        rider.status = RiderStatus.PENDIENTE
-        rider.is_online = False
+    rid = _parse_uuid(rider_id, "rider_id")
+    await lock_rider(db, rid)
+    error = await document_readiness_error(db, rid)
+    if error:
+        await restrict_rider_documents(db, rid)
         await db.commit()
         raise HTTPException(
-            status_code=400,
-            detail=f"No se puede aprobar el repartidor hasta completar la documentación requerida. {docs_error}",
+            status_code=400, detail=f"No se puede aprobar el repartidor. {error}"
         )
-
-    rider.status = RiderStatus.ACTIVO
-    rider.approved_at = utc_now_naive()
+    values = {
+        "status": RiderStatus.ACTIVO,
+        "approved_at": utc_now_naive(),
+        "is_online": False,
+    }
     if body and body.observations:
-        rider.notes = body.observations if hasattr(rider, "notes") else rider.notes
+        values["notes"] = body.observations
+    await db.execute(update(Rider).where(Rider.id == rid).values(**values))
     await db.commit()
     return {"message": "Repartidor aprobado exitosamente", "rider_id": rider_id}
 
@@ -1362,14 +1292,13 @@ async def reject_rider(
     """
     [ADMIN/GERENTE] Rechaza/Suspende a un repartidor con un motivo obligatorio.
     """
-    result = await db.execute(
-        select(Rider).where(Rider.id == _parse_uuid(rider_id, "rider_id"))
+    rid = _parse_uuid(rider_id, "rider_id")
+    await lock_rider(db, rid)
+    await db.execute(
+        update(Rider)
+        .where(Rider.id == rid)
+        .values(status=RiderStatus.SUSPENDIDO, is_online=False)
     )
-    rider = result.unique().scalar_one_or_none()
-    if not rider:
-        raise HTTPException(status_code=404, detail="Repartidor no encontrado")
-
-    rider.status = RiderStatus.SUSPENDIDO
     await db.commit()
     return {"message": "Repartidor rechazado", "rider_id": rider_id}
 
@@ -1410,7 +1339,17 @@ async def update_heartbeat(
     Usa PostGIS para guardar la geometría espacial.
     """
     result = await db.execute(
-        select(Rider).where(Rider.id == _parse_uuid(rider_id, "rider_id"))
+        select(Rider)
+        .options(
+            load_only(
+                Rider.id,
+                Rider.user_id,
+                Rider.status,
+                Rider.is_online,
+                Rider.approved_at,
+            )
+        )
+        .where(Rider.id == _parse_uuid(rider_id, "rider_id"))
     )
     rider = result.unique().scalar_one_or_none()
 
@@ -1476,7 +1415,17 @@ async def toggle_online(
     [REPARTIDOR] Cambia manualmente el estado de conexión (Online/Offline).
     """
     result = await db.execute(
-        select(Rider).where(Rider.id == _parse_uuid(rider_id, "rider_id"))
+        select(Rider)
+        .options(
+            load_only(
+                Rider.id,
+                Rider.user_id,
+                Rider.status,
+                Rider.is_online,
+                Rider.approved_at,
+            )
+        )
+        .where(Rider.id == _parse_uuid(rider_id, "rider_id"))
     )
     rider = result.unique().scalar_one_or_none()
     if not rider:
@@ -1500,33 +1449,31 @@ async def update_rider_status(
     """
     [ADMIN/GERENTE] Cambia el estado administrativo del repartidor (ACTIVO, SUSPENDIDO, INACTIVO).
     """
-    result = await db.execute(
-        select(Rider).where(Rider.id == _parse_uuid(rider_id, "rider_id"))
-    )
-    rider = result.unique().scalar_one_or_none()
-
-    if not rider:
-        raise HTTPException(status_code=404, detail="Repartidor no encontrado")
-
-    new_status_str = body.get("status")
-    if not new_status_str or new_status_str not in ["ACTIVO", "SUSPENDIDO", "INACTIVO"]:
+    rid = _parse_uuid(rider_id, "rider_id")
+    new_status = body.get("status")
+    if new_status not in ("ACTIVO", "SUSPENDIDO", "INACTIVO"):
         raise HTTPException(
-            status_code=400,
-            detail="Estado inválido. Use ACTIVO, SUSPENDIDO o INACTIVO.",
+            status_code=400, detail="Estado inválido. Use ACTIVO, SUSPENDIDO o INACTIVO"
         )
-
-    try:
-        rider.status = RiderStatus(new_status_str)
-    except ValueError:
-        rider.status = new_status_str
-
+    await lock_rider(db, rid)
+    if new_status == "ACTIVO":
+        error = await document_readiness_error(db, rid)
+        if error:
+            await restrict_rider_documents(db, rid)
+            await db.commit()
+            raise HTTPException(
+                status_code=409, detail=f"La documentación requiere revisión. {error}"
+            )
+    await db.execute(
+        update(Rider)
+        .where(Rider.id == rid)
+        .values(status=RiderStatus(new_status), is_online=False)
+    )
     await db.commit()
-    await db.refresh(rider)
-
     return {
-        "message": f"Estado actualizado a {new_status_str}",
-        "rider_id": str(rider.id),
-        "status": new_status_str,
+        "message": f"Estado actualizado a {new_status}",
+        "rider_id": str(rid),
+        "status": new_status,
     }
 
 
@@ -1603,6 +1550,7 @@ async def get_rider_documents(
         select(RiderDocument)
         .where(RiderDocument.rider_id == rider_uuid)
         .order_by(RiderDocument.created_at.desc())
+        .execution_options(populate_existing=True)
     )
     documents = result.scalars().all()
 
@@ -1613,6 +1561,7 @@ async def get_rider_documents(
             "type": doc.type.value if hasattr(doc.type, "value") else doc.type,
             "status": doc.status.value if hasattr(doc.status, "value") else doc.status,
             "file_url": document_download_url(doc.id, doc.file_url),
+            "revision": document_revision(doc),
             "rejection_reason": doc.rejection_reason,
             "created_at": doc.created_at.isoformat() if doc.created_at else None,
             "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
