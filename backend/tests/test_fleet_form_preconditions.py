@@ -133,10 +133,17 @@ async def test_gps_status_and_financial_updates_do_not_expire_fleet_snapshot(fle
 
 
 @pytest.mark.asyncio
-async def test_nonfleet_update_needs_no_revision_and_admin_phone_is_persisted(fleet):
+async def test_nonfleet_update_uses_profile_revision_and_admin_phone_is_persisted(
+    fleet,
+):
     client, db, ctx, _, _ = fleet
+    observed = await metadata(client, ctx)
     response = await client.patch(
-        f"/api/v1/riders/{ctx['rider_id']}", json={"phone": "+584121234567"}
+        f"/api/v1/riders/{ctx['rider_id']}",
+        json={
+            "phone": "+584121234567",
+            "expected_profile_revision": observed["profile_revision"],
+        },
     )
     assert response.status_code == 200, response.text
     assert response.json()["phone"] == "+584121234567"

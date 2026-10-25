@@ -26,6 +26,7 @@ import { vehicleService } from '@/services/vehicle.service';
 import { riderService, type UpdateRiderPayload } from '@/services/rider.service';
 import { isAssignmentConflict, requireAssignmentRevision } from '@/lib/assignment-revision';
 import { toast } from 'sonner';
+import { requireProfileRevision } from '@/lib/profile-revision';
 import { requireVehicleRevision } from '@/lib/vehicle-revision';
 
 interface RiderEditModalProps {
@@ -131,6 +132,7 @@ export default function RiderEditModal({
     try {
       // Construir payload según el tipo de vehículo
       const updateData: UpdateRiderPayload = {
+        expected_profile_revision: requireProfileRevision(draft.profile_revision),
         expected_assignment_revision: requireAssignmentRevision(draft.assignment_revision),
         phone: phone || undefined,
         tier: tier || undefined,  // Incluir nivel del repartidor

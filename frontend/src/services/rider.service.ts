@@ -1,3 +1,4 @@
+import { hasProfileFields, requireProfileRevision } from '@/lib/profile-revision';
 import { requireVehicleRevision } from '@/lib/vehicle-revision';
 import { hasFleetFields, requireAssignmentRevision } from '@/lib/assignment-revision';
 import { api } from '@/lib/api';
@@ -52,6 +53,7 @@ export interface CreateRiderPayload {
 
 export interface UpdateProfilePayload {
   expected_assignment_revision?: string;
+  expected_profile_revision?: string;
   expected_vehicle_revision?: string;
   first_name?: string;
   last_name?: string;
@@ -62,6 +64,7 @@ export interface UpdateProfilePayload {
 
 export interface UpdateRiderPayload {
   expected_assignment_revision?: string;
+  expected_profile_revision?: string;
   expected_vehicle_revision?: string;
   tier?: 'BRONCE' | 'PLATA' | 'ORO' | 'PLATINO';
   phone?: string;
@@ -484,6 +487,7 @@ export const riderService = {
    * PUT /riders/me
    */
   updateProfile: async (profileData: UpdateProfilePayload): Promise<Rider> => {
+    if (hasProfileFields(profileData)) requireProfileRevision(profileData.expected_profile_revision);
     if (hasFleetFields(profileData)) requireAssignmentRevision(profileData.expected_assignment_revision);
     if (profileData.expected_vehicle_revision !== undefined) requireVehicleRevision(profileData.expected_vehicle_revision);
     // Validaciones básicas de campos
@@ -596,6 +600,7 @@ export const riderService = {
     }
 
     const payload = { ...data };
+    if (hasProfileFields(payload)) requireProfileRevision(payload.expected_profile_revision);
     if (hasFleetFields(payload)) requireAssignmentRevision(payload.expected_assignment_revision);
     if (payload.vehicle_ownership_type === 'EMPRESA' || payload.assigned_vehicle_id) requireVehicleRevision(payload.expected_vehicle_revision);
     if (payload.assigned_vehicle_id) {

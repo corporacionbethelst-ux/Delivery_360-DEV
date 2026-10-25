@@ -22,7 +22,7 @@ jest.mock('@/components/ui/select', () => {
   };
 });
 const revision = 'a'.repeat(64), chosen = 'b'.repeat(64), newer = 'c'.repeat(64);
-const row = { id:'123e4567-e89b-42d3-a456-426614174000', first_name:'Test', last_name:'Rider', email:'test@example.test', vehicle_type:'MOTO', vehicle_plate:'OWN', vehicle_ownership_type:'PROPIO', assignment_revision:revision } as Rider;
+const row = { id:'123e4567-e89b-42d3-a456-426614174000', first_name:'Test', last_name:'Rider', email:'test@example.test', vehicle_type:'MOTO', vehicle_plate:'OWN', vehicle_ownership_type:'PROPIO', profile_revision:revision, assignment_revision:revision } as Rider;
 const vehicle = { id:'123e4567-e89b-42d3-a456-426614174001', revision:chosen, type:'MOTO', plate:'SELECTED', model:'Test', color:'Black', year:2025, status:'ACTIVO', created_at:'2026-01-01' } as Vehicle;
 const service = jest.mocked(riderService), vehicles = jest.mocked(vehicleService);
 beforeEach(() => { jest.clearAllMocks(); service.updateRider.mockResolvedValue(row); vehicles.getAvailableCompanyVehicles.mockResolvedValue([vehicle]); mockCreate.mockResolvedValue(row); });
@@ -33,7 +33,7 @@ it('keeps a candidate snapshot selected before parent catalog refresh', async ()
   fireEvent.change(screen.getAllByRole('combobox')[1], { target:{ value:'EMPRESA' } });
   rerender(<Modal {...props} companyVehicles={[{ ...vehicle, revision:newer, plate:'CHANGED' }]} />);
   fireEvent.click(screen.getByRole('button', { name:'Guardar Cambios' }));
-  await waitFor(() => expect(service.updateRider).toHaveBeenCalledWith(row.id, expect.objectContaining({ assigned_vehicle_id:vehicle.id, expected_vehicle_revision:chosen, expected_assignment_revision:revision })));
+  await waitFor(() => expect(service.updateRider).toHaveBeenCalledWith(row.id, expect.objectContaining({ assigned_vehicle_id:vehicle.id, expected_vehicle_revision:chosen, expected_profile_revision:revision, expected_assignment_revision:revision })));
 });
 
 it('captures an explicitly chosen candidate rather than the first catalog row', async () => {

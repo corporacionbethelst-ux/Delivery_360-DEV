@@ -21,7 +21,7 @@ interface RiderCreateInput extends Partial<Rider> {
   role?: 'REPARTIDOR';
 }
 
-interface RiderUpdateInput extends Partial<Rider> { expected_assignment_revision?: string; expected_vehicle_revision?: string; }
+interface RiderUpdateInput extends Partial<Rider> { expected_profile_revision?: string; expected_assignment_revision?: string; expected_vehicle_revision?: string; }
 
 interface RiderFilters {
   status?: RiderStatus[];

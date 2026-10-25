@@ -50,3 +50,10 @@ it('does not print authorization headers from vehicle errors', async () => {
   expect(JSON.stringify(log.mock.calls)).not.toContain('selected-vehicle-unit-secret');
   log.mockRestore();
 });
+
+it('store personal updates preserve the captured profile revision', async () => {
+  patch.mockResolvedValueOnce({ id });
+  await useRidersStore.getState().updateRider(id, { phone:'+584121234567', expected_profile_revision:revision });
+  expect(patch).toHaveBeenCalledWith(`/riders/${id}`, { phone:'+584121234567', expected_profile_revision:revision });
+  expect(get).not.toHaveBeenCalled();
+});
