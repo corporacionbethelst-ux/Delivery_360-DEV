@@ -1,0 +1,196 @@
+{
+  "shifts": {
+    "ddl": "\nCREATE TABLE shifts (\n\tid UUID NOT NULL, \n\trider_id UUID NOT NULL, \n\tshift_date TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tstart_time TIME WITHOUT TIME ZONE NOT NULL, \n\tend_time TIME WITHOUT TIME ZONE NOT NULL, \n\tcheck_in_at TIMESTAMP WITHOUT TIME ZONE, \n\tcheck_out_at TIMESTAMP WITHOUT TIME ZONE, \n\tstatus shiftstatus, \n\tcheck_in_latitude FLOAT, \n\tcheck_in_longitude FLOAT, \n\tcheck_out_latitude FLOAT, \n\tcheck_out_longitude FLOAT, \n\ttotal_deliveries INTEGER, \n\tcompleted_deliveries INTEGER, \n\ttotal_earnings FLOAT, \n\tnotes VARCHAR(500), \n\tcancellation_reason VARCHAR(255), \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(rider_id) REFERENCES riders (id) ON DELETE CASCADE\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_shifts_id ON shifts (id)",
+      "CREATE INDEX ix_shifts_rider_id ON shifts (rider_id)",
+      "CREATE INDEX ix_shifts_shift_date ON shifts (shift_date)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "rider_id": [
+        null,
+        null
+      ],
+      "shift_date": [
+        null,
+        null
+      ],
+      "start_time": [
+        null,
+        null
+      ],
+      "end_time": [
+        null,
+        null
+      ],
+      "check_in_at": [
+        null,
+        null
+      ],
+      "check_out_at": [
+        null,
+        null
+      ],
+      "status": [
+        "ShiftStatus.PROGRAMADO",
+        null
+      ],
+      "check_in_latitude": [
+        null,
+        null
+      ],
+      "check_in_longitude": [
+        null,
+        null
+      ],
+      "check_out_latitude": [
+        null,
+        null
+      ],
+      "check_out_longitude": [
+        null,
+        null
+      ],
+      "total_deliveries": [
+        "0",
+        null
+      ],
+      "completed_deliveries": [
+        "0",
+        null
+      ],
+      "total_earnings": [
+        "0.0",
+        null
+      ],
+      "notes": [
+        null,
+        null
+      ],
+      "cancellation_reason": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {
+      "status": [
+        "PROGRAMADO",
+        "EN_CURSO",
+        "COMPLETADO",
+        "CANCELADO",
+        "INCOMPLETO"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "rider_id",
+        "target": "riders.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "status": {
+        "name": "shiftstatus",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    }
+  },
+  "check_in_out": {
+    "ddl": "\nCREATE TABLE check_in_out (\n\tid UUID NOT NULL, \n\trider_id UUID NOT NULL, \n\tshift_id UUID, \n\tcheck_type VARCHAR(10) NOT NULL, \n\ttimestamp TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tlatitude FLOAT, \n\tlongitude FLOAT, \n\tdevice_id VARCHAR(255), \n\tip_address VARCHAR(45), \n\tnotes VARCHAR(500), \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(rider_id) REFERENCES riders (id) ON DELETE CASCADE, \n\tFOREIGN KEY(shift_id) REFERENCES shifts (id) ON DELETE CASCADE\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_check_in_out_id ON check_in_out (id)",
+      "CREATE INDEX ix_check_in_out_rider_id ON check_in_out (rider_id)",
+      "CREATE INDEX ix_check_in_out_shift_id ON check_in_out (shift_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "rider_id": [
+        null,
+        null
+      ],
+      "shift_id": [
+        null,
+        null
+      ],
+      "check_type": [
+        null,
+        null
+      ],
+      "timestamp": [
+        "utc_now_naive",
+        null
+      ],
+      "latitude": [
+        null,
+        null
+      ],
+      "longitude": [
+        null,
+        null
+      ],
+      "device_id": [
+        null,
+        null
+      ],
+      "ip_address": [
+        null,
+        null
+      ],
+      "notes": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ]
+    },
+    "enums": {},
+    "foreign_keys": [
+      {
+        "column": "rider_id",
+        "target": "riders.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "shift_id",
+        "target": "shifts.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {}
+  }
+}

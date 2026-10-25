@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, load_only
 
 from app.core.database import get_db
-from app.core.shift_rules import schedule_columns, transition_shift
+from app.core.shift_rules import create_scheduled_shift, transition_shift
 from app.core.security import get_current_active_user
 from app.models.rider import Rider
 from app.models.shift import Shift, ShiftStatus
@@ -192,22 +192,13 @@ async def create_shift(
 ):
     _require_operator_user(current_user)
 
-    shift_date, start_time, end_time = schedule_columns(body.start_time, body.end_time)
-    rider_uuid = _parse_uuid(body.rider_id, "rider_id")
-    rider_id = await db.scalar(select(Rider.id).where(Rider.id == rider_uuid))
-    if rider_id is None:
-        raise HTTPException(status_code=404, detail="Repartidor no encontrado")
-
-    shift = Shift(
-        rider_id=rider_id,
-        shift_date=shift_date,
-        start_time=start_time,
-        end_time=end_time,
-        status=ShiftStatus.PROGRAMADO,
-        notes=body.notes,
+    shift = await create_scheduled_shift(
+        db,
+        _parse_uuid(body.rider_id, "rider_id"),
+        body.start_time,
+        body.end_time,
+        body.notes,
     )
-    db.add(shift)
-    await db.flush()
 
     row = await _get_shift_row(db, str(shift.id))
     if not row:

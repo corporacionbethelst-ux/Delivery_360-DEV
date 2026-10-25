@@ -1,133 +1,113 @@
-"""Shift schemas for Pydantic validation."""
+"""Internal shift contracts matching persisted UUIDs, states and attendance.
 
-from datetime import datetime
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, ConfigDict
-from enum import Enum
+The operator HTTP API keeps its existing UI aliases in api/v1/shifts.py.
+Unsupported metadata, photos and pause transitions are rejected explicitly.
+"""
 
+from datetime import datetime, time
+from typing import Literal
+from uuid import UUID
 
-class ShiftStatus(str, Enum):
-    """Shift status."""
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-    PROGRAMADO = "programado"
-    ACTIVO = "activo"
-    PAUSADO = "pausado"
-    FINALIZADO = "finalizado"
-    CANCELADO = "cancelado"
+from app.models.shift import ShiftStatus
 
 
-# Base Schema
 class ShiftBase(BaseModel):
-    """Base schema for Shift."""
-
-    rider_id: int
-
-    # Scheduled Times
-    scheduled_start: Optional[datetime] = None
-    scheduled_end: Optional[datetime] = None
-
-    # Notes
-    notes: Optional[str] = None
-    metadata_json: Optional[Dict[str, Any]] = None
+    model_config = ConfigDict(extra="forbid")
+    rider_id: UUID
+    scheduled_start: datetime
+    scheduled_end: datetime | None = None
+    notes: str | None = Field(None, max_length=500)
 
 
-# Create Schema
 class ShiftCreate(ShiftBase):
-    """Schema for creating a Shift."""
-
-    status: Optional[ShiftStatus] = ShiftStatus.PROGRAMADO
+    status: Literal[ShiftStatus.PROGRAMADO] = ShiftStatus.PROGRAMADO
 
 
-# Update Schema
 class ShiftUpdate(BaseModel):
-    """Schema for updating a Shift."""
+    model_config = ConfigDict(extra="forbid")
+    scheduled_start: datetime | None = None
+    scheduled_end: datetime | None = None
+    notes: str | None = Field(None, max_length=500)
 
-    scheduled_start: Optional[datetime] = None
-    scheduled_end: Optional[datetime] = None
-    notes: Optional[str] = None
-    metadata_json: Optional[Dict[str, Any]] = None
-    status: Optional[ShiftStatus] = None
+    @model_validator(mode="after")
+    def reject_null_schedule(self) -> "ShiftUpdate":
+        for name in ("scheduled_start", "scheduled_end"):
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError("El horario no puede ser nulo")
+        return self
 
 
-# Check In/Out Schema
 class CheckInOutBase(BaseModel):
-    """Base schema for Check-In/Check-Out."""
+    model_config = ConfigDict(extra="forbid")
+    latitude: float | None = Field(
+        None, ge=-90, le=90, allow_inf_nan=False, strict=True
+    )
+    longitude: float | None = Field(
+        None, ge=-180, le=180, allow_inf_nan=False, strict=True
+    )
+    notes: str | None = Field(None, max_length=500)
 
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    notes: Optional[str] = None
-    photo_url: Optional[str] = None
+    @model_validator(mode="after")
+    def coordinate_pair(self) -> "CheckInOutBase":
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("Latitud y longitud deben enviarse juntas")
+        return self
 
 
 class CheckInRequest(CheckInOutBase):
-    """Schema for checking in to start a shift."""
-
-    shift_id: int
+    shift_id: UUID
 
 
 class CheckOutRequest(CheckInOutBase):
-    """Schema for checking out to end a shift."""
-
-    shift_id: int
+    shift_id: UUID
 
 
-class CheckInOutResponse(CheckInOutBase):
-    """Schema for Check-In/Check-Out response."""
+class CheckInOutRequest(CheckInOutBase):
+    shift_id: UUID
+    is_check_in: bool = True
 
+
+class CheckInOutResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    rider_id: UUID
+    shift_id: UUID | None
+    check_type: str
+    timestamp: datetime
+    latitude: float | None
+    longitude: float | None
+    device_id: str | None
+    ip_address: str | None
+    notes: str | None
+    created_at: datetime | None
 
-    id: int
-    shift_id: int
-    check_in_time: Optional[datetime] = None
-    check_out_time: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
 
-
-# Response Schema
-class ShiftResponse(ShiftBase):
-    """Schema for Shift response."""
-
+class ShiftResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    rider_id: UUID
+    shift_date: datetime
+    start_time: time
+    end_time: time
+    status: ShiftStatus | None
+    check_in_at: datetime | None
+    check_out_at: datetime | None
+    total_deliveries: int | None
+    completed_deliveries: int | None
+    total_earnings: float | None
+    notes: str | None
+    created_at: datetime | None
+    updated_at: datetime | None
 
-    id: int
-    status: ShiftStatus
-    started_at: Optional[datetime] = None
-    ended_at: Optional[datetime] = None
-    total_duration_minutes: Optional[int] = None
-    active_duration_minutes: Optional[int] = None
-    deliveries_completed: Optional[int] = 0
-    created_at: datetime
-    updated_at: datetime
 
-
-# Status Update
 class ShiftStatusUpdate(BaseModel):
-    """Schema for updating shift status."""
-
+    model_config = ConfigDict(extra="forbid")
     status: ShiftStatus
-    reason: Optional[str] = None
-
-    model_config = ConfigDict(from_attributes=True)
+    reason: str | None = Field(None, max_length=255)
 
 
-# List Response
 class ShiftListResponse(BaseModel):
-    """Schema for shift list response."""
-
     total: int
-    shifts: List[ShiftResponse]
-
-
-# CheckInOut Request (union of CheckIn and CheckOut)
-class CheckInOutRequest(BaseModel):
-    """Schema for check-in/out request."""
-
-    shift_id: int
-    is_check_in: bool = True  # True for check-in, False for check-out
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    notes: Optional[str] = None
-    photo_url: Optional[str] = None
-
-    model_config = ConfigDict(from_attributes=True)
+    shifts: list[ShiftResponse]
