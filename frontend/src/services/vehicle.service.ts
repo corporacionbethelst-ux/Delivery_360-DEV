@@ -1,3 +1,4 @@
+import { requireVehicleEditRevision } from '@/lib/vehicle-revision';
 import { api } from '@/lib/api';
 import { AxiosError } from 'axios';
 
@@ -12,6 +13,7 @@ export type VehicleStatus = (typeof VEHICLE_STATUSES)[number];
 export interface Vehicle {
   id: string;
   revision?: string;
+  edit_revision?: string;
   plate: string;
   type: VehicleType;
   model: string;
@@ -38,6 +40,12 @@ export interface VehicleCreateInput {
   notes?: string;
   ownership_type?: 'PROPIO' | 'EMPRESA'; // Tipo de propiedad del vehículo
 }
+
+export type VehicleUpdateInput = Omit<Partial<VehicleCreateInput>, 'insurance_expiry' | 'notes'> & {
+  status?: VehicleStatus;
+  insurance_expiry?: string | null;
+  notes?: string | null;
+};
 
 export interface VehicleFilters {
   type?: VehicleType | 'ALL' | string | null;
@@ -204,11 +212,12 @@ export const vehicleService = {
    * Actualizar vehículo existente.
    * PATCH /vehicles/{id}
    */
-  update: async (id: string, data: Partial<VehicleCreateInput> & { status?: VehicleStatus }): Promise<Vehicle> => {
+  update: async (id: string, data: VehicleUpdateInput, expectedRevision?: string): Promise<Vehicle> => {
     if (!id || !isValidUuid(id)) {
       throw new ServiceError('ID de vehículo inválido', 400);
     }
     
+    const revision = requireVehicleEditRevision(expectedRevision);
     const payload: any = { ...data };
     if (payload.plate) {
       payload.plate = payload.plate.trim().toUpperCase();
@@ -218,7 +227,7 @@ export const vehicleService = {
     }
 
     try {
-      const response = await api.patch<Vehicle>(`/vehicles/${id}`, payload);
+      const response = await api.patch<Vehicle>(`/vehicles/${id}`, payload, { headers: { 'If-Match': `"${revision}"` } });
       return response;
     } catch (error) {
       throw handleApiError(error, `Error updating vehicle ${id}`);
@@ -229,12 +238,13 @@ export const vehicleService = {
    * Dar de baja un vehículo (Cambio de estado a BAJA).
    * PATCH /vehicles/{id}
    */
-  deactivate: async (id: string): Promise<Vehicle> => {
+  deactivate: async (id: string, expectedRevision?: string): Promise<Vehicle> => {
     if (!id || !isValidUuid(id)) {
       throw new ServiceError('ID de vehículo inválido', 400);
     }
+    const revision = requireVehicleEditRevision(expectedRevision);
     try {
-      const response = await api.patch<Vehicle>(`/vehicles/${id}`, { status: 'BAJA' });
+      const response = await api.patch<Vehicle>(`/vehicles/${id}`, { status: 'BAJA' }, { headers: { 'If-Match': `"${revision}"` } });
       return response;
     } catch (error) {
       throw handleApiError(error, `Error deactivating vehicle ${id}`);
@@ -245,12 +255,13 @@ export const vehicleService = {
    * Eliminar permanentemente un vehículo.
    * DELETE /vehicles/{id}
    */
-  delete: async (id: string): Promise<void> => {
+  delete: async (id: string, expectedRevision?: string): Promise<void> => {
     if (!id || !isValidUuid(id)) {
       throw new ServiceError('ID de vehículo inválido', 400);
     }
+    const revision = requireVehicleEditRevision(expectedRevision);
     try {
-      await api.delete(`/vehicles/${id}`);
+      await api.delete(`/vehicles/${id}`, { headers: { 'If-Match': `"${revision}"` } });
     } catch (error) {
       throw handleApiError(error, `Error deleting vehicle ${id}`);
     }

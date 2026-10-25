@@ -1,8 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Path, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    status,
+    Path,
+    Response,
+    Header,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from pydantic import BaseModel, Field, ConfigDict, field_validator
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Annotated
 from datetime import date, datetime, timezone
 import uuid
 import logging
@@ -12,7 +21,11 @@ from app.models.enums import VehicleType, VehicleStatus, VehicleOwnershipType
 from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.models.vehicle import Vehicle
-from app.core.vehicle_revision import vehicle_revision
+from app.core.vehicle_revision import (
+    vehicle_revision,
+    vehicle_edit_revision,
+    ensure_vehicle_edit_revision,
+)
 from app.services.fleet_assignment import (
     lock_vehicles,
     ensure_vehicle_unassigned,
@@ -91,6 +104,7 @@ class VehicleResponse(BaseModel):
 
     id: str
     revision: str
+    edit_revision: str
     plate: str
     type: str
     model: str
@@ -195,6 +209,7 @@ def _build_vehicle_response(vehicle: Vehicle) -> dict:
     return {
         "id": str(vehicle.id),
         "revision": vehicle_revision(vehicle),
+        "edit_revision": vehicle_edit_revision(vehicle),
         "plate": vehicle.plate,
         "type": _get_enum_value(vehicle.type),
         "model": vehicle.model,
@@ -342,6 +357,7 @@ async def fleet_reconciliation_report(
 
 @router.get("/{vehicle_id}", response_model=VehicleResponse)
 async def get_vehicle(
+    response: Response,
     vehicle_id: str = Path(..., description="ID del vehículo (UUID)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -356,6 +372,7 @@ async def get_vehicle(
         select(Vehicle)
         .options(selectinload(Vehicle.rider).selectinload(User.rider_profile))
         .where(Vehicle.id == vid)
+        .execution_options(populate_existing=True)
     )
     result = await db.execute(stmt)
     vehicle = result.scalar_one_or_none()
@@ -363,6 +380,9 @@ async def get_vehicle(
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehículo no encontrado")
 
+    response.headers["ETag"] = f'"{vehicle_edit_revision(vehicle)}"'
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Vary"] = "Authorization"
     return _build_vehicle_response(vehicle)
 
 
@@ -409,11 +429,13 @@ async def update_vehicle(
     body: VehicleUpdate = ...,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+    if_match: Annotated[Optional[str], Header(alias="If-Match")] = None,
 ):
     """Actualiza datos parciales de un vehículo existente."""
     vid = _parse_uuid(vehicle_id)
 
     vehicle = (await lock_vehicles(db, {vid}))[vid]
+    ensure_vehicle_edit_revision(vehicle, if_match)
 
     update_data = body.model_dump(exclude_unset=True)
     required = {"plate", "type", "model", "color", "year", "status"}
@@ -475,11 +497,13 @@ async def delete_vehicle(
     vehicle_id: str = Path(..., description="ID del vehículo (UUID)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+    if_match: Annotated[Optional[str], Header(alias="If-Match")] = None,
 ):
     """Elimina permanentemente un vehículo."""
     vid = _parse_uuid(vehicle_id)
 
     vehicle = (await lock_vehicles(db, {vid}))[vid]
+    ensure_vehicle_edit_revision(vehicle, if_match)
     await ensure_vehicle_unassigned(db, vehicle)
 
     await db.delete(vehicle)

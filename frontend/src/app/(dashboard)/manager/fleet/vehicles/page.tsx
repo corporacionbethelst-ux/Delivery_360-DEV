@@ -27,7 +27,8 @@ import {
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { vehicleService, Vehicle, VehicleType, VehicleStatus } from '@/services/vehicle.service';
-import { toast } from 'sonner'; // Asumiendo que usas sonner
+import { toast } from 'sonner';
+import { isAssignmentConflict } from '@/lib/assignment-revision'; // Asumiendo que usas sonner
 
 // --- Configuración Visual ---
 
@@ -60,6 +61,7 @@ export default function VehiclesPage() {
   
   // Acciones
   const [vehicleToDeactivate, setVehicleToDeactivate] = useState<Vehicle | null>(null);
+  const [deactivateConflict, setDeactivateConflict] = useState(false);
   const [isDeactivating, setIsDeactivating] = useState(false);
 
   // Carga de datos
@@ -110,17 +112,17 @@ export default function VehiclesPage() {
 
   // Ejecutar Baja
   const confirmDeactivate = async () => {
-    if (!vehicleToDeactivate) return;
+    if (!vehicleToDeactivate || deactivateConflict || isDeactivating) return;
     
     setIsDeactivating(true);
     try {
-      await vehicleService.deactivate(vehicleToDeactivate.id);
+      await vehicleService.deactivate(vehicleToDeactivate.id, vehicleToDeactivate.edit_revision);
       
       toast.success(`Vehículo ${vehicleToDeactivate.plate} dado de baja correctamente.`);
       setVehicleToDeactivate(null);
       await loadVehicles();
     } catch (err: any) {
-      console.error(err);
+      if (isAssignmentConflict(err)) setDeactivateConflict(true);
       toast.error(err.message || 'Error al dar de baja el vehículo.');
     } finally {
       setIsDeactivating(false);
@@ -302,7 +304,7 @@ export default function VehiclesPage() {
                               {vehicle.status !== 'BAJA' ? (
                                 <DropdownMenuItem 
                                   className="text-red-600 focus:text-red-700 focus:bg-red-50 cursor-pointer"
-                                  onClick={() => setVehicleToDeactivate(vehicle)}
+                                  onClick={() => { setDeactivateConflict(false); setVehicleToDeactivate({ ...vehicle }); }}
                                 >
                                   <Trash2 className="w-4 h-4 mr-2" /> Dar de baja
                                 </DropdownMenuItem>
@@ -325,7 +327,7 @@ export default function VehiclesPage() {
       </Card>
 
       {/* Diálogo de Confirmación de Baja */}
-      <Dialog open={!!vehicleToDeactivate} onOpenChange={() => setVehicleToDeactivate(null)}>
+      <Dialog open={!!vehicleToDeactivate} onOpenChange={() => { setVehicleToDeactivate(null); setDeactivateConflict(false); }}>
         <DialogContent className="sm:max-w-[450px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-700 text-lg">
@@ -351,13 +353,14 @@ export default function VehiclesPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
+            {deactivateConflict && <Button variant="outline" onClick={() => { setVehicleToDeactivate(null); setDeactivateConflict(false); loadVehicles(true); }}>Cerrar y actualizar</Button>}
             <Button variant="outline" onClick={() => setVehicleToDeactivate(null)} disabled={isDeactivating}>
               Cancelar
             </Button>
             <Button 
               variant="destructive" 
               onClick={confirmDeactivate} 
-              disabled={isDeactivating}
+              disabled={isDeactivating || deactivateConflict}
               className="bg-red-600 hover:bg-red-700 text-white shadow-sm"
             >
               {isDeactivating ? (

@@ -1,4 +1,4 @@
-from app.core.vehicle_revision import vehicle_revision
+from app.core.vehicle_revision import vehicle_revision, vehicle_edit_revision
 
 """Assignment contracts and administrative invalidation using real SQL rows."""
 
@@ -219,6 +219,7 @@ async def test_assigned_vehicle_critical_edits_are_rejected(fleet, field, value)
             vehicles_api.VehicleUpdate(**{field: value}),
             db,
             ctx["current"][0],
+            if_match=vehicle_edit_revision(first),
         )
     assert error.value.status_code == 409
     await db.rollback()
@@ -234,7 +235,9 @@ async def test_delete_checks_profile_reference_even_when_owner_is_missing(fleet)
     )
     await db.commit()
     with pytest.raises(HTTPException) as error:
-        await vehicles_api.delete_vehicle(str(first.id), db, ctx["current"][0])
+        await vehicles_api.delete_vehicle(
+            str(first.id), db, ctx["current"][0], if_match=vehicle_edit_revision(first)
+        )
     assert error.value.status_code == 409
     await db.rollback()
 
@@ -270,6 +273,7 @@ async def test_assigned_vehicle_cosmetic_update_preserves_links_and_documents(fl
         vehicles_api.VehicleUpdate(color="Blue", notes="Reviewed"),
         db,
         ctx["current"][0],
+        if_match=vehicle_edit_revision(first),
     )
     assert result["rider_id"] == str(ctx["current"][0].id)
     assert result["rider_profile_id"] == str(ctx["rider_id"])
@@ -287,6 +291,7 @@ async def test_required_vehicle_fields_cannot_be_null(fleet, field):
             vehicles_api.VehicleUpdate(**{field: None}),
             db,
             ctx["current"][0],
+            if_match=vehicle_edit_revision(first),
         )
     assert error.value.status_code == 422
     await db.rollback()
@@ -301,10 +306,13 @@ async def test_unassigned_vehicle_can_be_edited_then_deleted(fleet):
         vehicles_api.VehicleUpdate(plate=" new-plate ", status="MANTENIMIENTO"),
         db,
         ctx["current"][0],
+        if_match=vehicle_edit_revision(first),
     )
     assert result["plate"] == "NEW-PLATE"
     assert result["status"] == "MANTENIMIENTO"
-    await vehicles_api.delete_vehicle(str(vehicle_id), db, ctx["current"][0])
+    await vehicles_api.delete_vehicle(
+        str(vehicle_id), db, ctx["current"][0], if_match=vehicle_edit_revision(first)
+    )
     assert await db.scalar(select(Vehicle.id).where(Vehicle.id == vehicle_id)) is None
 
 
