@@ -36,6 +36,10 @@ from app.services.fleet_reconciliation import (
     FleetReconciliationReport,
     reconcile_fleet,
 )
+from app.services.vehicle_inventory_audit import (
+    inventory_snapshot,
+    record_inventory_change,
+)
 from app.api.v1.auth import get_current_user, require_role
 
 logger = logging.getLogger(__name__)
@@ -417,6 +421,14 @@ async def create_vehicle(
     )
 
     db.add(new_vehicle)
+    await db.flush()
+    await record_inventory_change(
+        db,
+        current_user,
+        vehicle_id=new_vehicle.id,
+        before=None,
+        after=inventory_snapshot(new_vehicle),
+    )
     await db.commit()
     await db.refresh(new_vehicle)
 
@@ -437,6 +449,7 @@ async def update_vehicle(
     vehicle = (await lock_vehicles(db, {vid}))[vid]
     ensure_vehicle_edit_revision(vehicle, if_match)
 
+    before = inventory_snapshot(vehicle)
     update_data = body.model_dump(exclude_unset=True)
     required = {"plate", "type", "model", "color", "year", "status"}
     if any(update_data.get(key) is None for key in required.intersection(update_data)):
@@ -475,6 +488,13 @@ async def update_vehicle(
 
     vehicle.updated_at = utc_now_naive()
 
+    await record_inventory_change(
+        db,
+        current_user,
+        vehicle_id=vehicle.id,
+        before=before,
+        after=inventory_snapshot(vehicle),
+    )
     await db.commit()
     from sqlalchemy.orm import selectinload
 
@@ -506,7 +526,11 @@ async def delete_vehicle(
     ensure_vehicle_edit_revision(vehicle, if_match)
     await ensure_vehicle_unassigned(db, vehicle)
 
+    before = inventory_snapshot(vehicle)
     await db.delete(vehicle)
+    await record_inventory_change(
+        db, current_user, vehicle_id=vid, before=before, after=None
+    )
     await db.commit()
 
     return {"message": "Vehículo eliminado exitosamente", "id": str(vid)}
