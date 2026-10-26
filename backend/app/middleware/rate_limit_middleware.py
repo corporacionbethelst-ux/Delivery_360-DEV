@@ -25,7 +25,9 @@ class RateLimitMiddleware:
         self.route_limits = {
             "/api/v1/auth/login": (5, 60),  # 5 intentos por minuto para login
             "/api/v1/auth/register": (3, 300),  # 3 registros por 5 minutos
-            "/api/v1/auth/password-reset": (2, 300),  # 2 reseteos por 5 minutos
+            "/api/v1/auth/forgot-password": (2, 300),
+            "/api/v1/auth/reset-password": (2, 300),
+            "/api/v1/auth/register-rider": (3, 300),
             "/api/v1/riders/approval": (10, 60),  # Aprobaciones de riders
             "/api/v1/telemetry/riders": (240, 60),  # Telemetría en vivo
             "/api/v1/orders": (30, 60),  # Órdenes
@@ -50,18 +52,29 @@ class RateLimitMiddleware:
         request = Request(scope, receive=receive)
         path = request.url.path
 
+        # Let CORS validate browser preflights without spending an application
+        # attempt. Plain OPTIONS and POSTs carrying these headers still count.
+        if (
+            request.method == "OPTIONS"
+            and "origin" in request.headers
+            and "access-control-request-method" in request.headers
+        ):
+            await self.app(scope, receive, send)
+            return
+
         # Verificar si la ruta está exenta
-        if any(path.startswith(exempt) for exempt in self.exempt_paths):
+        if any(self._matches(path, exempt) for exempt in self.exempt_paths):
             await self.app(scope, receive, send)
             return
 
         # Obtener identificador único (IP + User ID si está autenticado)
         client_ip = request.client.host if request.client else "unknown"
-        user_id = self._get_user_id_from_request(request)
-        identifier = f"{user_id}:{client_ip}" if user_id else f"ip:{client_ip}"
-
-        # Determinar límites según la ruta
-        limit, window = self._get_limits_for_path(path)
+        # Authentication budgets must not be reset by adding/rotating a JWT.
+        auth_path = self._matches(path, "/api/v1/auth")
+        user_id = "" if auth_path else self._get_user_id_from_request(request)
+        identity = f"{user_id}:{client_ip}" if user_id else f"ip:{client_ip}"
+        policy, limit, window = self._get_policy(path)
+        identifier = f"policy:{policy}:{identity}"
 
         # Verificar rate limit
         allowed, info = rate_limiter.is_allowed(
@@ -79,6 +92,9 @@ class RateLimitMiddleware:
         }
 
         if not allowed:
+            rate_limit_headers["Retry-After"] = str(
+                max(1, info.get("retry_after") or 1)
+            )
             logger.warning(
                 f"Rate limit exceeded for {identifier} on {path}. "
                 f"Limit: {limit}, Window: {window}s, Retry-After: {info.get('retry_after', 'N/A')}"
@@ -131,20 +147,28 @@ class RateLimitMiddleware:
             pass
         return ""
 
-    def _get_limits_for_path(self, path: str) -> tuple:
-        """Obtener límites específicos para una ruta"""
+    @staticmethod
+    def _matches(path: str, prefix: str) -> bool:
+        return path == prefix or path.startswith(prefix + "/")
+
+    def _get_policy(self, path: str) -> tuple[str, int, int]:
+        # Stable groups, never a caller-controlled path or query per bucket.
+        path = path.rstrip("/")
         if path.startswith("/api/v1/riders/") and (
             path.endswith("/heartbeat") or path.endswith("/location")
         ):
-            return (240, 60)
-
-        # Buscar el prefijo más específico que coincida
+            return ("rider-telemetry", 240, 60)
         best_match = None
-        best_length = 0
+        for prefix in self.route_limits:
+            if self._matches(path, prefix) and (
+                best_match is None or len(prefix) > len(best_match)
+            ):
+                best_match = prefix
+        if best_match is not None:
+            limit, window = self.route_limits[best_match]
+            return (best_match, limit, window)
+        return ("default", self.default_limit, self.default_window)
 
-        for route_prefix, limits in self.route_limits.items():
-            if path.startswith(route_prefix) and len(route_prefix) > best_length:
-                best_match = limits
-                best_length = len(route_prefix)
-
-        return best_match if best_match else (self.default_limit, self.default_window)
+    def _get_limits_for_path(self, path: str) -> tuple[int, int]:
+        _, limit, window = self._get_policy(path)
+        return limit, window

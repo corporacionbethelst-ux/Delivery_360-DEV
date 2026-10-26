@@ -184,7 +184,8 @@ async def test_new_request_replaces_digest_and_old_link_is_rejected(
         )
     assert reset(client, old).status_code == 400
     assert reset(client, new).status_code == 200
-    assert reset(client, new).status_code == 400
+    # Old-link rejection and successful reset exhausted this IP's reset budget.
+    assert reset(client, new).status_code == 429
 
 
 @pytest.mark.asyncio
