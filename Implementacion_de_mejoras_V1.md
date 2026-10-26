@@ -2506,3 +2506,58 @@ Este bloque cierra el almacenamiento en claro de **tokens nuevos** y el doble co
 | Frontend | Sin cambios; se conserva la validación anterior de **261 pruebas en 27 suites**, TypeScript, lint y build, sin repetirla |
 
 La suite completa incluye el código final y el aislamiento de historial del limitador en tests. Las bases y contenedores son locales y desechables; no se actúa sobre cuentas de producción ni se envía correo externo. La cobertura frontend anterior de 16,38 % de líneas permanece por debajo del 50 % global. No se rebajan checks para declarar verde CI. El PR se publica listo para revisión, sin borrador, sin fusión ni despliegue automático.
+
+## Bloque 34 — Presupuestos de peticiones por política de ruta
+
+Fecha: 26 de octubre de 2026, America/Caracas. Base: main ff5a86e, bloque 33 fusionado mediante PR #275. Rama: fix/auth-rate-limit-scopes-v1.
+
+### Problema y comportamiento resultante
+
+El middleware configuraba /api/v1/auth/password-reset, mientras los endpoints reales son /forgot-password y /reset-password. Estos usaban el límite genérico. Además, el identificador del contador contenía solo IP/usuario: solicitudes normales o de recuperación podían agotar el presupuesto de cinco peticiones con el que luego se evaluaba login. Añadir un JWT válido también podía cambiar el identificador de una operación pública de autenticación y obtener otro presupuesto.
+
+Se incorpora una política estable al identificador. Las rutas conocidas agrupan sus subrutas bajo el prefijo configurado; las rutas sin regla comparten un grupo default. No se crea un contador distinto por cada query, UUID o path arbitrario. La telemetría individual conserva su grupo de 240 solicitudes/minuto. Los umbrales existentes de login, registro, órdenes y entregas se conservan; se aplica a las dos rutas reales de recuperación el presupuesto de dos solicitudes cada cinco minutos que antes apuntaba al nombre incorrecto.
+
+| Operación | Límite por IP en la política correspondiente |
+|---|---|
+| Login | 5 solicitudes / 60 segundos |
+| Solicitar enlace: forgot-password | 2 solicitudes / 300 segundos |
+| Consumir enlace: reset-password | 2 solicitudes / 300 segundos |
+| Registro de repartidor | 3 solicitudes / 300 segundos |
+
+Los presupuestos de solicitar y consumir enlace son independientes. Las peticiones rechazadas por validación o credenciales cuentan como intentos si alcanzaron el middleware, igual que antes. La tercera petición de una misma política de recuperación en su ventana devuelve 429 antes del handler, incluso si el cuerpo cambia de email o token. El mismo presupuesto limita una barra final y variantes de query. No se incluyen secretos del cuerpo en las claves.
+
+Para las rutas del espacio /api/v1/auth, la identidad del presupuesto es siempre la IP del peer ASGI: añadir, sustituir o retirar un bearer no genera otro contador. Fuera de autenticación se conserva la identidad usuario+IP cuando puede extraerse el subject de un access token firmado, e IP en otro caso. Esta identificación del contador no autoriza la petición ni sustituye get_current_user.
+
+Los prefijos y exenciones se comparan respetando frontera de ruta: /health-evil no queda exento por empezar por /health; /orders-extra o /login-extra no heredan la política de /orders o /login. Las subrutas reales siguen compartiendo su prefijo de política. Un nombre nuevo de ruta no crea automáticamente un presupuesto ilimitadamente distinto.
+
+El 429 conserva su JSON y cabeceras X-RateLimit, e incluye Retry-After con un mínimo de un segundo a partir del cálculo del motor existente. Se mantiene el algoritmo de ventana deslizante. No se promete precisión subsegundo de retry/reset ni se alteran los controles de autorización, el esquema, SMTP o los tokens de recuperación.
+
+### Pruebas
+
+Se añaden diez casos ASGI: umbral exacto de las cuatro operaciones, vencimiento de ventana con reloj controlado, separación de login/recuperación/tráfico ordinario, variaciones de query/barra/JWT/cabecera, independencia de IPs, grupos de cardinalidad estable y rutas/exenciones. Dos casos usan la aplicación real montada: la tercera solicitud de enlace no invoca el handler, y dos resets inválidos consumen su presupuesto sin impedir un login independiente. Los otros usan el middleware real con un receptor de prueba que registra si fue llamado. No se envían correos ni se consulta una BD de producción.
+
+La prueba previa de sustitución de enlaces se ajusta al presupuesto real: su tercer intento de consumo devuelve 429. El rechazo de reutilización del mismo token dentro de presupuesto sigue probado por el recorrido de correo y por las pruebas transaccionales del bloque 33. No se elevan umbrales ni se desactiva el middleware en tests. Las 71 pruebas focalizadas de middleware, tokens y correo pasan antes de la regresión completa.
+
+### Límites y siguientes trabajos
+
+El RateLimiter global sigue inicializado sin Redis: los contadores son locales al proceso. No se declara protección distribuida entre workers ni persistencia ante reinicio. Las ramas Redis del motor existente tienen operaciones no atómicas y el miembro de sorted set utiliza un timestamp que puede repetirse; deben sustituirse/probarse con un diseño atómico antes de conectar Redis al limitador global. Tampoco se corrigen las otras estrategias no utilizadas por este middleware.
+
+Faltan cuotas por cuenta canónica y protección frente a ataques distribuidos entre IPs, medidas frente a bloqueo malicioso de cuentas, política de fallo de Redis y límites de memoria/limpieza de identidades locales inactivas. El número de grupos de política es acotado; el total de identidades IP/usuario no lo es. Tras reiniciar o actualizar se renueva el presupuesto local, como ocurría antes; las claves nuevas no conservan historial con el formato anterior.
+
+Un proxy/NAT puede agrupar varios usuarios bajo la misma IP; ahora las rutas de autenticación mantienen el límite por esa IP aunque lleven JWT. Debe verificarse la topología real y configurar proxies de confianza. El middleware no lee X-Forwarded-For directamente, pero el servidor/proxy anterior puede transformar el peer ASGI; los tests de cabecera no demuestran seguridad de una configuración de ingress desconocida.
+
+Siguen pendientes revocación de sesiones tras reset, invalidación de enlaces desde otras rutas administrativas, transporte/estado del correo omnicanal, entrega durable, Mypy/cobertura, migraciones y el resto del roadmap. Este bloque no declara producción lista ni cambia frontend.
+
+### Evidencia final local del bloque 34
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **1008 pruebas aprobadas**, diez nuevas frente a 998; cuatro advertencias anteriores |
+| PostgreSQL real | **121 pruebas** de regresión incluidas |
+| Redis / SMTP TLS local | **2 Redis** y **5 SMTP/TLS** de regresión incluidas; no son pruebas de limitación distribuida |
+| Regresión focalizada | **71 casos aprobados** de middleware, recuperación y tokens |
+| Mypy | **329 errores en 52 archivos**, sin nuevos ni eliminados por archivo/mensaje; 174 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; Black comprueba 176 archivos entre app y dos suites modificada/nueva |
+| Frontend | Sin cambios; se conserva la validación previa de **261 pruebas en 27 suites**, TypeScript, lint y build, sin repetirla |
+
+La suite completa incluye el código final y los umbrales efectivos. Los recursos de PostgreSQL/Redis son contenedores locales desechables. No se envía correo externo, se cambian credenciales de producción ni se ejecutan migraciones. La cobertura frontend anterior de 16,38 % de líneas sigue bajo el 50 % global; Mypy mantiene deuda. Se publica un PR listo para revisión, sin borrador, sin fusión ni despliegue automático.
