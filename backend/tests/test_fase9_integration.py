@@ -388,6 +388,16 @@ def test_ws_accepts_valid_jwt_snapshot(client, monkeypatch):
 
     uid = str(uuid.uuid4())
     tok = _make_token("REPARTIDOR", uid)
+    monkeypatch.setattr(
+        notif_mod,
+        "get_current_user",
+        AsyncMock(return_value=SimpleNamespace(id=uuid.UUID(uid))),
+    )
+
+    def no_redis():
+        raise ConnectionError("test unavailable")
+
+    monkeypatch.setattr(notif_mod, "_notification_redis_client", no_redis)
 
     class _FakeSessCtx:
         async def __aenter__(self):

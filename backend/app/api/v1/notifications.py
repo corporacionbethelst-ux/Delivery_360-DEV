@@ -23,6 +23,7 @@ WebSocket (montado en main.py, UN solo pool manager — regla anti-error 6):
 from __future__ import annotations
 
 import asyncio
+import anyio
 import json
 import logging
 import uuid
@@ -40,13 +41,13 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, Field
+from starlette.websockets import WebSocketState
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_user, require_role
 from app.core.config import settings
-from app.core.database import get_db
-from app.core.security import decode_token
+from app.core.database import get_db, AsyncSessionLocal
 from app.core.websocket import manager
 from app.models.notification import (
     NotificationChannel,
@@ -491,123 +492,208 @@ async def toggle_template(
 # ----------------------------------------------------------------------
 # WebSocket notifications (handler montado en main.py; UN solo pool manager)
 # ----------------------------------------------------------------------
-async def notifications_websocket(websocket: WebSocket):
-    """WS /api/v1/notifications/ws?token=<jwt>.
+def _notification_redis_client():
+    from redis import asyncio as aioredis
 
-    Auth JWT MANUAL (regla heredada): token ausente/inválido/expirado => close 1008.
-    Se suscribe al canal Redis `notifications:user:{sub}` y hace fan-out hacia las
-    conexiones WS del manager existente (no abre segundo pool). Sin Redis: sigue
-    funcionando enviando snapshot inicial y respondiendo ping/pong.
-    """
+    return aioredis.from_url(
+        settings.REDIS_URL,
+        encoding="utf-8",
+        decode_responses=True,
+        socket_connect_timeout=2,
+        socket_timeout=None,
+    )
+
+
+async def _close_notification_redis(pubsub, client, topic: str) -> None:
+    if pubsub is not None:
+        try:
+            await asyncio.wait_for(pubsub.unsubscribe(topic), 2)
+        except Exception:
+            pass
+        try:
+            await asyncio.wait_for(pubsub.aclose(), 2)
+        except Exception:
+            pass
+    if client is not None:
+        try:
+            await asyncio.wait_for(client.aclose(), 2)
+        except Exception:
+            pass
+
+
+async def _notification_unread(db: AsyncSession, user_id: uuid.UUID) -> int:
+    return int(
+        (
+            await db.execute(
+                select(func.count(NotificationLog.id)).where(
+                    NotificationLog.user_id == user_id,
+                    NotificationLog.channel == NotificationChannel.IN_APP,
+                    NotificationLog.status != OmnichannelStatus.LEIDO,
+                )
+            )
+        ).scalar()
+        or 0
+    )
+
+
+async def notifications_websocket(websocket: WebSocket):
+    """Own IN_APP stream with live account checks and REST polling degradation."""
     token = websocket.query_params.get("token")
     if not token:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        await websocket.close(code=1008)
         return
-
-    payload = decode_token(token)
-    if not payload or payload.get("type") != "access":
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-
-    user_id = str(payload.get("sub") or "")
-    if not user_id:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-
     connection_id = f"notif-{uuid.uuid4()}"
-    topic = f"{settings.REDIS_NOTIF_CHANNEL_PREFIX}:{user_id}"
-    await manager.connect(websocket, connection_id, user_id=user_id)
-    manager.subscribe(connection_id, topic)
+    pubsub_task = None
+    pubsub = redis_client = None
+    topic = ""
+    user_id = ""
 
-    pubsub_task: Optional[asyncio.Task] = None
-    redis_client = None
-    try:
-        # Snapshot inicial: conteo de no-leídas (tolerante a DB indisponible)
-        unread = 0
+    async def current_user(db: AsyncSession) -> User:
+        user = await get_current_user(token=token, db=db)
+        if user_id and str(user.id) != user_id:
+            raise HTTPException(status_code=403, detail="La identidad cambió")
+        return user
+
+    async def can_send() -> bool:
         try:
-            from app.core.database import AsyncSessionLocal
-
             async with AsyncSessionLocal() as db:
-                unread = (
-                    await db.execute(
-                        select(func.count(NotificationLog.id)).where(
-                            NotificationLog.user_id == _safe_uuid(user_id),
-                            NotificationLog.channel == NotificationChannel.IN_APP,
-                            NotificationLog.status != OmnichannelStatus.LEIDO,
-                        )
-                    )
-                ).scalar() or 0
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("WS notif: snapshot unread falló (no crítico): %s", exc)
+                await current_user(db)
+            return True
+        except HTTPException:
+            return False
 
-        await websocket.send_json(
+    async def terminate(code: int) -> None:
+        if connection_id in manager.active_connections:
+            await manager.close_connection(connection_id, code)
+        elif websocket.application_state != WebSocketState.DISCONNECTED:
+            await websocket.close(code=code)
+
+    try:
+        async with AsyncSessionLocal() as db:
+            user_id = str((await current_user(db)).id)
+        topic = f"{settings.REDIS_NOTIF_CHANNEL_PREFIX}:{user_id}"
+        await manager.connect(
+            websocket, connection_id, user_id=user_id, authorize_send=can_send
+        )
+        manager.subscribe(connection_id, topic)
+        try:
+            redis_client = _notification_redis_client()
+            pubsub = redis_client.pubsub()
+            await asyncio.wait_for(pubsub.subscribe(topic), 2)
+        except Exception:
+            await _close_notification_redis(pubsub, redis_client, topic)
+            pubsub = redis_client = None
+            logger.info("WS notifications: Redis unavailable; REST polling required")
+        async with AsyncSessionLocal() as db:
+            user = await current_user(db)
+            unread = await _notification_unread(db, user.id)
+        await manager.send_personal_message(
             {
                 "type": "CONNECTED",
                 "channel": topic,
-                "unread_count": int(unread),
-            }
+                "unread_count": unread,
+                "realtime_available": pubsub is not None,
+            },
+            connection_id,
+            topic=topic,
         )
+        if connection_id not in manager.active_connections:
+            return
 
-        # Suscriptor Redis → fan-out a las conexiones de este usuario
-        try:
-            from redis import asyncio as aioredis  # librería nativa redis>=5 (regla)
-
-            redis_client = aioredis.from_url(
-                settings.REDIS_URL, encoding="utf-8", decode_responses=True
-            )
-            pubsub = redis_client.pubsub()
-            await pubsub.subscribe(topic)
-
-            async def _pump():
-                try:
-                    async for message in pubsub.listen():
-                        if message.get("type") != "message":
-                            continue
-                        try:
-                            data = json.loads(message["data"])
-                        except (TypeError, ValueError):
-                            continue
-                        await manager.broadcast_to_user(data, user_id)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:  # noqa: BLE001
-                    logger.debug("WS notif pump terminado: %s", exc)
-
-            pubsub_task = asyncio.create_task(
-                _pump(), name=f"notif-pump-{connection_id}"
-            )
-        except Exception as exc:  # noqa: BLE001 - Redis opcional
-            logger.info("WS notif: Redis no disponible (%s); modo ping/pong", exc)
-
-        while True:
-            data = await websocket.receive_text()
+        async def pump():
             try:
-                message = json.loads(data)
-                if message.get("action") == "ping":
-                    await websocket.send_json({"type": "pong"})
+                async for message in pubsub.listen():
+                    if (
+                        message.get("type") != "message"
+                        or message.get("channel") != topic
+                    ):
+                        continue
+                    raw = message.get("data")
+                    if not isinstance(raw, (str, bytes)) or len(raw) > 65536:
+                        continue
+                    try:
+                        data = json.loads(raw)
+                        if (
+                            not isinstance(data, dict)
+                            or data.get("type") != "NEW_NOTIFICATION"
+                        ):
+                            continue
+                        log_id = uuid.UUID(str(data.get("id")))
+                    except (ValueError, TypeError):
+                        continue
+                    async with AsyncSessionLocal() as db:
+                        user = await current_user(db)
+                        log = (
+                            await db.execute(
+                                select(NotificationLog).where(
+                                    NotificationLog.id == log_id,
+                                    NotificationLog.user_id == user.id,
+                                    NotificationLog.channel
+                                    == NotificationChannel.IN_APP,
+                                )
+                            )
+                        ).scalar_one_or_none()
+                        if log is None:
+                            continue
+                        frame = {
+                            "type": "NEW_NOTIFICATION",
+                            **_log_out(log).model_dump(),
+                            "unread_count": await _notification_unread(db, user.id),
+                        }
+                    # Each Redis subscriber delivers once to its own socket only.
+                    await manager.send_personal_message(
+                        frame, connection_id, topic=topic
+                    )
+                    if connection_id not in manager.active_connections:
+                        return
+            except asyncio.CancelledError:
+                raise
+            except HTTPException:
+                await terminate(1008)
+            except Exception:
+                await terminate(1011)
+
+        if pubsub is not None:
+            pubsub_task = asyncio.create_task(
+                pump(), name=f"notif-pump-{connection_id}"
+            )
+        while True:
+            raw = await websocket.receive_text()
+            if not await can_send():
+                raise HTTPException(status_code=403, detail="Sesión no disponible")
+            if len(raw) > 4096:
+                raise HTTPException(status_code=403, detail="Mensaje excesivo")
+            try:
+                message = json.loads(raw)
             except (ValueError, TypeError):
-                await websocket.send_json({"type": "error", "message": "JSON inválido"})
+                message = None
+            if not isinstance(message, dict):
+                await manager.send_personal_message(
+                    {"type": "error", "message": "JSON inválido"},
+                    connection_id,
+                    topic=topic,
+                )
+                continue
+            if message.get("action", message.get("type")) == "ping":
+                await manager.send_personal_message(
+                    {"type": "pong"}, connection_id, topic=topic
+                )
+            else:
+                raise HTTPException(status_code=403, detail="Acción no permitida")
     except WebSocketDisconnect:
         pass
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("WS notif %s cerrado por error: %s", connection_id, exc)
+    except HTTPException:
+        await terminate(1008)
+    except Exception:
+        await terminate(1011)
     finally:
-        if pubsub_task is not None:
-            pubsub_task.cancel()
-            try:
-                await pubsub_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        if redis_client is not None:
-            try:
-                await redis_client.aclose()
-            except Exception:  # noqa: BLE001
-                pass
+        # Remove authorization/routing state even if asynchronous cleanup is cancelled.
         manager.disconnect(connection_id)
-
-
-def _safe_uuid(value: str):
-    try:
-        return uuid.UUID(str(value))
-    except (ValueError, TypeError):
-        return value  # deja que SQLAlchemy falle suave en el count
+        with anyio.CancelScope(shield=True):
+            if pubsub_task is not None:
+                pubsub_task.cancel()
+                try:
+                    await pubsub_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            await _close_notification_redis(pubsub, redis_client, topic)

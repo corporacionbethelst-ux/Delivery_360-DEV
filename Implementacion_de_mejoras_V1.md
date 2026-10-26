@@ -2298,3 +2298,57 @@ Las pruebas ASGI usan TestClient contra la aplicación montada y una BD SQLite p
 La suite completa se ejecutó con la comprobación de pertenencia del envío; el último ajuste de eliminación de tópicos vacíos se verificó repitiendo las 66 pruebas focalizadas. Las pruebas PostgreSQL usan test_* y esquemas privados. No se accede a usuarios de producción ni se ensaya una explotación contra ellos.
 
 Mypy conserva deuda previa y la cobertura frontend anterior (**15,34 % de líneas**) sigue bajo el mínimo global del 50 %. No se declara CI global verde, todos los WebSockets cerrados ni producción lista. El PR se publica sin borrador, sin despliegue ni fusión automática.
+
+## Bloque 31 — Notificaciones privadas con autorización continua y fallback verificable
+
+Fecha: 25 de octubre de 2026, America/Caracas. Base: main b68532d, bloque 30 fusionado mediante PR #272. Rama: fix/notification-websocket-permissions-v1.
+
+### Problemas corregidos y comportamiento resultante
+
+El WebSocket de notificaciones comprobaba el JWT sin consultar nuevamente la cuenta. Una cuenta desactivada podía mantener acceso con un token todavía vigente. Ahora se aplica get_current_user con sesiones SQL breves antes de aceptar, al recibir mensajes y antes de cada envío. Se comprueban las condiciones de cuenta que ya exige la autenticación REST, incluido el perfil permitido del repartidor cuando corresponde. La identidad queda vinculada a la conexión: el cliente no elige otro usuario ni cambia de tópico. Todos los roles válidos, incluido CLIENTE, conservan acceso a su propia bandeja, conforme al alcance de las rutas REST existentes.
+
+Una denegación de sesión cierra con 1008; un fallo de infraestructura al verificar o cargar datos cierra con 1011. La cuenta se consulta otra vez antes del envío mediante la guarda del ConnectionManager incorporada en el bloque 30. No se sustituye un fallo de consulta del contador por un cero aparente. Las comprobaciones no mantienen una transacción abierta esperando tráfico de red.
+
+Antes, cada socket abría un suscriptor Redis y retransmitía cada evento a todos los sockets del usuario. Con dos sesiones podían recibirse dos copias en cada una. Cada suscriptor entrega ahora exclusivamente a su propia conexión. Se comprueba el tópico y se acepta únicamente NEW_NOTIFICATION con un UUID válido. El identificador se utiliza para consultar NotificationLog por id, usuario autenticado y canal IN_APP. Título, cuerpo, estado, fechas y contador proceden de la BD; el contenido Redis no decide el destinatario ni los campos visibles. Eventos ajenos, inexistentes, eliminados, de otros canales o malformados se descartan.
+
+### Disponibilidad y protocolo
+
+CONNECTED incluye realtime_available. Si Redis no está disponible, el socket informa false y el frontend continúa consultando la bandeja REST cada 60 segundos aunque el WebSocket esté abierto. Si Redis falla después de conectar, se cierra la conexión; el frontend activa el fallback y su política de reconexión existente. Se aceptan tanto action: ping como type: ping, este último utilizado por el hook actual. No se permiten órdenes de suscripción o suplantación.
+
+Los eventos nuevos incluyen unread_count calculado en la BD. El hook aplica ese contador sin incrementarlo de nuevo ante eventos repetidos y actualiza una fila ya conocida con su estado persistido. Se mantiene compatibilidad con mensajes antiguos sin ese campo; esa compatibilidad no garantiza deduplicar el contador de un servidor antiguo.
+
+La conexión y suscripción inicial a Redis tienen tiempo acotado; la lectura de Pub/Sub no usa un timeout de dos segundos, pues un canal sin eventos debe permanecer válido. La liberación de recursos acota cada operación de Redis, retira primero el registro del gestor y protege la limpieza asíncrona ante cancelación del contexto ASGI. Las pruebas con Redis real detectaron y permitieron corregir un registro residual que no aparecía con el doble de prueba.
+
+Se rechazan mensajes entrantes de más de 4096 caracteres y se descartan payloads Redis de más de 65536 unidades de longitud antes de procesarlos. Estos controles de aplicación no sustituyen límites de transporte, conexiones o tasa. No se cambia esquema, estado de negocio, reglas financieras ni formato de JWT.
+
+### Verificación y alcance de las pruebas
+
+Se incorporan 32 casos ASGI sobre la ruta real de la aplicación y una BD SQLite privada con sesiones independientes: roles, tokens ausentes/inválidos/expirados, cuentas eliminadas/desactivadas, suspensión, rol inválido, pertenencia de notificación, contenido Redis no confiable, varias sesiones, fallback, fallos de BD/Redis y limpieza. El contrato antiguo de snapshot se mantiene como prueba aislada con autenticación sustituida; las nuevas pruebas de permisos utilizan autenticación y cuentas persistidas reales.
+
+Se añaden dos pruebas con Redis 7 real: entrega privada a dos sockets sin multiplicación, retirada de suscripciones y funcionamiento después de un periodo inactivo superior a dos segundos. Requieren TEST_NOTIFICATION_REDIS_URL explícita, loopback y /15, y utilizan prefijos únicos por caso. Redis Pub/Sub comparte canales entre bases: el prefijo único proporciona el aislamiento de canal; /15 no constituye aislamiento de Pub/Sub. CI habilita estas pruebas usando el servicio Redis efímero ya existente.
+
+Se añaden cuatro pruebas del hook: polling con socket abierto sin Redis, ausencia de polling innecesario con stream disponible, contador/filas ante duplicados y cierre 1008 sin reconexión automática. No se envían correos, mensajes push ni notificaciones a usuarios externos.
+
+### Límites y pendientes
+
+Pub/Sub no es una cola durable: siguen pendientes outbox, replay, confirmaciones y garantías de entrega frente a desconexiones. No se garantiza atomicidad entre consulta SQL y envío por red ni orden global de snapshots entre dispositivos. Una cuenta inactiva se detecta en la siguiente comprobación; no hay revocación instantánea de conexiones o registro de revocación por token. Un cambio de rol que mantiene válido el acceso a la propia bandeja no requiere cierre.
+
+Quedan pendientes medir carga y coste de revalidar por mensaje, límites de conexión/tasa, política de origen, transporte seguro y política para tokens en URL. Este bloque no modifica los demás consumidores del gestor ni demuestra que todos los WebSockets estén protegidos. Las nuevas pruebas de filas de notificación usan SQLite; las pruebas PostgreSQL de regresión conservan su alcance anterior.
+
+El transporte de recuperación por correo sigue pendiente: email_service importa fastapi_mail, mientras la dependencia aparece comentada en requirements. La deuda de Mypy, cobertura, migraciones y el cierre comercial/operativo del roadmap siguen abiertos. No se declara producción lista ni CI global verde. Se publica un PR listo para revisión, sin borrador, sin fusión ni despliegue automático.
+
+### Evidencia final local del bloque 31
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **919 pruebas aprobadas**, 34 nuevas; cuatro advertencias de relaciones SQLAlchemy anteriores |
+| PostgreSQL real aislado | **108 pruebas** de regresión incluidas en el total |
+| Redis 7 real aislado | **2 pruebas** nuevas incluidas; entrega por sesión, inactividad y liberación |
+| Frontend completo | **261 pruebas aprobadas en 27 suites**, cuatro nuevas |
+| TypeScript / lint / build | Aprobados; lint conserva advertencias previas |
+| Cobertura frontend | **16,38 % de líneas**; el comando de cobertura falla por umbrales globales del 50 %, aunque los tests pasan |
+| Mypy con --ignore-missing-imports | **329 errores en 52 archivos**, exactamente los mismos diagnósticos por archivo/mensaje que la base; 173 archivos de app |
+| Black / Flake8 crítico | Aprobados; Black comprueba 175 archivos entre app y las dos suites nuevas |
+| Workflow YAML / git diff --check | Aprobados |
+
+Las pruebas usan contenedores locales desechables, cuentas de prueba y canales privados de prefijo único. No se ejecutan migraciones ni acciones contra producción.

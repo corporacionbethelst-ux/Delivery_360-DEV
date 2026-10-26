@@ -76,6 +76,9 @@ class ConnectionManager:
         finally:
             self.disconnect(connection_id)
 
+    async def close_connection(self, connection_id: str, code: int = 1000) -> None:
+        await self._close_guarded(connection_id, code)
+
     async def _send(self, message: dict, connection_id: str) -> None:
         websocket = self.active_connections.get(connection_id)
         if websocket and websocket.application_state == WebSocketState.CONNECTED:

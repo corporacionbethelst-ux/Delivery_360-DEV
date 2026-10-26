@@ -116,6 +116,7 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const closedRef = useRef(false);
+  const pollingRequiredRef = useRef(true);
 
   // -------- REST: inbox (también usado como fallback de polling) --------
   const refreshInbox = useCallback(async () => {
@@ -162,6 +163,7 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
 
     const connect = () => {
       if (closedRef.current) return;
+      pollingRequiredRef.current = true;
       const token = getToken();
       if (!token) {
         setError('Sin token: notificaciones en modo polling');
@@ -193,8 +195,14 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'CONNECTED') {
+            pollingRequiredRef.current = msg.realtime_available === false;
+            setIsConnected(!pollingRequiredRef.current);
+            if (pollingRequiredRef.current) {
+              setError('Notificaciones en modo polling: tiempo real no disponible');
+            }
             if (typeof msg.unread_count === 'number') setUnreadCount(msg.unread_count);
           } else if (msg.type === 'NEW_NOTIFICATION') {
+            const canonicalCount = typeof msg.unread_count === 'number' && Number.isSafeInteger(msg.unread_count) && msg.unread_count >= 0;
             const payload: InboxNotification = {
               id: String(msg.id ?? msg.data?.id ?? crypto.randomUUID()),
               template_code: msg.template_code ?? msg.data?.template_code ?? null,
@@ -206,10 +214,11 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
               read_at: msg.read_at ?? msg.data?.read_at ?? null,
             };
             setItems((prev) => {
-              if (prev.some((n) => n.id === payload.id)) return prev;
+              if (prev.some((n) => n.id === payload.id)) return canonicalCount ? prev.map((n) => n.id === payload.id ? { ...n, ...payload } : n) : prev;
               return [payload, ...prev].slice(0, 50);
             });
-            if (payload.status !== 'LEIDO') setUnreadCount((c) => c + 1);
+            if (canonicalCount) setUnreadCount(msg.unread_count);
+            else if (payload.status !== 'LEIDO') setUnreadCount((c) => c + 1);
           }
           // pong: nada que hacer (mantiene la conexión viva)
         } catch {
@@ -220,6 +229,7 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
       socket.onerror = () => setError('Error de WebSocket de notificaciones');
 
       socket.onclose = (ev) => {
+        pollingRequiredRef.current = true;
         setIsConnected(false);
         if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
         heartbeatTimerRef.current = null;
@@ -248,7 +258,7 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
 
     // Fallback polling cada 60s (solo refresca si el WS no está vivo)
     pollTimerRef.current = setInterval(() => {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      if (pollingRequiredRef.current || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
         refreshInbox();
       }
     }, pollFallbackSec * 1000);
