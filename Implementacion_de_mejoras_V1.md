@@ -2352,3 +2352,78 @@ El transporte de recuperación por correo sigue pendiente: email_service importa
 | Workflow YAML / git diff --check | Aprobados |
 
 Las pruebas usan contenedores locales desechables, cuentas de prueba y canales privados de prefijo único. No se ejecutan migraciones ni acciones contra producción.
+
+## Bloque 32 — Transporte SMTP real para recuperación de contraseña
+
+Fecha: 25 de octubre de 2026, America/Caracas. Base: main 4801bc8, bloque 31 fusionado mediante PR #273. Rama: fix/password-recovery-email-v1.
+
+### Problema y corrección
+
+email_service.py importaba fastapi_mail, cuya dependencia estaba comentada en requirements.txt. Además, construía ConnectionConfig al importar con parámetros antiguos MAIL_TLS/MAIL_SSL. La ruta capturaba el error y devolvía su respuesta genérica, pero el transporte no podía enviar el enlace. El servicio registraba direcciones y texto de excepciones del proveedor, y la ruta ignoraba el resultado booleano de envío.
+
+Se sustituye ese transporte por aiosmtplib==3.0.1, dependencia ya fijada en el proyecto. No se incorpora otro proveedor ni una dependencia nueva. La configuración se evalúa al solicitar el envío, sin abrir una conexión ni construir un cliente al importar el módulo. La ruta comprueba disponibilidad de configuración antes de reemplazar el token anterior.
+
+El cliente SMTP se autentica con SMTP_USER/SMTP_PASSWORD y utiliza exclusivamente STARTTLS explícito o TLS implícito, con validación de certificado y nombre del servidor. No se degrada a texto plano si el servidor no anuncia STARTTLS. Se admiten un remitente y un destinatario validados, sin listas ni cabeceras inyectadas. El correo es multipart/alternative con texto y HTML; el enlace se escapa en HTML.
+
+El resultado verdadero significa que SMTP aceptó el mensaje y concluyó el intercambio utilizado por el cliente; no confirma llegada al buzón, lectura o ausencia de rebotes posteriores. Un fallo, rechazo, timeout o configuración no utilizable devuelve falso. El resultado falso tampoco demuestra que el proveedor no aceptó nada si la conexión se perdió después de procesar DATA: SMTP no proporciona atomicidad entre el servidor remoto y la aplicación.
+
+### Configuración de recuperación
+
+| Variable | Uso |
+|---|---|
+| EMAILS_ENABLED | Debe estar activada para emitir un correo de recuperación; desactivada no simula envío ni reemplaza tokens |
+| SMTP_HOST / SMTP_PORT | Servidor y puerto; 587 suele usarse con STARTTLS y 465 con TLS implícito |
+| SMTP_TLS / SMTP_SSL | Exactamente una activa; valores predeterminados True / False para STARTTLS |
+| SMTP_USER / SMTP_PASSWORD | Credenciales obligatorias en este transporte |
+| SMTP_TIMEOUT_SECONDS | Límite por operación y presupuesto total del intercambio; predeterminado 10 segundos, rango aceptado mayor que cero y hasta 60 |
+| EMAIL_FROM / APP_NAME | Dirección del remitente y nombre visible |
+| FRONTEND_URL | Base absoluta del frontend; permite subruta y quita barra final al añadir /reset-password |
+| ENVIRONMENT | Con el valor production, el enlace exige HTTPS |
+
+Se corrige SMTP_HOST sin signo igual en el ejemplo raíz y se documentan los modos TLS en ambos ejemplos de entorno. Los nombres visibles de remitente de esos ejemplos se ajustan a APP_NAME, que es la variable utilizada. Estas nuevas opciones SMTP se aplican a recuperación; este bloque no migra el dispatcher omnicanal.
+
+### Flujo y respuesta pública
+
+1. La ruta conserva la búsqueda canónica de correo y el rechazo de identidades históricas ambiguas del bloque 29. Una cuenta inexistente/inactiva no genera correo.
+2. Si el correo está deshabilitado, faltan credenciales o hay una configuración inválida de SMTP/enlace, se conserva el token anterior. No se abre una conexión SMTP.
+3. Con configuración utilizable, se genera el token opaco criptográfico existente y se construye el enlace exclusivamente desde FRONTEND_URL. Se rechazan esquemas distintos de HTTP/HTTPS, URLs relativas, credenciales incrustadas, query/fragmento y puertos inválidos. No se deriva la URL de cabeceras Host o de un parámetro del solicitante; el token se codifica como parámetro de consulta.
+4. Se persiste el token y su vencimiento UTC de una hora antes de contactar SMTP, para que un enlace aceptado ya sea utilizable. No se mantienen bloqueos SQL durante la espera del proveedor.
+5. La ruta evalúa el resultado de envío y registra un aviso genérico si no hay confirmación de aceptación. Siempre mantiene el mismo status y mensaje público para cuentas ausentes, inactivas, ambiguas, configuración incompleta y fallos del proveedor. Ese mensaje no es una confirmación de entrega.
+
+Los nuevos logs del transporte y de la solicitud no contienen dirección, enlace, token, contraseña SMTP ni texto crudo de excepciones. No se incluyen tracebacks del proveedor en esos avisos. Esto no constituye una revisión de todos los logs de autenticación: por ejemplo, el log anterior del endpoint de cambio de contraseña sigue pendiente de una revisión de datos personales.
+
+Si SMTP falla después de persistir, el token nuevo sigue almacenado hasta expirar o ser sustituido; no se restaura automáticamente uno anterior ni se implementan reintentos. Una nueva solicitud habilitada puede sustituir el enlace anterior incluso si posteriormente el envío falla. Queda registrado para el diseño posterior de entrega durable y concurrencia.
+
+### Cierre de conexiones y evidencia de TLS
+
+Las pruebas contra un servidor local detectaron que aiosmtplib 3.0.1 puede dejar abierto el transporte cuando connect falla durante STARTTLS o autenticación, antes de entrar correctamente en su contexto asíncrono. Se utiliza un cliente explícito con cierre en finally, incluido timeout o cancelación del solicitante. Se fija local_hostname para evitar la búsqueda síncrona de FQDN del cliente en el event loop.
+
+El sink SMTP de pruebas escucha únicamente en loopback, tiene un certificado efímero con SAN localhost/127.0.0.1 y conserva los mensajes en memoria, sin retransmisión. Se prueba el cliente instalado real, no solo un mock de la llamada. La CA de prueba se confía mediante SSL_CERT_FILE exclusivamente en el proceso del test; el código de aplicación mantiene validate_certs=True. Se verifican STARTTLS, TLS implícito, rechazo de certificado no confiable, rechazo de autenticación y servidor sin STARTTLS; los casos de fallo comprueban que el cliente cierra y que no se envían credenciales/cuerpo sin cifrado.
+
+Otras pruebas verifican configuración incompleta, dirección o cabecera inválida, escape HTML, timeout total, cancelación, respuesta pública sanitizada, conservación del token cuando la configuración no permite enviar y el recorrido sobre la ruta montada con BD privada: persistencia antes de SMTP, enlace utilizable, cambio de contraseña, rechazo de reutilización secuencial y login con la nueva contraseña.
+
+### Pendientes de seguridad y operación que este bloque no cierra
+
+- El token sigue almacenado en claro en User.reset_token y el consumo actual usa lectura seguida de actualización. La invalidación secuencial está probada; **no se garantiza uso único bajo solicitudes concurrentes**. Debe implementarse almacenamiento de digest y consumo atómico, con política explícita para enlaces ya emitidos y pruebas nativas PostgreSQL.
+- Faltan límites por cuenta/IP, tratamiento de tiempos para reducir enumeración por latencia, política de contraseña consistente y revocación de sesiones/tokens ya emitidos tras un reset. La respuesta genérica evita diferencias de contenido, no demuestra indistinguibilidad temporal.
+- No se añaden outbox, cola durable, reintento o trazabilidad de rebotes. No se prueba entrega externa, reputación, SPF/DKIM/DMARC ni credenciales del proveedor de producción. La aplicación debe desplegarse con EMAILS_ENABLED y valores reales verificados posteriormente.
+- Hallazgo separado: OmnichannelNotificationService.dispatch_email utiliza starttls=True en lugar de start_tls y no pasa usuario/contraseña al cliente. También conserva su comportamiento de stub sin credenciales. Requiere un bloque propio para corregir transporte y semántica de estado/reintento sin marcar entrega externa simulada como real. No se afirma que el correo omnicanal esté corregido por reparar recuperación.
+- Siguen abiertos Mypy, cobertura frontend, migraciones y cierre del roadmap. No hay cambios de esquema, frontend, reglas financieras, fusión automática ni despliegue.
+
+El PR #273 fusionado conserva fallos de CI por los 329 errores previos de Mypy y cobertura frontend inferior al 50 %. La consulta de sus logs confirma esos motivos; no se los presenta como checks aprobados ni se relajan los umbrales para ocultarlos.
+
+### Evidencia final local del bloque 32
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **960 pruebas aprobadas**, 41 nuevas frente a 919; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **108 pruebas** de regresión incluidas |
+| Redis 7 real aislado | **2 pruebas** de regresión incluidas |
+| SMTP local con TLS real | **5 pruebas** nuevas incluidas; no hay relay externo |
+| Nuevas pruebas de cliente/configuración/ASGI | **36 casos** incluidos |
+| Regresión focalizada final | **59 aprobadas**, incluyendo correos canónicos; repetidas tras reforzar la observación de persistencia previa al envío en el test |
+| Mypy con --ignore-missing-imports | **329 errores en 52 archivos**, sin nuevos ni eliminados por archivo/mensaje; 173 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; Black comprueba 175 archivos, app y dos suites nuevas |
+| Frontend | Sin cambios; se conserva la validación previa de **261 pruebas en 27 suites**, TypeScript, lint y build, sin repetirla |
+
+La suite completa valida el código de aplicación final. El último ajuste fue reforzar una aserción de prueba de persistencia; después se repitieron los 59 casos focalizados y el formato. Las pruebas de recuperación usan SQLite privada y sesiones independientes; no se presentan como prueba del consumo concurrente del token en PostgreSQL. Los contenedores de regresión son locales y desechables. No se contacta ningún SMTP externo, no se cambia configuración de producción ni se despliega. La cobertura frontend previa de 16,38 % de líneas sigue bajo el umbral global del 50 %.
