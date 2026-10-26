@@ -123,7 +123,11 @@ async def test_initial_acceptance_uses_notification_sender_and_clears_retry_meta
     message = smtp.await_args.args[0]
     assert "notifications@example.com" in message["From"]
     assert message["Subject"] == "Subject"
-    assert "<b>Body</b>" in message.get_body(preferencelist=("html",)).get_content()
+    assert (
+        "&lt;b&gt;Body&lt;/b&gt;"
+        in message.get_body(preferencelist=("html",)).get_content()
+    )
+    assert "<b>Body</b>" in message.get_body(preferencelist=("plain",)).get_content()
     assert smtp.await_args.kwargs["sender"] == "notifications@example.com"
 
 
@@ -208,3 +212,107 @@ async def test_notification_real_tls_failures_do_not_claim_acceptance(
         assert not messages
         if failure != "auth_rejected":
             assert not credentials
+
+
+class VisibleEmail:
+    @staticmethod
+    def inspect(message, original):
+        from html.parser import HTMLParser
+
+        class Inspector(HTMLParser):
+            def __init__(self):
+                super().__init__(convert_charrefs=True)
+                self.tags = []
+                self.text = []
+
+            def handle_starttag(self, tag, attrs):
+                self.tags.append(tag)
+
+            def handle_data(self, text):
+                self.text.append(text)
+
+        # SMTP wire format uses CRLF; compare the decoded display text as LF.
+        rendered = (
+            message.get_body(preferencelist=("html",))
+            .get_content()
+            .replace("\r\n", "\n")
+        )
+        parser = Inspector()
+        parser.feed(rendered)
+        parser.close()
+        assert parser.tags == ["pre"]
+        # EmailMessage appends a trailing MIME newline outside the wrapper.
+        assert "".join(parser.text).rstrip("\n") == original.rstrip("\n")
+        assert message.get_body(preferencelist=("plain",)).get_content().replace(
+            "\r\n", "\n"
+        ).rstrip("\n") == original.rstrip("\n")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retry", [False, True])
+@pytest.mark.parametrize(
+    "name",
+    [
+        '<a href="https://attacker.example">Verificar pago</a>',
+        '<img src="https://attacker.example/tracker" onerror="alert(1)">',
+        '</pre><script>alert("profile")</script><pre>',
+        "Ana & José\n<Gerente>",
+    ],
+)
+async def test_persisted_profile_text_cannot_inject_email_html(
+    inbox, smtp, retry, name
+):
+    from app.services.omnichannel_service import render_template
+
+    _, sessions, ids, _, _ = inbox
+    async with sessions() as db:
+        rider_user = await db.get(User, ids["owner"])
+        rider_user.first_name = name
+        await db.commit()
+    async with sessions() as db:
+        rider_user = await db.get(User, ids["owner"])
+        manager = await db.get(User, ids["manager"])
+        body = render_template(
+            "Desviación del repartidor {{rider_name}}\nRevise su ruta.",
+            {"rider_name": rider_user.first_name},
+        )
+        row = NotificationLog(
+            user_id=manager.id,
+            channel=NotificationChannel.EMAIL,
+            title="Desviación",
+            body=body,
+            status=OmnichannelStatus.PENDIENTE,
+            retry_count=0,
+        )
+        if retry:
+            row.next_retry_at = utc_now_naive() - timedelta(seconds=1)
+        db.add(row)
+        await db.commit()
+        key = row.id
+        service = OmnichannelNotificationService(db, redis_client=False)
+        if retry:
+            assert await service.process_retry_queue() == 1
+        else:
+            await service._dispatch_one(
+                row, manager, SimpleNamespace(code="deviation"), body
+            )
+    VisibleEmail.inspect(smtp.await_args.args[0], body)
+    async with sessions() as db:
+        row = await db.get(NotificationLog, key)
+        assert row.body == body
+        assert row.status == OmnichannelStatus.ENVIADO
+        assert (await db.get(User, ids["owner"])).first_name == name
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("implicit", [False, True])
+async def test_real_smtp_keeps_untrusted_text_inert(local_smtp, implicit):
+    body = (
+        'Ana & José\n</pre><a href="https://attacker.example">Cambiar cuenta</a><pre>'
+    )
+    async with local_smtp(implicit=implicit) as (_, credentials, messages, _):
+        assert await OmnichannelNotificationService(
+            None, redis_client=False
+        ).dispatch_email("manager@example.com", "Desviación", body)
+        assert credentials and len(messages) == 1
+        VisibleEmail.inspect(messages[0], body)

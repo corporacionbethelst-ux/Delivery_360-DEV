@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from html import escape
 import json
 import logging
 import re
@@ -592,10 +593,14 @@ class OmnichannelNotificationService:
         if not to or not settings.NOTIFICATIONS_ENABLED:
             return False
         try:
+            # Existing notification templates are plain text. Escape only the
+            # HTML MIME alternative, including already rendered profile values.
             return await send_smtp_email(
                 to,
                 subject,
-                html,
+                '<pre style="white-space: pre-wrap">'
+                + escape(html, quote=True)
+                + "</pre>",
                 html,
                 from_address=settings.notification_email_from_computed,
             )
