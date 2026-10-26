@@ -2634,3 +2634,46 @@ La desactivación del proveedor pasa ahora a fallo/reintento en lugar de éxito 
 | Frontend | Sin cambios; se conserva validación anterior de **261 tests en 27 suites**, TypeScript, lint y build, sin repetirla |
 
 La suite completa valida el código final y la fixture TLS corregida. No se desactivan ni rebajan checks; Mypy y el umbral de cobertura frontend siguen pendientes. Los recursos de prueba se ejecutan localmente y se retiran al terminar. Se publica un PR listo para revisión, sin borrador, fusión ni despliegue automático.
+
+## Bloque 36 — Texto de notificaciones seguro en la alternativa HTML del correo
+
+Fecha: 26 de octubre de 2026, America/Caracas. Base: main 5c84382, PR #277 fusionado. Rama: fix/notification-email-html-escaping-v1.
+
+### Hallazgo prioritario y corrección
+
+La revisión del PR #277 identificó una regresión de seguridad del bloque 35: el cuerpo de las notificaciones, antes enviado como texto, se incluyó también como HTML sin escape. Los nombres guardados en perfiles pueden terminar como rider_name en alertas de desviación para gerentes; render_template los sustituye literalmente. Un nombre con etiquetas podía introducir enlaces, imágenes u otro marcado en un mensaje enviado por el remitente autenticado de la aplicación.
+
+Se atiende este hallazgo antes de continuar el trabajo de cola/transacciones. Las plantillas existentes se tratan como texto: dispatch_email aplica html.escape con escape de comillas sobre el cuerpo completo y lo coloca dentro de un contenedor pre estático con white-space: pre-wrap. El contenedor permite conservar espacios/saltos sin interpretar el texto como etiquetas. No se habilita un modo de HTML confiable ni una lista de etiquetas permitidas aportadas por usuarios.
+
+El escape ocurre exclusivamente al construir la alternativa HTML de EMAIL, después de la sustitución de variables. Así cubre valores procedentes de perfiles, el resto de contexto, cuerpos persistidos y reintentos sin exigir que cada productor escape correctamente su entrada. La alternativa text/plain conserva el contenido original. NotificationLog.body y el perfil no se modifican, por lo que no se acumula escape en BD ni se cambia el texto de IN_APP, PUSH o SMS. Una cadena que ya contiene entidades se muestra como su texto literal original, en lugar de interpretarse como HTML.
+
+La interfaz heredada sigue llamando html al argumento de dispatch_email, pero su contrato es cuerpo de notificación en texto. Una plantilla que contenga etiquetas las mostrará literalmente. Para incorporar plantillas de HTML enriquecido en el futuro haría falta una política explícita de confianza, escape de variables por contexto y pruebas independientes; este bloque no la introduce. La recuperación de contraseña conserva su plantilla HTML propia y el transporte SMTP compartido no cambia.
+
+### Verificación
+
+Se actualiza la aserción de formato del bloque 35 y se añaden diez casos: ocho combinaciones de cuatro nombres de perfil persistidos y envío inicial/reintento, más dos recorridos SMTP reales con STARTTLS/TLS implícito. Los valores incluyen enlaces externos, imágenes con atributos de evento, intento de cerrar el contenedor e insertar script, ampersands, Unicode y saltos de línea.
+
+Las pruebas leen el perfil desde una sesión nueva, lo sustituyen en una alerta de desviación y consultan el log persistido después del envío. Analizan la alternativa HTML: solo aparece el contenedor estático y su texto visible coincide con el cuerpo original. También verifican text/plain, estado ENVIADO y conservación exacta del cuerpo/perfil en BD. El sink SMTP escucha en loopback y no retransmite mensajes. La comparación normaliza CRLF de la representación SMTP a LF para no confundir el formato de transporte con cambios del contenido.
+
+La regresión focalizada de correo, recuperación y Fase 9 pasa con **93 tests**, frente a 83, y las cuatro advertencias anteriores. Mypy conserva **325 errores en 52 archivos**, sin diagnósticos nuevos ni eliminados. No se cambian esquema, configuración TLS, credenciales, flags, reintentos, autorización ni frontend.
+
+### Pendientes conservados
+
+El trabajo previsto de aislamiento transaccional, reclamación de cola y exclusión entre workers sigue pendiente; se priorizó el hallazgo de seguridad concreto de la revisión. Continúan los límites de SMTP/commit no atómicos, posibles duplicados, invalidación de sesiones, rate limiting distribuido, PUSH/SMS, Mypy/cobertura y cierre de producción. No se declara que todo contexto de salida del sistema esté auditado por escapar el canal EMAIL.
+
+La corrección se publica en un nuevo PR porque #277 ya estaba fusionado. Hasta incorporar y desplegar ese nuevo cambio, la versión anterior conserva el riesgo descrito. No se realiza fusión ni despliegue automático, ni se envía correo externo.
+
+### Evidencia final local del bloque 36
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **1041 tests aprobados**, diez nuevos frente a 1031; cuatro advertencias anteriores |
+| PostgreSQL real | **121 tests** de regresión incluidos |
+| Redis real | **2 tests** de regresión incluidos |
+| SMTP/TLS real en loopback | **12 tests** incluidos: diez previos y dos nuevos de contenido seguro |
+| Regresión focalizada | **93 tests aprobados**, incluidos recuperación y Fase 9 |
+| Mypy | **325 errores en 52 archivos**, sin nuevos ni eliminados por archivo/mensaje; 174 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; Black comprueba 175 archivos entre app y la suite modificada |
+| Frontend | Sin cambios; se conserva la validación previa de **261 tests en 27 suites**, TypeScript, lint y build, sin repetirla |
+
+La suite completa valida el código final. Se utilizan bases locales desechables y un sink SMTP sin retransmisión externa. No se relajan checks para declarar verde CI: continúan la deuda de Mypy y cobertura frontend. El PR se publica listo para revisión, sin borrador, sin fusión ni despliegue automático.
