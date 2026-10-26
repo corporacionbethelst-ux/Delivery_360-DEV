@@ -2737,3 +2737,63 @@ Se conservan las correcciones de SMTP y escape HTML de los bloques 35/36. Siguen
 | Frontend | Sin cambios; se conserva validación previa de **261 tests en 27 suites**, TypeScript, lint y build, sin repetirla |
 
 La suite completa incluye la limitación del rollback a fallos SQL y la prueba de conservación del cambio del llamador. Los contenedores/bases son locales desechables y los proveedores se sustituyen o se prueban en loopback sin retransmisión externa. No se rebajan checks; la deuda de Mypy y cobertura frontend sigue pendiente. Se publica un PR listo para revisión, sin borrador, fusión ni despliegue automático.
+
+## Bloque 38 — Sesión propia y contrato post-commit de notify_event
+
+Fecha: 26 de octubre de 2026, America/Caracas. Base: main eec0f58, PR #279 fusionado sin nuevas observaciones. Rama: fix/notification-hook-session-isolation-v1.
+
+### Hallazgo y decisión
+
+notification_hooks.notify_event decía que no hacía commits adicionales cuando recibía db del llamador, pero construía el servicio con esa misma sesión. El servicio confirma el encolado y los resultados por canal, y ante errores SQL puede hacer rollback. Por ello un hook podía confirmar o revertir trabajo de la transacción que lo invocaba.
+
+El hook ahora usa siempre una AsyncSession propia para el despacho. Cuando recibe db, esta solo selecciona el AsyncEngine y debe no tener ninguna transacción activa; no se pasa al servicio ni se invocan sus métodos commit/rollback. Se construye un sessionmaker sobre el mismo engine, conservando su pool/configuración y evitando seleccionar otra base por accidente. No se crea un engine/pool nuevo por evento.
+
+Si db ya está en transacción, se registra una advertencia genérica y no se intenta el envío. Esto incluye el autobegin de una lectura, cambios aún sin flush y cambios ya enviados a SQL pero sin commit. El contrato exige invocar después de commit y antes de abrir otra transacción, o invocar sin db cuando el llamador ya garantizó que los datos referenciados están confirmados. No se confía solo en dirty/new: una transacción puede tener escrituras ya enviadas y esas colecciones vacías.
+
+Las sesiones ligadas a una AsyncConnection o sin un AsyncEngine directo se rechazan. Abrir otra AsyncSession sobre la misma conexión podría seguir compartiendo la transacción del llamador; no se simula aislamiento en ese caso. Las configuraciones avanzadas con binds por mapper requieren un contrato específico futuro.
+
+Sin db se conserva la fábrica AsyncSessionLocal existente. No se inspecciona ni intenta confirmar trabajo ajeno: el productor debe garantizar que sus referencias de negocio ya son visibles antes de invocar. El contexto de la sesión propia se cierra al terminar. Un error de apertura/ejecución se contiene y se registra sin texto crudo del proveedor/SQL ni contexto privado. La cancelación asíncrona no se convierte artificialmente en éxito.
+
+### Llamadores revisados
+
+Aprobación/rechazo de retiros y asignación de entregas ya lanzan notify_event sin db después del commit de negocio. Se mantiene ese orden y sus tareas existentes, sin cambiar importes, estados financieros, destinatarios o payloads.
+
+El scheduler de desviaciones todavía pasaba su db de lectura abierta. Se elimina ese argumento para usar la sesión propia del hook; sus lecturas siguen en la sesión del scheduler y los logs se escriben desde otra. Las referencias utilizadas por ese recorrido corresponden a filas persistidas consultadas por el scheduler. Este ajuste evita que las alertas se pierdan por el nuevo rechazo explícito de transacciones activas.
+
+Una nueva integración que cree un usuario, entrega o retiro debe confirmar primero los datos antes de invocar sin db. Usar una conexión independiente mientras se retienen escrituras no confirmadas puede causar referencias invisibles o espera de claves foráneas: este bloque no recomienda llamar antes del commit ni registra callbacks implícitos sobre transacciones.
+
+### Cambio de contrato y límites
+
+Una invocación antigua notify_event(db=sesion_activa) deja de despachar. No se guarda para después, no se confirma automáticamente la sesión y no se añade un reintento oculto. Es un rechazo de uso inseguro con advertencia. Se adaptó el llamador de producción que utilizaba ese patrón; otros consumidores externos deberán migrar a post-commit o un outbox.
+
+El hook sigue siendo best-effort y retorna None: no es un recibo de entrega ni una garantía de que se creó un log. Las tareas create_task de los llamadores todavía pueden perderse si el proceso se detiene. Continúan pendientes outbox, diferimiento durable después de commit, reenvío de estados ambiguos y reclamación de cola entre trabajadores. Tampoco hay atomicidad entre SMTP y el commit del log.
+
+Este aislamiento cubre notify_event, no convierte en seguras todas las instancias directas de OmnichannelNotificationService que reciban una sesión de negocio. La API de prueba de envío y otros consumidores del servicio conservan su contrato anterior. El helper separado resolve_payout_recipient aún consulta con la sesión del llamador y tiene su manejo de errores previo; este bloque no declara auditados todos los helpers ni sustituye la revisión transaccional de cada flujo.
+
+### Pruebas
+
+Se añaden doce casos: diez con PostgreSQL real y dos de contención sin BD. Usan la base test_* explícita, esquemas privados y proveedores sustituidos; no envían correo externo.
+
+- Después de commit, el servicio recibe una sesión diferente sobre el mismo engine, crea logs reales y no invoca commit/rollback de la sesión del llamador.
+- Con una transacción de lectura, cambios sin flush o cambios con flush, se rechaza el uso inseguro. Cada estado se prueba con commit y rollback posterior del propietario; no se crean notificaciones y sus datos conservan el resultado elegido por el llamador.
+- Un hook sin db confirma sus logs desde una sesión propia, mientras un cambio pendiente en otra sesión sigue sin confirmarse y puede revertirse.
+- Se provoca un fallo SQL real durante los commits de la sesión propia y se verifica que el cambio de negocio de otra sesión todavía se puede confirmar y leer. No se expone el diagnóstico privado.
+- Una sesión ligada a una conexión no es reutilizada y la conexión original sigue operativa.
+- El fallo al abrir la sesión propia se contiene con log genérico; un destinatario None no abre sesión.
+
+La regresión focalizada aprueba **112 tests**, incluyendo despacho secuencial, correo, recuperación y Fase 9. Mypy mantiene **325 errores en 52 archivos**, sin diagnósticos nuevos ni eliminados. No se cambia esquema, frontend, credenciales ni configuración TLS.
+
+### Evidencia final local del bloque 38
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **1060 tests aprobados**, doce nuevos frente a 1048; cuatro advertencias anteriores |
+| PostgreSQL real | **137 tests** incluidos, diez nuevos de propiedad/aislamiento de sesiones |
+| Casos nuevos sin BD | Dos de apertura fallida y destinatario ausente |
+| Redis / SMTP TLS local | **2 Redis** y **12 SMTP/TLS** de regresión incluidos |
+| Regresión focalizada | **112 tests aprobados**, incluidos despacho, correo, recuperación y Fase 9 |
+| Mypy | **325 errores en 52 archivos**, sin nuevos ni eliminados por archivo/mensaje; 174 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; Black comprueba 175 archivos entre app y suite nueva |
+| Frontend | Sin cambios; se conserva validación anterior de **261 tests en 27 suites**, TypeScript, lint y build, sin repetirla |
+
+La suite completa incluye el scheduler adaptado y el rechazo explícito de transacciones activas. Los recursos de prueba son locales y desechables; los proveedores se sustituyen o se prueban con SMTP loopback sin retransmisión externa. Se conservan los checks y la deuda de Mypy/cobertura. El PR se publica listo para revisión, sin borrador, fusión ni despliegue automático.

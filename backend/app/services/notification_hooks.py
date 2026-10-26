@@ -1,20 +1,19 @@
 """
 Fase 9 — Helpers de hook para servicios de negocio (payouts/tracking/deliveries).
 
-Regla de oro: un fallo de notificación NUNCA puede revertir ni interrumpir la
-transacción de negocio. Por eso notify_event() abre su PROPIA sesión y envuelve
-todo en try/except. Si se le pasa una sesión existente, la usa sin commitear
-nada adicional (confía en el commit del llamador) y aun así atrapa errores.
+El dispatch usa siempre una sesión propia. Si se proporciona db, solo selecciona
+su engine y exige que no tenga una transacción activa: el llamador debe invocar
+el hook después de commit. No se confirma ni revierte trabajo del llamador.
+Este hook es best-effort, sin outbox ni garantía durable de ejecución.
 """
 
 from __future__ import annotations
 
 import logging
-import uuid as uuid_mod
 from typing import Any, Dict, Optional
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, AsyncEngine, async_sessionmaker
 
 logger = logging.getLogger(__name__)
 
@@ -37,21 +36,22 @@ async def notify_event(
         from app.services.omnichannel_service import OmnichannelNotificationService
 
         if db is not None:
-            service = OmnichannelNotificationService(db)
-            await service.send(
-                user_id,
-                template_code,
-                context,
-                delivery_id=delivery_id,
-                payout_id=payout_id,
-                title=title,
+            if db.in_transaction():
+                logger.warning("Notification hook requires post-commit invocation")
+                return
+            if not isinstance(db.bind, AsyncEngine):
+                # A connection-bound session could share the owner's transaction.
+                logger.warning("Notification hook requires an engine-bound session")
+                return
+            session_factory = async_sessionmaker(
+                db.bind, expire_on_commit=False, autoflush=False
             )
-            return
+        else:
+            from app.core.database import AsyncSessionLocal
 
-        # Sin sesión: usar sesión propia efímera (hooks desde schedulers/jobs)
-        from app.core.database import AsyncSessionLocal
+            session_factory = AsyncSessionLocal
 
-        async with AsyncSessionLocal() as own_db:
+        async with session_factory() as own_db:
             service = OmnichannelNotificationService(own_db)
             await service.send(
                 user_id,
@@ -61,8 +61,8 @@ async def notify_event(
                 payout_id=payout_id,
                 title=title,
             )
-    except Exception as exc:  # noqa: BLE001 — por diseño: jamás propagar
-        logger.warning("notify_event(%s) falló (no crítico): %s", template_code, exc)
+    except Exception:  # Operational hook failures never alter caller transactions.
+        logger.warning("Notification hook failed")
 
 
 async def resolve_payout_recipient(db: AsyncSession, payout: Any) -> Optional[Any]:
