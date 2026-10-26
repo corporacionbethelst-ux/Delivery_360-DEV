@@ -2797,3 +2797,73 @@ La regresión focalizada aprueba **112 tests**, incluyendo despacho secuencial, 
 | Frontend | Sin cambios; se conserva validación anterior de **261 tests en 27 suites**, TypeScript, lint y build, sin repetirla |
 
 La suite completa incluye el scheduler adaptado y el rechazo explícito de transacciones activas. Los recursos de prueba son locales y desechables; los proveedores se sustituyen o se prueban con SMTP loopback sin retransmisión externa. Se conservan los checks y la deuda de Mypy/cobertura. El PR se publica listo para revisión, sin borrador, fusión ni despliegue automático.
+
+## Bloque 39 — Reclamación de reintentos por fila en PostgreSQL
+
+Fecha: 26 de octubre de 2026, America/Caracas. Base: main aedc109, PR #280 fusionado sin nuevas observaciones. Rama: fix/notification-retry-row-locks-v1.
+
+### Hallazgo y corrección
+
+process_retry_queue seleccionaba un lote sin bloqueo y contactaba proveedores antes de confirmar el resultado. Dos procesos podían seleccionar los mismos logs PENDIENTE y enviar ambos. El lote terminaba con un commit general, pero algunas ramas confirmaban antes: el usuario ausente y la actualización de fallos de tokens PUSH. Esos commits también habrían liberado cualquier bloqueo agregado superficialmente al SELECT del lote.
+
+Se sustituye esa selección por una secuencia que reclama una sola fila con FOR UPDATE OF notification_logs SKIP LOCKED, procesa su proveedor y confirma su resultado antes de buscar otra. Otro trabajador que utilice este mismo protocolo salta la fila bloqueada y puede atender una diferente. La exclusión dura mientras la transacción y conexión de PostgreSQL mantienen el bloqueo; no es una garantía externa de entrega exactamente una vez.
+
+La consulta conserva los filtros PENDIENTE, próximo reintento no nulo y vencido respecto al inicio de la pasada. Ordena por next_retry_at e id, limita a una fila y refresca su estado desde BD para no utilizar una copia vieja del identity map. Mantiene una lista acotada de UUID ya tratados para no repetir una fila en la misma pasada, incluso si una configuración de backoff la hiciera elegible inmediatamente.
+
+Cada resultado confirma también los cambios de tokens que le correspondan. _mark_token_failures ahora hace flush, no commit: sus llamadores _dispatch_one y process_retry_queue son quienes confirman. Se conserva la desactivación de token tras tres fallos. El helper es privado y ya no ofrece confirmación independiente fuera de esos propietarios.
+
+### Límites de pasada y propiedad de transacción
+
+batch_size acepta enteros de 1 a 100, rechazando bool, valores fraccionarios, cero, negativos o superiores antes de consultar BD. El scheduler continúa con su valor predeterminado de 50. Es un límite de filas confirmadas en una llamada, no un número de filas prebloqueadas ni un timeout de proveedor.
+
+Una pasada sin filas termina su transacción de lectura con commit. La función requiere una sesión dedicada, como ya usa el scheduler: sus commits/rollbacks no deben operar sobre una sesión que contenga trabajo de negocio ajeno. No se reutiliza una transacción activa de una API financiera para escanear esta cola.
+
+Se mantiene el presupuesto/backoff previo de reintentos. Se elimina una consulta de plantilla cuyo resultado no se usaba: el reintento entrega el cuerpo previamente persistido. La revalidación de plantillas, preferencias o actividad de cuenta no se introduce implícitamente en este cambio.
+
+Un usuario ausente convierte la fila a FALLIDO, elimina su próximo reintento y cuenta como procesada. Es una protección para estados históricos/corruptos; con claves foráneas sanas no se espera ese caso ordinariamente. No se modifica el esquema ni se ejecuta una limpieza de datos.
+
+### Fallos, cancelación y alcance de exclusión
+
+Una excepción SQL, un error inesperado de proveedor o una cancelación provoca un intento de rollback de la fila actual y se propaga al propietario. Los resultados ya confirmados de filas anteriores permanecen. Si el rollback falla, se registra el fallo sin afirmar que la conexión quedó recuperada; el propietario cierra su sesión y aplica su política de ciclo. La prueba de cancelación usa un proveedor asíncrono cooperativo: no promete interrumpir inmediatamente una llamada síncrona bloqueada de un proveedor legacy.
+
+Al cerrarse una conexión de un trabajador interrumpido, PostgreSQL libera los bloqueos. La detección de una conexión muerta depende de PostgreSQL/red/timeouts. No se añaden leases temporales, columnas de propietario ni un timeout de negocio nuevo. La sesión puede mantener el bloqueo durante la espera del proveedor; deben medirse latencia, conexiones y límites de PostgreSQL antes de aumentar carga/lotes.
+
+La garantía solo cubre trabajadores cooperantes de esta versión, sobre PostgreSQL y transacciones normales. SQLite ignora FOR UPDATE y sirve aquí para regresiones secuenciales, no para demostrar exclusión distribuida. Un despliegue futuro debe actualizar todos los workers: uno antiguo que seleccione sin bloqueo y llame al proveedor puede duplicar envíos aunque su actualización SQL posterior espere el bloqueo.
+
+Si SMTP acepta y luego falla el commit, el siguiente trabajador puede reenviar. Una caída de conexión SQL mientras el proveedor sigue trabajando tampoco proporciona fencing externo: el bloqueo puede desaparecer antes de terminar ese contacto. Siguen pendientes idempotencia/conciliación por proveedor y outbox; no se etiqueta esta solución como entrega exactamente una vez.
+
+### Pruebas nuevas
+
+Se añaden doce casos: siete PostgreSQL reales y cinco límites de entrada sin BD. Los workers usan sesiones diferentes, coordinación explícita con eventos y proveedores sustituidos, sin envío externo.
+
+- Un trabajador mantiene el proveedor en espera y el otro devuelve cero para la misma fila, sin llamarlo.
+- Con dos filas y límite de una, el segundo trabajador procesa la siguiente sin esperar a que termine el primero.
+- La cancelación revierte la fila actual, libera la transacción y permite que otro trabajador la atienda sin alterar antes su contador.
+- Un fallo SQL real durante el segundo commit conserva la primera fila ENVIADO y la segunda PENDIENTE. Se verifica que otro worker solo vuelva a tomar la segunda; la prueba conserva explícitamente el caso de aceptación externa previa al fallo SQL, que sigue siendo ambiguo.
+- Un fallo de tokens PUSH hace flush mientras la fila continúa bloqueada: otro worker no puede llamar al proveedor del mismo log. El resultado y la desactivación del token quedan persistidos al confirmar el propietario.
+- Una excepción del proveedor revierte/libera la fila para otra pasada.
+- El límite y elegibilidad excluyen filas enviadas/leídas, sin plazo o con plazo futuro, y respetan el orden de las pendientes.
+- Entradas de lote inválidas no consultan ni modifican la sesión.
+
+La regresión focalizada aprueba **124 tests**, incluidos hooks, despacho, SMTP, recuperación y Fase 9. Se mantienen las anotaciones del helper por fila para no ocultar errores de los modelos legacy. Mypy queda en **324 errores en 52 archivos**, uno eliminado por retirar la variable de plantilla innecesaria y ninguno nuevo por archivo/mensaje.
+
+### Pendientes conservados
+
+No se implementa aún outbox ni recuperación automática de logs PENDIENTE sin next_retry_at dejados por un fallo inicial ambiguo. Tampoco se revalidan cuenta/preferencias, se corrigen stubs de PUSH/SMS o se garantizan incrementos concurrentes agregados de fallos de un token compartido por distintos logs. El bloqueo de log no equivale a bloquear toda entidad destinataria o proveedor.
+
+Persisten los pendientes de hooks best-effort/create_task, resolución de destinatarios en sesiones de negocio, JWT/revocación, límites distribuidos, Mypy/cobertura, migraciones y cierre de producción. No se modifica frontend ni reglas financieras. El nuevo PR se entrega sin fusión ni despliegue automático.
+
+### Evidencia final local del bloque 39
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **1072 tests aprobados**, doce nuevos frente a 1060; cuatro advertencias anteriores |
+| PostgreSQL real | **144 tests** incluidos, siete nuevos de cola/workers |
+| Límites de lote | Cinco casos nuevos sin BD |
+| Redis / SMTP TLS local | **2 Redis** y **12 SMTP/TLS** de regresión incluidos |
+| Regresión focalizada | **124 tests aprobados**, incluidos hooks, despacho, correo, recuperación y Fase 9 |
+| Mypy | **324 errores en 52 archivos**, uno eliminado y ninguno nuevo por archivo/mensaje; 174 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; Black comprueba 175 archivos entre app y suite nueva |
+| Frontend | Sin cambios; se conserva validación previa de **261 tests en 27 suites**, TypeScript, lint y build, sin repetirla |
+
+La suite completa incluye el protocolo por fila, el flush de tokens y la recuperación por rollback de la fila actual. Los recursos son locales y desechables y no hay correo externo. No se rebajan checks: Mypy/cobertura siguen pendientes. El PR se publica listo para revisión, sin borrador, fusión ni despliegue automático.
