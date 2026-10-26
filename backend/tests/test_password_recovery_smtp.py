@@ -103,7 +103,20 @@ async def local_smtp(smtp, tmp_path, monkeypatch):
                         await reply("250 SIZE 100000")
                     elif verb == "STARTTLS":
                         await reply("220 Ready for TLS")
-                        await writer.start_tls(context, ssl_handshake_timeout=2)
+                        transport = writer.transport
+                        try:
+                            await writer.start_tls(context, ssl_handshake_timeout=2)
+                        except AttributeError:
+                            # _replace_writer dereferences None if start_tls
+                            # returned no transport after peer rejection.
+                            if writer.transport is not None:
+                                raise
+                            return
+                        finally:
+                            if writer.transport is None:
+                                # Python 3.12 may lose the transport on a rejected
+                                # handshake, including exceptional exits.
+                                writer._transport = transport
                     elif verb == "AUTH":
                         if not encrypted:
                             await reply("530 TLS required")
@@ -140,8 +153,8 @@ async def local_smtp(smtp, tmp_path, monkeypatch):
             finally:
                 writer.close()
                 try:
-                    await writer.wait_closed()
-                except (ConnectionError, ssl.SSLError):
+                    await asyncio.wait_for(writer.wait_closed(), 0.5)
+                except (ConnectionError, ssl.SSLError, asyncio.TimeoutError):
                     pass
                 writers.discard(writer)
                 tasks.discard(asyncio.current_task())

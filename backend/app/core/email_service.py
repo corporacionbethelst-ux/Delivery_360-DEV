@@ -1,4 +1,4 @@
-"""Password recovery through the pinned SMTP client; no simulated delivery."""
+"""Shared authenticated TLS SMTP transport; no simulated delivery."""
 
 import asyncio
 import logging
@@ -22,7 +22,7 @@ def _mailbox(value: str) -> str:
     ).normalized
 
 
-def reset_email_is_configured() -> bool:
+def smtp_email_is_configured(from_address: str | None = None) -> bool:
     if not settings.EMAILS_ENABLED:
         return False
     if not (
@@ -36,10 +36,14 @@ def reset_email_is_configured() -> bool:
     ):
         return False
     try:
-        _mailbox(settings.EMAIL_FROM)
+        _mailbox(settings.EMAIL_FROM if from_address is None else from_address)
     except EmailNotValidError:
         return False
     return True
+
+
+def reset_email_is_configured() -> bool:
+    return smtp_email_is_configured()
 
 
 def password_reset_link(token: str) -> str:
@@ -61,34 +65,23 @@ def password_reset_link(token: str) -> str:
     return f"{base}/reset-password?{urlencode({'token': token})}"
 
 
-async def send_reset_email(email: str, reset_link: str) -> bool:
+async def send_smtp_email(
+    email: str, subject: str, html: str, plain: str, *, from_address: str | None = None
+) -> bool:
     """True means SMTP accepted the message, not confirmed inbox delivery."""
-    if not reset_email_is_configured():
-        logger.warning("Password recovery email unavailable: SMTP configuration")
+    if not smtp_email_is_configured(from_address):
+        logger.warning("SMTP email unavailable: configuration")
         return False
     client = None
     try:
         recipient = _mailbox(email)
-        sender = _mailbox(settings.EMAIL_FROM)
+        sender = _mailbox(settings.EMAIL_FROM if from_address is None else from_address)
         message = EmailMessage()
         message["From"] = formataddr((settings.APP_NAME, sender))
         message["To"] = recipient
-        message["Subject"] = "Recuperación de contraseña - Delivery360"
-        message.set_content(
-            "Has solicitado restablecer tu contraseña en Delivery360.\n\n"
-            f"Abre este enlace para continuar:\n{reset_link}\n\n"
-            "El enlace expira en 1 hora. Si no lo solicitaste, ignora este correo."
-        )
-        link = escape(reset_link, quote=True)
-        message.add_alternative(
-            "<html><body><h2>Recuperación de contraseña</h2>"
-            "<p>Has solicitado restablecer tu contraseña en Delivery360.</p>"
-            f'<p><a href="{link}">Restablecer contraseña</a></p>'
-            f"<p>O copia y pega este enlace en tu navegador: {link}</p>"
-            "<p>El enlace expira en 1 hora. Si no lo solicitaste, ignora este correo.</p>"
-            "</body></html>",
-            subtype="html",
-        )
+        message["Subject"] = subject
+        message.set_content(plain)
+        message.add_alternative(html, subtype="html")
         client = aiosmtplib.SMTP(
             hostname=settings.SMTP_HOST,
             port=settings.SMTP_PORT,
@@ -113,16 +106,36 @@ async def send_reset_email(email: str, reset_link: str) -> bool:
             deliver(), timeout=settings.SMTP_TIMEOUT_SECONDS
         )
         if refused:
-            logger.warning("Password recovery email rejected by SMTP")
+            logger.warning("SMTP email rejected")
             return False
     except Exception:
         # SMTP exceptions may include recipient, server transcript or credentials.
-        logger.warning("Password recovery email failed")
+        logger.warning("SMTP email failed")
         return False
     finally:
         # connect() in the pinned client can fail after opening the transport
         # (STARTTLS/auth). Close explicitly even before context entry succeeds.
         if client is not None:
             client.close()
-    logger.info("Password recovery email accepted by SMTP")
+    logger.info("SMTP email accepted")
     return True
+
+
+async def send_reset_email(email: str, reset_link: str) -> bool:
+    plain = (
+        "Has solicitado restablecer tu contraseña en Delivery360.\n\n"
+        f"Abre este enlace para continuar:\n{reset_link}\n\n"
+        "El enlace expira en 1 hora. Si no lo solicitaste, ignora este correo."
+    )
+    link = escape(reset_link, quote=True)
+    html = (
+        "<html><body><h2>Recuperación de contraseña</h2>"
+        "<p>Has solicitado restablecer tu contraseña en Delivery360.</p>"
+        f'<p><a href="{link}">Restablecer contraseña</a></p>'
+        f"<p>O copia y pega este enlace en tu navegador: {link}</p>"
+        "<p>El enlace expira en 1 hora. Si no lo solicitaste, ignora este correo.</p>"
+        "</body></html>"
+    )
+    return await send_smtp_email(
+        email, "Recuperación de contraseña - Delivery360", html, plain
+    )

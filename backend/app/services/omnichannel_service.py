@@ -4,9 +4,9 @@ Fase 9 — Servicio omnicanal de notificaciones (Delivery360).
 DISEÑO:
 - No reemplaza al NotificationService legacy (tabla `notifications`, usado por
   alertas operacionales); conviven. Este servicio escribe en notification_logs.
-- Providers firebase-admin / twilio / aiosmtplib son OPCIONALES (import
+- Providers firebase-admin / twilio son OPCIONALES (import
   try/except, patrón OR-Tools de Fase 8). Sin credenciales → fallback IN_APP
-  con provider='stub' y log ENVIADO simulado. Nunca revienta en desarrollo.
+  para PUSH/SMS. EMAIL usa SMTP real y reintento ante fallo, sin éxito simulado.
 - Redis async SOLO vía `from redis import asyncio as aioredis` (regla heredada).
 - Plantillas cacheadas en Redis TTL 1h con fallback a DB si Redis está caído.
 - Dedupe: hash(template_code+entity_id+ventana_5min) → skippa reenvíos <5 min.
@@ -34,6 +34,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.email_service import send_smtp_email
 from app.models.notification import (
     NotificationChannel,
     NotificationLog,
@@ -62,16 +63,6 @@ try:  # pragma: no cover
 except Exception:
     TwilioClient = None
     TWILIO_AVAILABLE = False
-
-try:  # pragma: no cover
-    import aiosmtplib  # type: ignore
-    from email.message import EmailMessage  # stdlib
-
-    AIOSMTP_AVAILABLE = True
-except Exception:
-    aiosmtplib = None
-    EmailMessage = None
-    AIOSMTP_AVAILABLE = False
 
 # Redis async NATIVO (redis>=5). PROHIBIDO el paquete deprecado `aioredis`.
 try:  # pragma: no cover
@@ -512,13 +503,22 @@ class OmnichannelNotificationService:
             if ok:
                 log.status = OmnichannelStatus.ENVIADO
                 log.sent_at = utc_now_naive()
+                if log.channel == NotificationChannel.EMAIL:
+                    # Legacy models use unparameterized Column attributes.
+                    email_log: Any = log
+                    email_log.next_retry_at = None
+                    email_log.error_message = None
                 if log.channel == NotificationChannel.IN_APP:
                     log.delivered_at = log.sent_at
             else:
                 self._schedule_retry(log, "Provider reportó fallo")
         except Exception as exc:
-            logger.error("Dispatch %s falló: %s", log.channel, exc)
-            self._schedule_retry(log, str(exc))
+            if log.channel == NotificationChannel.EMAIL:
+                logger.warning("Notification SMTP dispatch failed")
+                self._schedule_retry(log, "SMTP dispatch failed")
+            else:
+                logger.error("Dispatch %s falló: %s", log.channel, exc)
+                self._schedule_retry(log, str(exc))
         await self.db.commit()
 
     def _schedule_retry(self, log: NotificationLog, error: str) -> None:
@@ -588,32 +588,19 @@ class OmnichannelNotificationService:
             return False
 
     async def dispatch_email(self, to: Optional[str], subject: str, html: str) -> bool:
-        if not to:
-            return True
-        creds_ok = bool(
-            settings.SMTP_USER and settings.SMTP_PASSWORD and settings.SMTP_HOST
-        )
-        if not (AIOSMTP_AVAILABLE and creds_ok):
-            logger.debug("SMTP no configurado → provider='stub'")
-            return True
-        try:  # pragma: no cover
-            import asyncio as _a
-
-            loop = _a.get_event_loop()
-            mail = EmailMessage()
-            mail["From"] = settings.notification_email_from_computed
-            mail["To"] = to
-            mail["Subject"] = subject
-            mail.set_content(html)
-            await aiosmtplib.send(
-                mail,
-                hostname=settings.SMTP_HOST,
-                port=settings.SMTP_PORT,
-                starttls=True,
+        # Disabled/unconfigured/missing recipient is not a delivered EMAIL.
+        if not to or not settings.NOTIFICATIONS_ENABLED:
+            return False
+        try:
+            return await send_smtp_email(
+                to,
+                subject,
+                html,
+                html,
+                from_address=settings.notification_email_from_computed,
             )
-            return True
-        except Exception as exc:
-            logger.error("SMTP error: %s", exc)
+        except Exception:
+            logger.warning("Notification SMTP dispatch failed")
             return False
 
     async def _mark_token_failures(self, tokens: List[str]) -> None:
@@ -724,6 +711,10 @@ class OmnichannelNotificationService:
             else:
                 ok = True
 
+            if not ok and log.channel == NotificationChannel.EMAIL:
+                self._schedule_retry(log, "SMTP unavailable or failed")
+                processed += 1
+                continue
             if ok:
                 log.status = OmnichannelStatus.ENVIADO
                 log.sent_at = now

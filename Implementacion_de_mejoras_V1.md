@@ -2573,3 +2573,64 @@ Se añaden ocho regresiones: cuatro combinaciones de solicitar/consumir enlace y
 Se consultan también los logs de GitHub de la revisión original: los checks rojos corresponden a **329 errores previos de Mypy** y al umbral de cobertura frontend (en ese run, **16,37 % de líneas**, con **261 tests aprobados**). El hallazgo de CORS sí es un defecto del cambio y se corrige; no se atribuye a esa deuda ni se ocultan los checks anteriores. No se declara que esos checks globales estén verdes.
 
 Verificación final de la corrección: **1016 tests backend aprobados**, incluidos 121 PostgreSQL, 2 Redis y 5 SMTP/TLS locales; cuatro advertencias anteriores. **79 tests focalizados aprobados**. Black (176 archivos), Flake8 crítico y git diff --check aprobados. Mypy mantiene exactamente 329 diagnósticos en 52 archivos, sin nuevos ni eliminados por archivo/mensaje. El frontend no cambia. Estos resultados reemplazan la cifra de 1008 como evidencia del estado final de este PR, sin declarar resuelta la deuda global de CI. Se actualiza el PR #276 existente, sin borrador, fusión ni despliegue.
+
+## Bloque 35 — Transporte SMTP compartido y estados reales del canal EMAIL
+
+Fecha: 26 de octubre de 2026, America/Caracas. Base: main 52f8fb9, PR #276 fusionado con la corrección CORS. Rama: fix/omnichannel-smtp-delivery-v1.
+
+### Hallazgos corregidos
+
+OmnichannelNotificationService.dispatch_email enviaba starttls=True al cliente, cuyo argumento válido es start_tls, y no pasaba SMTP_USER/SMTP_PASSWORD. Si faltaban destinatario, librería o credenciales devolvía True; el flujo marcaba EMAIL como ENVIADO sin aceptación externa. La recuperación reparada en el bloque 32 tenía otro transporte, por lo que aquella corrección no había reparado este dispatcher.
+
+Se extrae send_smtp_email en el módulo existente email_service.py y se comparte entre recuperación y notificaciones. Se mantiene aiosmtplib==3.0.1, sin dependencias, modelos ni migraciones nuevas. Ambos flujos usan autenticación, STARTTLS obligatorio o TLS implícito, validación de certificados, presupuesto total de tiempo y cierre explícito ante fallo/cancelación. El cliente no se construye al importar el módulo. Los nuevos logs de este transporte no incluyen destinatario, contenido, credenciales o excepciones crudas del proveedor.
+
+La recuperación conserva su interfaz send_reset_email, enlace, asunto y plantilla de texto/HTML; reset_email_is_configured delega en la configuración compartida. La notificación utiliza NOTIFICATION_EMAIL_FROM con el fallback EMAIL_FROM ya definido, validando la dirección efectiva. El nombre visible sigue APP_NAME. El contenido existente se incluye como alternativa HTML y como texto plano literal; no se implementa conversión de etiquetas a texto ni un nuevo motor de plantillas.
+
+### Configuración y estados
+
+EMAILS_ENABLED debe estar activo y SMTP debe estar configurado como en el bloque 32. NOTIFICATIONS_ENABLED apagado impide el envío SMTP desde el dispatcher, incluido el reintento de un EMAIL ya pendiente; el flujo general de creación conserva su fallback previo a IN_APP cuando ese flag maestro está apagado.
+
+| Situación | Resultado de EMAIL |
+|---|---|
+| SMTP acepta y finaliza el intercambio del cliente | True; ENVIADO con sent_at |
+| Destinatario ausente/inválido, remitente inválido o configuración incompleta | False; no se simula entrega |
+| EMAILS_ENABLED o NOTIFICATIONS_ENABLED apagado | Sin envío externo; False |
+| Rechazo de credenciales, TLS/certificado inválido, timeout o fallo de proveedor | False, diagnóstico genérico |
+| Fallo inicial | PENDIENTE con contador y próximo reintento según política existente |
+| Reintento fallido | Se aplica la misma política acotada; al agotarla, FALLIDO sin próximo reintento |
+| Aceptación tras fallo | ENVIADO, limpiando próximo reintento y error previo |
+
+La aceptación SMTP no confirma llegada al buzón o lectura: no se establece delivered_at para EMAIL. Los flags deshabilitados consumen la política de reintentos igual que otros fallos; no se mantiene un trabajo indefinidamente en espera de configuración. Una vez FALLIDO, este bloque no implementa una acción de reenvío manual.
+
+Se conserva el máximo de reintentos y el backoff existentes. El contador representa reintentos programados además del intento inicial; no se cambia a una interpretación distinta. Los errores de email que lleguen a _dispatch_one se sanitizan antes de persistirlos. La API de dispatch sigue devolviendo bool, preservando los llamadores.
+
+### Pruebas y alcance
+
+Se añaden quince casos: siete condiciones sin aceptación, aceptación con remitente específico y limpieza de metadata, dos recorridos persistidos de reintento/agotamiento y cinco casos con SMTP/TLS real en loopback. Las pruebas consultan NotificationLog en una sesión nueva para verificar estado, sent_at, error y siguiente reintento. No dependen solo del bool retornado. La persistencia nueva usa SQLite privada; las pruebas PostgreSQL de la suite conservan su alcance anterior.
+
+El servidor local de pruebas conserva mensajes en memoria y no retransmite a Internet. Se prueba STARTTLS y TLS implícito con credenciales, rechazo de certificado no confiable, ausencia de STARTTLS y credenciales rechazadas. Se reutiliza la fixture del bloque 32. Al ampliar su uso se detectó una carrera de Python 3.12: start_tls puede dejar un transporte None cuando el peer rechaza el handshake y _replace_writer lo dereferencia. La fixture restaura la referencia al transporte original para su cierre en ese caso concreto y acota wait_closed. Es una reparación del sink de test, no una relajación de TLS en producción ni una captura genérica de errores del código de aplicación.
+
+La regresión focalizada incorpora recuperación y las suites existentes de Fase 9: **83 tests aprobados**, con las cuatro advertencias anteriores después de corregir la limpieza de TLS. Mypy elimina cuatro diagnósticos del dispatcher antiguo y no añade ninguno: **325 errores en 52 archivos**, frente a 329. La deuda restante sigue impidiendo declarar CI global verde.
+
+### Límites y siguientes trabajos
+
+No se garantizan entrega exactamente una vez ni atomicidad entre SMTP y el commit SQL. Si SMTP acepta el mensaje y la respuesta final/QUIT o el commit falla, un reintento puede duplicarlo. La cola no reclama filas con exclusión entre workers; siguen pendientes outbox, leases/locks e idempotencia de proveedores. El uso de una AsyncSession compartida en dispatch paralelo de distintos canales también requiere revisión transaccional propia. Este bloque prueba el canal EMAIL individual, no declara resueltos esos problemas multicanal.
+
+No se revisan todavía los stubs y estados de PUSH/SMS, la revalidación de cuentas/preferencias en cola, consentimiento, rebotes o callbacks de entrega. Tampoco se validan credenciales reales, reputación de remitente ni SPF/DKIM/DMARC. No se reescriben logs históricos que ya figuraban ENVIADO bajo el comportamiento simulado anterior.
+
+La desactivación del proveedor pasa ahora a fallo/reintento en lugar de éxito aparente: es un cambio deliberado en el estado visible del canal EMAIL. Las operaciones de negocio mantienen el aislamiento previo del servicio de notificación, sin modificar importes ni reglas financieras. Persisten los pendientes de autenticación, límites distribuidos, Mypy/cobertura, migraciones y cierre del roadmap. No se cambia frontend ni se envía correo externo durante las pruebas.
+
+### Evidencia final local del bloque 35
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **1031 tests aprobados**, quince nuevos frente a 1016; cuatro advertencias anteriores |
+| PostgreSQL real | **121 tests** de regresión incluidos |
+| Redis real | **2 tests** de regresión incluidos |
+| SMTP/TLS real en loopback | **10 tests** incluidos: cinco anteriores de recuperación y cinco nuevos del dispatcher |
+| Regresión focalizada | **83 tests aprobados**, recuperación y Fase 9 incluidos |
+| Mypy | **325 errores en 52 archivos**, cuatro eliminados y ninguno nuevo por archivo/mensaje; 174 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; formato de 176 archivos entre app y las dos suites nueva/modificada |
+| Frontend | Sin cambios; se conserva validación anterior de **261 tests en 27 suites**, TypeScript, lint y build, sin repetirla |
+
+La suite completa valida el código final y la fixture TLS corregida. No se desactivan ni rebajan checks; Mypy y el umbral de cobertura frontend siguen pendientes. Los recursos de prueba se ejecutan localmente y se retiran al terminar. Se publica un PR listo para revisión, sin borrador, fusión ni despliegue automático.
