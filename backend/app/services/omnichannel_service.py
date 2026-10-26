@@ -20,7 +20,6 @@ DISEÑO:
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 from html import escape
 import json
@@ -33,6 +32,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.core.email_service import send_smtp_email
@@ -289,7 +289,7 @@ class OmnichannelNotificationService:
         """Envío omnicanal. NUNCA lanza excepciones al caller: devuelve [].
 
         Pasos: plantilla → dedupe → rate-limit → render → logs PENDIENTE →
-        dispatch paralelo → pub/sub NEW_NOTIFICATION.
+        dispatch secuencial por sesión → pub/sub NEW_NOTIFICATION.
         """
         try:
             return await self._send_inner(
@@ -303,7 +303,14 @@ class OmnichannelNotificationService:
             )
         except Exception as exc:
             # Regla Fase 4: un fallo de notificación JAMÁS interrumpe el flujo de negocio
-            logger.error("Notificación %s falló (no crítico): %s", template_code, exc)
+            # A SQL failure requires rollback before this session can be reused.
+            # Do not discard caller work for an unrelated Python/provider error.
+            if isinstance(exc, SQLAlchemyError):
+                try:
+                    await self.db.rollback()
+                except Exception:
+                    logger.error("Notification transaction rollback failed")
+            logger.error("Notification dispatch failed")
             return []
 
     async def _send_inner(
@@ -450,11 +457,11 @@ class OmnichannelNotificationService:
         for log in logs:
             await self.db.refresh(log)
 
-        # Dispatch EN PARALELO (gather) — cada canal aislado
-        await asyncio.gather(
-            *(self._dispatch_one(log, user, template, body) for log in logs),
-            return_exceptions=True,
-        )
+        # AsyncSession cannot execute/commit concurrently. Provider failures are
+        # recorded by _dispatch_one; SQL failures stop the sequence and reach
+        # send() for rollback instead of being silently swallowed by gather.
+        for log in logs:
+            await self._dispatch_one(log, user, template, body)
 
         # Fan-out WS: publicar NEW_NOTIFICATION (solo una vez por evento)
         in_app = next(

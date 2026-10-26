@@ -2677,3 +2677,63 @@ La corrección se publica en un nuevo PR porque #277 ya estaba fusionado. Hasta 
 | Frontend | Sin cambios; se conserva la validación previa de **261 tests en 27 suites**, TypeScript, lint y build, sin repetirla |
 
 La suite completa valida el código final. Se utilizan bases locales desechables y un sink SMTP sin retransmisión externa. No se relajan checks para declarar verde CI: continúan la deuda de Mypy y cobertura frontend. El PR se publica listo para revisión, sin borrador, sin fusión ni despliegue automático.
+
+## Bloque 37 — Secuencia de envío compatible con una sola AsyncSession
+
+Fecha: 26 de octubre de 2026, America/Caracas. Base: main 625bdf1, PR #278 fusionado sin nuevas observaciones. Rama: fix/notification-dispatch-transactions-v1.
+
+### Hallazgo y corrección
+
+El envío inicial utilizaba asyncio.gather para EMAIL, IN_APP y PUSH/SMS, pero cada tarea reutilizaba la misma AsyncSession y ejecutaba su propio commit. AsyncSession no soporta ese uso concurrente. El comentario decía que cada canal estaba aislado, aunque compartían transacción/identidad de sesión. Además, return_exceptions=True ocultaba fallos de persistencia y permitía continuar hasta la publicación WebSocket sin comprobarlos.
+
+Ahora los canales de una llamada send se procesan secuencialmente con esa sesión, en el orden efectivo solicitado. Se mantiene el commit de encolado inicial y el commit por resultado de canal. No se abre otro pool ni se introducen sesiones o tareas en segundo plano. La diferencia deliberada es que las operaciones de SQL/commit de esos canales no se solapan y las excepciones de SQL pueden alcanzar el límite de error de send.
+
+Un fallo normal de proveedor sigue registrado por _dispatch_one como PENDIENTE/reintento y permite continuar con los demás canales. Una excepción de persistencia detiene la secuencia; send devuelve [] y no publica el evento final como si hubiera completado todo el lote. Ante un SQLAlchemyError intenta rollback para dejar la sesión reutilizable. Si el rollback también falla, se registra un diagnóstico genérico y se mantiene la contención del error del servicio; eso no implica que una conexión rota haya sido recuperada.
+
+El rollback no se añade indiscriminadamente a cualquier excepción de Python: un error de plantilla o lógica no SQL no debe descartar cambios pendientes del llamador. Los logs nuevos del límite de error omiten el texto crudo de la excepción, que podría contener SQL, parámetros o contenido de notificaciones.
+
+### Garantías y límites de transacción
+
+La garantía es específica: dentro de una llamada inicial a send, los canales no ejecutan operaciones concurrentes sobre su AsyncSession. No convierte la clase o una sesión compartida en segura para varias llamadas send simultáneas externas; cada propietario debe seguir usando su sesión de forma secuencial.
+
+Los resultados ya confirmados de canales anteriores permanecen si falla uno posterior. El commit inicial de encolado también permanece. Un correo puede haber sido aceptado por SMTP antes del fallo SQL; no hay atomicidad con el proveedor ni garantía de entrega exactamente una vez. La función puede devolver [] con un lote parcialmente persistido: no debe interpretarse como prueba de que nada ocurrió.
+
+Los logs de canales no procesados pueden quedar PENDIENTE sin next_retry_at tras un fallo SQL. La cola actual solo selecciona aquellos con próximo reintento vencido, por lo que este bloque no añade recuperación automática de ese estado ambiguo. Debe resolverse con outbox, reclamación y política explícita de recuperación; reenviar ciegamente un correo aceptado puede duplicarlo. La publicación final WebSocket se omite si se interrumpe la secuencia, aunque pueda haber resultados previos visibles por REST.
+
+Serializar puede aumentar la latencia total de un lote frente a los proveedores en paralelo. Se elige esta secuencia porque el modelo actual comparte sesión. Para recuperar paralelismo de forma segura se requieren sesiones/propiedad de transacciones independientes y un diseño de cola, con medición de carga y tiempos.
+
+### Pruebas nuevas
+
+Se añaden siete casos: seis con PostgreSQL real y uno de contención de fallo de rollback. La fixture usa el TEST_DATABASE_URL explícito de una base test_*, esquema privado, tipos nativos y los modelos reales de logs, plantillas, preferencias y tokens; los proveedores externos se sustituyen por dobles que no envían mensajes.
+
+- Se envían EMAIL, IN_APP y PUSH, coordinando el punto de commit para detectar solapamientos. Se exige un máximo de un commit activo y cuatro commits confirmados: encolado más los tres resultados. Otra sesión comprueba todos los estados y delivered_at de IN_APP.
+- Un proveedor que devuelve falso o lanza excepción deja su canal pendiente, conserva el reintento y no impide persistir los demás canales. El diagnóstico privado inyectado no se persiste en EMAIL.
+- Se provoca un error SQL real durante el segundo commit. Se comprueba que no se llame al proveedor siguiente ni al publicador, que los estados no confirmados continúen pendientes y que la sesión pueda consultar después del rollback.
+- Con el flag maestro apagado se conserva el fallback de solo IN_APP.
+- Un error no SQL simulado en la notificación conserva un cambio pendiente del llamador, que puede confirmarse y leerse desde otra sesión.
+- Un fallo SQL seguido por fallo de rollback no se propaga como excepción del servicio ni revela diagnósticos privados en sus logs nuevos.
+
+La regresión focalizada aprueba **100 pruebas**, incluidas SMTP, recuperación y Fase 9. Mypy mantiene exactamente **325 errores en 52 archivos**, sin diagnósticos nuevos ni eliminados.
+
+### Pendientes siguientes y hallazgo de integración
+
+La reclamación de filas y exclusión entre varios workers de process_retry_queue siguen pendientes. Este bloque no modifica ese método, no añade leases/locks ni outbox y no demuestra que dos procesos no envíen el mismo log. Tampoco garantiza recuperación tras interrupción del proceso entre aceptación SMTP y persistencia.
+
+Se confirma además una discrepancia previa en notification_hooks.py: su comentario dice que usar db del llamador no hace commits adicionales, pero el servicio sí los hace al encolar y despachar. El aislamiento respecto a la transacción de negocio requiere una revisión propia de hooks y sus puntos de llamada, idealmente con eventos después de commit/outbox. El rollback de un fallo SQL afecta la transacción de la sesión proporcionada; este bloque no afirma proteger una transacción de negocio que comparta indebidamente esa sesión. Las pruebas solo demuestran conservación de trabajo pendiente ante errores no SQL y recuperación de una transacción SQL abortada.
+
+Se conservan las correcciones de SMTP y escape HTML de los bloques 35/36. Siguen abiertos JWT/revocación, límites distribuidos, PUSH/SMS, Mypy/cobertura, migraciones y cierre de producción. No se cambia esquema, frontend ni reglas financieras, ni se envía correo externo.
+
+### Evidencia final local del bloque 37
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **1048 tests aprobados**, siete nuevos frente a 1041; cuatro advertencias anteriores |
+| PostgreSQL real | **127 tests** incluidos, seis nuevos de sesión/commit multicanal |
+| Contención de rollback | Un caso nuevo adicional sin BD/proveedor externo |
+| Redis / SMTP TLS local | **2 Redis** y **12 SMTP/TLS** de regresión incluidos |
+| Regresión focalizada | **100 tests aprobados**, incluidos SMTP, recuperación y Fase 9 |
+| Mypy | **325 errores en 52 archivos**, sin nuevos ni eliminados por archivo/mensaje; 174 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; formato de 175 archivos entre app y suite nueva |
+| Frontend | Sin cambios; se conserva validación previa de **261 tests en 27 suites**, TypeScript, lint y build, sin repetirla |
+
+La suite completa incluye la limitación del rollback a fallos SQL y la prueba de conservación del cambio del llamador. Los contenedores/bases son locales desechables y los proveedores se sustituyen o se prueban en loopback sin retransmisión externa. No se rebajan checks; la deuda de Mypy y cobertura frontend sigue pendiente. Se publica un PR listo para revisión, sin borrador, fusión ni despliegue automático.
