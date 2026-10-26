@@ -129,6 +129,10 @@ class Settings(BaseSettings):
     EMAILS_ENABLED: bool = False
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
+    # Recuperación: STARTTLS (587) o TLS implícito (465), nunca ambos ni texto plano.
+    SMTP_TLS: bool = True
+    SMTP_SSL: bool = False
+    SMTP_TIMEOUT_SECONDS: float = 10.0
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
     EMAIL_FROM: str = "noreply@delivery360.com"

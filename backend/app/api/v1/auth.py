@@ -268,47 +268,42 @@ async def forgot_password(
     """
     user = await find_email_account(db, body.email)
 
-    # 2. Seguridad: No revelar si el email existe o no para evitar enumeración de usuarios
-    # Si el usuario no existe o está inactivo, retornamos el mismo mensaje de éxito falso.
-    if not user or not user.is_active:
-        return {
-            "message": "Si el correo está registrado y activo, recibirás un enlace de recuperación."
-        }
-
-    # 3. Generar token seguro criptográficamente
-    reset_token = secrets.token_urlsafe(32)
-
-    # 4. Calcular expiración (1 hora)
-    from datetime import datetime, timezone, timedelta
-
-    expire_at = datetime.now(timezone.utc) + timedelta(hours=1)
-
-    # 5. Guardar token en DB
-    # Nota: Asegúrate de que el modelo User tenga las columnas reset_token y reset_token_expires
-    user.reset_token = reset_token
-    user.reset_token_expires = expire_at.replace(
-        tzinfo=None
-    )  # Naive para compatibilidad con tu setup
-
-    await db.commit()
-
-    # 6. Construir enlace de recuperación
-    # Asegúrate de que settings.FRONTEND_URL esté definido en tu .env (ej: http://localhost:3000)
-    frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
-    reset_link = f"{frontend_url}/reset-password?token={reset_token}"
-
-    # 7. Enviar correo usando email_service.py
-    try:
-        from app.core.email_service import send_reset_email
-
-        await send_reset_email(user.email, reset_link)
-    except Exception as e:
-        logger.error(f"Error enviando email de recuperación: {e}")
-        # No fallamos la petición por un error de email, pero lo logueamos
-
-    return {
+    response = {
         "message": "Si el correo está registrado y activo, recibirás un enlace de recuperación."
     }
+    if not user or not user.is_active or not settings.EMAILS_ENABLED:
+        return response
+
+    # No token mutation when transport/link configuration cannot be used.
+    try:
+        from app.core.email_service import (
+            password_reset_link,
+            reset_email_is_configured,
+            send_reset_email,
+        )
+
+        if not reset_email_is_configured():
+            logger.warning("Password recovery unavailable: SMTP configuration")
+            return response
+        reset_token = secrets.token_urlsafe(32)
+        reset_link = password_reset_link(reset_token)
+    except Exception:
+        logger.warning("Password recovery unavailable: email/link configuration")
+        return response
+
+    user.reset_token = reset_token
+    user.reset_token_expires = utc_now_naive() + timedelta(hours=1)
+    await db.commit()
+
+    # Persist first so a delivered link is already usable. Do not hold DB locks
+    # while talking to SMTP. Public output stays identical on provider failure.
+    try:
+        sent = await send_reset_email(user.email, reset_link)
+    except Exception:
+        sent = False
+    if not sent:
+        logger.warning("Password recovery request completed without SMTP acceptance")
+    return response
 
 
 @router.post("/reset-password")

@@ -31,7 +31,7 @@ email-validator==2.2.0
 
 # --- HTTP Client & Email ---
 httpx==0.27.0
-#fastapi-mail==1.4.1
+# Recuperación usa aiosmtplib directamente, sin fastapi-mail.
 aiosmtplib==3.0.1
 
 # --- Utilidades ---

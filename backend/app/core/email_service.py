@@ -1,64 +1,128 @@
-from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
-from app.core.config import settings
+"""Password recovery through the pinned SMTP client; no simulated delivery."""
+
+import asyncio
 import logging
+from email.message import EmailMessage
+from email.utils import formataddr
+from html import escape
+from urllib.parse import urlencode, urlsplit
+
+import aiosmtplib
+from email_validator import EmailNotValidError, validate_email
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Configuración de conexión
-conf = ConnectionConfig(
-    MAIL_USERNAME=settings.SMTP_USER or "",
-    MAIL_PASSWORD=settings.SMTP_PASSWORD or "",
-    MAIL_FROM=settings.EMAIL_FROM,
-    MAIL_PORT=settings.SMTP_PORT,
-    MAIL_SERVER=settings.SMTP_HOST,
-    MAIL_FROM_NAME=settings.APP_NAME,
-    MAIL_TLS=True,
-    MAIL_SSL=False,
-    USE_CREDENTIALS=True,
-    VALIDATE_CERTS=True,
-)
+
+def _mailbox(value: str) -> str:
+    # A single address, without display names or SMTPUTF8 requirements.
+    return validate_email(
+        value.strip(), check_deliverability=False, allow_smtputf8=False
+    ).normalized
 
 
-async def send_reset_email(email: str, reset_link: str):
-    """Envía el correo real de recuperación."""
-    html = f"""
-    <html>
-      <body style="font-family: Arial, sans-serif;">
-        <h2 style="color: #2563EB;">Recuperación de Contraseña</h2>
-        <p>Hola,</p>
-        <p>Has solicitado restablecer tu contraseña en <strong>Delivery360</strong>.</p>
-        <p>Haz clic en el botón abaixo para continuar:</p>
-        
-        <p style="margin: 30px 0;">
-          <a href="{reset_link}" style="background-color: #2563EB; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">
-            Restablecer Contraseña
-          </a>
-        </p>
-        
-        <p>O copia y pega este enlace en tu navegador:</p>
-        <p style="word-break: break-all; color: #666;">{reset_link}</p>
-        
-        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-        <p style="font-size: 12px; color: #999;">
-          Este enlace expira en 1 hora. Si no solicitaste esto, ignora este correo.
-        </p>
-      </body>
-    </html>
-    """
-
-    message = MessageSchema(
-        subject="🔐 Recuperación de Contraseña - Delivery360",
-        recipients=[email],
-        body=html,
-        subtype="html",
-    )
-
-    fm = FastMail(conf)
-    try:
-        await fm.send_message(message)
-        logger.info(f"✅ Correo de recuperación enviado exitosamente a {email}")
-        return True
-    except Exception as e:
-        logger.error(f"❌ Error enviando correo a {email}: {str(e)}")
-        # En producción, quizás quieras lanzar el error o manejarlo diferente
+def reset_email_is_configured() -> bool:
+    if not settings.EMAILS_ENABLED:
         return False
+    if not (
+        settings.SMTP_HOST.strip()
+        and not any(c.isspace() for c in settings.SMTP_HOST)
+        and settings.SMTP_USER
+        and settings.SMTP_PASSWORD
+        and 1 <= settings.SMTP_PORT <= 65535
+        and settings.SMTP_TLS != settings.SMTP_SSL
+        and 0 < settings.SMTP_TIMEOUT_SECONDS <= 60
+    ):
+        return False
+    try:
+        _mailbox(settings.EMAIL_FROM)
+    except EmailNotValidError:
+        return False
+    return True
+
+
+def password_reset_link(token: str) -> str:
+    """Use only the configured frontend origin/path, never request headers."""
+    base = settings.FRONTEND_URL.rstrip("/")
+    parsed = urlsplit(base)
+    if (
+        parsed.scheme not in ("http", "https")
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or (parsed.port is not None and not 1 <= parsed.port <= 65535)
+        or any(c.isspace() for c in base)
+        or (settings.ENVIRONMENT.lower() == "production" and parsed.scheme != "https")
+    ):
+        raise ValueError("Invalid password recovery frontend URL")
+    return f"{base}/reset-password?{urlencode({'token': token})}"
+
+
+async def send_reset_email(email: str, reset_link: str) -> bool:
+    """True means SMTP accepted the message, not confirmed inbox delivery."""
+    if not reset_email_is_configured():
+        logger.warning("Password recovery email unavailable: SMTP configuration")
+        return False
+    client = None
+    try:
+        recipient = _mailbox(email)
+        sender = _mailbox(settings.EMAIL_FROM)
+        message = EmailMessage()
+        message["From"] = formataddr((settings.APP_NAME, sender))
+        message["To"] = recipient
+        message["Subject"] = "Recuperación de contraseña - Delivery360"
+        message.set_content(
+            "Has solicitado restablecer tu contraseña en Delivery360.\n\n"
+            f"Abre este enlace para continuar:\n{reset_link}\n\n"
+            "El enlace expira en 1 hora. Si no lo solicitaste, ignora este correo."
+        )
+        link = escape(reset_link, quote=True)
+        message.add_alternative(
+            "<html><body><h2>Recuperación de contraseña</h2>"
+            "<p>Has solicitado restablecer tu contraseña en Delivery360.</p>"
+            f'<p><a href="{link}">Restablecer contraseña</a></p>'
+            f"<p>O copia y pega este enlace en tu navegador: {link}</p>"
+            "<p>El enlace expira en 1 hora. Si no lo solicitaste, ignora este correo.</p>"
+            "</body></html>",
+            subtype="html",
+        )
+        client = aiosmtplib.SMTP(
+            hostname=settings.SMTP_HOST,
+            port=settings.SMTP_PORT,
+            username=settings.SMTP_USER,
+            password=settings.SMTP_PASSWORD,
+            start_tls=settings.SMTP_TLS,
+            use_tls=settings.SMTP_SSL,
+            validate_certs=True,
+            timeout=settings.SMTP_TIMEOUT_SECONDS,
+            local_hostname="delivery360",
+        )
+
+        async def deliver():
+            await client.connect()
+            result = await client.send_message(
+                message, sender=sender, recipients=[recipient]
+            )
+            await client.quit()
+            return result
+
+        refused, _ = await asyncio.wait_for(
+            deliver(), timeout=settings.SMTP_TIMEOUT_SECONDS
+        )
+        if refused:
+            logger.warning("Password recovery email rejected by SMTP")
+            return False
+    except Exception:
+        # SMTP exceptions may include recipient, server transcript or credentials.
+        logger.warning("Password recovery email failed")
+        return False
+    finally:
+        # connect() in the pinned client can fail after opening the transport
+        # (STARTTLS/auth). Close explicitly even before context entry succeeds.
+        if client is not None:
+            client.close()
+    logger.info("Password recovery email accepted by SMTP")
+    return True
