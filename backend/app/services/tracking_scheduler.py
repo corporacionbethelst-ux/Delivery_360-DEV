@@ -225,7 +225,6 @@ class TrackingScheduler:
                                 "delivery_id": str(delivery.id),
                                 "silent": "sí" if silent else "no",
                             },
-                            db=db,
                             delivery_id=delivery.id,
                         )
                     await db.commit()
