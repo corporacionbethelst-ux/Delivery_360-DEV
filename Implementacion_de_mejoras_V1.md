@@ -2427,3 +2427,82 @@ El PR #273 fusionado conserva fallos de CI por los 329 errores previos de Mypy y
 | Frontend | Sin cambios; se conserva la validación previa de **261 pruebas en 27 suites**, TypeScript, lint y build, sin repetirla |
 
 La suite completa valida el código de aplicación final. El último ajuste fue reforzar una aserción de prueba de persistencia; después se repitieron los 59 casos focalizados y el formato. Las pruebas de recuperación usan SQLite privada y sesiones independientes; no se presentan como prueba del consumo concurrente del token en PostgreSQL. Los contenedores de regresión son locales y desechables. No se contacta ningún SMTP externo, no se cambia configuración de producción ni se despliega. La cobertura frontend previa de 16,38 % de líneas sigue bajo el umbral global del 50 %.
+
+## Bloque 33 — Huellas de tokens y consumo atómico de recuperación
+
+Fecha: 26 de octubre de 2026, America/Caracas. Base: main 3599ebd, bloque 32 fusionado mediante PR #274. Rama: fix/password-reset-token-consumption-v1.
+
+### Hallazgos corregidos
+
+El flujo anterior guardaba el secreto enviado por correo directamente en User.reset_token y consumía el enlace mediante SELECT seguido de cambios al objeto ORM. Dos solicitudes concurrentes podían leer el mismo token válido y guardar contraseñas diferentes, ambas con respuesta de éxito. La solicitud de recuperación también podía sobrescribir un token después de que una operación más reciente cambiara la contraseña o los datos de la cuenta.
+
+El servicio password_reset.py centraliza emisión y consumo. El secreto público conserva el formato generado por secrets.token_urlsafe(32): 32 bytes aleatorios, codificados en 43 caracteres URL-safe. Solo se guarda sha256$ seguido por los 64 caracteres hexadecimales de SHA-256. La huella tiene 71 caracteres y cabe en la columna existente; no se cambia esquema ni se ejecutan migraciones. SHA-256 se aplica a un secreto aleatorio de alta entropía, no a una contraseña elegida por una persona. La contraseña conserva bcrypt.
+
+La huella almacenada no se acepta como secreto público: el endpoint exige exactamente 43 caracteres del alfabeto URL-safe, sin espacios, saltos de línea, Unicode o prefijos internos. Tampoco se acepta el valor hexadecimal extraído. Tokens desconocidos, inexistentes, caducados o de cuenta inactiva conservan el mensaje genérico anterior de token inválido. Si la consulta detecta más de una cuenta elegible con la misma huella, se rechaza sin escoger una.
+
+### Política para enlaces anteriores y despliegue futuro
+
+**Los tokens antiguos guardados en claro dejan de ser aceptados por este código. Sus titulares deben solicitar un nuevo enlace.** No hay fallback a comparación en claro ni una migración automática de secretos. Los valores históricos pueden permanecer en la columna hasta ser sustituidos; este bloque no ejecuta una purga contra datos de producción.
+
+El formato del enlace y el contrato público de respuesta permanecen. El frontend continúa enviando el valor token sin interpretarlo. Esta compatibilidad no implica que enlaces emitidos por la versión anterior sean válidos.
+
+Un despliegue futuro debe coordinar todos los nodos que emiten o consumen estos tokens. No se debe mezclar durante una actualización/rollback el handler antiguo que compara en claro con el nuevo que guarda huellas: podría causar enlaces rechazados y el código antiguo trataría una huella como credencial si se le presentara ese valor. Volver a la versión antigua requiere planificar previamente la invalidación de los valores de recuperación correspondientes. No se hace despliegue, rollback ni invalidación masiva en este trabajo; el PR deja este impacto explícito para su revisión.
+
+### Emisión condicionada
+
+Después de validar la configuración del correo y construir el enlace como en el bloque 32, se emite un UPDATE condicionado por id, email exacto, hash de contraseña observado y actividad vigente. Si alguno cambió desde la lectura de la cuenta, no se reemplaza el token y no se envía correo. La respuesta pública sigue siendo genérica. Una solicitud atrasada no puede reinstalar un token después de un reset exitoso que ya cambió el hash de contraseña.
+
+Si dos solicitudes de emisión conservan el mismo estado de cuenta, ambas pueden completar; la última actualización confirmada sustituye el token anterior. El orden de recepción de correos no está garantizado. No se promete entrega exactamente una vez ni que cualquier enlace recibido sea todavía el más reciente.
+
+En PostgreSQL, emisión y validación utilizan timezone('UTC', clock_timestamp()) para trabajar con el reloj actual de la BD, convertido a timestamp UTC sin zona, compatible con las columnas existentes. No se usa now() de PostgreSQL para la caducidad, pues queda fijado al inicio de la transacción. La emisión fija vencimiento a una hora desde ese reloj. SQLite usa el reloj UTC de la aplicación en las pruebas privadas.
+
+### Consumo y garantías transaccionales
+
+1. Se valida el formato del secreto y se consulta por su huella. Solo una coincidencia elegible puede continuar; no hay búsqueda por email ni selección arbitraria entre coincidencias.
+2. Se calcula bcrypt en un thread de trabajo mediante run_in_threadpool. La lectura inicial no bloquea la fila ni mantiene un bloqueo durante ese cálculo; el trabajo de CPU no detiene el event loop de ASGI.
+3. Se ejecuta un único UPDATE por id, condicionado nuevamente por huella, actividad, vencimiento vigente, email y hash de contraseña leídos. En esa misma sentencia se cambia la contraseña y se ponen a NULL token y vencimiento. Si no retorna una fila, se hace rollback y se responde con el mismo error genérico de token inválido.
+4. Solo después del commit se devuelve éxito. Las solicitudes concurrentes que perdieron la condición no cambian la contraseña ni eliminan un token recién sustituido. Una excepción de commit se propaga como fallo de infraestructura; la dependencia/cierre de sesión revierte la transacción en lugar de simular éxito.
+
+Esta garantía protege el consumo de la misma versión del token. No representa una revocación global de sesiones ni una garantía de caducidad al instante exacto del commit o de entrega de la respuesta HTTP. La condición temporal se evalúa en SQL; la latencia de red posterior no forma parte del vencimiento.
+
+Se retira el email del log de éxito del reset. Los nuevos logs de este flujo no publican secreto, huella, contraseña o dirección. Las auditorías de datos personales del resto del sistema siguen pendientes.
+
+### Límites de la contraseña en este endpoint
+
+Se conserva el mínimo actual de seis caracteres para mantener el contrato del formulario. Se rechazan contraseñas de más de 72 bytes UTF-8, bytes NUL y texto con sustitutos Unicode que no puede codificarse como UTF-8. Así no se presenta como contraseña distinta una entrada que bcrypt truncaría a los primeros 72 bytes, ni se produce un error interno por entradas incompatibles. Se prueba el límite tanto con ASCII como con caracteres multibyte. Las entradas rechazadas no consumen el token.
+
+La unificación de política de contraseña en registro, creación administrativa, cambio de contraseña y reset continúa pendiente. Este límite local no modifica todos los demás usos de bcrypt del sistema. Los errores nuevos son respuestas 400 de detalle textual que el formulario existente ya puede mostrar; no se cambia frontend.
+
+### Pruebas y aislamiento
+
+Se añaden 25 casos sobre la ruta montada de ASGI y SQLite privada: desconocido/caducado/inactivo, vencimiento ausente, token histórico en claro, intento de usar la huella como secreto, ambigüedad de candidatos, formatos malformados, contraseñas límite, sustitución de enlaces y logs sin datos sensibles. Se actualiza el test de correo del bloque 32 para comprobar que el secreto enviado difiere del valor persistido y que este último es su huella.
+
+Se añaden 13 casos PostgreSQL con UUID/enums nativos y sesiones independientes: dos/cuatro consumidores coordinados que alcanzan la fase de hash antes de competir, cambios de actividad/email/contraseña/token durante la operación, expiración según reloj de BD después de la lectura inicial, emisor atrasado tras cambio de cuenta o reset, rollback de contraseña y token ante fallo de commit, ambigüedad de candidatos y emisión con reloj de aplicación atrasado. La prueba de concurrencia comprueba la contraseña final del único ganador y que las otras no fueron guardadas. No se basa únicamente en códigos de respuesta ni simula bloqueos con SQLite.
+
+Al ampliar los tests se detectó dependencia del orden entre casos: la fixture ASGI compartía el historial de IP del limitador real. Se asigna una instancia nueva de RateLimiter por caso de esa fixture, conservando middleware y límites efectivos, en lugar de desactivar la protección o elevar sus umbrales. Se mantiene el aislamiento de sesiones, BD y gestores de WebSocket previo.
+
+### Hallazgos y pendientes siguientes
+
+- RateLimitMiddleware tiene una regla /api/v1/auth/password-reset que no coincide con /forgot-password ni /reset-password. Su identificador también comparte historial entre rutas para la misma IP/usuario, lo que puede mezclar el presupuesto de solicitudes con el límite de login. El fallo 429 observado entre pruebas permitió verificar este comportamiento. Se requiere corregir la política por endpoint, cuenta/IP y su almacenamiento distribuido; este bloque solo aísla el estado de los tests y no cambia esa política en producción.
+- No se revocan JWT access/refresh ya emitidos al cambiar la contraseña. Debe diseñarse una versión de credencial/sesión u otra política de revocación verificable.
+- Los chequeos de email y contraseña protegen los cambios ocurridos entre lectura y escritura de esta operación. No vinculan permanentemente un enlace emitido a una versión de credencial: un cambio administrativo anterior a la lectura del consumo todavía puede dejar válido un token vigente si esa otra ruta no lo invalida. La invalidación consistente desde todas las rutas de cambio de email/contraseña/estado requiere una revisión posterior.
+- No se añade una restricción UNIQUE o índice de búsqueda de reset_token. La consulta detecta candidatos elegibles ambiguos ya presentes; las garantías frente a corrupción concurrente deliberada de varias cuentas y el coste de búsqueda con gran volumen requieren revisión de esquema/migraciones. La emisión legítima utiliza 256 bits aleatorios.
+- No se añaden outbox, recuperación de correos perdidos, garantías de entrega ni padding temporal para ocultar existencia de cuentas. Persisten los límites de SMTP y emisión del bloque 32: un fallo de envío posterior puede dejar un token nuevo almacenado y sustituir el enlace anterior.
+- El error independiente del dispatcher omnicanal (parámetro SMTP y autenticación), la deuda de Mypy/cobertura, migraciones y el resto del cierre de producción siguen abiertos.
+
+Este bloque cierra el almacenamiento en claro de **tokens nuevos** y el doble consumo concurrente del mismo token que quedaron señalados en el bloque 32. No se declara listo todo el subsistema de autenticación ni producción.
+
+### Evidencia final local del bloque 33
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **998 pruebas aprobadas**, 38 nuevas frente a 960; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **121 pruebas** incluidas; 13 nuevas de tokens y concurrencia |
+| Nuevas pruebas ASGI | **25 casos** con SQLite privada sobre la ruta montada |
+| Regresión focalizada | **97 pruebas aprobadas**, incluida recuperación por SMTP y correo canónico |
+| Redis / SMTP TLS local | Se conservan **2 pruebas Redis** y **5 SMTP/TLS reales** incluidas en la suite completa |
+| Mypy con --ignore-missing-imports | **329 errores en 52 archivos**, sin diagnósticos nuevos ni eliminados por archivo/mensaje; 174 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; Black comprueba 178 archivos: app y las cuatro suites modificadas/nuevas |
+| Frontend | Sin cambios; se conserva la validación anterior de **261 pruebas en 27 suites**, TypeScript, lint y build, sin repetirla |
+
+La suite completa incluye el código final y el aislamiento de historial del limitador en tests. Las bases y contenedores son locales y desechables; no se actúa sobre cuentas de producción ni se envía correo externo. La cobertura frontend anterior de 16,38 % de líneas permanece por debajo del 50 % global. No se rebajan checks para declarar verde CI. El PR se publica listo para revisión, sin borrador, sin fusión ni despliegue automático.

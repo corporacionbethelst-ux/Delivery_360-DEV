@@ -13,6 +13,8 @@ from app.main import app
 from app.api.v1 import tracking, auth
 from app.core.database import get_db
 from app.core.security import create_access_token, create_refresh_token
+from app.core.rate_limiter import RateLimiter
+from app.middleware import rate_limit_middleware
 from app.core.websocket import ConnectionManager
 from app.models.user import User, UserRole
 from app.models.rider import Rider, RiderStatus
@@ -24,6 +26,8 @@ from app.models.location import RiderLiveLocation
 
 @pytest.fixture
 async def sockets(tmp_path, monkeypatch):
+    # Keep the real middleware and limits, without sharing IP history across cases.
+    monkeypatch.setattr(rate_limit_middleware, "rate_limiter", RateLimiter())
     engine = create_async_engine(
         "sqlite+aiosqlite:///" + str(tmp_path / "tracking.db"), poolclass=NullPool
     )
