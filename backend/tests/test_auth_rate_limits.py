@@ -190,3 +190,90 @@ async def test_mounted_reset_invalid_inputs_count_without_affecting_login(socket
         ).status_code
         == 400
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["forgot-password", "reset-password"])
+@pytest.mark.parametrize("allowed_origin", [True, False])
+async def test_mounted_cors_preflights_do_not_spend_recovery_attempts(
+    sockets, monkeypatch, operation, allowed_origin
+):
+    from app.api.v1 import auth
+    from app.core.config import settings
+
+    client, _, _, _ = sockets
+    reached = []
+
+    async def missing(db, email):
+        reached.append(email)
+        return None
+
+    monkeypatch.setattr(auth, "find_email_account", missing)
+    origin = (
+        settings.cors_origins[0]
+        if allowed_origin
+        else "https://untrusted.example.invalid"
+    )
+    path = "/api/v1/auth/" + operation
+    headers = {
+        "Origin": origin,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type",
+    }
+    payload = (
+        {"email": "nobody@example.com"}
+        if operation == "forgot-password"
+        else {"token": "invalid", "new_password": "NewPassword123!"}
+    )
+    # CORS accepts/rejects the preflight itself. Neither result is an attempt.
+    for _ in range(3):
+        preflight = client.options(path, headers=headers)
+        assert preflight.status_code == (200 if allowed_origin else 400)
+        if allowed_origin:
+            assert preflight.headers["access-control-allow-origin"] == origin
+    for remaining in (1, 0):
+        response = client.post(
+            path, json=payload, headers={"Origin": settings.cors_origins[0]}
+        )
+        assert response.status_code == (200 if operation == "forgot-password" else 400)
+        assert int(response.headers["X-RateLimit-Remaining"]) == remaining
+    assert client.post(path, json=payload).status_code == 429
+    if operation == "forgot-password":
+        assert len(reached) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        {"Origin": "http://localhost:3000"},
+        {"Access-Control-Request-Method": "POST"},
+    ],
+)
+async def test_plain_or_incomplete_options_still_spend_budget(budget, headers):
+    client, _, calls, _, _ = budget
+    # Receiver does not support OPTIONS, but each request still counts.
+    for _ in range(2):
+        assert (
+            await client.options("/api/v1/auth/reset-password", headers=headers)
+        ).status_code == 405
+    assert (await client.post("/api/v1/auth/reset-password")).status_code == 429
+    assert not calls
+
+
+@pytest.mark.asyncio
+async def test_post_with_preflight_headers_cannot_skip_limit(budget):
+    client, _, calls, _, _ = budget
+    headers = {
+        "Origin": "http://localhost:3000",
+        "Access-Control-Request-Method": "POST",
+    }
+    for _ in range(2):
+        assert (
+            await client.post("/api/v1/auth/reset-password", headers=headers)
+        ).status_code == 200
+    assert (
+        await client.post("/api/v1/auth/reset-password", headers=headers)
+    ).status_code == 429
+    assert len(calls) == 2

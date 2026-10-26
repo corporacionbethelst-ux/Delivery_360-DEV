@@ -52,6 +52,16 @@ class RateLimitMiddleware:
         request = Request(scope, receive=receive)
         path = request.url.path
 
+        # Let CORS validate browser preflights without spending an application
+        # attempt. Plain OPTIONS and POSTs carrying these headers still count.
+        if (
+            request.method == "OPTIONS"
+            and "origin" in request.headers
+            and "access-control-request-method" in request.headers
+        ):
+            await self.app(scope, receive, send)
+            return
+
         # Verificar si la ruta está exenta
         if any(self._matches(path, exempt) for exempt in self.exempt_paths):
             await self.app(scope, receive, send)

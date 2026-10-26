@@ -2561,3 +2561,15 @@ Siguen pendientes revocación de sesiones tras reset, invalidación de enlaces d
 | Frontend | Sin cambios; se conserva la validación previa de **261 pruebas en 27 suites**, TypeScript, lint y build, sin repetirla |
 
 La suite completa incluye el código final y los umbrales efectivos. Los recursos de PostgreSQL/Redis son contenedores locales desechables. No se envía correo externo, se cambian credenciales de producción ni se ejecutan migraciones. La cobertura frontend anterior de 16,38 % de líneas sigue bajo el 50 % global; Mypy mantiene deuda. Se publica un PR listo para revisión, sin borrador, sin fusión ni despliegue automático.
+
+### Corrección de revisión del PR #276 — preflight CORS
+
+La revisión señaló un caso que faltaba probar: CORS está dentro del limitador, por lo que un OPTIONS de preflight con Origin y Access-Control-Request-Method consumía uno de los dos intentos. El POST JSON posterior consumía el otro y un envío corregido recibía 429 aunque solo hubiera ocurrido un intento efectivo. Se corrige en la misma rama/PR.
+
+El middleware delega directamente esos preflights a la cadena existente, que conserva la validación de origen, método y cabeceras de CORS. No se mueve el orden de middlewares ni se permiten nuevos orígenes. Tanto un preflight aceptado como uno rechazado por CORS quedan fuera del presupuesto de intentos de aplicación. El método debe ser OPTIONS y ambas cabeceras deben estar presentes: un POST que las copie no evade el límite; un OPTIONS común o incompleto sigue contando. El control de volumen del propio tráfico de preflight en el ingress continúa pendiente.
+
+Se añaden ocho regresiones: cuatro combinaciones de solicitar/consumir enlace y origen permitido/rechazado sobre la aplicación real, tres OPTIONS incompletos y un POST con cabeceras de preflight. Las pruebas montadas comprueban varias preflights, dos POST que alcanzan el endpoint y bloqueo del tercero, junto con la cabecera del origen permitido. Los tests focalizados pasan: **79 casos** frente a los 71 anteriores.
+
+Se consultan también los logs de GitHub de la revisión original: los checks rojos corresponden a **329 errores previos de Mypy** y al umbral de cobertura frontend (en ese run, **16,37 % de líneas**, con **261 tests aprobados**). El hallazgo de CORS sí es un defecto del cambio y se corrige; no se atribuye a esa deuda ni se ocultan los checks anteriores. No se declara que esos checks globales estén verdes.
+
+Verificación final de la corrección: **1016 tests backend aprobados**, incluidos 121 PostgreSQL, 2 Redis y 5 SMTP/TLS locales; cuatro advertencias anteriores. **79 tests focalizados aprobados**. Black (176 archivos), Flake8 crítico y git diff --check aprobados. Mypy mantiene exactamente 329 diagnósticos en 52 archivos, sin nuevos ni eliminados por archivo/mensaje. El frontend no cambia. Estos resultados reemplazan la cifra de 1008 como evidencia del estado final de este PR, sin declarar resuelta la deuda global de CI. Se actualiza el PR #276 existente, sin borrador, fusión ni despliegue.
