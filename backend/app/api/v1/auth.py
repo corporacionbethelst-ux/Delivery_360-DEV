@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 import logging, secrets, uuid
@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.services.document_uploads import validate_document, DocumentUploadBatch
 from app.services.user_emails import claim_email, flush_email_change, find_email_account
 from app.services.session_policy import ensure_session_allowed
+from app.services.password_reset import issue_password_reset, consume_password_reset
 from app.core.database import get_db
 from app.core.security import (
     verify_password,
@@ -20,7 +21,7 @@ from app.core.security import (
     decode_token,
 )
 from app.models.user import User, UserRole
-from app.models.rider import Rider, RiderStatus, utc_now_naive
+from app.models.rider import Rider, RiderStatus
 
 # Asegúrate de importar el modelo de documentos y sus enums
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
@@ -291,9 +292,8 @@ async def forgot_password(
         logger.warning("Password recovery unavailable: email/link configuration")
         return response
 
-    user.reset_token = reset_token
-    user.reset_token_expires = utc_now_naive() + timedelta(hours=1)
-    await db.commit()
+    if not await issue_password_reset(db, user, reset_token):
+        return response
 
     # Persist first so a delivered link is already usable. Do not hold DB locks
     # while talking to SMTP. Public output stays identical on provider failure.
@@ -320,35 +320,20 @@ async def reset_password(
             status_code=400, detail="La contraseña debe tener al menos 6 caracteres."
         )
 
-    # 2. Buscar usuario por token y verificar expiración
-    result = await db.execute(
-        select(User).where(
-            User.reset_token == body.token,
-            User.reset_token_expires > utc_now_naive(),  # Usa tu helper existente
-            User.is_active == True,
-        )
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        # Mensaje genérico para no revelar si el token era inválido o si el usuario no existe
+    try:
+        password_bytes = body.new_password.encode("utf-8")
+    except UnicodeEncodeError:
+        raise HTTPException(status_code=400, detail="La contraseña no es UTF-8 válido.")
+    if b"\x00" in password_bytes:
         raise HTTPException(
-            status_code=400,
-            detail="Token inválido o expirado. Por favor solicita uno nuevo.",
+            status_code=400, detail="La contraseña contiene caracteres no permitidos."
         )
-
-    # 3. Actualizar contraseña
-    from app.core.security import hash_password
-
-    user.hashed_password = hash_password(body.new_password)
-
-    # 4. Invalidar token inmediatamente (uso único)
-    user.reset_token = None
-    user.reset_token_expires = None
-
-    await db.commit()
-
-    logger.info(f"✅ Contraseña restablecida exitosamente para usuario: {user.email}")
+    if len(password_bytes) > 72:
+        raise HTTPException(
+            status_code=400, detail="La contraseña no debe superar 72 bytes UTF-8."
+        )
+    await consume_password_reset(db, body.token, body.new_password)
+    logger.info("Password reset completed")
     return {
         "message": "Contraseña actualizada exitosamente. Ahora puedes iniciar sesión."
     }

@@ -16,6 +16,7 @@ from app.core import email_service as mail
 from app.core.config import settings
 from app.core.security import verify_password
 from app.models.user import User, utc_now_naive
+from app.services.password_reset import reset_token_digest
 
 
 @pytest.fixture
@@ -229,7 +230,8 @@ async def test_mounted_recovery_persists_before_smtp_and_changes_password(
     # provider exceptions, including assertion errors raised by a test double.
     assert len(observed) == 1
     persisted, mailed, expiry = observed[0]
-    assert persisted == mailed
+    assert persisted == reset_token_digest(mailed)
+    assert persisted != mailed
     assert (
         utc_now_naive() + timedelta(minutes=59)
         < expiry
