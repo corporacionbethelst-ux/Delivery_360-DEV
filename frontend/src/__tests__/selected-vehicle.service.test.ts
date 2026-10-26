@@ -57,3 +57,9 @@ it('store personal updates preserve the captured profile revision', async () => 
   expect(patch).toHaveBeenCalledWith(`/riders/${id}`, { phone:'+584121234567', expected_profile_revision:revision });
   expect(get).not.toHaveBeenCalled();
 });
+it('preserves a structured email conflict for rider registration',async()=>{
+ const log=jest.spyOn(console,'error').mockImplementation(()=>undefined);
+ post.mockRejectedValueOnce(new AxiosError('Conflict','ERR_BAD_REQUEST',undefined,undefined,{ status:409,statusText:'Conflict',headers:{},config:{} as any,data:{ detail:{ code:'USER_EMAIL_CONFLICT',message:'El correo ya está registrado. Use otro correo' } } }));
+ await expect(riderService.createRider({ ...create, expected_vehicle_revision:selected })).rejects.toMatchObject({ status:409,code:'USER_EMAIL_CONFLICT',message:'El correo ya está registrado. Use otro correo' });
+ expect(get).not.toHaveBeenCalled(); log.mockRestore();
+});

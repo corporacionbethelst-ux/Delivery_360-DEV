@@ -2150,3 +2150,82 @@ La política de null y los normalizadores de nombres/correo/teléfono permanecen
 Las pruebas usan SQLite temporal y PostgreSQL test_* con esquemas privados. Los escenarios nativos ejercitan esperas reales y límites de tiempo, no una simulación de FOR UPDATE. No se consultan ni modifican bases de negocio.
 
 El comando de cobertura mantiene salida con error por el mínimo global del 50 %, aunque todas sus pruebas pasan. Mypy conserva deuda anterior; no se declara CI global verde ni producción lista. El PR se publica sin borrador, sin despliegue ni fusión automática.
+
+## Bloque 29 — Normalización y conflictos concurrentes de correo
+
+Fecha: 25 de octubre de 2026 (America/Caracas). Base: main, commit 13ef781, con PR #270 fusionado. Rama: fix/user-email-conflicts-v1.
+
+### Problema y rutas cubiertas
+
+Un bloqueo de User protege una ficha, pero no evita que dos cuentas diferentes intenten tomar el mismo correo. Además, el registro público y la creación administrativa de repartidores no compartían la normalización utilizada en usuarios. Se incorpora un servicio común para estas escrituras:
+
+| Ruta | Operación |
+|---|---|
+| POST /api/v1/users | Alta administrativa de usuario |
+| POST /api/v1/riders | Alta administrativa de usuario y repartidor, con flota/auditoría cuando corresponde |
+| POST /api/v1/auth/register-rider | Alta pública con cuatro documentos |
+| PUT/PATCH /api/v1/users/me | Cambio del correo propio |
+| PATCH /api/v1/users/{id} | Cambio administrativo de correo |
+
+La normalización retira espacios ASCII exteriores y pasa el texto a minúsculas. No permite un valor vacío o superior a los 255 caracteres del modelo. Se preserva la validación sintáctica previa de cada ruta: UserCreate/Update sigue usando EmailStr; el registro público y Rider conservan sus campos de texto existentes, sin adoptar una restricción adicional que impida direcciones de prueba o identidades históricas. Este bloque no certifica que un correo exista, reciba mensajes o tenga su propiedad verificada.
+
+### Reserva transaccional y orden de bloqueos
+
+En PostgreSQL las escrituras obtienen un pg_advisory_xact_lock por correo canónico. Su espacio de nombres es 0x44563345 y la clave es un entero firmado de 32 bits derivado de SHA-256 del texto UTF-8. Una colisión del hash solo serializa correos diferentes; no los trata como iguales. El bloqueo se libera al confirmar o revertir la transacción.
+
+El orden para operaciones que incluyen correo es correo → vehículos por UUID, cuando correspondan → Rider → User → documentos. En particular, el cambio de correo reserva su valor antes de bloquear la fila User. El alta de repartidor también reserva correo antes de entrar en flota. Esto evita un ciclo en el que un editor retenga User esperando correo, un alta retenga correo esperando vehículo y otro editor retenga vehículo esperando User.
+
+Después de reservar se consulta una coincidencia mediante LOWER(TRIM/BTRIM(email)), retirando espacios ASCII exteriores y excluyendo la propia fila cuando se edita. La consulta limita a un identificador: varias equivalencias históricas originan un conflicto, sin producir MultipleResultsFound ni repararse por conjetura. Las cuentas inactivas siguen reservando su correo.
+
+La visibilidad tras una espera se apoya en READ COMMITTED, usado por las sesiones del proyecto. No se introduce un índice funcional ni una migración. El índice UNIQUE existente sigue protegiendo el valor almacenado; escritores externos que omitan este protocolo no reciben automáticamente una garantía de equivalencia canónica.
+
+### Conflicto uniforme y atomicidad
+
+Un correo ocupado se comunica como conflicto de negocio: HTTP 409, detail.code=USER_EMAIL_CONFLICT y un mensaje que permite corregir el dato. El servicio no identifica en la respuesta a la cuenta que ocupa el correo.
+
+El respaldo de integridad reconoce únicamente una violación UNIQUE de correo en el flush del índice inmediato existente: SQLSTATE 23505 con ix_users_email/users_email_key en PostgreSQL o el código extendido UNIQUE con referencia exacta users.email en SQLite. No convierte un fallo de otra restricción, documentos o auditoría en correo duplicado.
+
+El flush de User precede al guardado del perfil/documentos/auditoría. En el alta pública, un conflicto real de integridad se traduce antes de que DocumentUploadBatch procese la salida de la transacción, conservando su rollback/limpieza y la respuesta de negocio 409. La operación rechazada no confirma un usuario, perfil, vínculo ni documentos parciales. Las precondiciones y permisos de las ediciones se conservan bajo bloqueo; una reserva de correo por sí sola no autoriza a modificar la cuenta.
+
+### Búsqueda para acceso y recuperación
+
+Login y forgot-password utilizan la misma expresión de búsqueda de correo y admiten diferencias de mayúsculas y espacios exteriores. Antes de seleccionar identidad consultan hasta dos coincidencias, sin filtrar primero por actividad: si la búsqueda resulta ambigua, no se elige una cuenta aunque otra esté inactiva.
+
+Login devuelve el error genérico de credenciales cuando no hay una identidad única. Recuperación devuelve el mismo mensaje genérico de siempre y no genera/envía un enlace para una búsqueda ambigua. Los controles posteriores de cuenta activa, rol y estado del repartidor permanecen vigentes. No se modifica automáticamente el correo de una cuenta histórica al acceder.
+
+### Formularios y mensajes
+
+El editor de usuarios distingue USER_EMAIL_CONFLICT de un conflicto de revisión. Permite corregir el correo con el borrador y la revisión previamente capturados, sin un GET nuevo ni reintento automático. Si esa revisión quedó obsoleta, la solicitud posterior con otro correo libre seguirá siendo rechazada por la precondición de usuario.
+
+El registro administrativo de repartidores conserva el vehículo seleccionado y su revisión cuando falla solo el correo. Los mensajes estructurados se traducen a texto en registro público, alta de usuarios y servicio de repartidores. Los formularios de registro dejan de imprimir objetos Axios completos en esos errores, evitando incluir posibles cabeceras de autorización.
+
+### Límites y pendientes
+
+No se eliminan o fusionan cuentas históricas equivalentes ni se reasignan sesiones, documentos o propiedades. Las identidades ambiguas detectadas requieren revisión autorizada antes de recuperar acceso. La consulta depende de LOWER y de las reglas de texto de cada base: no garantiza equivalencia Unicode universal, IDN/punycode, alias, puntos o sufijos de proveedores. La normalización de nuevas escrituras usa minúsculas de Python; datos Unicode históricos con reglas distintas requieren revisión específica.
+
+SQLite conserva comprobaciones previas y respaldo de su índice, pero no la serialización advisory entre conexiones de PostgreSQL. La agrupación/búsqueda normalizada puede examinar usuarios sin un índice funcional; debe medirse con volúmenes grandes. No se promete idempotencia frente a pérdida del acuse del commit ni clasificación de restricciones diferidas o esquemas externos distintos al contrato comprobado.
+
+Quedan pendientes verificación de propiedad del correo, unificación futura de validación sintáctica tras revisar datos existentes, diagnóstico/reparación operativa de identidades históricas, auditoría de usuarios, revocación de sesiones y escritores externos. No se modifican modelos, esquema, bases de negocio ni credenciales de usuarios reales. No se despliega ni fusiona automáticamente.
+
+### Hallazgo existente: dependencia del correo de recuperación
+
+Al preparar la prueba de recuperación se verificó que app/core/email_service.py importa fastapi_mail, mientras requirements.txt tiene comentada la entrada fastapi-mail==1.4.1. El import directo falla en este entorno con ModuleNotFoundError. aiosmtplib sí figura como dependencia, pero ese módulo de recuperación no lo utiliza directamente.
+
+La ruta actual atrapa fallos al importar/enviar y conserva su respuesta genérica; por ello una respuesta 200 no demuestra que haya salido un mensaje. Este bloqueo debe resolverse y validarse con transporte de pruebas antes de considerar operativa la recuperación por correo. No se habilita SMTP ni se envían correos reales en este bloque. La prueba de identidad ambigua utiliza un adaptador de envío simulado y comprueba que no se invoca; no se presenta como validación de entrega de correo.
+
+### Evidencia final local del bloque 29
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **837 pruebas aprobadas**, veintisiete nuevas frente a 810; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **105 pruebas** incluidas; nueve nuevas: tres carreras de altas/ediciones, dos errores reales del índice, orden correo/vehículo/perfil, liberación por rollback, equivalencias históricas y restricción UNIQUE ajena |
+| Nuevas pruebas HTTP/SQLite | Dieciocho casos: normalización y duplicados en tres altas, corrección con la misma revisión, identidad histórica ambigua, login normalizado, tres fallos reales del índice y seis entradas vacías/excesivas |
+| Frontend | **257 pruebas aprobadas** en 26 suites; tres nuevas para corrección de correo en usuario/registro de repartidor y conservación del error estructurado |
+| TypeScript / ESLint / Next.js build | Aprobados; advertencias anteriores conservadas |
+| Mypy con --ignore-missing-imports | **329 errores en 52 archivos**, sin diagnósticos nuevos por archivo/mensaje; 172 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; formato comprobado también en las dos suites nuevas |
+| Cobertura frontend | Statements **15,28 %**, branches **13,07 %**, functions **12,16 %**, lines **15,34 %** |
+
+La prueba de identidades ambiguas también se reforzó y ejecutó individualmente con una contraseña válida para las dos filas equivalentes: login mantiene el rechazo genérico y recuperación no invoca el adaptador simulado. No se envían mensajes reales. La prueba nativa del orden de bloqueos utiliza tres sesiones y espera real para detectar el ciclo descrito, con límites de tiempo.
+
+Las pruebas usan SQLite temporal y PostgreSQL test_* con esquemas privados, sin datos de negocio. La cobertura sigue por debajo del mínimo global del 50 % y su comando mantiene salida con error pese a aprobar todas las pruebas. Mypy conserva deuda anterior. La dependencia del correo de recuperación descrita arriba continúa pendiente; no se declara entrega SMTP validada, CI global verde ni producción lista. El PR se publica sin borrador, sin despliegue ni fusión automática.

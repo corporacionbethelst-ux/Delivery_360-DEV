@@ -9,6 +9,7 @@ import logging, secrets, uuid
 from app.core.config import settings
 
 from app.services.document_uploads import validate_document, DocumentUploadBatch
+from app.services.user_emails import claim_email, flush_email_change, find_email_account
 from app.services.session_policy import ensure_session_allowed
 from app.core.database import get_db
 from app.core.security import (
@@ -99,15 +100,12 @@ async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db),
 ):
-    # 1. Buscar usuario activo
-    result = await db.execute(
-        select(User).where(User.email == form_data.username, User.is_active.is_(True))
-    )
-    user = result.scalar_one_or_none()
+    user = await find_email_account(db, form_data.username)
 
     # Verificar credenciales básicas
     if (
         not user
+        or not user.is_active
         or user.role is None
         or not verify_password(form_data.password, user.hashed_password)
     ):
@@ -184,10 +182,7 @@ async def register_rider(
 ):
     """Registro público para repartidores con subida de documentos."""
 
-    # 1. Verificar email duplicado
-    existing = await db.execute(select(User).where(User.email == email))
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="El email ya está registrado")
+    canonical_email = await claim_email(db, email)
 
     uploads = [
         (DocumentType.LICENCIA, license_file),
@@ -198,7 +193,7 @@ async def register_rider(
     validated = [(kind, await validate_document(file)) for kind, file in uploads]
     async with DocumentUploadBatch(db) as batch:
         user = User(
-            email=email,
+            email=canonical_email,
             hashed_password=hash_password(password),
             first_name=first_name,
             last_name=last_name,
@@ -207,7 +202,7 @@ async def register_rider(
             is_active=True,
         )
         db.add(user)
-        await db.flush()
+        await flush_email_change(db)
         rider = Rider(
             user_id=user.id,
             vehicle_type=vehicle_type,
@@ -271,9 +266,7 @@ async def forgot_password(
     Envía un correo con un token temporal (válido por 1 hora).
     Por seguridad, no revela si el email existe o no.
     """
-    # 1. Buscar usuario
-    result = await db.execute(select(User).where(User.email == body.email))
-    user = result.scalar_one_or_none()
+    user = await find_email_account(db, body.email)
 
     # 2. Seguridad: No revelar si el email existe o no para evitar enumeración de usuarios
     # Si el usuario no existe o está inactivo, retornamos el mismo mensaje de éxito falso.

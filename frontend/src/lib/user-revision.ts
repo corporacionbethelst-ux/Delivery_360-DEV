@@ -1,3 +1,4 @@
+import { isEmailConflict } from '@/lib/email-conflict';
 /** Bind user metadata writes to the record actually displayed. */
 export class UserRevisionError extends Error {
   readonly status = 409;
@@ -8,5 +9,5 @@ export function requireUserRevision(value: unknown): string {
   return value;
 }
 export function isUserConflict(error: any): boolean {
-  return error?.status === 409 || error?.response?.status === 409;
+  return !isEmailConflict(error) && (error?.status === 409 || error?.response?.status === 409);
 }

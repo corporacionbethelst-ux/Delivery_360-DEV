@@ -1,5 +1,6 @@
 'use client';
 
+import { emailConflictMessage } from '@/lib/email-conflict';
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
@@ -83,8 +84,8 @@ export default function NewUserPage() {
       setSuccess(true);
       setTimeout(() => router.push('/manager/admin/users'), 1500);
     } catch (err: any) {
-      console.error('Error creating user:', err);
-      setError(err.message || 'No se pudo crear el usuario. Verifica que el email no exista.');
+      console.error('Error creating user:', { status:err?.response?.status ?? err?.status });
+      setError(emailConflictMessage(err) || err.message || 'No se pudo crear el usuario. Verifica que el email no exista.');
     } finally {
       setSaving(false);
     }

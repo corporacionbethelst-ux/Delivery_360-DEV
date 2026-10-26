@@ -1,5 +1,6 @@
 'use client';
 
+import { emailConflictMessage } from '@/lib/email-conflict';
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
@@ -126,7 +127,7 @@ export default function EditUserPage() {
     } catch (err: any) {
       if (snapshotRef.current !== submitted) return;
       if (metadataSaved || isUserConflict(err)) setConflicted(true);
-      setError(metadataSaved ? 'Los datos se guardaron, pero no se confirmó el cambio de contraseña. Recarga y revisa la cuenta antes de volver a intentarlo.' : ((typeof err.response?.data?.detail === 'string' ? err.response.data.detail : undefined) || err.message || 'Error al guardar los cambios.'));
+      setError(metadataSaved ? 'Los datos se guardaron, pero no se confirmó el cambio de contraseña. Recarga y revisa la cuenta antes de volver a intentarlo.' : (emailConflictMessage(err) || (typeof err.response?.data?.detail === 'string' ? err.response.data.detail : undefined) || err.message || 'Error al guardar los cambios.'));
     } finally {
       if (snapshotRef.current === submitted) setSaving(false);
     }
