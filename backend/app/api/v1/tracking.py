@@ -12,7 +12,7 @@ WebSocket (montado directamente en main.py):
     WS   /api/v1/tracking/ws/{channel}  -> handshake con JWT query param + subscribe a tópico
 
 Canales soportados:
-    rider:{rider_id}   -> seguimiento individual (cliente final o rider)
+    rider:{rider_id}   -> personal operativo/auditor o el propio rider
     order:{order_id}   -> alias resuelto al rider asignado de la entrega
     dashboard          -> fan-out global (solo SUPERADMIN / GERENTE)
 """
@@ -20,6 +20,7 @@ Canales soportados:
 from __future__ import annotations
 
 import logging
+import json
 import math
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -35,16 +36,22 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, Field
+from starlette.websockets import WebSocketState
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, load_only, raiseload
 
 from app.core.config import settings
 from app.core.serialization import optional_enum_value
-from app.core.database import get_db
-from app.core.security import decode_token
+from app.core.database import get_db, AsyncSessionLocal
 from app.core.websocket import manager
 from app.api.v1.auth import get_current_user
+from app.services.tracking_access import (
+    resolve_tracking_channel,
+    authorize_rider_tracking,
+    tracking_channel,
+    MAX_TRACKING_CHANNELS,
+)
 from app.models.user import User
 from app.models.rider import Rider
 from app.models.delivery import Delivery
@@ -184,6 +191,7 @@ async def get_live_tracking(
     current_user: User = Depends(get_current_user),
 ):
     """Fallback REST: última posición conocida + ETA cuando el WebSocket no está disponible."""
+    await resolve_tracking_channel(db, current_user, f"order:{order_id}")
     result = await db.execute(
         select(Delivery)
         .options(
@@ -379,6 +387,7 @@ async def get_rider_history(
     current_user: User = Depends(get_current_user),
 ):
     """Trazas recientes de un rider para dibujar el polyline del recorrido."""
+    await authorize_rider_tracking(db, current_user, rider_id)
     result = await db.execute(
         select(RiderLiveLocation)
         .where(RiderLiveLocation.rider_id == rider_id)
@@ -405,49 +414,104 @@ async def get_rider_history(
 # WebSocket con autenticación JWT manual (sin librerías externas deprecadas)
 # ----------------------------------------------------------------------
 async def tracking_websocket(websocket: WebSocket, channel: str):
-    """Handler WS montado en main.py como /api/v1/tracking/ws/{channel}.
-
-    Handshake: ?token=<jwt>. Roles: cualquier usuario autenticado puede suscribirse a
-    rider:/order: propios o visibles; 'dashboard' exige SUPERADMIN/GERENTE.
-    """
+    """Authorize before accept, every subscription and every outgoing frame."""
     token = websocket.query_params.get("token")
     if not token:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        await websocket.close(code=1008)
         return
-
-    payload = decode_token(token)
-    if not payload or payload.get("type") != "access":
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-
+    bindings: dict[str, str] = {}
     connection_id = str(uuid.uuid4())
-    await manager.connect(websocket, connection_id, user_id=payload.get("sub"))
 
-    # Suscripción inicial al canal solicitado
-    normalized = channel
-    if normalized.startswith("all-riders") or normalized == "dashboard":
-        normalized = "dashboard"
-    manager.subscribe(connection_id, normalized)
+    async def authorized_bindings(db: AsyncSession) -> User:
+        user = await get_current_user(token=token, db=db)
+        for original, physical in list(bindings.items()):
+            _, current = await resolve_tracking_channel(db, user, original)
+            if current != physical:
+                raise HTTPException(status_code=403, detail="La asignación cambió")
+        return user
+
+    async def resolve(requested: str) -> tuple[str, str, str]:
+        async with AsyncSessionLocal() as db:
+            user = await authorized_bindings(db)
+            logical, physical = await resolve_tracking_channel(db, user, requested)
+            return str(user.id), logical, physical
+
+    async def can_send() -> bool:
+        try:
+            async with AsyncSessionLocal() as db:
+                await authorized_bindings(db)
+            return True
+        except HTTPException:
+            return False
 
     try:
-        await websocket.send_json({"type": "CONNECTED", "channel": normalized})
+        user_id, initial, physical = await resolve(channel)
+        bindings[initial] = physical
+        await manager.connect(
+            websocket, connection_id, user_id=user_id, authorize_send=can_send
+        )
+        manager.subscribe(connection_id, physical)
+        await manager.send_personal_message(
+            {"type": "CONNECTED", "channel": initial}, connection_id
+        )
+        if connection_id not in manager.active_connections:
+            return
         while True:
             data = await websocket.receive_text()
+            if not await can_send():
+                raise HTTPException(
+                    status_code=403, detail="Acceso de tracking revocado"
+                )
+            if len(data) > 4096:
+                raise HTTPException(status_code=403, detail="Mensaje excesivo")
             try:
-                message = __import__("json").loads(data)
-                action = message.get("action")
-                if action == "subscribe":
-                    manager.subscribe(connection_id, message.get("topic", normalized))
-                elif action == "unsubscribe":
-                    manager.unsubscribe(connection_id, message.get("topic", normalized))
-                elif action == "ping":
-                    await websocket.send_json({"type": "pong"})
-            except Exception:
-                await websocket.send_json(
-                    {"type": "error", "message": "Mensaje JSON inválido"}
+                message = json.loads(data)
+            except (json.JSONDecodeError, TypeError):
+                await manager.send_personal_message(
+                    {"type": "error", "message": "Mensaje JSON inválido"}, connection_id
+                )
+                continue
+            if not isinstance(message, dict):
+                await manager.send_personal_message(
+                    {"type": "error", "message": "Se requiere un objeto JSON"},
+                    connection_id,
+                )
+                continue
+            action = message.get("action")
+            if action == "subscribe":
+                requested = tracking_channel(message.get("topic", initial))
+                _, logical, physical = await resolve(requested)
+                if logical not in bindings and len(bindings) >= MAX_TRACKING_CHANNELS:
+                    raise HTTPException(status_code=403, detail="Demasiados canales")
+                bindings[logical] = physical
+                manager.subscribe(connection_id, physical)
+                await manager.send_personal_message(
+                    {"type": "subscribed", "topic": logical}, connection_id
+                )
+            elif action == "unsubscribe":
+                logical = tracking_channel(message.get("topic", initial))
+                removed = bindings.pop(logical, None)
+                if removed is not None and removed not in bindings.values():
+                    manager.unsubscribe(connection_id, removed)
+                await manager.send_personal_message(
+                    {"type": "unsubscribed", "topic": logical}, connection_id
+                )
+            elif action == "ping":
+                await manager.send_personal_message({"type": "pong"}, connection_id)
+            else:
+                await manager.send_personal_message(
+                    {"type": "error", "message": "Acción no admitida"}, connection_id
                 )
     except WebSocketDisconnect:
-        manager.disconnect(connection_id)
-    except Exception as exc:
-        logger.debug("WS %s cerrado por error: %s", connection_id, exc)
+        pass
+    except HTTPException:
+        if websocket.application_state != WebSocketState.DISCONNECTED:
+            await websocket.close(code=1008)
+    except Exception:
+        if websocket.application_state != WebSocketState.DISCONNECTED:
+            try:
+                await websocket.close(code=1011)
+            except Exception:
+                pass
+    finally:
         manager.disconnect(connection_id)

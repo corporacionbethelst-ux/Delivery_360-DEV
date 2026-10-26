@@ -191,7 +191,7 @@ def create_app() -> FastAPI:
 
         # WebSocket de tracking: /api/v1/tracking/ws/{channel}?token=<jwt>
         @app.websocket("/api/v1/tracking/ws/{channel}")
-        async def tracking_ws(websocket, channel: str):
+        async def tracking_ws(websocket: WebSocket, channel: str):
             await tracking_module.tracking_websocket(websocket, channel)
 
     # --- FASE 9: NOTIFICACIONES OMNICANAL ---
