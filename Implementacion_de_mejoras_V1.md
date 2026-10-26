@@ -2229,3 +2229,72 @@ La ruta actual atrapa fallos al importar/enviar y conserva su respuesta genéric
 La prueba de identidades ambiguas también se reforzó y ejecutó individualmente con una contraseña válida para las dos filas equivalentes: login mantiene el rechazo genérico y recuperación no invoca el adaptador simulado. No se envían mensajes reales. La prueba nativa del orden de bloqueos utiliza tres sesiones y espera real para detectar el ciclo descrito, con límites de tiempo.
 
 Las pruebas usan SQLite temporal y PostgreSQL test_* con esquemas privados, sin datos de negocio. La cobertura sigue por debajo del mínimo global del 50 % y su comando mantiene salida con error pese a aprobar todas las pruebas. Mypy conserva deuda anterior. La dependencia del correo de recuperación descrita arriba continúa pendiente; no se declara entrega SMTP validada, CI global verde ni producción lista. El PR se publica sin borrador, sin despliegue ni fusión automática.
+
+## Bloque 30 — Autorización de tracking WebSocket y lecturas REST
+
+Fecha: 25 de octubre de 2026 (America/Caracas). Base: main, commit 1b120bf, con PR #271 fusionado. Rama: fix/tracking-websocket-permissions-v1.
+
+### Hallazgo corregido
+
+El WebSocket validaba el tipo del JWT, pero aceptaba el canal de la URL y posteriores acciones subscribe sin comprobar rol o propiedad. Su comentario describía controles que no se ejecutaban. Se incorpora una política de tracking compartida por el handshake, las suscripciones, la entrega de mensajes y las lecturas REST /tracking/live/{order_id} y /tracking/history/{rider_id}.
+
+También se declara websocket: WebSocket en el wrapper montado en main.py: FastAPI debe inyectar la conexión, en lugar de tratar ese parámetro sin anotación como entrada de consulta. Las pruebas nuevas utilizan la ruta montada de la aplicación, no una copia del handler.
+
+### Matriz de permisos
+
+| Canal | Identidades permitidas |
+|---|---|
+| dashboard, alias exacto all-riders | SUPERADMIN y GERENTE |
+| rider:{UUID} | SUPERADMIN, GERENTE, OPERADOR, AUDITOR; REPARTIDOR únicamente para su propio perfil |
+| order:{UUID} | Los mismos permisos individuales, comprobados contra el repartidor de la asignación coherente del pedido/entrega |
+| Otros prefijos, tópicos arbitrarios, UUID inválidos | Rechazados, incluso como suscripción posterior |
+| CLIENTE | Sin acceso a estos canales operativos: todavía no existe relación verificable de propiedad de pedido con su cuenta |
+
+Un pedido debe existir, tener una única entrega y coincidir en Order.assigned_rider_id y Delivery.rider_id. Una asignación ausente o contradictoria requiere revisión; no se elige silenciosamente uno de los enlaces. El alias order se vincula al tópico físico rider correspondiente. Si ese vínculo cambia, la conexión anterior se cierra antes de entregar datos tras la nueva comprobación; no sigue automáticamente al nuevo repartidor.
+
+Los alias de orden son para personal operativo o el propio repartidor. No constituyen un feed limitado a una compra de cliente: una futura experiencia del cliente deberá implementar propiedad verificable y un alcance de eventos/duración por pedido, en lugar de conceder acceso a todo el feed del repartidor.
+
+### Cuenta y autorización durante la conexión
+
+Cada comprobación utiliza get_current_user y la política de sesión existente, con una sesión SQL nueva y breve: firma/tipo/expiración/subject del token, existencia de usuario, actividad, rol y estado permitido del repartidor cuando corresponde. Los campos de rol que pudieran viajar en un JWT no sustituyen el rol persistido.
+
+Se comprueba antes de aceptar, al recibir mensajes, al añadir suscripciones y antes de cada mensaje saliente. El ConnectionManager admite una guarda opcional por conexión; tracking la registra. Una denegación cierra con 1008 y retira conexión, suscripciones, guarda y bloqueo de envío. Si falla la comprobación por un error de infraestructura, se cierra con 1011 sin entregar el payload ni revelar el diagnóstico interno.
+
+La guarda revalida todos los vínculos lógicos de la conexión. Una desactivación, suspensión, eliminación o cambio de rol que invalide los permisos se detecta en la siguiente comprobación. No se mantiene una transacción abierta mientras se espera un mensaje WebSocket. Una conexión inactiva no se cierra necesariamente al instante del cambio: se verifica al recibir o enviar; no se promete revocación de latencia cero ni atomicidad entre la lectura SQL y el envío por red.
+
+### Suscripciones, límites y fan-out
+
+Se aceptan únicamente dashboard/all-riders exactos, rider:UUID y order:UUID. Se admiten hasta 32 vínculos lógicos por conexión y hasta 4096 caracteres por mensaje de aplicación; no sustituyen los límites de transporte o una política global de rate limiting. JSON inválido o no objeto produce un error sin añadir canales. Una solicitud de canal no permitido cierra la conexión.
+
+Un alias order y un canal rider pueden compartir tópico físico. Desuscribir uno no elimina el otro. Los envíos protegidos se serializan por conexión. El broadcast recorre copias de los identificadores: retirar un suscriptor denegado no hace saltar al siguiente suscriptor autorizado. Se comprueba además la pertenencia al tópico antes y después de la guarda asíncrona: un mensaje pendiente se descarta si el cliente se desuscribió durante la comprobación, sin cerrar una conexión que continúa autorizada.
+
+Se conserva el formato POSITION_UPDATE y el protocolo de token en query utilizado por el frontend. El hook existente ya detiene la reconexión automática ante 1008/4001, por lo que no se cambia frontend. Se añaden confirmaciones subscribed/unsubscribed compatibles con el gestor existente. El alias all-riders se restringe al valor exacto; ya no se aceptan prefijos arbitrarios que empiecen por ese texto.
+
+### Lecturas alternativas y alcance
+
+Las rutas REST de ubicación por pedido e historial individual aplican la misma autorización antes de cargar posiciones. Una cuenta autenticada ajena no obtiene la información recurriendo al fallback. El dashboard y el optimizador mantienen sus permisos previos de gerencia; la ingesta GPS conserva sus controles anteriores.
+
+La guarda del gestor es opcional para conservar compatibilidad con los otros consumidores. Este bloque la activa en tracking: no declara cerrada la autenticación continua del WebSocket de notificaciones ni del helper genérico no montado. Queda pendiente aplicar allí una política equivalente donde corresponda.
+
+No se cambia esquema, modelos, índices, JWT, reglas de dinero ni estado de cuentas de negocio. El fan-out sigue siendo local al proceso: no se implementa un puente Redis multiworker. Debe medirse el coste de consultar permisos por frame y completar límites de conexión/rate limiting, control de origen, transporte seguro y política de tokens en URL. No se introduce un registro de revocación de tokens individuales.
+
+Siguen pendientes la reparación del transporte de recuperación por correo, deuda de Mypy/cobertura, migraciones y el resto del cierre de producción. No se despliega ni fusiona automáticamente.
+
+### Evidencia final local del bloque 30
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **885 pruebas aprobadas**, cuarenta y ocho nuevas frente a 837; cuatro advertencias anteriores |
+| PostgreSQL real aislado | **108 pruebas** incluidas; tres nuevas con UUID/enums nativos, propiedad individual, cambio confirmado de asignación y rechazo de cuenta desactivada en una sesión nueva |
+| Nuevas pruebas ASGI | Cuarenta y cuatro casos sobre la ruta real montada: matriz de roles, credenciales, propiedad, suscripciones posteriores, reasignación, cambios de cuenta, expiración, REST alternativo, fallo de BD, JSON/límites y limpieza |
+| Nueva prueba del gestor | Desuscripción durante una guarda pendiente: el mensaje no se entrega ni se cierra una conexión autorizada; se eliminan entradas vacías y recursos de la conexión |
+| Regresión final focalizada | **66 pruebas aprobadas** de tracking, gestor y notificaciones después del último ajuste de limpieza de tópicos vacíos |
+| Mypy con --ignore-missing-imports | **329 errores en 52 archivos**, sin diagnósticos nuevos por archivo/mensaje; 173 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; formato comprobado en app y las tres suites nuevas |
+| Frontend | Sin cambios; se conserva la validación anterior de **257 pruebas**, TypeScript, lint y build, sin repetirla |
+
+Las pruebas ASGI usan TestClient contra la aplicación montada y una BD SQLite privada por caso, con sesiones independientes; no sustituyen autenticación ni autorización por mocks. El reloj de validación JWT se adelanta para comprobar expiración sin esperas. El fallo de infraestructura se inyecta después de aceptar para comprobar que no sale una posición ni un diagnóstico privado. La prueba del gestor coordina la guarda y la desuscripción con eventos, sin depender de una pausa arbitraria.
+
+La suite completa se ejecutó con la comprobación de pertenencia del envío; el último ajuste de eliminación de tópicos vacíos se verificó repitiendo las 66 pruebas focalizadas. Las pruebas PostgreSQL usan test_* y esquemas privados. No se accede a usuarios de producción ni se ensaya una explotación contra ellos.
+
+Mypy conserva deuda previa y la cobertura frontend anterior (**15,34 % de líneas**) sigue bajo el mínimo global del 50 %. No se declara CI global verde, todos los WebSockets cerrados ni producción lista. El PR se publica sin borrador, sin despliegue ni fusión automática.
