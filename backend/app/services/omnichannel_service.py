@@ -618,13 +618,17 @@ class OmnichannelNotificationService:
             return False
 
     async def _mark_token_failures(self, tokens: List[str]) -> None:
-        """Auto-desactivar token tras 3 fallos consecutivos (regla Paso 1)."""
+        """Record failures under row locks; the dispatch owner commits them."""
+        if not tokens:
+            return
         rows = (
             (
                 await self.db.execute(
-                    select(UserDeviceToken).where(
-                        UserDeviceToken.device_token.in_(tokens)
-                    )
+                    select(UserDeviceToken)
+                    .where(UserDeviceToken.device_token.in_(tokens))
+                    .order_by(UserDeviceToken.id)
+                    .with_for_update(of=UserDeviceToken)
+                    .execution_options(populate_existing=True)
                 )
             )
             .scalars()
@@ -635,8 +639,7 @@ class OmnichannelNotificationService:
             if t.failure_count >= 3:
                 t.is_active = False
                 logger.info(
-                    "Token %s... auto-desactivado tras %d fallos",
-                    t.device_token[:12],
+                    "Token PUSH auto-desactivado tras %d fallos registrados",
                     t.failure_count,
                 )
         # The dispatch/retry owner commits token changes with the log result.

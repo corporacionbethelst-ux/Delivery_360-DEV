@@ -2936,3 +2936,64 @@ Siguen pendientes outbox duradero, idempotencia/conciliación por proveedor, log
 | Frontend | Sin cambios ni repetición local; CI previo 92b36ac: 261 tests/27 suites aprobados; cobertura global de líneas 16,38 %, inferior al umbral de 50 % |
 
 Se usan PostgreSQL y Redis locales desechables; no se envían correos externos. La credencial CLI de GitHub no estaba operativa al retomar el trabajo, por lo que se utiliza la conexión GitHub disponible para verificar y publicar. Se conserva la deuda de calidad y se actualiza el PR #281 listo para revisión, sin fusión ni despliegue automático.
+
+## Bloque 41 — Fallos de tokens PUSH compartidos entre despachos concurrentes
+
+Fecha: 26 de octubre de 2026, America/Caracas. Base final: main 14607fc, fusión del PR #281. Rama nueva: fix/notification-token-failure-locks-v1. Al comenzar, el PR #281 seguía abierto y sin observaciones; la comprobación anterior a publicar detectó su fusión. Se verificó que el árbol de main era exactamente el mismo que el de 97e4c30, base usada para desarrollar y comparar pruebas/tipos, y se trasladó el trabajo a la rama nueva sin cambiar el código probado. Se resuelve el pendiente de incrementos concurrentes entre despachos que comparten un token, señalado en los bloques 39 y 40.
+
+### Hallazgo y corrección
+
+El bloqueo de notification_logs evita que dos trabajadores cooperantes procesen a la vez el mismo log. Sin embargo, dos logs distintos pueden dirigirse al mismo dispositivo. _mark_token_failures leía el contador, sumaba uno en Python y hacía flush sin reclamar antes la fila del token. Dos sesiones podían leer el mismo valor y escribir ambas el mismo incremento: se perdía un fallo y podía retrasarse la desactivación al alcanzar el umbral de tres.
+
+El helper ahora selecciona las filas de tokens con FOR UPDATE OF user_device_tokens, ordenadas por id, y utiliza populate_existing=True. El trabajador que llega después espera el bloqueo y refresca la instancia desde SQL antes de incrementar; no reutiliza un contador antiguo que ya estuviera en el identity map. No se usa SKIP LOCKED en este punto: saltar un token ocupado descartaría el fallo que hay que registrar.
+
+El orden de adquisición es estable para los lotes que se solapan, independientemente del orden de strings de la entrada, lo que reduce el riesgo de bloqueos cruzados entre estas llamadas cooperantes. No se introduce un bloqueo global ni de toda la tabla: un token distinto puede avanzar mientras otro está bloqueado. El coste de contención se concentra en los dispositivos compartidos.
+
+Se conserva flush sin commit. El propietario del despacho/reintento confirma el contador y el resultado del log, o revierte ambos cuando corresponde. Los bloqueos del token duran hasta el cierre de esa transacción. Un rollback o una cancelación del propietario no debe consumir un fallo que no llegó a confirmarse. No se añade una confirmación interna que libere prematuramente los bloqueos del bloque 39.
+
+La entrada vacía termina antes de consultar o hacer flush. Los strings duplicados se resuelven como una sola fila por llamada a través del filtro SQL existente, y un token desconocido no se crea. El mensaje informativo de desactivación deja de incluir el prefijo del token.
+
+### Semántica conservada y límites
+
+- El umbral sigue siendo tres fallos registrados. El comportamiento anterior no restablece el contador después de cada éxito de proveedor; por eso no se presenta como una nueva garantía de tres fallos consecutivos. La política de reinicio por éxito, y la distinción entre fallo temporal del proveedor y token permanentemente inválido, siguen pendientes.
+- Un token que ya fue desactivado puede recibir otro incremento procedente de una respuesta en vuelo que ya lo tenía seleccionado. Se conserva su estado inactivo; no se lo reactiva desde este helper.
+- La protección cubre las llamadas cooperantes a este helper en PostgreSQL. SQLite sigue sirviendo para regresiones secuenciales y no demuestra exclusión distribuida. Todos los trabajadores deben usar la misma versión al desplegar.
+- register-device conserva su lógica anterior de reactivación, reinicio o cambio de propietario. No se incorpora aquí una revisión del token vinculada al momento de enviar al proveedor. Una respuesta tardía de un envío previo todavía puede atribuir un fallo a un token que haya sido reactivado o transferido entre tanto; ese ciclo de vida requiere una mejora separada.
+- La adquisición ordenada de este conjunto de filas no promete ausencia universal de deadlocks frente a otros escritores que usen órdenes distintos, ni frente a múltiples operaciones arbitrarias dentro de una sesión compartida. El servicio sigue requiriendo propiedad clara de la sesión/transacción.
+- El bloqueo del token no hace idempotente al proveedor, no evita duplicados tras aceptación externa y fallo SQL, ni sustituye un outbox. Tampoco corrige los stubs o las llamadas síncronas legacy de PUSH/SMS.
+
+### Pruebas nuevas
+
+Se añaden diez casos: nueve PostgreSQL reales y uno sin BD. Cada prueba nativa utiliza un esquema privado de una base test_* explícita; no se contacta FCM ni otro proveedor externo.
+
+- Dos y cuatro trabajadores precargan el mismo contador antiguo en sesiones diferentes. Uno mantiene el bloqueo y los demás esperan; al confirmar todos, cada fallo permanece contabilizado y el estado coincide con el umbral.
+- Un token diferente puede confirmar su incremento mientras el primero permanece bloqueado; el rollback del primero conserva su valor anterior.
+- Dos lotes solapados con órdenes de entrada opuestos conservan ambos incrementos de cada token.
+- El flush del umbral no es visible como confirmado desde otra sesión y un rollback restaura contador y actividad.
+- Un fallo SQL real durante commit revierte tanto el incremento como la desactivación; la misma sesión, tras rollback, puede realizar después una operación válida.
+- Duplicados y tokens desconocidos no crean incrementos extra ni dispositivos nuevos. El log informativo no expone el token ni su prefijo.
+- Dos reintentos reclaman logs distintos para el mismo dispositivo. Se cancela el segundo mientras espera el token; se verifica rollback de su log, ausencia de incremento perdido o fantasma y éxito de una pasada posterior.
+- Una entrada vacía no consulta, hace flush ni confirma la sesión.
+
+Las pruebas de espera consultan pg_stat_activity para observar wait_event_type=Lock del PID específico, con plazo acotado y limpieza de tareas. No se infiere la exclusión solo a partir del tiempo transcurrido. La regresión focalizada confirma **104 tests aprobados**, incluidos contadores, cola, políticas, hooks, despacho, correo y Fase 9. Mypy mantiene **324 errores en 52 archivos**, sin nuevos ni eliminados por archivo/mensaje frente a 97e4c30.
+
+El CI anterior de 97e4c30 terminó con pruebas backend aprobadas, fallo de tipos, fallo en la etapa de tests/cobertura frontend y escaneo de seguridad aprobado. No se deshabilitan ni rebajan esos controles. Se conserva la validación frontend previa de 261 tests/27 suites y su deuda de cobertura; este bloque no modifica frontend.
+
+### Pendientes conservados
+
+Permanecen pendientes el ciclo de vida y las revisiones del token ante transferencia/reactivación, clasificación de errores de FCM y reinicio del contador por éxito, stubs PUSH/SMS, outbox e idempotencia, recuperación de logs iniciales ambiguos y durabilidad de create_task. También siguen abiertos JWT/revocación, límites distribuidos, migraciones y deuda global de tipos/cobertura. Sin cambios de esquema, reglas financieras, fusión ni despliegue automático.
+
+### Evidencia final local del bloque 41
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **1104 tests aprobados** en 458,49 s; diez nuevos frente a 1094; cuatro advertencias previas |
+| PostgreSQL real | **175 tests incluidos**, nueve nuevos de tokens compartidos |
+| Caso nuevo sin BD | Lote vacío sin consulta, flush ni commit |
+| Redis / SMTP TLS local | **2 Redis** y **12 SMTP/TLS** de regresión incluidos |
+| Regresión focalizada | **104 tests aprobados**, incluidos tokens, cola, políticas, hooks, despacho, correo y Fase 9 |
+| Mypy | **324 errores en 52 archivos**, sin nuevos ni eliminados por archivo/mensaje frente a la base equivalente; 174 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; Black comprueba 177 archivos entre app y tres suites de notificaciones |
+| Frontend | Sin cambios ni repetición local; se conserva la validación anterior de 261 tests/27 suites y la deuda de cobertura global |
+
+Se publican únicamente el servicio, la suite nueva y este informe en un PR nuevo sin borrador sobre main 14607fc. Se utiliza la conexión GitHub y se verifican los hashes del contenido y del árbol publicado frente a los locales. Recursos de prueba locales y desechables, sin mensajes externos ni operaciones sobre datos de producción. Mypy/cobertura siguen pendientes; sin fusión ni despliegue automático.
