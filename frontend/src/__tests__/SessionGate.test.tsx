@@ -11,6 +11,7 @@ jest.mock('@/services/auth.service', () => ({ authService: { getProfile: jest.fn
 jest.mock('@/lib/api', () => ({ getStoredTokens: jest.fn(), clearStoredTokens: jest.fn() }));
 const profile: User = { id: 'user-1', email: 'user@example.test', first_name: 'Test', last_name: 'User', role: 'OPERADOR', is_active: true, created_at: '', updated_at: '' };
 beforeEach(() => {
+  jest.mocked(getStoredTokens).mockReturnValue({ accessToken: 'access-test', refreshToken: 'refresh-test' });
   useAuthStore.getState().forceLogout();
   localStorage.setItem('app_version', '1.2.1');
   jest.clearAllMocks();

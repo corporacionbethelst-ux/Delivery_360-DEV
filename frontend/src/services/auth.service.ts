@@ -1,5 +1,5 @@
 import { requireUserRevision } from '@/lib/user-revision';
-import { api } from '@/lib/api';
+import { api, getStoredTokens } from '@/lib/api';
 import { validateDocumentSelection } from '@/lib/document-upload';
 import { User, AuthResponse } from '@/types/user';
 import type { AxiosError } from 'axios';
@@ -132,14 +132,25 @@ export const authService = {
   /**
    * Cerrar sesión
    */
-  logout: async (): Promise<void> => {
-    try { 
-      await api.post('/auth/logout'); 
-    } catch (e) { 
-      console.warn('⚠️ Error en logout del servidor, limpiando localmente...');
+  logout: async (accessToken: string | null = getStoredTokens().accessToken): Promise<void> => {
+    if (!accessToken || typeof window === 'undefined') return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1500);
+    try {
+      const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '');
+      await fetch(`${base}/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: controller.signal,
+        keepalive: true,
+      });
+    } catch {
+      // Best effort with the captured session: no refresh/retry against a new login.
+    } finally {
+      clearTimeout(timer);
     }
   },
-  
+
   /**
    * Actualizar perfil
    */

@@ -3161,3 +3161,58 @@ Integración frontend de baja/rotación al cambiar cuenta, atestación de instal
 La primera pasada global sin fallos se interrumpió para añadir el rechazo explícito de caracteres no imprimibles; la evidencia final corresponde a una nueva ejecución completa sobre ese código. La comparación de Mypy se hace contra la base anterior y no oculta diagnósticos mediante métodos nuevos sin tipos.
 
 Se publican doce archivos relacionados en un único PR nuevo sin borrador sobre main 58974d8. NOTIFICATION_PROVIDERS.md describe los contratos y límites del ciclo de vida. Se verifica el árbol y el contenido remoto frente al local. El CI del commit anterior aprobó tests backend/seguridad y falló en tipos y la etapa frontend de tests/cobertura; no se presenta el sistema como CI global verde o listo al 100 % para producción. Recursos de prueba locales y desechables, sin mensajes externos, migraciones, fusión ni despliegue automático.
+
+
+## Entrega ampliada 44 — Privacidad de notificaciones y cierre de sesión web
+
+Fecha: 27 de octubre de 2026, America/Caracas. Base: main 7a4e7f1, fusión de #284. Su árbol 0203d8b coincide con el commit probado 19c309b. Se importa el objeto de fusión exacto y se trabaja en fix/browser-notification-session-isolation-v1, con un lote centrado en frontend y sin cambiar lógica backend ni esquema.
+
+### Hallazgos verificados
+
+1. deviceRegistration.ts inventaba un web-UUID y lo enviaba como token PUSH; no había SDK Firebase ni service worker que pudiera recibirlo. La caché de registro no distinguía propietario y podía omitir el registro en otra cuenta.
+2. El store de alertas guardaba mensajes privados en una clave global de localStorage, restaurable al iniciar otra sesión. No se reseteaba desde autenticación. Un GET pendiente podía repoblar la lista después del logout o sobrescribir el resultado de otra cuenta.
+3. El hook omnicanal leía también una clave token heredada; sus promesas REST y callbacks WS carecían de revisión de sesión. El booleano closedRef compartido podía volver a habilitar callbacks antiguos al reactivar el efecto.
+4. El logout del store borraba el bearer antes de hacer POST a través del interceptor de refresh. El layout del repartidor además llamaba primero al servicio y después al store, duplicando el cierre y demorando la limpieza local.
+5. El dashboard montaba un contexto sin consumidores que iniciaba un hook de demostración, anunciaba conexión simulada y generaba órdenes aleatorias. La campana real ya usa /alerts y el hook omnicanal, por lo que ese wrapper se retira del montaje. Los módulos antiguos permanecen sin uso, sin declarar que se hayan convertido en transporte real.
+
+### Cambios relacionados
+
+- Se elimina el registro ficticio del login. No se generan ni envían UUID como FCM. deviceRegistration.ts queda dedicado a retirar los identificadores heredados web-* de las dos claves del prototipo mediante la baja autenticada de #284.
+- La retirada se inicia tras verificar login/perfil y antes de borrar credenciales en forceLogout; captura el bearer, deduplica solicitudes iguales en vuelo, usa keepalive y aborta a los 1500 ms. Es best effort, sin diagnósticos privados. Ante fallo conserva el marcador para otro intento; ante éxito borra solo valores que aún coinciden. No procesa otros formatos ni toca preferencias.
+- El store /alerts deja de persistir datos y elimina la clave heredada sin restaurarla. Solo acepta acciones cuando tiene una sesión verificada. La revisión interna invalida GET antiguos, fallos tardíos y snapshots previos a mutaciones locales; el conteo se calcula sobre la lista limitada a 50.
+- authStore expone una revisión efímera de sesión, distinta en login, revalidación y logout. Limpia el perfil visible y el ámbito de alertas antes de verificar; activa el ámbito solo con perfil habilitado. La revisión no se persiste ni constituye prueba de autorización del servidor.
+- useNotifications abre transportes únicamente con sesión verificada. Cada generación conserva propietario, revisión, secuencia y controladores de aborto. REST, PATCH y WS comprueban la generación; el render oculta datos de una sesión antigua, aunque su efecto aún no se haya limpiado.
+- Se cancelan peticiones y temporizadores al desmontar/deshabilitar/cambiar sesión. Se separan los callbacks del socket antes de cerrarlo y se verifica su identidad, evitando que un cierre antiguo afecte una conexión nueva. No se usa la clave token heredada.
+- REST más reciente prevalece y una respuesta de otra revisión se ignora. Un evento nuevo solicita snapshot posterior para no perder el historial si adelantó al GET inicial. Eventos sin id y canales ajenos a IN_APP se descartan; los conteos canónicos se validan como enteros seguros no negativos. No se generan ids ficticios para eventos incompletos.
+- Se conserva el polling si Redis no está disponible o el socket cierra por política 1008. La rotación de bearer invalida callbacks de la conexión anterior; la siguiente comprobación de polling reconstruye el socket con el token nuevo. Se respeta reconnectIntervalMs y el límite de reintentos.
+- El servicio de logout usa fetch con bearer capturado, keepalive y aborto a 1500 ms, sin refresh/reintento con las credenciales de otra cuenta. El store limpia localmente antes de esperar la red. El layout del repartidor llama al store una sola vez.
+- Se actualiza NOTIFICATION_PROVIDERS.md con comportamiento web, retiro del prototipo y límites. No hay dependencias runtime nuevas, migración ni cambios en contratos del backend.
+
+### Límites y trabajo pendiente
+
+Este lote elimina una simulación defectuosa; no habilita PUSH web real. Quedan pendientes Firebase web/service worker/permisos, obtención y rotación de tokens auténticos, atestación de instalación y verificación operativa con proveedores autorizados. La baja anterior solo tiene alcance sobre la cuenta autenticada: si se cambió de cuenta antes de limpiar, otra cuenta no puede borrar la fila vieja. Filas ficticias sin marcador local requieren una futura intervención operativa revisada; no se ejecuta limpieza masiva.
+
+La protección frontend cubre las transiciones que pasan por authStore en esta pestaña. No añade sincronización global entre pestañas, revocación de JWT, garantías ante cierre abrupto ni retirada de un mensaje ya aceptado por un proveedor. El endpoint /auth/logout sigue siendo confirmación, no revocación. Las mutaciones /alerts mantienen su contrato optimista previo; no se añade conciliación de errores. El hook IN_APP reconsulta SQL tras un evento vivo; optimizar/coalescer ráfagas y acotar tiempos de todas sus lecturas son mejoras posteriores.
+
+La revisión estática detecta otro pendiente de prioridad alta en lib/api.ts: el interceptor central de Axios persiste el resultado de un refresh sin comparar una revisión de credenciales antes de storeTokens. Un refresh iniciado antes del logout o de otro login necesita protección propia frente a resultados tardíos y reenvíos de peticiones con otra cuenta. Este lote evita que el POST de logout entre a ese interceptor y protege los datos de estos stores/hooks, pero no modifica ni certifica el ciclo global de refresh. Debe ser el siguiente bloque de sesión, con pruebas específicas de carreras; no se afirma que se haya revocado toda credencial en vuelo.
+
+Outbox durable, conciliación de envíos ambiguos, idempotencia externa, ledger por dispositivo, fallback IN_APP general, límites distribuidos, migraciones de producción y deuda global de tipos/cobertura siguen abiertos. No se anuncia el sistema al 100 % ni CI global verde.
+
+### Evidencia final de la entrega ampliada 44
+
+| Control | Resultado |
+|---|---|
+| Frontend completo | **314 tests aprobados en 30 suites**, 53 nuevos frente a 261/27 |
+| Pruebas nuevas | 15 de retirada heredada, 10 del store de alertas, 6 de transporte logout, 17 de ciclo de vida del hook y 5 de integración/authStore |
+| Carreras cubiertas | GET después de logout/cambio de propietario/reautenticación, respuestas invertidas, error antiguo, PATCH fallido entre cuentas, evento adelantado al snapshot, callbacks WS guardados y React StrictMode |
+| TypeScript | npm run type-check aprobado, incluidos los tests |
+| Lint | Aprobado con advertencias existentes; sin desactivar reglas |
+| Build de producción frontend | npm run build aprobado; sin desplegar |
+| Cobertura global | **17,89 % líneas**, 17,96 % sentencias, 15,03 % ramas y 14,79 % funciones; el umbral del 50 % sigue incumplido y Jest --coverage termina con código 1 por ese motivo |
+| Cobertura de líneas de los módulos principales | Hook useNotifications 97,31 %, deviceRegistration 100 %, notificationStore 97,61 % |
+| git diff --check | Aprobado |
+| Backend | Lógica sin cambios y sin repetición de la batería; última evidencia de #284: 1207 tests y Mypy 314 errores/52 archivos, no una medición nueva |
+
+Las pruebas usan fetch y WebSocket sustituidos, perfil/store y almacenamiento reales de JSDOM; no conectan con Firebase, Twilio ni servidores de producción. Las pruebas anteriores de hooks se adaptan a una identidad verificada, sin simular esa condición como autorización del backend. Se añadió updated_at a un perfil de prueba tras detectar su ausencia con TypeScript; el chequeo final ya pasa. Un segundo recorrido global con cobertura incorpora los tres casos finales de integración/StrictMode y mantiene las 30 suites aprobadas. No se rebajan umbrales ni se excluyen archivos para presentar cobertura verde.
+
+Se preparan dieciséis archivos relacionados en un único PR nuevo listo para revisión sobre main 7a4e7f1. La publicación verifica blobs y árbol, y alinea el commit local con el commit creado en GitHub. La ejecución de CI se informa por separado; los controles previos de #284 aprobaron tests backend y seguridad, pero fallaron tipado backend y la etapa frontend de tests/cobertura. No hay fusión, despliegue, migración ni mensajes externos.
