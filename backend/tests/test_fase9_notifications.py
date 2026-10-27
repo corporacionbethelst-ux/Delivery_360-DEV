@@ -11,7 +11,7 @@ Cubren:
    - plantilla inactiva -> []
    - dedupe < 5 min -> [] (no crea segundo log)
    - NOTIFICATIONS_ENABLED=false -> solo IN_APP stub
-   - dispatch paralelo deja logs ENVIADO con providers stub sin credenciales
+   - PUSH sin dispositivos conserva un reintento, nunca afirma entrega
 5. _schedule_retry: agotados (retry_count >= MAX) -> FALLIDO sin next_retry_at.
 6. Auto-disable de device token tras 3 fallos consecutivos.
 La capa de persistencia se mockea con un doble de AsyncSession determinista
@@ -234,8 +234,8 @@ async def test_send_flag_disabled_forces_in_app_stub(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_send_push_stub_without_credentials_marks_enviado():
-    """Sin credenciales FCM el dispatch_push es stub: jamás crash, status ENVIADO."""
+async def test_send_push_without_devices_schedules_retry():
+    """Sin dispositivo no existe aceptación de PUSH; se conserva el reintento."""
     user = _make_user(UserRole.REPARTIDOR)
     tpl = _make_template()
     db = _FakeDB([
@@ -250,8 +250,10 @@ async def test_send_push_stub_without_credentials_marks_enviado():
                           {"amount_cents": 15000, "bank_last4": "4321"}, payout_id="p1")
     assert len(logs) == 1
     assert logs[0].channel == NotificationChannel.PUSH
-    assert logs[0].status == OmnichannelStatus.ENVIADO
-    assert logs[0].sent_at is not None
+    assert logs[0].status == OmnichannelStatus.PENDIENTE
+    assert logs[0].sent_at is None
+    assert logs[0].next_retry_at is not None
+    assert logs[0].retry_count == 1
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from typing import List, Optional
 import json
+from pydantic import Field
 
 
 class Settings(BaseSettings):
@@ -138,9 +139,12 @@ class Settings(BaseSettings):
     EMAIL_FROM: str = "noreply@delivery360.com"
 
     # --- FASE 9: NOTIFICACIONES & COMUNICACIÓN OMNICANAL ---
-    # Feature flag maestro: sin credenciales reales los dispatchers caen a
-    # IN_APP/stub (provider='stub'), nunca revientan en desarrollo.
+    # External channels never claim success without provider acceptance.
     NOTIFICATIONS_ENABLED: bool = True
+    NOTIFICATION_PROVIDER_TIMEOUT_SECONDS: float = Field(
+        default=10.0, ge=1, le=60, allow_inf_nan=False
+    )
+    NOTIFICATION_PROVIDER_CONCURRENCY: int = Field(default=4, ge=1, le=16)
     NOTIFICATION_MAX_RETRIES: int = 3
     NOTIFICATION_RETRY_BACKOFF_SEC: int = 60  # base exponencial: 60,120,240s
     NOTIFICATION_RETENTION_DAYS: int = 30  # purge_old_logs
