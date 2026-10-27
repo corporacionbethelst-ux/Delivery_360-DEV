@@ -1,267 +1,265 @@
-/**
- * API Client Configuration
- * Manejo centralizado de Axios, Interceptors, Auth y Refresh Tokens
- */
-
+/** Central API client. Requests and refresh work stay within their original session. */
 import axios, {
-  AxiosInstance,
   AxiosError,
+  AxiosInstance,
+  AxiosRequestConfig,
+  AxiosResponse,
+  CanceledError,
   InternalAxiosRequestConfig,
-  AxiosResponse
 } from 'axios';
+import {
+  AuthGeneration,
+  AuthSession,
+  TokenPair,
+  captureAuthSession,
+  clearStoredTokens,
+  commitRefreshedTokens,
+  expireAuthSession,
+  getStoredTokens,
+  isCurrentAuthSession,
+  onCredentialsChanged,
+  RefreshUnavailableError,
+  SessionChangedError,
+  SessionExpiredError,
+  storeTokens,
+  validRefreshPair,
+} from '@/lib/auth-session';
+export { getStoredTokens, storeTokens, clearStoredTokens } from '@/lib/auth-session';
 
-// Tipos para los tokens
-interface TokenPair {
-  access_token: string;
-  refresh_token: string;
-}
-
-interface AuthTokens {
-  accessToken: string | null;
-  refreshToken: string | null;
-}
-
-// Configuración base
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
-
-// Crear instancia de Axios
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1').replace(
+  /\/$/,
+  ''
+);
+const REFRESH_TIMEOUT_MS = 15000;
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  headers: { 'Content-Type': 'application/json' },
   timeout: 30000,
 });
+interface SessionRequest extends InternalAxiosRequestConfig {
+  _authSession?: AuthGeneration;
+  _authAttemptToken?: string | null;
+  _authRetried?: boolean;
+  _authPublic?: boolean;
+}
+interface RefreshFlight {
+  session: AuthSession;
+  promise: Promise<TokenPair>;
+  cancel: () => void;
+}
+let refreshFlight: RefreshFlight | null = null;
+onCredentialsChanged(() => {
+  const previous = refreshFlight;
+  refreshFlight = null;
+  previous?.cancel();
+});
 
-// Estado de autenticación en memoria (solo cliente)
-let authTokens: AuthTokens = {
-  accessToken: null,
-  refreshToken: null,
-};
-
-// Flag para evitar múltiples refresh simultáneos
-let isRefreshing = false;
-let failedQueue: Array<{
-  resolve: (value?: unknown) => void;
-  reject: (reason?: Error) => void;
-}> = [];
-
-const processQueue = (error: Error | null, token: string | null = null) => {
-  failedQueue.forEach((prom) => {
-    if (error) {
-      prom.reject(error);
-    } else {
-      prom.resolve(token);
-    }
+function requestPath(config: InternalAxiosRequestConfig): string {
+  const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
+  const base = new URL(API_BASE_URL, origin);
+  const target = new URL(apiClient.getUri(config), origin);
+  const prefix = base.pathname.replace(/\/$/, '');
+  if (
+    target.origin !== base.origin ||
+    (target.pathname !== prefix && !target.pathname.startsWith(`${prefix}/`))
+  ) {
+    throw new Error('La solicitud no pertenece a la API configurada');
+  }
+  return target.pathname.slice(prefix.length).replace(/\/$/, '') || '/';
+}
+const publicAuthPaths = new Set([
+  '/auth/login',
+  '/auth/register',
+  '/auth/register-rider',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+  '/auth/refresh',
+]);
+function assertCurrent(config: SessionRequest): AuthGeneration {
+  if (!config._authSession || !isCurrentAuthSession(config._authSession))
+    throw new SessionChangedError();
+  return config._authSession;
+}
+async function performRefresh(session: AuthSession, signal: AbortSignal): Promise<TokenPair> {
+  try {
+    const response = await axios.post<unknown>(
+      `${API_BASE_URL}/auth/refresh`,
+      { refresh_token: session.refreshToken },
+      {
+        headers: { 'Content-Type': 'application/json' },
+        signal,
+        timeout: REFRESH_TIMEOUT_MS,
+      }
+    );
+    if (!isCurrentAuthSession(session) || signal.aborted) throw new SessionChangedError();
+    if (!validRefreshPair(response.data)) throw new RefreshUnavailableError();
+    commitRefreshedTokens(session, response.data);
+    return response.data;
+  } catch (error: unknown) {
+    if (!isCurrentAuthSession(session) || signal.aborted) throw new SessionChangedError();
+    if (error instanceof RefreshUnavailableError || error instanceof SessionChangedError)
+      throw error;
+    if (axios.isAxiosError(error) && [401, 403].includes(error.response?.status ?? 0))
+      throw new SessionExpiredError();
+    throw new RefreshUnavailableError();
+  }
+}
+function refreshSession(session: AuthSession): Promise<TokenPair> {
+  if (!isCurrentAuthSession(session)) return Promise.reject(new SessionChangedError());
+  if (!session.accessToken || !session.refreshToken)
+    return Promise.reject(new SessionExpiredError());
+  if (refreshFlight?.session.generation === session.generation) return refreshFlight.promise;
+  const controller = new AbortController();
+  let rejectCancellation!: (error: Error) => void;
+  const cancellation = new Promise<never>((_resolve, reject) => {
+    rejectCancellation = reject;
   });
-  failedQueue = [];
-};
-
-// Helper seguro para entorno cliente
-const isClient = () => typeof window !== 'undefined';
-
-export const getStoredTokens = (): AuthTokens => {
-  if (!isClient()) return authTokens;
-  try {
-    const accessToken = localStorage.getItem('access_token');
-    const refreshToken = localStorage.getItem('refresh_token');
-    
-    // Actualizar memoria solo si hay cambios reales
-    if (accessToken !== authTokens.accessToken || refreshToken !== authTokens.refreshToken) {
-      authTokens = { accessToken, refreshToken };
-    }
-    return authTokens;
-  } catch (error) {
-    console.error('Error reading tokens:', error);
-    return authTokens;
-  }
-};
-
-export const storeTokens = (tokens: TokenPair): void => {
-  if (!isClient()) return;
-  try {
-    localStorage.setItem('access_token', tokens.access_token);
-    localStorage.setItem('refresh_token', tokens.refresh_token);
-    authTokens = {
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token,
+  const timer = setTimeout(() => {
+    rejectCancellation(new RefreshUnavailableError());
+    controller.abort();
+  }, REFRESH_TIMEOUT_MS);
+  const promise = Promise.race([performRefresh(session, controller.signal), cancellation]);
+  const flight: RefreshFlight = {
+    session,
+    promise,
+    cancel: () => {
+      rejectCancellation(new SessionChangedError());
+      controller.abort();
+    },
+  };
+  refreshFlight = flight;
+  const cleanup = () => {
+    clearTimeout(timer);
+    if (refreshFlight === flight) refreshFlight = null;
+  };
+  void promise.then(cleanup, cleanup);
+  return promise;
+}
+function waitForRefresh(
+  work: Promise<TokenPair>,
+  signal?: InternalAxiosRequestConfig['signal']
+): Promise<TokenPair> {
+  if (!signal) return work;
+  if (signal.aborted) return Promise.reject(new CanceledError('Solicitud cancelada'));
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      cleanup();
+      reject(new CanceledError('Solicitud cancelada'));
     };
-  } catch (error) {
-    console.error('Error storing tokens:', error);
-  }
-};
-
-export const clearStoredTokens = (): void => {
-  if (!isClient()) return;
-  try {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('auth-storage');
-    authTokens = { accessToken: null, refreshToken: null };
-  } catch (error) {
-    console.error('Error clearing tokens:', error);
-  }
-};
-
-// Interceptor de request
+    const cleanup = () => signal.removeEventListener?.('abort', abort);
+    signal.addEventListener?.('abort', abort);
+    void work.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      }
+    );
+  });
+}
 apiClient.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
-    if (!config.url) {
-      config.url = '/';
-    }
-    
-    // Obtener tokens frescos justo antes de enviar
-    const tokens = getStoredTokens();
-    
-    if (tokens.accessToken && config.headers) {
-      config.headers.Authorization = `Bearer ${tokens.accessToken}`;
-    }
+  (incoming: InternalAxiosRequestConfig) => {
+    const config = incoming as SessionRequest;
+    const path = requestPath(config);
+    config._authSession ??= { generation: captureAuthSession().generation };
+    assertCurrent(config);
+    config._authPublic = publicAuthPaths.has(path);
+    if (config.signal?.aborted) throw new CanceledError('Solicitud cancelada');
+    const accessToken = config._authPublic ? null : getStoredTokens().accessToken;
+    config._authAttemptToken = accessToken;
+    if (accessToken) config.headers.set('Authorization', `Bearer ${accessToken}`);
+    else config.headers.delete('Authorization');
     return config;
   },
-  (error: AxiosError) => Promise.reject(error)
+  (error: unknown) => {
+    throw error;
+  },
+  { synchronous: true }
 );
 
-// Interceptor de response (Manejo de errores 401 y Refresh)
 apiClient.interceptors.response.use(
-  (response: AxiosResponse) => response,
-  async (error: AxiosError) => {
-    const originalRequest = error.config as InternalAxiosRequestConfig & {
-      _retry?: boolean;
-    };
-
-    // Si el error es 401 y no hemos reintentado aún
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      
-      // Si ya hay un refresh en curso, encolamos la petición
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        })
-          .then((token) => {
-            if (originalRequest.headers) {
-              originalRequest.headers.Authorization = `Bearer ${token}`;
-            }
-            return apiClient(originalRequest);
-          })
-          .catch((err) => Promise.reject(err));
-      }
-
-      originalRequest._retry = true;
-      isRefreshing = true;
-      const tokens = getStoredTokens();
-
-      // Si no hay refresh token, logout inmediato
-      if (!tokens.refreshToken) {
-        clearStoredTokens();
-        isRefreshing = false;
-        processQueue(new Error('No refresh token available'));
-        if (isClient()) {
-          window.location.href = '/login';
-        }
-        return Promise.reject(error);
-      }
-
-      try {
-        // Intentar refrescar el token
-        const response = await axios.post<TokenPair>(
-          `${API_BASE_URL}/auth/refresh`,
-          { refresh_token: tokens.refreshToken },
-          { headers: { 'Content-Type': 'application/json' } }
-        );
-
-        const { access_token, refresh_token } = response.data;
-        storeTokens({ access_token, refresh_token });
-
-        if (originalRequest.headers) {
-          originalRequest.headers.Authorization = `Bearer ${access_token}`;
-        }
-
-        processQueue(null, access_token);
-        return apiClient(originalRequest);
-      } catch (refreshError) {
-        // Falló el refresh: limpiar todo y logout
-        clearStoredTokens();
-        isRefreshing = false;
-        processQueue(refreshError as Error);
-        if (isClient()) {
-          window.location.href = '/login';
-        }
-        return Promise.reject(refreshError);
-      } finally {
-        isRefreshing = false;
-      }
+  (response: AxiosResponse) => {
+    assertCurrent(response.config as SessionRequest);
+    return response;
+  },
+  async (error: unknown) => {
+    const config = (error as AxiosError | undefined)?.config as SessionRequest | undefined;
+    if (!config) throw error;
+    const session = assertCurrent(config);
+    if (config.signal?.aborted) throw new CanceledError('Solicitud cancelada');
+    if (!axios.isAxiosError(error) || error.response?.status !== 401 || config._authPublic)
+      throw error;
+    if (config._authRetried) {
+      if (getStoredTokens().accessToken !== config._authAttemptToken)
+        throw new SessionChangedError();
+      expireAuthSession(session);
+      throw new SessionExpiredError();
     }
-    
-    // Manejo global de errores
-    if (error.response?.status === 403) {
-      console.warn('Acceso denegado: Permisos insuficientes.');
+    config._authRetried = true;
+    const live = captureAuthSession();
+    if (!live.accessToken) throw error;
+    try {
+      // A late 401 for a token already rotated in this session needs no second refresh.
+      if (live.accessToken === config._authAttemptToken)
+        await waitForRefresh(refreshSession(live), config.signal);
+      assertCurrent(config);
+      if (config.signal?.aborted) throw new CanceledError('Solicitud cancelada');
+      return apiClient(config);
+    } catch (refreshError: unknown) {
+      if (refreshError instanceof SessionExpiredError) expireAuthSession(session);
+      throw refreshError;
     }
-    
-    return Promise.reject(error);
   }
 );
 
-// Métodos de autenticación y API general
 export const authApi = {
   login: async (email: string, password: string) => {
-    const response = await apiClient.post<TokenPair>('/auth/login', {
-      email,
-      password,
-    });
-    if (response.data.access_token && response.data.refresh_token) {
-      storeTokens(response.data);
-    }
-    return response.data;
-  },
-
-  registerRider: async (data: any) => {
-    const formData = new FormData();
-    Object.keys(data).forEach(key => {
-      const value = data[key];
-      if (value !== undefined && value !== null) {
-        formData.append(key, value);
-      }
-    });
-
-    const response = await apiClient.post<TokenPair>('/auth/register', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
-    
-    if (response.data.access_token && response.data.refresh_token) {
-      storeTokens(response.data);
-    }
-    return response.data;
-  },
-
-  refresh: async (refreshToken: string) => {
-    const response = await apiClient.post<TokenPair>('/auth/refresh', {
-      refresh_token: refreshToken,
-    });
-    if (response.data.access_token && response.data.refresh_token) {
-      storeTokens(response.data);
-    }
-    return response.data;
-  },
-
-  logout: () => {
     clearStoredTokens();
-  },
-
-  me: async () => {
-    const response = await apiClient.get('/users/me');
+    const form = new URLSearchParams({ username: email, password });
+    const response = await apiClient.post<TokenPair>('/auth/login', form, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+    storeTokens(response.data);
     return response.data;
   },
+  registerRider: async (data: Record<string, string | Blob | null | undefined>) => {
+    const formData = new FormData();
+    Object.keys(data).forEach((key) => {
+      const value = data[key];
+      if (value !== undefined && value !== null) formData.append(key, value);
+    });
+    const response = await apiClient.post<TokenPair>('/auth/register', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    if (validRefreshPair(response.data)) storeTokens(response.data);
+    return response.data;
+  },
+  refresh: async (refreshToken: string) => {
+    const session = captureAuthSession();
+    if (refreshToken !== session.refreshToken) throw new SessionChangedError();
+    try {
+      return await refreshSession(session);
+    } catch (error: unknown) {
+      if (error instanceof SessionExpiredError) expireAuthSession(session);
+      throw error;
+    }
+  },
+  logout: clearStoredTokens,
+  me: async () => (await apiClient.get('/users/me')).data,
 };
-
-// Exportación genérica para otros servicios (Wrappers tipados)
-// IMPORTANTE: Estos métodos DEVUELVEN DIRECTAMENTE los datos (res.data), no la respuesta completa
 export const api = {
-  get: <T>(url: string, config?: any) => apiClient.get<T>(url, config).then(res => res.data),
-  post: <T>(url: string, data?: any, config?: any) => apiClient.post<T>(url, data, config).then(res => res.data),
-  put: <T>(url: string, data?: any, config?: any) => apiClient.put<T>(url, data, config).then(res => res.data),
-  patch: <T>(url: string, data?: any, config?: any) => apiClient.patch<T>(url, data, config).then(res => res.data),
-  delete: <T>(url: string, config?: any) => apiClient.delete<T>(url, config).then(res => res.data),
+  get: <T>(url: string, config?: AxiosRequestConfig) =>
+    apiClient.get<T>(url, config).then((res) => res.data),
+  post: <T>(url: string, data?: unknown, config?: AxiosRequestConfig) =>
+    apiClient.post<T>(url, data, config).then((res) => res.data),
+  put: <T>(url: string, data?: unknown, config?: AxiosRequestConfig) =>
+    apiClient.put<T>(url, data, config).then((res) => res.data),
+  patch: <T>(url: string, data?: unknown, config?: AxiosRequestConfig) =>
+    apiClient.patch<T>(url, data, config).then((res) => res.data),
+  delete: <T>(url: string, config?: AxiosRequestConfig) =>
+    apiClient.delete<T>(url, config).then((res) => res.data),
 };
-
 export default apiClient;

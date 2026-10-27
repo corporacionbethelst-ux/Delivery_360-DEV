@@ -7,6 +7,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { authService } from '@/services/auth.service';
 import { getStoredTokens, storeTokens, clearStoredTokens } from '@/lib/api';
+import { captureAuthSession, isCurrentAuthSession, RefreshUnavailableError, SessionChangedError } from '@/lib/auth-session';
 import { useNotificationStore } from '@/stores/notificationStore';
 import { retireLegacyPushDevice } from '@/lib/deviceRegistration';
 import { User, UserRole } from '@/types/user';
@@ -52,6 +53,11 @@ interface AuthState {
 }
 
 const isClient = typeof window !== 'undefined';
+const safeStorage = {
+  getItem: (key: string): string | null => { try { return isClient ? localStorage.getItem(key) : null; } catch { return null; } },
+  setItem: (key: string, value: string): void => { try { if (isClient) localStorage.setItem(key, value); } catch { /* Optional empty cache. */ } },
+  removeItem: (key: string): void => { try { if (isClient) localStorage.removeItem(key); } catch { /* Optional empty cache. */ } },
+};
 let authRevision = 0;
 
 const errorMessage = (error: unknown, fallback: string): string => {
@@ -87,6 +93,7 @@ export const useAuthStore = create<AuthState>()(
 
       login: async ({ email, password }: LoginCredentials) => {
         const revision = ++authRevision;
+        clearStoredTokens();
         useNotificationStore.getState().reset();
         set({ sessionRevision: revision, user: null, isAuthenticated: false, isLoading: true, error: null });
         try {
@@ -100,9 +107,13 @@ export const useAuthStore = create<AuthState>()(
           
           storeTokens(tokensToSave);
 
+          const credentialSession = captureAuthSession();
           const userData = await authService.getProfile();
+          if (!isCurrentAuthSession(credentialSession)) throw new SessionChangedError();
           if (revision !== authRevision) throw new Error('Sesión cancelada');
           validateProfile(userData);
+          const liveTokens = getStoredTokens();
+          if (!liveTokens.accessToken) throw new Error('Sesión cancelada');
           
           const user: User = {
             id: userData.id,
@@ -126,7 +137,7 @@ export const useAuthStore = create<AuthState>()(
             localStorage.setItem('user', JSON.stringify(user));
             
             // Cookie para el token (ya existente)
-            document.cookie = `auth-token=${tokensResponse.access_token}; path=/; max-age=86400; SameSite=Lax`;
+            document.cookie = `auth-token=${liveTokens.accessToken}; path=/; max-age=86400; SameSite=Lax`;
             
             // CORRECCIÓN CRÍTICA: Crear cookie 'user-data' para que el middleware la lea
             // Codificamos el JSON para evitar problemas con caracteres especiales en cookies
@@ -135,7 +146,7 @@ export const useAuthStore = create<AuthState>()(
           }
           
           useNotificationStore.getState().setSession(user.id);
-          void retireLegacyPushDevice(tokensResponse.access_token);
+          void retireLegacyPushDevice(liveTokens.accessToken);
           set({ 
             user, 
             isAuthenticated: true, 
@@ -144,13 +155,20 @@ export const useAuthStore = create<AuthState>()(
 
         } catch (error: unknown) {
           if (revision !== authRevision) throw error;
+          if (error instanceof SessionChangedError) {
+            useNotificationStore.getState().reset();
+            set({ user: null, isAuthenticated: false, isLoading: false, error: error.message });
+            throw error;
+          }
           const errorMsg = errorMessage(error, 'Credenciales inválidas o error de conexión');
 
           clearStoredTokens();
           if (isClient) {
-            localStorage.removeItem('user');
-            document.cookie = 'auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
-            document.cookie = 'user-data=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+            safeStorage.removeItem('user');
+            try {
+              document.cookie = 'auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+              document.cookie = 'user-data=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+            } catch { /* Local state must still fail closed. */ }
           }
 
           set({ 
@@ -180,13 +198,15 @@ export const useAuthStore = create<AuthState>()(
         void retireLegacyPushDevice(getStoredTokens().accessToken);
         useNotificationStore.getState().reset();
         clearStoredTokens();
-        if (isClient) {
-          localStorage.removeItem('user');
-          localStorage.removeItem(STORAGE_KEY);
-          document.cookie = 'auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
-          document.cookie = 'user-data=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
-        }
         set({ sessionRevision: revision, user: null, isAuthenticated: false, isLoading: false, error: null });
+        if (isClient) {
+          safeStorage.removeItem('user');
+          safeStorage.removeItem(STORAGE_KEY);
+          try {
+            document.cookie = 'auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+            document.cookie = 'user-data=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
+          } catch { /* Browser denial cannot restore local authentication. */ }
+        }
       },
 
       registerRider: async (data: RegisterRiderData | FormData) => {
@@ -207,12 +227,14 @@ export const useAuthStore = create<AuthState>()(
         useNotificationStore.getState().reset();
         set({ sessionRevision: revision, user: null, isLoading: true, isAuthenticated: false });
         if (isClient) {
-          const storedVersion = localStorage.getItem('app_version');
+          const storedVersion = safeStorage.getItem('app_version');
           if (storedVersion !== APP_VERSION) {
             get().forceLogout();
-            Object.keys(localStorage).filter(key => key.startsWith('delivery360-auth-v'))
-              .forEach(key => localStorage.removeItem(key));
-            localStorage.setItem('app_version', APP_VERSION);
+            try {
+              Object.keys(localStorage).filter(key => key.startsWith('delivery360-auth-v'))
+                .forEach(key => safeStorage.removeItem(key));
+            } catch { /* Storage may be unavailable. */ }
+            safeStorage.setItem('app_version', APP_VERSION);
             set({ isLoading: false, isAuthenticated: false, user: null });
             return;
           }
@@ -225,9 +247,14 @@ export const useAuthStore = create<AuthState>()(
           return;
         }
 
+        const credentialSession = captureAuthSession();
         try {
           const userData = await authService.getProfile();
           if (revision !== authRevision) return;
+          if (!isCurrentAuthSession(credentialSession)) {
+            set({ user: null, isAuthenticated: false, isLoading: false });
+            return;
+          }
           validateProfile(userData);
           const liveTokens = getStoredTokens();
           if (!liveTokens.accessToken) {
@@ -259,8 +286,16 @@ export const useAuthStore = create<AuthState>()(
           useNotificationStore.getState().setSession(user.id);
           void retireLegacyPushDevice(liveTokens.accessToken);
           set({ user, isAuthenticated: true, isLoading: false });
-        } catch {
+        } catch (error: unknown) {
           if (revision !== authRevision) return;
+          if (!isCurrentAuthSession(credentialSession)) {
+            set({ user: null, isAuthenticated: false, isLoading: false });
+            return;
+          }
+          if (error instanceof RefreshUnavailableError) {
+            set({ user: null, isAuthenticated: false, isLoading: false, error: error.message });
+            return;
+          }
           get().forceLogout();
         }
       },
@@ -282,11 +317,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     { 
       name: STORAGE_KEY,
-      storage: createJSONStorage(() => (isClient ? localStorage : {
-        getItem: () => null,
-        setItem: () => {},
-        removeItem: () => {},
-      })),
+      storage: createJSONStorage(() => safeStorage),
       // Cached storage is never proof of a valid server session.
       partialize: () => ({}),
       merge: (_persisted, current) => current,

@@ -123,10 +123,11 @@ it('an old failed login cannot clear a newer successful login', async () => {
   service.login.mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail; }));
   const old = useAuthStore.getState().login(credentials);
   await useAuthStore.getState().login(credentials);
+  const clearsBeforeLateFailure = jest.mocked(clearStoredTokens).mock.calls.length;
   reject(new Error('Late failure'));
   await expect(old).rejects.toThrow('Late failure');
   expect(useAuthStore.getState().isAuthenticated).toBe(true);
-  expect(clearStoredTokens).not.toHaveBeenCalled();
+  expect(clearStoredTokens).toHaveBeenCalledTimes(clearsBeforeLateFailure);
 });
 
 it('captures the logout bearer before erasing it and clears private alerts immediately', async () => {

@@ -10,6 +10,10 @@ export function SessionGate({ children }: { children: React.ReactNode }) {
   const { checkAuth, forceLogout, isAuthenticated, isLoading } = useAuthStore();
   const [checked, setChecked] = useState(false);
   useEffect(() => {
+    window.addEventListener('delivery360-session-expired', forceLogout);
+    return () => window.removeEventListener('delivery360-session-expired', forceLogout);
+  }, [forceLogout]);
+  useEffect(() => {
     let active = true;
     void checkAuth().catch(() => forceLogout()).finally(() => {
       if (active) setChecked(true);
