@@ -113,9 +113,11 @@ define la cuenta asociada. No se implementa atestación de instalación ni prueb
 criptográfica adicional de posesión del dispositivo.
 
 La baja es local al sistema: no llama a Firebase para invalidar físicamente el
-token ni se conecta automáticamente con el logout del frontend. El cliente debe
-invocar esta ruta e implementar la rotación/eliminación del token con su SDK
-cuando corresponda. Un mensaje que ya esté en vuelo o aceptado externamente
+token. El frontend web actual solo retira los identificadores ficticios web-*
+que generaba el prototipo, con el bearer capturado antes del logout o después
+de verificar el perfil al iniciar/revalidar sesión. Un token real de Firebase
+requiere que el cliente invoque esta ruta e implemente su rotación/eliminación
+con el SDK cuando corresponda. No hay integración FCM web real en este lote. Un mensaje que ya esté en vuelo o aceptado externamente
 no puede retirarse: la revisión protege los cambios de estado del dispositivo,
 no garantiza que el proveedor no entregue un mensaje anterior tras un cambio
 de cuenta. La revocación de JWT y el cierre de otras sesiones son independientes.
@@ -146,3 +148,46 @@ Antes de una activación operativa real quedan por verificar las credenciales,
 permisos del proyecto Firebase, número Twilio habilitado y su cobertura de
 destinos, con mensajes de prueba autorizados fuera de esta entrega. No se
 ejecuta aquí ningún despliegue ni prueba contra destinatarios reales.
+
+## Cliente web y aislamiento de sesión
+
+Un UUID de navegador no es un token FCM. Se elimina la generación/registro
+automático de web-* en el login; no se anuncia PUSH web funcional sin SDK,
+permiso de notificaciones y service worker. El inbox IN_APP con WebSocket
+y polling sigue disponible. El wrapper de contexto simulado, sin consumidores
+en el dashboard, deja de montarse: no ejecuta su temporizador de órdenes ficticias.
+El módulo antiguo permanece sin uso; no se presenta como transporte real.
+
+La retirada de marcadores heredados usa DELETE autenticado, keepalive y aborto
+a los 1500 ms. Solo procesa las dos claves del prototipo y cadenas web-*
+compatibles con su formato; no toca otros tokens ni preferencias del navegador.
+Se deduplican peticiones en vuelo para el mismo bearer/token y se conserva el
+marcador ante fallos para otro intento. Un resultado tardío solo borra la clave
+si todavía contiene el valor enviado. El backend decide la propiedad: una cuenta
+B no puede retirar la fila de A. Por ello cambiar de cuenta sin completar la
+baja anterior puede dejar una fila ficticia antigua, que requiere saneamiento
+operativo posterior; no se ejecuta un borrado global ni una migración.
+
+Las alertas /alerts se conservan solo en memoria para una sesión verificada.
+Se descarta la antigua caché delivery360-notifications-v1 sin leer ni restaurar
+su contenido. Login, revalidación y logout invalidan respuestas anteriores.
+El hook omnicanal vincula REST, PATCH y callbacks WS al usuario y revisión de
+sesión; aborta sus peticiones al desmontar, deshabilitar o cambiar de sesión,
+y cierra el socket con sus temporizadores. Solo usa access_token del cliente
+central, sin rescatar el antiguo token de localStorage. El render oculta datos
+de otra revisión antes incluso de la limpieza del efecto.
+
+Una respuesta vieja no reemplaza la más reciente. Un evento en vivo descarta
+el snapshot pendiente y solicita uno nuevo para recuperar el historial de SQL.
+Los payloads sin id o ajenos a IN_APP se ignoran; no se inventan identificadores.
+Los errores de red del hook son genéricos. Tras rotar el bearer, el socket viejo
+no aplica eventos; la siguiente comprobación de polling conecta con el nuevo
+token y actualiza el inbox. El cierre 1008 sigue sin reconexión con el mismo
+bearer, manteniendo REST.
+
+El POST de logout usa el bearer capturado antes de limpiar credenciales, sin
+entrar al interceptor de refresh ni reintentar contra una cuenta nueva. El
+logout local es inmediato; la petición es best effort y se aborta a los 1500 ms.
+El endpoint del servidor sigue siendo una confirmación sin revocación de JWT.
+No se garantiza la baja al cerrar la pestaña sin logout, con red ausente ni
+entre todas las pestañas: sincronización global y revocación siguen pendientes.

@@ -5,7 +5,6 @@ import { usePathname, useRouter } from 'next/navigation';
 import { SessionGate } from '@/components/layout/SessionGate';
 import { useAuthStore } from '@/stores/authStore';
 import { RoleMenu } from '@/components/navigation/RoleMenu';
-import { NotificationProvider } from '@/contexts/NotificationContext';
 import { NotificationBell } from '@/components/layout/NotificationBell';
 import { Menu, X, LogOut, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'; // Importar nuevas icons
 import { Button } from '@/components/ui/button';
@@ -65,7 +64,6 @@ function DashboardContent({
   if (!isAuthenticated) return null;
 
   return (
-    <NotificationProvider>
       <div className="flex h-screen bg-gray-100 overflow-hidden font-sans text-slate-900">
         
         {/* Overlay Móvil */}
@@ -212,7 +210,6 @@ function DashboardContent({
           </div>
         </main>
       </div>
-    </NotificationProvider>
   );
 }
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

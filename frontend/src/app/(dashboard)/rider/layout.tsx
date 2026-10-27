@@ -5,7 +5,6 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useAuthStore } from "@/stores/authStore"
 import { LogOut, User as UserIcon, Menu, X, Bike, LayoutDashboard, Package, DollarSign, TrendingUp, UserCircle } from "lucide-react"
-import { authService } from "@/services/auth.service"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -36,12 +35,9 @@ export default function RiderLayout({ children }: { children: React.ReactNode })
     if (isLoggingOut) return
     setIsLoggingOut(true)
     try {
-      await authService.logout()
-      storeLogout()
+      await storeLogout()
       window.location.href = "/login"
-    } catch (error) {
-      console.error("Error al cerrar sesión:", error)
-      storeLogout()
+    } catch {
       window.location.href = "/login"
     } finally {
       setIsLoggingOut(false)

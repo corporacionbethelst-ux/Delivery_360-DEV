@@ -7,6 +7,8 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { authService } from '@/services/auth.service';
 import { getStoredTokens, storeTokens, clearStoredTokens } from '@/lib/api';
+import { useNotificationStore } from '@/stores/notificationStore';
+import { retireLegacyPushDevice } from '@/lib/deviceRegistration';
 import { User, UserRole } from '@/types/user';
 
 // ==============================================================================
@@ -34,6 +36,7 @@ interface RegisterRiderData {
 }
 
 interface AuthState {
+  sessionRevision: number;
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
@@ -76,6 +79,7 @@ const validateProfile = (user: User): void => {
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
+      sessionRevision: 0,
       user: null,
       isAuthenticated: false,
       isLoading: false,
@@ -83,7 +87,8 @@ export const useAuthStore = create<AuthState>()(
 
       login: async ({ email, password }: LoginCredentials) => {
         const revision = ++authRevision;
-        set({ isLoading: true, error: null });
+        useNotificationStore.getState().reset();
+        set({ sessionRevision: revision, user: null, isAuthenticated: false, isLoading: true, error: null });
         try {
           const tokensResponse = await authService.login(email, password);
           if (revision !== authRevision) throw new Error('Inicio de sesión cancelado');
@@ -129,6 +134,8 @@ export const useAuthStore = create<AuthState>()(
             document.cookie = `user-data=${userJson}; path=/; max-age=86400; SameSite=Lax`;
           }
           
+          useNotificationStore.getState().setSession(user.id);
+          void retireLegacyPushDevice(tokensResponse.access_token);
           set({ 
             user, 
             isAuthenticated: true, 
@@ -158,16 +165,20 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: async () => {
+        // Capture the bearer before local cleanup; never use a later account's token.
+        const accessToken = getStoredTokens().accessToken;
         get().forceLogout();
         try {
-          await authService.logout();
+          await authService.logout(accessToken);
         } catch {
           // Local logout is immediate even when the server is unavailable.
         }
       },
 
       forceLogout: () => {
-        ++authRevision;
+        const revision = ++authRevision;
+        void retireLegacyPushDevice(getStoredTokens().accessToken);
+        useNotificationStore.getState().reset();
         clearStoredTokens();
         if (isClient) {
           localStorage.removeItem('user');
@@ -175,12 +186,7 @@ export const useAuthStore = create<AuthState>()(
           document.cookie = 'auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
           document.cookie = 'user-data=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT';
         }
-        set({ 
-          user: null, 
-          isAuthenticated: false, 
-          isLoading: false, 
-          error: null 
-        });
+        set({ sessionRevision: revision, user: null, isAuthenticated: false, isLoading: false, error: null });
       },
 
       registerRider: async (data: RegisterRiderData | FormData) => {
@@ -198,7 +204,8 @@ export const useAuthStore = create<AuthState>()(
       checkAuth: async () => {
         if (get().isLoading) return;
         const revision = ++authRevision;
-        set({ isLoading: true, isAuthenticated: false });
+        useNotificationStore.getState().reset();
+        set({ sessionRevision: revision, user: null, isLoading: true, isAuthenticated: false });
         if (isClient) {
           const storedVersion = localStorage.getItem('app_version');
           if (storedVersion !== APP_VERSION) {
@@ -249,6 +256,8 @@ export const useAuthStore = create<AuthState>()(
             document.cookie = `user-data=${userJson}; path=/; max-age=86400; SameSite=Lax`;
           }
           
+          useNotificationStore.getState().setSession(user.id);
+          void retireLegacyPushDevice(liveTokens.accessToken);
           set({ user, isAuthenticated: true, isLoading: false });
         } catch {
           if (revision !== authRevision) return;

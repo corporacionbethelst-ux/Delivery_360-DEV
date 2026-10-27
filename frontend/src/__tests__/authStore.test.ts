@@ -10,6 +10,7 @@ const credentials = { email: profile.email, password: 'unused-test' };
 const tokens = { access_token: 'access-test', refresh_token: 'refresh-test', token_type: 'bearer' };
 const service = jest.mocked(authService);
 beforeEach(() => {
+  jest.mocked(getStoredTokens).mockReturnValue({ accessToken: 'access-test', refreshToken: 'refresh-test' });
   useAuthStore.getState().forceLogout();
   localStorage.clear();
   localStorage.setItem('app_version', '1.2.1');
@@ -126,4 +127,77 @@ it('an old failed login cannot clear a newer successful login', async () => {
   await expect(old).rejects.toThrow('Late failure');
   expect(useAuthStore.getState().isAuthenticated).toBe(true);
   expect(clearStoredTokens).not.toHaveBeenCalled();
+});
+
+it('captures the logout bearer before erasing it and clears private alerts immediately', async () => {
+  const { useNotificationStore } = await import('@/stores/notificationStore');
+  await useAuthStore.getState().login(credentials);
+  useNotificationStore.getState().addNotification({ type: 'SYSTEM', title: 'Private', message: 'Owner only' });
+  expect(useNotificationStore.getState().notifications).toHaveLength(1);
+  let resolve!: () => void;
+  service.logout.mockReturnValueOnce(new Promise<void>(done => { resolve = done; }));
+  const pending = useAuthStore.getState().logout();
+  expect(service.logout).toHaveBeenCalledWith('access-test');
+  expect(useNotificationStore.getState()).toMatchObject({ notifications: [], sessionUserId: null });
+  expect(useAuthStore.getState().isAuthenticated).toBe(false);
+  resolve(); await pending;
+});
+it('a new login discards the previous profile and alert scope before the server responds', async () => {
+  const { useNotificationStore } = await import('@/stores/notificationStore');
+  await useAuthStore.getState().login(credentials);
+  const previousRevision = useAuthStore.getState().sessionRevision;
+  useNotificationStore.getState().addNotification({ type: 'SYSTEM', title: 'Private', message: 'Owner only' });
+  let resolve!: (value: typeof tokens) => void;
+  service.login.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+  const pending = useAuthStore.getState().login(credentials);
+  expect(useAuthStore.getState()).toMatchObject({ user: null, isAuthenticated: false });
+  expect(useAuthStore.getState().sessionRevision).toBeGreaterThan(previousRevision);
+  expect(useNotificationStore.getState()).toMatchObject({ notifications: [], sessionUserId: null });
+  resolve(tokens); await pending; expect(useNotificationStore.getState().sessionUserId).toBe(profile.id);
+});
+it('profile revalidation clears stale alerts until the account is verified again', async () => {
+  const { useNotificationStore } = await import('@/stores/notificationStore');
+  await useAuthStore.getState().login(credentials);
+  useNotificationStore.getState().addNotification({ type: 'SYSTEM', title: 'Private', message: 'Owner only' });
+  let resolve!: (value: User) => void;
+  service.getProfile.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+  const pending = useAuthStore.getState().checkAuth();
+  expect(useNotificationStore.getState().sessionUserId).toBeNull();
+  resolve(profile); await pending; expect(useNotificationStore.getState().sessionUserId).toBe(profile.id);
+});
+
+it('retires legacy web identifiers only after the server profile is verified', async () => {
+  const original = global.fetch;
+  const fetcher = jest.fn().mockResolvedValue({ ok: true });
+  global.fetch = fetcher;
+  try {
+    localStorage.setItem('d360_device_token', 'web-verified-browser');
+    let resolve!: (value: User) => void;
+    service.getProfile.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+    const login = useAuthStore.getState().login(credentials);
+    await Promise.resolve();
+    expect(fetcher).not.toHaveBeenCalled();
+    resolve(profile); await login;
+    const { retireLegacyPushDevice } = await import('@/lib/deviceRegistration');
+    await retireLegacyPushDevice('access-test');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0][1]).toMatchObject({ method: 'DELETE', headers: { Authorization: 'Bearer access-test' } });
+    expect(localStorage.getItem('d360_device_token')).toBeNull();
+  } finally { global.fetch = original; }
+});
+it('forceLogout starts legacy cleanup with its captured bearer before any new login', async () => {
+  const original = global.fetch;
+  let resolve!: (value: unknown) => void;
+  const fetcher = jest.fn().mockReturnValue(new Promise(done => { resolve = done; }));
+  global.fetch = fetcher;
+  try {
+    localStorage.setItem('d360_device_token', 'web-logout-browser');
+    useAuthStore.getState().forceLogout();
+    expect(fetcher.mock.calls[0][1]).toMatchObject({ method: 'DELETE', headers: { Authorization: 'Bearer access-test' } });
+    expect(useAuthStore.getState()).toMatchObject({ user: null, isAuthenticated: false });
+    resolve({ ok: true });
+    const { retireLegacyPushDevice } = await import('@/lib/deviceRegistration');
+    await retireLegacyPushDevice('access-test');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  } finally { global.fetch = original; }
 });
