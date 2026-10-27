@@ -193,7 +193,7 @@ async def test_token_failure_flush_does_not_release_notification_lock(retry_db):
     async with sessions() as first, sessions() as second:
         a, b = service(first), service(second)
 
-        async def push(tokens, *args):
+        async def push(tokens, *args, **kwargs):
             await a._mark_token_failures(tokens)
             entered.set()
             await asyncio.wait_for(resume.wait(), 5)

@@ -42,6 +42,7 @@ async def test_installed_firebase_current_api_and_timeout_offline(monkeypatch):
             ["device-one", "device-two"], "Title", "Body", {"id": "1"}
         )
         assert result.accepted and not result.invalid_tokens
+        assert set(result.accepted_tokens) == {"device-one", "device-two"}
         assert set(calls) == {"device-one", "device-two"}
     finally:
         firebase.delete_app(app)

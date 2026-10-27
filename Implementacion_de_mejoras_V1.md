@@ -3082,3 +3082,82 @@ La primera ejecución global se detuvo al detectar el fallo de inicialización e
 Se publican catorce archivos relacionados en un único PR nuevo, listo para revisión y sin borrador. El informe y NOTIFICATION_PROVIDERS.md describen las decisiones, instalación y límites. Se comparan contenidos y árbol remoto con el commit local. No se afirma CI global verde: persisten tipos/cobertura. Sin fusión, despliegue, mensajes externos, migraciones ni operaciones sobre datos de producción.
 
 La revisión automática rechazó la subida inicial de .env.example porque el archivo incluía una SECRET_KEY y credenciales de base de datos escritas. Se corrigió el contenido de ambos ejemplos antes de publicar: se vacían claves, contraseñas, usuarios de conexión y URL de BD para completarlos fuera del repositorio, conservando los valores no secretos de duración de tokens. No se cambia ningún .env real ni el código de ejecución probado. La corrección afecta únicamente plantillas/documentación y se valida mediante diff y comprobación de campos sensibles vacíos; la publicación usa ese contenido saneado.
+
+## Entrega ampliada 43 — Ciclo de vida y revisión de dispositivos PUSH
+
+Fecha: 26 de octubre de 2026, America/Caracas. Base: main 58974d8, fusión del PR #283 sin observaciones de revisión. Se verificó que su árbol coincide con 4e7fd52 antes de crear fix/notification-device-lifecycle-v1. Esta entrega agrupa registro concurrente, baja del dispositivo, protección de respuestas tardías y recuperación del contador tras aceptación.
+
+### Hallazgos y cambios relacionados
+
+El registro anterior hacía SELECT sin bloqueo y después INSERT o modificaciones ORM. Dos solicitudes sobre un token nuevo podían competir por su UNIQUE; una instancia antigua en memoria también podía decidir una transferencia/reactivación con un propietario obsoleto. A su vez, el resultado de FCM solo identificaba strings de token: una respuesta iniciada para una cuenta podía aumentar el contador del mismo string después de transferirlo o reactivarlo.
+
+Se añade notification_devices.py con operaciones transaccionales sin commit propio. La creación usa INSERT ON CONFLICT DO NOTHING RETURNING id. Si ya existe, se reclama la fila con FOR UPDATE y populate_existing antes de decidir propietario, plataforma, actividad y reinicio. Se conserva la respuesta created/updated del endpoint y se usa la identidad autenticada para el propietario. Un intento de enviar user_id en el cuerpo no cambia esa identidad.
+
+last_seen_at pasa a servir también como parte de la revisión, junto con id y user_id. Cada registro/refresco o baja efectiva calcula max(reloj UTC actual, revisión anterior + un microsegundo). PostgreSQL aporta clock_timestamp, de modo que no se reutiliza la hora de comienzo de una transacción antigua. La revisión avanza incluso al retroceder el reloj o registrar dos veces en el mismo instante. No se añaden columnas ni se cambia el esquema.
+
+El envío inicial y el reintento capturan una copia inmutable de las revisiones antes de llamar a FCM. PushResult incorpora los tokens aceptados individualmente, además de la aceptación agregada y los no registrados. Al volver, se bloquean/refrescan los tokens en orden por id y se comprueba id, propietario, last_seen_at y actividad. Una respuesta obsoleta no aumenta el contador de la revisión nueva, no lo reinicia y no cambia su actividad.
+
+Los fallos UnregisteredError de la revisión vigente mantienen el helper de contadores bloqueado y el umbral previo. Una aceptación individual de la revisión activa reinicia su contador a cero. No se infiere un éxito por dispositivo a partir de accepted=True sin una lista de aceptaciones; los fallos temporales tampoco reinician ni incrementan el contador. El orden es el de observación/confirmación de resultados, no una nueva garantía de orden cronológico del proveedor.
+
+### Baja autenticada y manejo de errores
+
+DELETE /api/v1/notifications/unregister-device recibe device_token y desactiva solamente una fila de la cuenta autenticada. Una fila ajena, inexistente o ya desactivada devuelve el mismo status=ok; no se informa a qué cuenta pertenece ni se modifica otro propietario. La baja efectiva avanza la revisión y conserva la fila. Repetir una baja ya realizada no introduce cambios nuevos.
+
+Ambas rutas utilizan el get_current_user existente: requieren autenticación, cuenta activa y rol vigente. Se conserva el contrato de plataforma android/ios/web. El token mantiene límites de 8 a 255 caracteres y ahora rechaza espacios/caracteres no imprimibles. NUL y caracteres de formato se rechazan con 422, evitando que alcancen el almacenamiento y se confundan con un fallo transitorio de BD.
+
+Un fallo SQL/valor interno no disponible en registro/baja provoca intento de rollback y HTTP 503 genérico. No se devuelve ni registra el diagnóstico privado de SQL, el token o las credenciales. Si también falla el rollback, se registra ese fallo de forma genérica, no se afirma recuperación de la conexión y el contexto del propietario termina la sesión.
+
+### Límites y compatibilidad
+
+| Aspecto | Alcance de esta entrega |
+|---|---|
+| Esquema | Se reutilizan campos existentes; sin migraciones ni escrituras en BD de producción |
+| Registro de token conocido | Se conserva la transferencia al solicitante autenticado que presenta el token; último cambio confirmado define el propietario |
+| Prueba de posesión | No se introduce atestación de instalación ni desafío criptográfico adicional |
+| Dispositivos inactivos | La realimentación no cambia sus contadores ni los reactiva; una reactivación explícita crea revisión nueva |
+| Idempotencia | La baja repetida es idempotente; el registro/refresco avanza revisión por diseño |
+| Atomicidad | Contador, reinicio y resultado del log se confirman/revierten por su propietario; el helper no libera antes el bloqueo con otro commit |
+| Base de datos | PostgreSQL demuestra exclusión concurrente; SQLite se utiliza solo para regresión secuencial de API |
+| Despliegue | Todos los escritores deben actualizarse; nodos anteriores no aplican esta revisión |
+| Frontend/logout | La ruta nueva está disponible; no se integra automáticamente con logout ni se invalida el token físicamente en Firebase |
+| Mensajes en vuelo | La revisión protege la realimentación del estado; no retira un mensaje aceptado ni impide una entrega ya iniciada antes de transferir cuenta |
+
+Se documentan las operaciones en NOTIFICATION_PROVIDERS.md. El cliente debe implementar la baja/rotación de su token cuando cambie de cuenta; la revocación de JWT y sesiones es otra funcionalidad. No se añaden callbacks de entrega, ledger por dispositivo, outbox ni garantía de entrega exactamente una vez.
+
+### Pruebas nuevas
+
+La primera focalización aprobó 43 casos. La revisión final añadió dos entradas de control no imprimibles y repitió los casos afectados, dejando **45 pruebas nuevas**: 23 PostgreSQL reales y 22 de contrato HTTP/contención. Las bases son test_* explícitas con esquemas privados y no se contacta un proveedor real.
+
+- Dos/cuatro registros concurrentes del mismo token producen una fila y un único created; los demás actualizan sin violación UNIQUE.
+- Refresco del propietario activo conserva contador e identidad; transferencia/reactivación reinicia contador y cambia revisión; un reloj atrasado no reutiliza revisiones.
+- Respuestas aceptadas o inválidas antiguas tras transferencia, heartbeat, reactivación o eliminación/recreación de fila no modifican la revisión nueva.
+- Despacho inicial y reintento reales esperan un proveedor sustituido mientras otra sesión transfiere el token; al terminar no alteran el contador del nuevo propietario.
+- Aceptación/invalidación mixta actúa solo sobre los dispositivos solicitados que coinciden; los inactivos y tokens de respuesta no solicitados no cambian.
+- Un registro con propietario precargado espera un bloqueo nativo observado en pg_stat_activity y decide con el propietario refrescado al liberarse.
+- Un fallo SQL real durante commit revierte el reinicio de contador; la baja y registro REST no filtran detalles ni afirman éxito cuando falla la transacción.
+- API montada con JWT real: secuencia de registro/transferencia/baja, rechazo de cuenta inactiva/sin rol, denegación de llamadas anónimas, rol activo dueño y tokens inválidos; SQLite verifica ese contrato secuencial.
+- Fallo SQL y fallo adicional de rollback se contienen con respuesta genérica; un resultado de proveedor no solicitado no consulta ni hace flush.
+
+La regresión previa de proveedores/cola/contadores aprobó **78 tests**. Los contratos existentes de SDK se amplían con la lista de aceptaciones individuales. Se ajustan los callbacks sustituidos para aceptar el argumento opcional de revisión, manteniendo sus comprobaciones anteriores de bloqueo/cancelación.
+
+### Pendientes conservados
+
+Integración frontend de baja/rotación al cambiar cuenta, atestación de instalación, revocación de JWT/sesiones, idempotencia/outbox y conciliación externa, recuperación de logs iniciales ambiguos sin plazo, ledger y callbacks por dispositivo, fallback IN_APP general, límites distribuidos, migraciones de producción y deuda de tipos/cobertura. No se ejecuta fusión ni despliegue automático.
+
+### Evidencia final de la entrega ampliada 43
+
+| Control | Resultado |
+|---|---|
+| Backend completo, con SDK opcionales disponibles | **1207 tests aprobados** en 534,36 s; 45 nuevos frente a 1162; cuatro advertencias previas |
+| PostgreSQL real | **205 tests incluidos**, 23 nuevos de registro/revisión/realimentación |
+| API y contención nuevas | **22 casos incluidos**, con JWT real y SQLite para el contrato HTTP secuencial, más contención sin BD |
+| SDK reales offline | **2 contratos incluidos**, con nueva comprobación de dispositivos aceptados individualmente |
+| Redis / SMTP TLS local | **2 Redis** y **12 SMTP/TLS** de regresión incluidos |
+| Focalización final | **45 tests aprobados**; previamente, 78 regresiones de proveedores/cola/contadores aprobadas |
+| Mypy | **314 errores en 52 archivos**, cinco menos y ninguno nuevo por archivo/mensaje; 176 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; Black comprueba 182 archivos entre app y suites revisadas |
+| Frontend | Sin cambios ni repetición local; conserva validación previa de 261 tests/27 suites y deuda de cobertura |
+
+La primera pasada global sin fallos se interrumpió para añadir el rechazo explícito de caracteres no imprimibles; la evidencia final corresponde a una nueva ejecución completa sobre ese código. La comparación de Mypy se hace contra la base anterior y no oculta diagnósticos mediante métodos nuevos sin tipos.
+
+Se publican doce archivos relacionados en un único PR nuevo sin borrador sobre main 58974d8. NOTIFICATION_PROVIDERS.md describe los contratos y límites del ciclo de vida. Se verifica el árbol y el contenido remoto frente al local. El CI del commit anterior aprobó tests backend/seguridad y falló en tipos y la etapa frontend de tests/cobertura; no se presenta el sistema como CI global verde o listo al 100 % para producción. Recursos de prueba locales y desechables, sin mensajes externos, migraciones, fusión ni despliegue automático.
