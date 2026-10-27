@@ -40,7 +40,8 @@ from fastapi import (
     WebSocketDisconnect,
     status,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.websockets import WebSocketState
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,10 +56,13 @@ from app.models.notification import (
     NotificationPreference,
     NotificationTemplate,
     OmnichannelStatus,
-    UserDeviceToken,
 )
 from app.models.user import User, UserRole
 from app.services.omnichannel_service import OmnichannelNotificationService
+from app.services.notification_devices import (
+    register_device_token,
+    unregister_device_token,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/notifications", tags=["Notificaciones (Fase 9)"])
@@ -67,8 +71,20 @@ router = APIRouter(prefix="/notifications", tags=["Notificaciones (Fase 9)"])
 # ----------------------------------------------------------------------
 # Schemas
 # ----------------------------------------------------------------------
-class RegisterDeviceRequest(BaseModel):
+class DeviceTokenRequest(BaseModel):
     device_token: str = Field(..., min_length=8, max_length=255)
+
+    @field_validator("device_token")
+    @classmethod
+    def no_whitespace(cls, value: str) -> str:
+        if any(
+            character.isspace() or not character.isprintable() for character in value
+        ):
+            raise ValueError("El token no admite espacios ni caracteres de control")
+        return value
+
+
+class RegisterDeviceRequest(DeviceTokenRequest):
     platform: str = Field("web", pattern="^(android|ios|web)$")
 
 
@@ -144,40 +160,45 @@ async def register_device(
     db: AsyncSession = Depends(get_db),
 ):
     """Upsert del token FCM/APNs por device_token único. Reactiva si estaba inactivo."""
-    existing = (
-        await db.execute(
-            select(UserDeviceToken).where(
-                UserDeviceToken.device_token == body.device_token
-            )
+    try:
+        action = await register_device_token(
+            db, uuid.UUID(str(current_user.id)), body.device_token, body.platform
         )
-    ).scalar_one_or_none()
-
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    if existing:
-        changed_owner = existing.user_id != current_user.id
-        existing.platform = body.platform
-        existing.last_seen_at = now
-        if changed_owner or not existing.is_active:
-            existing.user_id = current_user.id
-            existing.failure_count = 0
-            existing.is_active = True
-        action = "updated"
-    else:
-        db.add(
-            UserDeviceToken(
-                id=uuid.uuid4(),
-                user_id=current_user.id,
-                device_token=body.device_token,
-                platform=body.platform,
-                failure_count=0,
-                is_active=True,
-                last_seen_at=now,
-                created_at=now,
-            )
-        )
-        action = "created"
-    await db.commit()
+        await db.commit()
+    except (SQLAlchemyError, ValueError):
+        await _device_rollback(db)
+        raise HTTPException(
+            503, "Registro de dispositivo temporalmente no disponible"
+        ) from None
     return {"status": "ok", "action": action}
+
+
+async def _device_rollback(db: AsyncSession) -> None:
+    try:
+        await db.rollback()
+    except Exception:
+        logger.error("Notification device rollback failed")
+    logger.warning("Notification device transaction failed")
+
+
+@router.delete("/unregister-device")
+async def unregister_device(
+    body: DeviceTokenRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Idempotent deactivation; missing/other-owner tokens have the same response."""
+    try:
+        await unregister_device_token(
+            db, uuid.UUID(str(current_user.id)), body.device_token
+        )
+        await db.commit()
+    except (SQLAlchemyError, ValueError):
+        await _device_rollback(db)
+        raise HTTPException(
+            503, "Baja de dispositivo temporalmente no disponible"
+        ) from None
+    return {"status": "ok"}
 
 
 # ----------------------------------------------------------------------

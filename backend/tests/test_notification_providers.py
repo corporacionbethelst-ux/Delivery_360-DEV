@@ -190,6 +190,7 @@ async def test_only_unregistered_devices_count_as_invalid(configured, monkeypatc
     )
     result = await providers.send_push(["invalid", "temporary", "valid"], "T", "B", {})
     assert result.accepted and result.invalid_tokens == ("invalid",)
+    assert result.accepted_tokens == ("valid",)
 
 
 @pytest.mark.parametrize("tokens,data", [([], {}), ([""], {}), (["one"], {"id": 1})])

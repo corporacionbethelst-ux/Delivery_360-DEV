@@ -72,12 +72,53 @@ un ledger individual de cada dispositivo ni reintenta solo los no aceptados.
 Los fallos de red/cuota y los lotes con respuesta malformada no invalidan todos
 los dispositivos ni borran aceptaciones ya obtenidas en otros lotes.
 
-Solo UnregisteredError de FCM alimenta ahora el contador de token inválido.
-El umbral anterior de tres observaciones permanece; un fallo temporal no lo
-incrementa. El helper conserva el bloqueo ordenado por token y hace flush:
-el propietario confirma junto con el resultado del log. No se reinicia el
-contador tras cada éxito ni se versiona todavía una transferencia/reactivación
-del token. Los resultados tardíos de esas situaciones siguen pendientes.
+Solo UnregisteredError de FCM alimenta el contador de token inválido.
+El umbral de tres observaciones permanece; un fallo temporal no lo incrementa.
+Una aceptación individual confirmada reinicia a cero el contador del dispositivo,
+si todavía está activo y coincide con la revisión que tenía al comenzar el envío.
+Una aceptación agregada sin dispositivos identificados no permite adivinar qué
+contador reiniciar. Los resultados de una revisión antigua se ignoran.
+
+## Ciclo de vida del dispositivo
+
+POST /api/v1/notifications/register-device conserva el cuerpo device_token y
+platform y la respuesta status/action (created o updated). La creación utiliza
+INSERT ON CONFLICT DO NOTHING y la actualización bloquea/refresca la fila;
+registros concurrentes del mismo token no crean duplicados ni abortan por una
+violación UNIQUE. La cuenta se toma de la identidad autenticada, no del cuerpo.
+Un mismo propietario activo conserva su contador; una transferencia o una
+reactivación lo reinicia como antes.
+
+DELETE /api/v1/notifications/unregister-device recibe el JSON device_token y
+desactiva únicamente el token de la cuenta autenticada. Devuelve status=ok tanto
+para baja efectiva como para inexistencia, otra cuenta o una baja ya realizada.
+No elimina la fila, no borra otros dispositivos y no reactiva nada. Requiere
+JWT válido y cuenta activa con rol vigente. Ambas rutas rechazan tokens de
+longitud inválida, espacios y caracteres de control antes de almacenarlos.
+
+La revisión usa id de fila, propietario y last_seen_at existentes. Registro,
+refresco y baja efectiva avanzan last_seen_at de forma estrictamente creciente,
+incluso ante un reloj que retroceda, con reloj UTC de PostgreSQL y un incremento
+mínimo de un microsegundo. No se añade una columna ni se migra información.
+El proveedor recibe strings, mientras el servicio conserva una copia inmutable
+de la revisión observada. Al terminar, bloquea/refresca cada token y aplica
+fallos o reinicios solo a la revisión activa que todavía coincide. Conserva
+flush y el commit/rollback del propietario del despacho.
+
+La garantía requiere todos los escritores de dispositivos actualizados sobre
+PostgreSQL. SQLite sirve para pruebas secuenciales del contrato HTTP. Los
+registros concurrentes de propietarios distintos conservan el comportamiento
+anterior: quien posee el token puede registrarlo y el último cambio confirmado
+define la cuenta asociada. No se implementa atestación de instalación ni prueba
+criptográfica adicional de posesión del dispositivo.
+
+La baja es local al sistema: no llama a Firebase para invalidar físicamente el
+token ni se conecta automáticamente con el logout del frontend. El cliente debe
+invocar esta ruta e implementar la rotación/eliminación del token con su SDK
+cuando corresponda. Un mensaje que ya esté en vuelo o aceptado externamente
+no puede retirarse: la revisión protege los cambios de estado del dispositivo,
+no garantiza que el proveedor no entregue un mensaje anterior tras un cambio
+de cuenta. La revocación de JWT y el cierre de otras sesiones son independientes.
 
 Twilio usa timeout HTTP explícito y max_retries=0 en su transporte; la cola
 controla los reintentos del sistema. La sesión HTTP se cierra al terminar,

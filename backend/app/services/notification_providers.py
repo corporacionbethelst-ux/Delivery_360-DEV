@@ -27,6 +27,7 @@ _phone = re.compile(r"\+[1-9][0-9]{6,14}\Z")
 class PushResult:
     accepted: bool
     invalid_tokens: tuple[str, ...] = ()
+    accepted_tokens: tuple[str, ...] = ()
 
 
 def provider_timeout() -> float:
@@ -95,6 +96,7 @@ def _push_sync(
     messaging = import_module("firebase_admin.messaging")
     app = _fcm_app(firebase, credentials, provider_timeout())
     accepted = False
+    successful: list[str] = []
     invalid: list[str] = []
     # FCM permits 500; smaller chunks also bound the SDK's own thread fan-out.
     for offset in range(0, len(tokens), 50):
@@ -114,9 +116,10 @@ def _push_sync(
         for token, item in zip(batch, response.responses):
             if item.success:
                 accepted = True
+                successful.append(token)
             elif isinstance(item.exception, messaging.UnregisteredError):
                 invalid.append(token)
-    return PushResult(accepted, tuple(invalid))
+    return PushResult(accepted, tuple(invalid), tuple(successful))
 
 
 async def send_push(

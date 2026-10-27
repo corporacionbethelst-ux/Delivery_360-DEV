@@ -46,6 +46,7 @@ from app.models.notification import (
 )
 from app.models.user import User
 from app.services.notification_providers import send_push, send_sms
+from app.services.notification_devices import DeviceRevision, device_revisions
 
 logger = logging.getLogger(__name__)
 
@@ -472,17 +473,22 @@ class OmnichannelNotificationService:
                 tokens = (
                     (
                         await self.db.execute(
-                            select(UserDeviceToken).where(
+                            select(UserDeviceToken)
+                            .where(
                                 UserDeviceToken.user_id == user.id,
                                 UserDeviceToken.is_active.is_(True),
                             )
+                            .execution_options(populate_existing=True)
                         )
                     )
                     .scalars()
                     .all()
                 )
                 ok = await self.dispatch_push(
-                    [t.device_token for t in tokens], log.title or "", body
+                    [t.device_token for t in tokens],
+                    log.title or "",
+                    body,
+                    revisions=device_revisions(tokens),
                 )
             elif log.channel == NotificationChannel.SMS:
                 ok = await self.dispatch_sms(getattr(user, "phone", None), body)
@@ -536,16 +542,63 @@ class OmnichannelNotificationService:
         title: str,
         body: str,
         data: Optional[Dict[str, Any]] = None,
+        *,
+        revisions: Optional[Dict[str, DeviceRevision]] = None,
     ) -> bool:
+        if revisions is None and self.db is not None and device_tokens:
+            rows = await self.db.scalars(
+                select(UserDeviceToken)
+                .where(
+                    UserDeviceToken.device_token.in_(device_tokens),
+                    UserDeviceToken.is_active.is_(True),
+                )
+                .execution_options(populate_existing=True)
+            )
+            revisions = device_revisions(rows.all())
         try:
             result = await send_push(device_tokens, title, body, data or {})
         except Exception:
             logger.warning("Notification PUSH dispatch failed")
             return False
         # SQL stays on the owning event loop; SDK threads never receive sessions.
-        if result.invalid_tokens:
-            await self._mark_token_failures(list(result.invalid_tokens))
+        await self._apply_push_feedback(
+            revisions or {}, result.accepted_tokens, result.invalid_tokens
+        )
         return result.accepted
+
+    async def _apply_push_feedback(
+        self,
+        revisions: Dict[str, DeviceRevision],
+        accepted: tuple[str, ...],
+        invalid: tuple[str, ...],
+    ) -> None:
+        requested = (set(accepted) | set(invalid)) & revisions.keys()
+        if not requested:
+            return
+        rows = await self.db.scalars(
+            select(UserDeviceToken)
+            .where(UserDeviceToken.device_token.in_(requested))
+            .order_by(UserDeviceToken.id)
+            .with_for_update(of=UserDeviceToken)
+            .execution_options(populate_existing=True)
+        )
+        failed = []
+        for row in rows:
+            token = str(row.device_token)
+            if (
+                not bool(row.is_active)
+                or device_revisions([row]).get(token) != revisions[token]
+            ):
+                continue
+            if token in invalid:
+                failed.append(token)
+            elif token in accepted:
+                setattr(row, "failure_count", 0)
+        if failed:
+            # Rows remain locked while the existing counter helper flushes.
+            await self._mark_token_failures(failed)
+        else:
+            await self.db.flush()
 
     async def dispatch_sms(self, phone: Optional[str], message: str) -> bool:
         try:
@@ -727,17 +780,22 @@ class OmnichannelNotificationService:
             tokens = (
                 (
                     await self.db.execute(
-                        select(UserDeviceToken).where(
+                        select(UserDeviceToken)
+                        .where(
                             UserDeviceToken.user_id == user.id,
                             UserDeviceToken.is_active.is_(True),
                         )
+                        .execution_options(populate_existing=True)
                     )
                 )
                 .scalars()
                 .all()
             )
             ok = await self.dispatch_push(
-                [t.device_token for t in tokens], log.title or "", log.body or ""
+                [t.device_token for t in tokens],
+                log.title or "",
+                log.body or "",
+                revisions=device_revisions(tokens),
             )
         elif log.channel == NotificationChannel.SMS:
             ok = await self.dispatch_sms(user.phone, log.body or "")

@@ -217,14 +217,14 @@ async def test_cancelled_retry_waiting_for_shared_token_releases_its_log(dispatc
         a, b = Service(first, redis_client=False), Service(second, redis_client=False)
         pid = await second.scalar(text("SELECT pg_backend_pid()"))
 
-        async def first_push(tokens, *args):
+        async def first_push(tokens, *args, **kwargs):
             assert tokens == [token]
             await a._mark_token_failures(tokens)
             entered.set()
             await asyncio.wait_for(resume.wait(), 10)
             return False
 
-        async def next_push(tokens, *args):
+        async def next_push(tokens, *args, **kwargs):
             await b._mark_token_failures(tokens)
             return False
 
