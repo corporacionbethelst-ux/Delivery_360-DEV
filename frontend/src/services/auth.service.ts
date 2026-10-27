@@ -1,7 +1,9 @@
+import { SessionChangedError } from '@/lib/auth-session';
 import { requireUserRevision } from '@/lib/user-revision';
 import { api, getStoredTokens } from '@/lib/api';
 import { validateDocumentSelection } from '@/lib/document-upload';
 import { User, AuthResponse } from '@/types/user';
+import { isAxiosError } from 'axios';
 import type { AxiosError } from 'axios';
 
 export interface MessageResponse {
@@ -44,7 +46,8 @@ export const authService = {
       
       return response; 
     } catch (error: unknown) {
-      console.error('❌ Error detallado del login:', (error as AxiosError).response?.data || error);
+      if (error instanceof SessionChangedError) throw error;
+      // Never log request configs: they contain passwords and bearer credentials.
       
       const axiosError = error as AxiosError<{ detail?: string; message?: string }>;
       const errorMsg = axiosError.response?.data?.detail 
@@ -117,15 +120,9 @@ export const authService = {
       const response = await api.get<User>('/auth/me'); 
       return response;
     } catch (error: unknown) {
-      console.warn('⚠️ Ruta /auth/me no encontrada, intentando /users/me...');
-      
-      try {
-        const fallbackResponse = await api.get<User>('/users/me');
-        return fallbackResponse;
-      } catch (fallbackError) {
-        console.error('❌ Error crítico: Ningún endpoint de perfil encontrado.');
-        throw error;
-      }
+      // Only an absent compatibility route warrants a fallback with this session.
+      if (!isAxiosError(error) || error.response?.status !== 404) throw error;
+      return api.get<User>('/users/me');
     }
   },
 

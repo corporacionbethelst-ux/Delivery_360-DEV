@@ -3216,3 +3216,59 @@ Outbox durable, conciliación de envíos ambiguos, idempotencia externa, ledger 
 Las pruebas usan fetch y WebSocket sustituidos, perfil/store y almacenamiento reales de JSDOM; no conectan con Firebase, Twilio ni servidores de producción. Las pruebas anteriores de hooks se adaptan a una identidad verificada, sin simular esa condición como autorización del backend. Se añadió updated_at a un perfil de prueba tras detectar su ausencia con TypeScript; el chequeo final ya pasa. Un segundo recorrido global con cobertura incorpora los tres casos finales de integración/StrictMode y mantiene las 30 suites aprobadas. No se rebajan umbrales ni se excluyen archivos para presentar cobertura verde.
 
 Se preparan dieciséis archivos relacionados en un único PR nuevo listo para revisión sobre main 7a4e7f1. La publicación verifica blobs y árbol, y alinea el commit local con el commit creado en GitHub. La ejecución de CI se informa por separado; los controles previos de #284 aprobaron tests backend y seguridad, pero fallaron tipado backend y la etapa frontend de tests/cobertura. No hay fusión, despliegue, migración ni mensajes externos.
+
+## Entrega ampliada 45 — Renovación de credenciales vinculada a la sesión
+
+Fecha: 27 de octubre de 2026, America/Caracas. Base main b3f6ede, fusión de #285 sin hilos de revisión pendientes. Se verificó que su árbol coincide con 37092cf antes de crear fix/auth-refresh-session-fencing-v1. El hallazgo prioritario de la entrega 44 se aborda en un lote que incluye cliente HTTP, almacenamiento, perfil/cookies y retirada de contenido privado.
+
+### Fallos verificados y solución
+
+El booleano isRefreshing y la cola global anteriores no identificaban al propietario de la renovación. Un refresh de A podía guardar tokens después del logout o de un login B; su catch podía limpiar B. La petición reenviada pasaba de nuevo por el interceptor, que tomaba las credenciales actuales, y los callers en cola no conservaban todos el límite de un reintento. Tampoco había plazo total para la renovación, y una respuesta exitosa vieja podía llegar al consumidor tras un cambio de cuenta.
+
+- Se extrae auth-session.ts para conservar par y generación local. api.ts reexporta los tres helpers existentes, manteniendo los imports de los consumidores. Cada storeTokens explícito, clearStoredTokens y cambio observado en storage invalida la generación anterior, aunque los strings vuelvan a coincidir. Una renovación válida rota dentro de su generación y exige además coincidencia con el par original antes de persistir.
+- El interceptor de request es síncrono y captura la generación antes de ceder ejecución. Los errores, éxitos y reenvíos comprueban esa generación. Una respuesta de otra sesión se rechaza sin publicar su payload ni trasladar la petición a la cuenta nueva.
+- Se reemplaza la cola global por una promesa compartida por generación. Todas las peticiones tienen un solo reenvío. Un 401 tardío de un access anterior reutiliza la rotación actual sin otro refresh; un 401 de un reenvío antiguo no borra un par rotado después.
+- Logout o sustitución de credenciales cancela inmediatamente todas las esperas del refresh anterior, incluso con un adaptador que ignore abort. Su transporte se aborta; su finally solo libera su propia promesa. Un caller cancelado no interrumpe la renovación que aún necesitan otros.
+- La renovación tiene timeout HTTP y un plazo total de 15 segundos mediante AbortController y carrera de promesas. La finalización tardía tras el plazo no puede persistir. Los errores son genéricos y no imprimen cuerpos, config, credenciales ni diagnósticos del transporte.
+- Un 401/403 del refresh, falta de refresh para un bearer rechazado o rechazo del único reenvío vigente expira solo la sesión correspondiente. Red/timeout/429/5xx o contrato mal formado no borran el par vigente. Una petición anónima o un error sin config no crea un bucle ni navegación global.
+- Se validan ambos tokens recibidos: strings no vacíos, ASCII imprimible sin espacios, máximo 16384 caracteres. Esto valida el contrato para almacenamiento/headers, no la firma o autorización del JWT. La metadata de peticiones privadas no incluye el refresh_token.
+- Las rutas públicas de autenticación no reciben Authorization ni refresh automático, incluso si el caller proporcionó ese header. El cliente central rechaza URLs de otro origen o fuera del prefijo de API antes del transporte, incluidas rutas normalizadas que escapan del prefijo. Los wrappers siguen devolviendo data y la instancia por defecto conserva respuestas Axios.
+- authStore invalida credenciales al iniciar un login y comprueba también la generación al aceptar el perfil. Errores antiguos no limpian una cuenta nueva. Tras una rotación durante la lectura del perfil, la cookie y la limpieza heredada usan el bearer vigente. La compatibilidad de perfil pasa a activarse solo por 404.
+- SessionGate recibe el evento de expiración para retirar contenido protegido y limpiar el ámbito privado. Una revalidación que sufre un fallo temporal de refresh deja el perfil sin verificar y conserva el par para un intento posterior. No se concede autenticación a partir de credenciales sin perfil.
+- clearStoredTokens limpia primero memoria, intenta todas las claves/cookies y deja de releer restos de disco si se prohíbe borrarlos. Una escritura parcial invalida y falla cerrada, sin combinar tokens de pares distintos. La caché vacía opcional de Zustand tolera denegación de storage. En SSR los helpers no guardan credenciales en memoria de proceso.
+- Se elimina el log detallado del error de login que podía incluir una config con contraseña. Se conservan mensajes funcionales y el control de permisos del backend. No se cambian rutas, JWT, esquema, dependencias runtime ni parámetros del servidor.
+
+### Pruebas de comportamiento
+
+Los casos nuevos ejercitan Axios e interceptores reales mediante adaptadores HTTP sustituidos, no una imitación del algoritmo. Comprueban múltiples GET/POST simultáneos, logout y ABA del mismo par, cambio de propietario, respuesta/error tardíos, finalización antigua durante otra renovación, cancelación individual, timeout que el adaptador ignora, respuestas inválidas, fallo terminal o temporal, header público, origen/prefijo y observación de storage externo.
+
+La integración usa los servicios y stores reales, SessionGate y cookies de JSDOM: login OAuth, perfil que necesita renovar antes de responder, login A/B concurrentes, otro escritor de tokens, cierre mientras renueva, expiración que oculta contenido privado, fallback solo 404, denegación de almacenamiento, escritura parcial en login y refresh y revalidación ante reemplazo de par. Un caso separado en entorno Node comprueba SSR. La aserción previa sobre errores de login tardíos conserva su finalidad: no hay limpiezas adicionales tras completarse el login nuevo; se contempla ahora la limpieza intencionada al iniciar cada login.
+
+### Límites y pendientes
+
+Esta generación es local y no revoca JWT en el servidor. Se mantienen tokens en localStorage y cookies de navegación accesibles al cliente; migrar a otro modelo de sesión, proteger frente a XSS y coordinar pestañas requiere otro lote. La observación de cambios de storage invalida trabajo local cuando se lee, sin garantizar detectar transiciones ABA externas no observadas. Si el navegador prohíbe borrar datos, se bloquea su relectura en esta página, pero no se promete eliminar físicamente esos restos ni conservar el bloqueo al recargar.
+
+Las peticiones ya enviadas pueden haber producido efectos; rechazar su respuesta no las revierte. fetch de otros módulos no hereda el cliente Axios. Tampoco se resetean con este lote todos los stores de negocio que puedan conservar datos ya recibidos. No se añaden backoff global, cuotas por cuenta ni renovación coordinada entre pestañas.
+
+Se conserva sin activar el helper heredado authApi.registerRider, sin consumidores, que apunta a /auth/register. Sus pruebas validan únicamente la compatibilidad de respuesta y el descarte de tokens obsoletos, no la existencia de esa ruta en el backend actual. El flujo activo usa authService.register y /auth/register-rider con documentos. Alinear o retirar esa interfaz antigua queda como hallazgo de limpieza, evitando modificar el contrato de registro en este lote.
+
+Siguen pendientes la revocación/sesiones de backend, PUSH web real, outbox durable e idempotencia externa, conciliación de envíos ambiguos, ledger por dispositivo, fallback IN_APP general, límites distribuidos, migraciones y deuda global de tipos/cobertura. No se afirma producción al 100 % ni CI global verde. La guía frontend/AUTH_SESSION_LIFECYCLE.md documenta contratos, errores, almacenamiento y límites.
+
+### Evidencia final de la entrega ampliada 45
+
+| Control | Resultado |
+|---|---|
+| Frontend completo | **395 tests aprobados en 35 suites**, 81 nuevos frente a 314/30 |
+| Nuevas suites | 40 casos de cliente/refresh, 20 de credenciales, 8 de origen/prefijo, 12 de integración real del frontend y 1 SSR |
+| Focalización | La primera revisión conjunta aprobó 101 casos; los dos casos finales de compatibilidad se incluyen en la batería global de 395 |
+| TypeScript | npm run type-check aprobado, incluidos todos los tests |
+| Lint | Aprobado con advertencias existentes, sin desactivar reglas |
+| Build | Build de producción frontend aprobado, sin desplegar |
+| Cobertura global | **19,84 % líneas**, 19,96 % sentencias, 16,29 % ramas y 16,72 % funciones; mejora desde 17,89 % líneas, pero sigue por debajo del 50 % requerido |
+| Cobertura de módulos principales | auth-session.ts: **100 % líneas**; api.ts: **92,18 % líneas** |
+| git diff --check | Aprobado |
+| Backend | Sin cambios ni repetición de su batería; referencia previa: 1207 tests y Mypy 314 errores/52 archivos, no una medición nueva |
+
+Los 395 tests y las 35 suites pasan también en la ejecución con cobertura; el comando termina con código 1 exclusivamente porque no se alcanza el umbral global. No se rebaja el umbral ni se excluyen archivos. TypeScript detectó dos callbacks nuevos de Storage con this sin anotación; se corrigieron con this: Storage y el chequeo final pasa. No hubo fallos funcionales en las ejecuciones focalizadas ni globales.
+
+Se preparan trece archivos relacionados, con informe y guía nueva, en un PR sin borrador sobre b3f6ede. La publicación verifica los blobs y árbol contra el código probado y alinea el commit local con GitHub. CI de #285: tests backend aprobados y seguridad aprobada; fallaron el tipado backend y la etapa frontend de tests/cobertura. Se informa el CI del PR nuevo por separado. Sin migración, mensajes externos, fusión ni despliegue automático.
