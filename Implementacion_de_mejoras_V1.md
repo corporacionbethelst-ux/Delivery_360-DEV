@@ -2867,3 +2867,72 @@ Persisten los pendientes de hooks best-effort/create_task, resolución de destin
 | Frontend | Sin cambios; se conserva validación previa de **261 tests en 27 suites**, TypeScript, lint y build, sin repetirla |
 
 La suite completa incluye el protocolo por fila, el flush de tokens y la recuperación por rollback de la fila actual. Los recursos son locales y desechables y no hay correo externo. No se rebajan checks: Mypy/cobertura siguen pendientes. El PR se publica listo para revisión, sin borrador, fusión ni despliegue automático.
+
+## Bloque 40 — Revalidación de destinatario y política en la cola
+
+Fecha: 26 de octubre de 2026, America/Caracas. Continuación sobre 92b36ac, en la misma rama fix/notification-retry-row-locks-v1 y PR #281, que seguía abierto, sin borrador y sin observaciones de revisión al comenzar. El bloque 39 conserva arriba su evidencia histórica; este bloque resuelve su pendiente de revalidación de cuenta, plantilla y preferencias para la cola.
+
+### Hallazgo y comportamiento resultante
+
+La cola utilizaba el usuario y el cuerpo persistido sin comprobar que la cuenta siguiera activa, que la plantilla continuara habilitada o que el destinatario hubiera revocado el canal del evento. El envío inicial también admitía cuentas inactivas. Además, el apagado general solo protegía directamente EMAIL; un PUSH/SMS pendiente podía llegar a su proveedor mientras NOTIFICATIONS_ENABLED estaba desactivado.
+
+El envío inicial ahora exige una cuenta activa en la propia consulta SQL. Esto también evita que una instancia User previamente cargada como activa permita pasar una desactivación ya confirmada por otra sesión. Si no existe o no está activa, devuelve la respuesta vacía habitual, no crea logs ni contacta proveedores, y registra un aviso sin identificar al destinatario.
+
+Después de reclamar cada fila de la cola con el protocolo de bloqueo del bloque 39, el servicio vuelve a consultar el usuario y refresca la instancia ORM. A continuación comprueba la plantilla y las preferencias mediante valores escalares obtenidos directamente de SQL: no usa el caché Redis, _get_template ni los atributos antiguos de objetos de política ya cargados.
+
+| Condición observada antes del proveedor | Resultado persistido |
+|---|---|
+| Cuenta inactiva o actividad no habilitada | FALLIDO; motivo genérico de cuenta inactiva; sin próximo reintento |
+| template_code informado y plantilla inexistente o inactiva | FALLIDO; motivo genérico de plantilla no disponible; sin próximo reintento |
+| Preferencia enabled=false para el mismo usuario, evento y canal externo | FALLIDO; motivo genérico de preferencia revocada; sin próximo reintento |
+| NOTIFICATIONS_ENABLED=false y canal EMAIL, PUSH o SMS, sin rechazo previo | PENDIENTE; próximo plazo calculado con el backoff actual; sin consumir un intento |
+| IN_APP con preferencia deshabilitada o con apagado general | Conserva la excepción de bandeja interna existente, siempre que cuenta y plantilla sean válidas |
+| Ninguna política bloqueante | Continúa el proveedor y la persistencia del resultado del bloque 39 |
+
+Los rechazos de política conservan retry_count y el cuerpo/título ya persistidos. No registran sent_at ni delivered_at como resultado del rechazo. No se introduce un estado nuevo: FALLIDO identifica aquí una decisión terminal de política, que debe interpretarse junto con error_message, no como evidencia de un intento fallido de proveedor. Reactivar después una cuenta, plantilla o preferencia no resucita automáticamente ese registro histórico.
+
+La pausa operativa es diferente: mantiene PENDIENTE, conserva el presupuesto de intentos y difiere next_retry_at para evitar recuperar repetidamente la misma fila vencida. Al reactivar el flag, se podrá atender cuando vuelva a vencer su plazo y solo si las demás políticas siguen permitiéndolo. No cambia el estado de un registro a ENVIADO para representar una pausa. El entero devuelto por process_retry_queue cuenta filas tratadas y confirmadas, incluidas pausas y rechazos; no equivale a mensajes entregados.
+
+### Compatibilidad y límites explícitos
+
+- Una preferencia de otro destinatario, evento o canal no bloquea el mensaje. La ausencia de preferencia conserva la regla actual de permitir el canal. No se recalcula el canal según un cambio posterior de rol ni se crea un canal sustituto para ese log.
+- Los registros legacy con template_code NULL siguen admitidos: no se inventa un evento para aplicarles una preferencia. Sí se comprueban cuenta y flag general. El esquema actual permite ese valor; su normalización histórica queda pendiente.
+- Un template_code informado pero sin plantilla vigente se rechaza. Las consultas se hacen sobre SQL, aunque un caché o instancia ORM todavía indiquen que estaba activa. El caché del envío inicial de plantillas conserva su comportamiento anterior.
+- El cuerpo y asunto siguen siendo la versión persistida al crear el mensaje; no se vuelven a renderizar con la plantilla actual. El destino externo se obtiene del usuario consultado, como antes; no se introduce versionado del correo/teléfono para mensajes históricos.
+- La revalidación es una comprobación antes del contacto externo. No bloquea las filas de cuenta, plantilla o preferencia ni puede retirar un mensaje ya aceptado. Un cambio confirmado después de la comprobación o durante la llamada externa aún puede coincidir con el envío. La visibilidad de SQL depende también del aislamiento configurado; las pruebas usan PostgreSQL con su aislamiento habitual READ COMMITTED.
+- La pausa específica de este bloque cubre NOTIFICATIONS_ENABLED en la configuración del proceso. Su valor debe ser coherente entre los workers; no es un interruptor distribuido atómico. EMAILS_ENABLED, las credenciales ausentes y fallos de SMTP mantienen la política de error/backoff anterior. Los stubs y llamadas síncronas legacy de PUSH/SMS siguen pendientes y no se presentan como integraciones completas.
+- La sesión de la cola sigue siendo dedicada, con commit por fila y rollback de la fila actual ante fallo. No se modifica el scheduler, el esquema, las migraciones, el frontend ni el comportamiento financiero.
+
+### Pruebas y revisión
+
+Se añaden **22 pruebas PostgreSQL reales** con esquemas privados test_* y proveedores sustituidos, sin contactos externos:
+
+- Desactivación confirmada de la cuenta para cada uno de los cuatro canales, y rechazo del envío inicial incluso con una instancia User antigua en memoria.
+- Revocación de cada canal externo; no reactivación automática del log tras un opt-in posterior.
+- Aislamiento de preferencias entre usuarios, eventos y canales; conservación del cuerpo y asunto persistidos para el envío permitido.
+- Plantilla inactiva o inexistente; rechazo pese a cuenta, plantilla o preferencia antiguas previamente cargadas y a un helper de caché sustituido que no se debe consultar.
+- Pausa y reanudación de EMAIL/PUSH/SMS sin consumir intentos ni contactar proveedores durante la pausa.
+- Conservación de la excepción IN_APP durante el apagado general y un opt-out del canal; compatibilidad de template_code NULL.
+- Fallo SQL real al confirmar un rechazo: rollback conserva la fila pendiente, no hubo contacto externo y otra pasada puede finalizar la decisión de política.
+
+La regresión focalizada aprueba **94 tests**, incluidos los nuevos casos, bloqueos de cola, aislamiento de hooks, despacho, correo y Fase 9. Mypy mantiene **324 errores en 52 archivos**, sin diagnósticos nuevos ni eliminados por archivo/mensaje frente a 92b36ac; se conservan comprobaciones y firmas tipadas, con adaptación localizada a los descriptores Column legacy en las asignaciones nuevas.
+
+Se verificó el CI del commit 92b36ac mediante la conexión de GitHub: pruebas backend aprobadas, fallo de Mypy, y 261 tests frontend aprobados en 27 suites con fallo por cobertura. El registro de ese job informa 16,38 % de líneas frente al umbral global de 50 %; lint, TypeScript, build y escaneo de seguridad aprobaron. Esa evidencia corresponde al commit anterior y no se presenta como CI verde de esta ampliación.
+
+### Pendientes que permanecen
+
+Siguen pendientes outbox duradero, idempotencia/conciliación por proveedor, logs iniciales ambiguos sin plazo, incrementos concurrentes de fallos de un token compartido por distintos logs, stubs PUSH/SMS y durabilidad de create_task. La validación de políticas no resuelve la entrega exactamente una vez, la revocación de JWT, los límites distribuidos, las migraciones de producción ni la deuda global de tipos/cobertura. Este bloque no fusiona ni despliega automáticamente.
+
+### Evidencia final local del bloque 40
+
+| Control | Resultado |
+|---|---|
+| Backend completo | **1094 tests aprobados** en 402,23 s; 22 nuevos frente a 1072; cuatro advertencias anteriores |
+| PostgreSQL real | **166 tests incluidos**, 22 nuevos de revalidación de políticas |
+| Redis / SMTP TLS local | **2 Redis** y **12 SMTP/TLS** de regresión incluidos |
+| Regresión focalizada | **94 tests aprobados**, incluidos políticas, bloqueos, hooks, despacho, correo y Fase 9 |
+| Mypy | **324 errores en 52 archivos**, sin nuevos ni eliminados frente a 92b36ac por archivo/mensaje; 174 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; Black comprueba 176 archivos entre app y ambas suites nuevas del PR |
+| Frontend | Sin cambios ni repetición local; CI previo 92b36ac: 261 tests/27 suites aprobados; cobertura global de líneas 16,38 %, inferior al umbral de 50 % |
+
+Se usan PostgreSQL y Redis locales desechables; no se envían correos externos. La credencial CLI de GitHub no estaba operativa al retomar el trabajo, por lo que se utiliza la conexión GitHub disponible para verificar y publicar. Se conserva la deuda de calidad y se actualiza el PR #281 listo para revisión, sin fusión ni despliegue automático.

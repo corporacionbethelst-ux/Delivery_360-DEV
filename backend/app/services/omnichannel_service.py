@@ -28,7 +28,7 @@ import re
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -328,10 +328,12 @@ class OmnichannelNotificationService:
             channels = [NotificationChannel.IN_APP]
 
         user = (
-            await self.db.execute(select(User).where(User.id == user_id))
+            await self.db.execute(
+                select(User).where(User.id == user_id, User.is_active.is_(True))
+            )
         ).scalar_one_or_none()
-        if user is None:
-            logger.warning("send(): usuario %s inexistente", user_id)
+        if user is None or not user.is_active:
+            logger.warning("Notification recipient unavailable")
             return []
 
         template = await self._get_template(template_code)
@@ -712,13 +714,53 @@ class OmnichannelNotificationService:
     async def _retry_queued_log(self, log: NotificationLog, now: datetime) -> None:
         """Update one locked row; never commit inside provider helpers."""
         user = (
-            await self.db.execute(select(User).where(User.id == log.user_id))
+            await self.db.execute(
+                select(User)
+                .where(User.id == log.user_id)
+                .execution_options(populate_existing=True)
+            )
         ).scalar_one_or_none()
         if user is None:
             log.status = OmnichannelStatus.FALLIDO
             log.error_message = "Usuario inexistente en reintento"
             # This legacy nullable Column lacks an optional instance annotation.
             setattr(log, "next_retry_at", None)
+            return
+        if not user.is_active:
+            self._stop_queued_log(log, "Cuenta inactiva en reintento")
+            return
+        if log.template_code:
+            # Read scalar policy values from SQL, bypassing template/ORM caches.
+            # A NULL template_code remains supported for legacy persisted logs.
+            active = await self.db.scalar(
+                select(NotificationTemplate.is_active).where(
+                    NotificationTemplate.code == log.template_code
+                )
+            )
+            if active is not True:
+                self._stop_queued_log(log, "Plantilla no disponible en reintento")
+                return
+            if log.channel != NotificationChannel.IN_APP:
+                enabled = await self.db.scalar(
+                    select(NotificationPreference.enabled).where(
+                        NotificationPreference.user_id == log.user_id,
+                        NotificationPreference.event_code == log.template_code,
+                        NotificationPreference.channel == log.channel,
+                    )
+                )
+                if enabled is False:
+                    self._stop_queued_log(log, "Canal deshabilitado por preferencia")
+                    return
+        if (
+            log.channel != NotificationChannel.IN_APP
+            and not settings.NOTIFICATIONS_ENABLED
+        ):
+            # An operational pause is reversible and consumes no provider attempt.
+            # Defer the scan so the same row is not reclaimed in a busy loop.
+            setattr(log, "error_message", "Reintento pausado por configuración")
+            setattr(
+                log, "next_retry_at", compute_next_retry_at(cast(int, log.retry_count))
+            )
             return
         ok = False
         if log.channel == NotificationChannel.PUSH:
@@ -758,6 +800,14 @@ class OmnichannelNotificationService:
         else:
             log.retry_count += 1
             log.next_retry_at = compute_next_retry_at(log.retry_count)
+
+    @staticmethod
+    def _stop_queued_log(log: NotificationLog, reason: str) -> None:
+        """Persist a policy rejection without claiming provider delivery."""
+        # Legacy Column descriptors lack instance assignment annotations.
+        setattr(log, "status", OmnichannelStatus.FALLIDO)
+        setattr(log, "error_message", reason)
+        setattr(log, "next_retry_at", None)
 
     async def purge_old_logs(self) -> int:
         """Retención NOTIFICATION_RETENTION_DAYS (default 30)."""
