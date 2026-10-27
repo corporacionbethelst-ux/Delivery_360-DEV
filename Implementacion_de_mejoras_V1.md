@@ -2997,3 +2997,88 @@ Permanecen pendientes el ciclo de vida y las revisiones del token ante transfere
 | Frontend | Sin cambios ni repetición local; se conserva la validación anterior de 261 tests/27 suites y la deuda de cobertura global |
 
 Se publican únicamente el servicio, la suite nueva y este informe en un PR nuevo sin borrador sobre main 14607fc. Se utiliza la conexión GitHub y se verifican los hashes del contenido y del árbol publicado frente a los locales. Recursos de prueba locales y desechables, sin mensajes externos ni operaciones sobre datos de producción. Mypy/cobertura siguen pendientes; sin fusión ni despliegue automático.
+
+## Entrega ampliada 42 — PUSH/SMS reales, ejecución asíncrona y estados verificables
+
+Fecha: 26 de octubre de 2026, America/Caracas. Se agrupan mejoras relacionadas en una entrega mayor, conforme a la petición de avanzar con más cambios por paso. Base final: main f4acfc2, fusión del PR #282. Se verificó que su árbol coincide exactamente con e503b73, base inicial del desarrollo. Rama: fix/notification-provider-hardening-v1.
+
+### Problemas corregidos conjuntamente
+
+| Área | Hallazgo anterior | Comportamiento resultante |
+|---|---|---|
+| Aceptación PUSH/SMS | Sin dispositivos, teléfono o credenciales se devolvía True y se marcaba ENVIADO | La ausencia de proveedor o destinatario conserva un fallo/reintento y nunca acredita aceptación |
+| Firebase | send_multicast retirado y credencial configurada sin inicialización explícita de app | SDK opcional diferido, aplicación nombrada propia y send_each_for_multicast sobre FCM HTTP v1 |
+| Multicast | Un envío con más de 500 tokens podía fallar por el límite del SDK | Tokens únicos en lotes de 50, dentro del límite de 500 y con fan-out interno acotado |
+| Contadores de dispositivo | Todo fallo por respuesta podía desactivar dispositivos sanos durante una caída del proveedor | Solo UnregisteredError alimenta el contador de token inválido; red/cuota/fallo de lote no lo incrementan |
+| Ejecución | Las llamadas síncronas bloqueaban el bucle de la API/scheduler | SDK en hilos, con límite compartido de operaciones por bucle y sin entregarles AsyncSession |
+| Cancelación | Abandonar un hilo permitiría liberar el log mientras el proveedor continuaba | La cancelación normal espera a que termine un SDK iniciado antes de propagarse; un solicitante cancelado esperando plaza no inicia el SDK |
+| Twilio | No se comprobaba el emisor ni se fijaba timeout explícito | Configuración completa, números internacionales validados, timeout HTTP, max_retries=0 y cierre del transporte |
+| Resultado SMS | Un SID podía contarse sin revisar estado negativo | SID no vacío y estado distinto de failed/undelivered/canceled para aceptar el envío |
+| Reintentos | PUSH/SMS mantenían una rama diferente, con diagnósticos incompletos | Se reutiliza _schedule_retry con presupuesto/backoff/agotamiento comunes y mensajes genéricos |
+| Limpieza de estado | Un éxito inicial externo podía conservar metadatos viejos; IN_APP reintentado no fijaba recepción interna | Éxito limpia error/plazo para todos los canales; IN_APP fija delivered_at al persistir su reintento |
+| Privacidad | Excepciones externas podían guardarse o registrarse con datos del SDK | Avisos y error_message genéricos, sin teléfono, token, credencial, cuerpo ni texto privado de excepción |
+| Test administrativo | sent contaba todos los registros, incluidos pendientes | sent cuenta aceptados/entregados/leídos; created, queued y failed separan el resultado real |
+
+### Organización y configuración
+
+Se introduce app/services/notification_providers.py para aislar SDK, concurrencia y transporte del servicio que posee la sesión SQL. Los helpers mantienen una respuesta booleana para SMS y un PushResult inmutable para PUSH, con aceptación y tokens no registrados. La persistencia se hace después de volver al bucle asíncrono.
+
+NOTIFICATION_PROVIDER_TIMEOUT_SECONDS admite de 1 a 60 segundos, default 10; NOTIFICATION_PROVIDER_CONCURRENCY admite de 1 a 16 operaciones activas por bucle, default 4. Las validaciones de Settings rechazan valores fuera del rango/no finitos, y el ejecutor comprueba el límite antes de iniciar hilos. El timeout es HTTP por solicitud, no un plazo máximo de toda la operación. La autenticación, los reintentos internos de Firebase y los lotes pueden durar más. La configuración debe ser coherente entre trabajadores y cambiarse mediante reinicio controlado, no interpretarse como una cuota global distribuida.
+
+Los permisos de proyecto y credenciales Firebase se inicializan de forma diferida con Certificate sobre la ruta configurada, en una app nombrada por configuración; no se pisa el app por defecto de otra integración. Una rotación del contenido en la misma ruta requiere reinicio. Los SDK siguen siendo opcionales: su ausencia no impide arrancar backend y se contiene como proveedor no disponible.
+
+backend/requirements-notifications.txt fija Firebase Admin 6.8.0 y Twilio 9.12.0. Se comprobó la resolución conjunta con requirements.txt mediante pip --dry-run. Firebase reciente exige HTTPX 0.28.1 y el runtime actual fija 0.27.0; no se altera esa dependencia en esta entrega. La versión compatible sí ofrece la API pública vigente send_each_for_multicast. Los SDK se instalaron y probaron en un entorno aislado, sin modificar el entorno base del proyecto.
+
+Se actualizan los ejemplos de entorno y se añade backend/NOTIFICATION_PROVIDERS.md con instalación, configuración, semántica de aceptación, límites y pruebas offline. No se ejecuta una activación de proveedores ni se cargan credenciales reales de producción.
+
+### Integridad de estado y compatibilidad
+
+El constructor de los logs inicializa retry_count=0 explícitamente. La primera pasada de regresión completa detectó que los dobles REST no aplicaban el default que normalmente añade SQLAlchemy durante la persistencia: el nuevo camino de reintento encontraba None. Se corrigió la inicialización del estado y se verificó el flujo REST completo; no se relajan las aserciones de fallo ni se conserva el falso éxito del stub.
+
+La persistencia del aviso IN_APP solicitado continúa de forma independiente de que falle PUSH/SMS. No se crea automáticamente otro log de bandeja para sustituir un canal externo que no lo tenía: esa garantía de fallback general queda pendiente. El apagado maestro conserva IN_APP en eventos nuevos y aplaza las filas externas ya encoladas, como en el bloque 40.
+
+ENVIADO sigue significando aceptación, no entrega al dispositivo ni lectura. En PUSH basta al menos una aceptación del multicast, como en el contrato anterior. Los lotes fallidos/malformados no borran aceptaciones de otros lotes, pero no existe aún un ledger por dispositivo ni un reintento dirigido únicamente a los que no aceptaron. No se rellenan provider_message_id ni callbacks de entrega en esta entrega.
+
+Los tokens no registrados siguen usando el umbral de tres observaciones y el helper bloqueado del bloque 41. Se evita imputar una caída transitoria a todos los dispositivos, pero no se reinicia aún el contador tras cada éxito ni se vincula un resultado tardío a la revisión/propietario que tenía el token al iniciar el envío. register-device conserva su lógica previa.
+
+La cancelación de una tarea se drena sin abandonar un SDK ya iniciado; incluye cancelaciones repetidas y errores de proveedor al terminar. Esto no proporciona fencing externo si muere el proceso o se pierde la conexión SQL. Un proveedor puede aceptar antes de un rollback y el siguiente intento duplicar: outbox, idempotencia y conciliación siguen pendientes. El cierre HTTP de Twilio se intenta siempre; un fallo de limpieza se registra de forma genérica sin borrar una aceptación ya obtenida.
+
+### Pruebas y controles de la entrega
+
+Se añaden **58 casos** respecto a 1104: **49 de adaptadores/contrato administrativo**, **7 PostgreSQL de persistencia/cancelación** y **2 con SDK instalados y transporte HTTP sustituido**. Las pruebas sin los SDK opcionales omiten únicamente estos dos contratos; se ejecutaron ambos con las versiones instaladas y la suite global se ejecuta también con ellas disponibles.
+
+- SDK/proveedor ausente, flags apagados, destinatario vacío, credenciales o emisor incompletos, formato de teléfono, timeout/límites inválidos y payload PUSH no compatible.
+- Inicialización/reutilización de Firebase, API actual, deduplicación de tokens y once lotes para 501 dispositivos; mezcla de aceptación, caída y respuesta malformada sin perder aceptaciones previas.
+- Clasificación entre UnregisteredError y fallo temporal, con persistencia PostgreSQL del umbral solo para el token reportado.
+- Aceptación/estados negativos de SMS, truncado previo, timeout/retries del cliente y cierre aun con fallo; privacidad y preservación del acuse si falla la limpieza.
+- Continuidad del bucle mientras trabaja el SDK, límite de operaciones activas, cancelación repetida que drena el hilo y cancelación de un solicitante que esperaba plaza.
+- Excepciones externas iniciales y en reintento sin diagnósticos privados guardados; presupuesto y agotamiento reales para PUSH/SMS manteniendo IN_APP.
+- Cancelación mientras un SDK trabaja: otra sesión PostgreSQL no puede reclamar ese log hasta que termina el hilo y se revierte la transacción del propietario.
+- Contadores administrativos separados por estado y contratos REST/RBAC existentes.
+
+La regresión focalizada inicial aprobó 150 tests; después de ampliar los casos y corregir la inicialización se aprobaron **85 tests** que reúnen todos los casos nuevos, los SDK reales offline y las suites de Fase 9 REST/unitarias afectadas. Mypy queda en **319 errores en 52 archivos**, cinco diagnósticos eliminados por retirar la rama duplicada de reintento y ninguno nuevo frente a la base; se mantienen firmas tipadas y controles.
+
+### Pendientes que siguen abiertos
+
+Outbox/idempotencia externa, recuperación de logs iniciales ambiguos sin plazo, fallback IN_APP general, resultado individual por dispositivo, persistencia de identificadores del proveedor y callbacks de entrega, revisión/transferencia/reactivación del token y éxito que reinicie su contador. También siguen pendientes revocación de JWT, límites distribuidos, migraciones de producción, deuda de tipos y cobertura frontend. Las credenciales, permisos y cobertura real de destinos de Firebase/Twilio requieren validación operativa autorizada posterior; esta entrega no envía mensajes externos ni despliega.
+
+### Evidencia final de la entrega ampliada 42
+
+| Control | Resultado |
+|---|---|
+| Backend completo con SDK opcionales disponibles | **1162 tests aprobados** en 463,94 s; 58 nuevos frente a 1104; cuatro advertencias previas |
+| PostgreSQL real | **182 tests incluidos**, siete nuevos de proveedores/persistencia/cancelación |
+| SDK reales con HTTP sustituido | **2 contratos incluidos**, Firebase 6.8.0 y Twilio 9.12.0; sin mensajes externos |
+| Redis / SMTP TLS local | **2 Redis** y **12 SMTP/TLS** de regresión incluidos |
+| Casos nuevos de adaptadores y contadores | **49 aprobados**; sumados a siete PostgreSQL y dos SDK completan los 58 nuevos |
+| Regresión focalizada final | **85 tests aprobados**, incluidos todos los nuevos, contratos SDK y Fase 9 REST/unitaria |
+| Mypy | **319 errores en 52 archivos**, cinco menos y ninguno nuevo por archivo/mensaje; 175 archivos de app |
+| Black / Flake8 crítico / git diff --check | Aprobados; Black comprueba 178 archivos entre app y tres suites nuevas |
+| Dependencias opcionales | Instalación aislada y resolución conjunta con runtime aprobadas; HTTPX base no se cambia |
+| Frontend | Sin cambios ni repetición local; se conserva la validación previa de 261 tests/27 suites y deuda de cobertura |
+
+La primera ejecución global se detuvo al detectar el fallo de inicialización en la regresión REST; la evidencia final corresponde a la repetición completa posterior a corregirlo y a separar los contadores administrativos. Tras el aviso de inicio del entorno se verificó de nuevo la rama, los archivos y los registros de validación, que se conservaron.
+
+Se publican catorce archivos relacionados en un único PR nuevo, listo para revisión y sin borrador. El informe y NOTIFICATION_PROVIDERS.md describen las decisiones, instalación y límites. Se comparan contenidos y árbol remoto con el commit local. No se afirma CI global verde: persisten tipos/cobertura. Sin fusión, despliegue, mensajes externos, migraciones ni operaciones sobre datos de producción.
+
+La revisión automática rechazó la subida inicial de .env.example porque el archivo incluía una SECRET_KEY y credenciales de base de datos escritas. Se corrigió el contenido de ambos ejemplos antes de publicar: se vacían claves, contraseñas, usuarios de conexión y URL de BD para completarlos fuera del repositorio, conservando los valores no secretos de duración de tokens. No se cambia ningún .env real ni el código de ejecución probado. La corrección afecta únicamente plantillas/documentación y se valida mediante diff y comprobación de campos sensibles vacíos; la publicación usa ese contenido saneado.

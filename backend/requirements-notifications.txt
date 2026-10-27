@@ -1,0 +1,5 @@
+# Optional PUSH/SMS runtime. Install together with requirements.txt.
+# Firebase 6.8 supports send_each_for_multicast without forcing HTTPX 0.28,
+# which conflicts with HTTPX 0.27 pinned in the current requirements.txt.
+firebase-admin==6.8.0
+twilio==9.12.0

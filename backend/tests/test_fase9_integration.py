@@ -249,7 +249,8 @@ def test_send_ok_for_manager_and_superadmin(client):
         assert r.status_code == 200, (role, r.text)
         body = r.json()
         assert body["status"] == "ok"
-        assert body["sent"] >= 1
+        assert body["created"] >= 1
+        assert body["sent"] + body["queued"] + body["failed"] == body["created"]
         assert all(lg["status"] in {"ENVIADO", "PENDIENTE", "LEIDO"}
                    for lg in body["logs"])
 

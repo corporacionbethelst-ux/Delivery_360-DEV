@@ -4,9 +4,9 @@ Fase 9 — Servicio omnicanal de notificaciones (Delivery360).
 DISEÑO:
 - No reemplaza al NotificationService legacy (tabla `notifications`, usado por
   alertas operacionales); conviven. Este servicio escribe en notification_logs.
-- Providers firebase-admin / twilio son OPCIONALES (import
-  try/except, patrón OR-Tools de Fase 8). Sin credenciales → fallback IN_APP
-  para PUSH/SMS. EMAIL usa SMTP real y reintento ante fallo, sin éxito simulado.
+- Providers firebase-admin / twilio son OPCIONALES y se cargan al utilizarlos.
+  Sin aceptación externa → reintento, nunca éxito simulado. IN_APP conserva
+  su persistencia independiente; no se inventa una entrega sustituta.
 - Redis async SOLO vía `from redis import asyncio as aioredis` (regla heredada).
 - Plantillas cacheadas en Redis TTL 1h con fallback a DB si Redis está caído.
 - Dedupe: hash(template_code+entity_id+ventana_5min) → skippa reenvíos <5 min.
@@ -45,25 +45,9 @@ from app.models.notification import (
     UserDeviceToken,
 )
 from app.models.user import User
+from app.services.notification_providers import send_push, send_sms
 
 logger = logging.getLogger(__name__)
-
-# Imports opcionales de providers (patrón OR-Tools Fase 8) ───────────────────
-try:  # pragma: no cover - depende de entorno
-    from firebase_admin import messaging as fcm_messaging  # type: ignore
-
-    FCM_AVAILABLE = True
-except Exception:  # ImportError u otros
-    fcm_messaging = None
-    FCM_AVAILABLE = False
-
-try:  # pragma: no cover
-    from twilio.rest import Client as TwilioClient  # type: ignore
-
-    TWILIO_AVAILABLE = True
-except Exception:
-    TwilioClient = None
-    TWILIO_AVAILABLE = False
 
 # Redis async NATIVO (redis>=5). PROHIBIDO el paquete deprecado `aioredis`.
 try:  # pragma: no cover
@@ -394,6 +378,7 @@ class OmnichannelNotificationService:
                 payout_id=payout_id,
                 channel=ch,
                 status=OmnichannelStatus.PENDIENTE,
+                retry_count=0,
                 payload_json=json.dumps(context, default=str),
                 dedupe_key=key,
                 title=notif_title[:255],
@@ -513,22 +498,21 @@ class OmnichannelNotificationService:
             if ok:
                 log.status = OmnichannelStatus.ENVIADO
                 log.sent_at = utc_now_naive()
-                if log.channel == NotificationChannel.EMAIL:
-                    # Legacy models use unparameterized Column attributes.
-                    email_log: Any = log
-                    email_log.next_retry_at = None
-                    email_log.error_message = None
+                # Legacy models use unparameterized Column attributes.
+                sent_log: Any = log
+                sent_log.next_retry_at = None
+                sent_log.error_message = None
                 if log.channel == NotificationChannel.IN_APP:
                     log.delivered_at = log.sent_at
             else:
                 self._schedule_retry(log, "Provider reportó fallo")
-        except Exception as exc:
+        except Exception:
             if log.channel == NotificationChannel.EMAIL:
                 logger.warning("Notification SMTP dispatch failed")
                 self._schedule_retry(log, "SMTP dispatch failed")
             else:
-                logger.error("Dispatch %s falló: %s", log.channel, exc)
-                self._schedule_retry(log, str(exc))
+                logger.warning("Notification external dispatch failed")
+                self._schedule_retry(log, "External dispatch failed")
         await self.db.commit()
 
     def _schedule_retry(self, log: NotificationLog, error: str) -> None:
@@ -553,48 +537,21 @@ class OmnichannelNotificationService:
         body: str,
         data: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        if not device_tokens:
-            # Sin dispositivos → simular éxito stub (el IN_APP cubre la bandeja)
-            logger.debug("PUSH sin tokens: fallback stub")
-            return True
-        if not (FCM_AVAILABLE and settings.FCM_CREDENTIALS_JSON_PATH):
-            logger.debug("FCM no configurado → provider='stub'")
-            return True
-        try:  # pragma: no cover - requiere credenciales reales
-            msg = fcm_messaging.MulticastMessage(
-                tokens=device_tokens,
-                notification=fcm_messaging.Notification(title=title, body=body),
-                data=data or {},
-            )
-            resp = fcm_messaging.send_multicast(msg)
-            failed_idx = [i for i, r in enumerate(resp.responses) if not r.success]
-            if failed_idx:
-                await self._mark_token_failures([device_tokens[i] for i in failed_idx])
-            return resp.success_count > 0
-        except Exception as exc:
-            logger.error("FCM error: %s", exc)
+        try:
+            result = await send_push(device_tokens, title, body, data or {})
+        except Exception:
+            logger.warning("Notification PUSH dispatch failed")
             return False
+        # SQL stays on the owning event loop; SDK threads never receive sessions.
+        if result.invalid_tokens:
+            await self._mark_token_failures(list(result.invalid_tokens))
+        return result.accepted
 
     async def dispatch_sms(self, phone: Optional[str], message: str) -> bool:
-        if not phone:
-            return True  # nada que enviar, no es fallo duro
-        if not (
-            TWILIO_AVAILABLE
-            and settings.TWILIO_ACCOUNT_SID
-            and settings.TWILIO_AUTH_TOKEN
-        ):
-            logger.debug("Twilio no configurado → provider='stub'")
-            return True
-        try:  # pragma: no cover
-            client = TwilioClient(
-                settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN
-            )
-            msg = client.messages.create(
-                body=message[:1600], from_=settings.TWILIO_FROM_NUMBER, to=phone
-            )
-            return bool(msg.sid)
-        except Exception as exc:
-            logger.error("Twilio error: %s", exc)
+        try:
+            return await send_sms(phone, message)
+        except Exception:
+            logger.warning("Notification SMS dispatch failed")
             return False
 
     async def dispatch_email(self, to: Optional[str], subject: str, html: str) -> bool:
@@ -789,20 +746,23 @@ class OmnichannelNotificationService:
         else:
             ok = True
 
-        if not ok and log.channel == NotificationChannel.EMAIL:
-            self._schedule_retry(log, "SMTP unavailable or failed")
+        if not ok:
+            self._schedule_retry(
+                log,
+                (
+                    "SMTP unavailable or failed"
+                    if log.channel == NotificationChannel.EMAIL
+                    else "External provider unavailable or failed"
+                ),
+            )
             return
         if ok:
             log.status = OmnichannelStatus.ENVIADO
             log.sent_at = now
             log.next_retry_at = None
             log.error_message = None
-        elif log.retry_count >= int(settings.NOTIFICATION_MAX_RETRIES):
-            log.status = OmnichannelStatus.FALLIDO
-            log.next_retry_at = None
-        else:
-            log.retry_count += 1
-            log.next_retry_at = compute_next_retry_at(log.retry_count)
+            if log.channel == NotificationChannel.IN_APP:
+                setattr(log, "delivered_at", now)
 
     @staticmethod
     def _stop_queued_log(log: NotificationLog, reason: str) -> None:

@@ -416,17 +416,23 @@ async def test_send(
         context,
         channels=body.channels,
     )
+    items = [
+        {
+            "id": str(log.id),
+            "channel": getattr(log.channel, "value", str(log.channel)),
+            "status": getattr(log.status, "value", str(log.status)),
+        }
+        for log in logs
+    ]
     return {
         "status": "ok",
-        "sent": len(logs),
-        "logs": [
-            {
-                "id": str(l.id),
-                "channel": getattr(l.channel, "value", str(l.channel)),
-                "status": getattr(l.status, "value", str(l.status)),
-            }
-            for l in logs
-        ],
+        "created": len(items),
+        "sent": sum(
+            item["status"] in {"ENVIADO", "ENTREGADO", "LEIDO"} for item in items
+        ),
+        "queued": sum(item["status"] == "PENDIENTE" for item in items),
+        "failed": sum(item["status"] == "FALLIDO" for item in items),
+        "logs": items,
     }
 
 
