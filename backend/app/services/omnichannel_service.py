@@ -28,7 +28,7 @@ import re
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -328,10 +328,12 @@ class OmnichannelNotificationService:
             channels = [NotificationChannel.IN_APP]
 
         user = (
-            await self.db.execute(select(User).where(User.id == user_id))
+            await self.db.execute(
+                select(User).where(User.id == user_id, User.is_active.is_(True))
+            )
         ).scalar_one_or_none()
-        if user is None:
-            logger.warning("send(): usuario %s inexistente", user_id)
+        if user is None or not user.is_active:
+            logger.warning("Notification recipient unavailable")
             return []
 
         template = await self._get_template(template_code)
@@ -637,7 +639,8 @@ class OmnichannelNotificationService:
                     t.device_token[:12],
                     t.failure_count,
                 )
-        await self.db.commit()
+        # The dispatch/retry owner commits token changes with the log result.
+        await self.db.flush()
 
     # ------------------------------------------------------------------
     # Pub/Sub fan-out WS
@@ -665,83 +668,146 @@ class OmnichannelNotificationService:
     # Jobs periódicos
     # ------------------------------------------------------------------
     async def process_retry_queue(self, batch_size: int = 50) -> int:
-        """Reintenta logs PENDIENTE con next_retry_at vencido. Devuelve procesados."""
+        """Claim/finish each due row before continuing; use a dedicated session.
+
+        PostgreSQL SKIP LOCKED excludes other cooperating workers while the
+        transaction lives. SQLite tests exercise only sequential behavior.
+        """
+        if type(batch_size) is not int or not 1 <= batch_size <= 100:
+            raise ValueError("batch_size must be an integer between 1 and 100")
         now = utc_now_naive()
-        rows = (
-            (
-                await self.db.execute(
+        processed_ids: List[uuid.UUID] = []
+        try:
+            for _ in range(batch_size):
+                result = await self.db.execute(
                     select(NotificationLog)
                     .where(
                         NotificationLog.status == OmnichannelStatus.PENDIENTE,
                         NotificationLog.next_retry_at.is_not(None),
                         NotificationLog.next_retry_at <= now,
+                        NotificationLog.id.not_in(processed_ids),
                     )
-                    .order_by(NotificationLog.next_retry_at)
-                    .limit(batch_size)
+                    .order_by(NotificationLog.next_retry_at, NotificationLog.id)
+                    .limit(1)
+                    .with_for_update(skip_locked=True, of=NotificationLog)
+                    .execution_options(populate_existing=True)
+                )
+                log = result.scalar_one_or_none()
+                if log is None:
+                    # Finish the empty scan transaction without expiring records.
+                    await self.db.commit()
+                    break
+                log_id = uuid.UUID(str(log.id))
+                await self._retry_queued_log(log, now)
+                await self.db.commit()
+                processed_ids.append(log_id)
+            return len(processed_ids)
+        except BaseException:
+            # Cancellation and SQL/provider exceptions must release this row.
+            # Previously confirmed rows remain committed.
+            try:
+                await self.db.rollback()
+            except Exception:
+                logger.error("Notification retry rollback failed")
+            raise
+
+    async def _retry_queued_log(self, log: NotificationLog, now: datetime) -> None:
+        """Update one locked row; never commit inside provider helpers."""
+        user = (
+            await self.db.execute(
+                select(User)
+                .where(User.id == log.user_id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        if user is None:
+            log.status = OmnichannelStatus.FALLIDO
+            log.error_message = "Usuario inexistente en reintento"
+            # This legacy nullable Column lacks an optional instance annotation.
+            setattr(log, "next_retry_at", None)
+            return
+        if not user.is_active:
+            self._stop_queued_log(log, "Cuenta inactiva en reintento")
+            return
+        if log.template_code:
+            # Read scalar policy values from SQL, bypassing template/ORM caches.
+            # A NULL template_code remains supported for legacy persisted logs.
+            active = await self.db.scalar(
+                select(NotificationTemplate.is_active).where(
+                    NotificationTemplate.code == log.template_code
                 )
             )
-            .scalars()
-            .all()
-        )
-
-        processed = 0
-        for log in rows:
-            user = (
-                await self.db.execute(select(User).where(User.id == log.user_id))
-            ).scalar_one_or_none()
-            if user is None:
-                log.status = OmnichannelStatus.FALLIDO
-                log.error_message = "Usuario inexistente en reintento"
-                await self.db.commit()
-                continue
-            template = None
-            if log.template_code:
-                template = await self._get_template(log.template_code)
-            ok = False
-            if log.channel == NotificationChannel.PUSH:
-                tokens = (
-                    (
-                        await self.db.execute(
-                            select(UserDeviceToken).where(
-                                UserDeviceToken.user_id == user.id,
-                                UserDeviceToken.is_active.is_(True),
-                            )
+            if active is not True:
+                self._stop_queued_log(log, "Plantilla no disponible en reintento")
+                return
+            if log.channel != NotificationChannel.IN_APP:
+                enabled = await self.db.scalar(
+                    select(NotificationPreference.enabled).where(
+                        NotificationPreference.user_id == log.user_id,
+                        NotificationPreference.event_code == log.template_code,
+                        NotificationPreference.channel == log.channel,
+                    )
+                )
+                if enabled is False:
+                    self._stop_queued_log(log, "Canal deshabilitado por preferencia")
+                    return
+        if (
+            log.channel != NotificationChannel.IN_APP
+            and not settings.NOTIFICATIONS_ENABLED
+        ):
+            # An operational pause is reversible and consumes no provider attempt.
+            # Defer the scan so the same row is not reclaimed in a busy loop.
+            setattr(log, "error_message", "Reintento pausado por configuración")
+            setattr(
+                log, "next_retry_at", compute_next_retry_at(cast(int, log.retry_count))
+            )
+            return
+        ok = False
+        if log.channel == NotificationChannel.PUSH:
+            tokens = (
+                (
+                    await self.db.execute(
+                        select(UserDeviceToken).where(
+                            UserDeviceToken.user_id == user.id,
+                            UserDeviceToken.is_active.is_(True),
                         )
                     )
-                    .scalars()
-                    .all()
                 )
-                ok = await self.dispatch_push(
-                    [t.device_token for t in tokens], log.title or "", log.body or ""
-                )
-            elif log.channel == NotificationChannel.SMS:
-                ok = await self.dispatch_sms(user.phone, log.body or "")
-            elif log.channel == NotificationChannel.EMAIL:
-                ok = await self.dispatch_email(
-                    user.email, log.title or "", log.body or ""
-                )
-            else:
-                ok = True
+                .scalars()
+                .all()
+            )
+            ok = await self.dispatch_push(
+                [t.device_token for t in tokens], log.title or "", log.body or ""
+            )
+        elif log.channel == NotificationChannel.SMS:
+            ok = await self.dispatch_sms(user.phone, log.body or "")
+        elif log.channel == NotificationChannel.EMAIL:
+            ok = await self.dispatch_email(user.email, log.title or "", log.body or "")
+        else:
+            ok = True
 
-            if not ok and log.channel == NotificationChannel.EMAIL:
-                self._schedule_retry(log, "SMTP unavailable or failed")
-                processed += 1
-                continue
-            if ok:
-                log.status = OmnichannelStatus.ENVIADO
-                log.sent_at = now
-                log.next_retry_at = None
-                log.error_message = None
-            elif log.retry_count >= int(settings.NOTIFICATION_MAX_RETRIES):
-                log.status = OmnichannelStatus.FALLIDO
-                log.next_retry_at = None
-            else:
-                log.retry_count += 1
-                log.next_retry_at = compute_next_retry_at(log.retry_count)
-            processed += 1
-        if processed:
-            await self.db.commit()
-        return processed
+        if not ok and log.channel == NotificationChannel.EMAIL:
+            self._schedule_retry(log, "SMTP unavailable or failed")
+            return
+        if ok:
+            log.status = OmnichannelStatus.ENVIADO
+            log.sent_at = now
+            log.next_retry_at = None
+            log.error_message = None
+        elif log.retry_count >= int(settings.NOTIFICATION_MAX_RETRIES):
+            log.status = OmnichannelStatus.FALLIDO
+            log.next_retry_at = None
+        else:
+            log.retry_count += 1
+            log.next_retry_at = compute_next_retry_at(log.retry_count)
+
+    @staticmethod
+    def _stop_queued_log(log: NotificationLog, reason: str) -> None:
+        """Persist a policy rejection without claiming provider delivery."""
+        # Legacy Column descriptors lack instance assignment annotations.
+        setattr(log, "status", OmnichannelStatus.FALLIDO)
+        setattr(log, "error_message", reason)
+        setattr(log, "next_retry_at", None)
 
     async def purge_old_logs(self) -> int:
         """Retención NOTIFICATION_RETENTION_DAYS (default 30)."""
