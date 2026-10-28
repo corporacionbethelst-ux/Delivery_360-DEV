@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 import pytest
+from anyio.from_thread import start_blocking_portal
 from sqlalchemy import update, delete
 from starlette.websockets import WebSocketDisconnect
 from tests.test_tracking_permissions import sockets, clean  # noqa: F401
@@ -331,22 +332,32 @@ async def test_foreign_or_invalid_redis_event_is_not_delivered(inbox, kind):
 
 
 @pytest.mark.asyncio
-async def test_two_sockets_receive_one_copy_each_without_cross_broadcast(inbox):
+async def test_two_sockets_receive_one_copy_each_without_cross_broadcast(
+    inbox, monkeypatch
+):
     client, _, ids, manager, broker = inbox
-    with client.websocket_connect(address(ids)) as first:
-        first.receive_json()
-        with client.websocket_connect(address(ids)) as second:
-            second.receive_json()
-            first.portal.call(
-                broker.publish,
-                topic(ids),
-                {"type": "NEW_NOTIFICATION", "id": str(ids["own_log"])},
-            )
-            assert first.receive_json()["id"] == str(ids["own_log"])
-            assert second.receive_json()["id"] == str(ids["own_log"])
-            for socket in [first, second]:
-                socket.send_json({"type": "ping"})
-                assert socket.receive_json() == {"type": "pong"}
+    # Model a single ASGI worker: separate TestClient portals otherwise run each
+    # socket and the shared manager/database on competing event-loop threads.
+    # Starting a portal directly avoids running the application's real lifespan.
+    with start_blocking_portal() as portal:
+        monkeypatch.setattr(client, "portal", portal)
+        with client.websocket_connect(address(ids)) as first:
+            first.receive_json()
+            with client.websocket_connect(address(ids)) as second:
+                second.receive_json()
+                assert first.portal is second.portal is portal
+                assert len(broker.subscribers) == 2
+                assert all(topic(ids) in sub.topics for sub in broker.subscribers)
+                first.portal.call(
+                    broker.publish,
+                    topic(ids),
+                    {"type": "NEW_NOTIFICATION", "id": str(ids["own_log"])},
+                )
+                assert first.receive_json()["id"] == str(ids["own_log"])
+                assert second.receive_json()["id"] == str(ids["own_log"])
+                for socket in [first, second]:
+                    socket.send_json({"type": "ping"})
+                    assert socket.receive_json() == {"type": "pong"}
     clean(manager)
     broker.assert_closed()
 

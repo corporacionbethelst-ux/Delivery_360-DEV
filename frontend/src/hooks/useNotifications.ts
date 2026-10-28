@@ -3,7 +3,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getStoredTokens } from '@/lib/api';
-import { useAuthStore } from '@/stores/authStore';
+import {
+  useRealtimeIdentity,
+  currentRealtimeIdentity,
+  RealtimeIdentity,
+} from '@/hooks/useRealtimeIdentity';
+import { realtimeUrl } from '@/lib/realtime-client';
+import { RequestScope } from '@/lib/request-scope';
 
 export interface InboxNotification {
   id: string;
@@ -23,11 +29,12 @@ interface UseNotificationsOptions {
   pollFallbackSec?: number;
   inboxSize?: number;
 }
-interface Session {
-  userId: string;
-  revision: number;
+interface Session extends RealtimeIdentity {
   sequence: number;
-  requests: Set<AbortController>;
+  mutationEpoch: number;
+  requests: RequestScope;
+  inboxRequests: RequestScope;
+  refreshTimer?: ReturnType<typeof setTimeout>;
 }
 interface Snapshot {
   session: Session | null;
@@ -39,15 +46,6 @@ interface Snapshot {
 const empty = { items: [], unreadCount: 0, isConnected: false, error: null };
 const apiBase = () =>
   (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '');
-function wsBase(): string {
-  return (
-    process.env.NEXT_PUBLIC_NOTIFICATIONS_WS ||
-    process.env.WS_BASE_URL ||
-    apiBase().replace(/^http/, 'ws')
-  )
-    .replace(/\/notifications\/ws\/?$/, '')
-    .replace(/\/$/, '');
-}
 const validCount = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 
@@ -60,19 +58,15 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     pollFallbackSec = 60,
     inboxSize = 10,
   } = options;
-  const userId = useAuthStore((s) => (s.isAuthenticated ? s.user?.id : null));
-  const revision = useAuthStore((s) => s.sessionRevision);
+  const { userId, revision, generation, tokenRevision } = useRealtimeIdentity();
   const sessionRef = useRef<Session | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot>({ ...empty, session: null });
 
   const current = useCallback((session: Session, token?: string) => {
-    const auth = useAuthStore.getState();
     return (
       sessionRef.current === session &&
-      auth.isAuthenticated &&
-      auth.user?.id === session.userId &&
-      auth.sessionRevision === session.revision &&
+      currentRealtimeIdentity(session) &&
       (!token || getStoredTokens().accessToken === token)
     );
   }, []);
@@ -89,18 +83,28 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
 
   const refreshInbox = useCallback(async () => {
     const session = sessionRef.current;
+    if (
+      !session ||
+      session.userId !== userId ||
+      session.revision !== revision ||
+      session.generation !== generation ||
+      session.tokenRevision !== tokenRevision
+    )
+      return;
     const token = getStoredTokens().accessToken;
     if (!session || !token || !current(session, token)) return;
     const sequence = ++session.sequence;
-    const controller = new AbortController();
-    session.requests.add(controller);
+    session.inboxRequests.cancelAll();
+    const requests = (session.inboxRequests = new RequestScope());
     try {
-      const response = await fetch(`${apiBase()}/notifications/inbox?page=1&size=${inboxSize}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: controller.signal,
+      const data = await requests.run(async (signal) => {
+        const response = await fetch(`${apiBase()}/notifications/inbox?page=1&size=${inboxSize}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal,
+        });
+        if (!response.ok) throw new Error('inbox unavailable');
+        return response.json();
       });
-      if (!response.ok) throw new Error('inbox unavailable');
-      const data = await response.json();
       if (!current(session, token) || sequence !== session.sequence) return;
       const items = Array.isArray(data.items)
         ? data.items
@@ -117,19 +121,26 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
         error: null,
       }));
     } catch {
-      if (current(session, token) && sequence === session.sequence && !controller.signal.aborted) {
+      if (current(session, token) && sequence === session.sequence) {
         update(session, (previous) => ({ ...previous, error: 'No se pudo actualizar el inbox' }));
       }
-    } finally {
-      session.requests.delete(controller);
     }
-  }, [inboxSize, current, update]);
+  }, [inboxSize, current, update, userId, revision, generation, tokenRevision]);
 
   const markRead = useCallback(
     async (id: string) => {
       const session = sessionRef.current;
+      if (
+        !session ||
+        session.userId !== userId ||
+        session.revision !== revision ||
+        session.generation !== generation ||
+        session.tokenRevision !== tokenRevision
+      )
+        return;
       const token = getStoredTokens().accessToken;
       if (!id || !session || !token || !current(session, token)) return;
+      const mutationEpoch = session.mutationEpoch;
       ++session.sequence;
       update(session, (previous) => {
         const wasUnread = previous.items.some((n) => n.id === id && n.status !== 'LEIDO');
@@ -141,36 +152,65 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
           unreadCount: Math.max(0, previous.unreadCount - (wasUnread ? 1 : 0)),
         };
       });
-      const controller = new AbortController();
-      session.requests.add(controller);
       try {
-        const response = await fetch(`${apiBase()}/notifications/${encodeURIComponent(id)}/read`, {
-          method: 'PATCH',
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
+        await session.requests.run(async (signal) => {
+          const response = await fetch(
+            `${apiBase()}/notifications/${encodeURIComponent(id)}/read`,
+            {
+              method: 'PATCH',
+              headers: { Authorization: `Bearer ${token}` },
+              signal,
+            }
+          );
+          if (!response.ok) throw new Error('read unavailable');
         });
-        if (!response.ok) throw new Error('read unavailable');
+        if (
+          current(session, token) &&
+          mutationEpoch === session.mutationEpoch &&
+          !session.refreshTimer
+        ) {
+          session.refreshTimer = setTimeout(() => {
+            session.refreshTimer = undefined;
+            if (current(session)) void refreshInbox();
+          }, 50);
+        }
       } catch {
-        if (current(session, token) && !controller.signal.aborted) void refreshInbox();
-      } finally {
-        session.requests.delete(controller);
+        if (current(session, token) && mutationEpoch === session.mutationEpoch) void refreshInbox();
       }
     },
-    [current, update, refreshInbox]
+    [current, update, refreshInbox, userId, revision, generation, tokenRevision]
   );
 
   useEffect(() => {
     if (!enabled || !userId || typeof window === 'undefined') return;
-    const session: Session = { userId, revision, sequence: 0, requests: new Set() };
+    const session: Session = {
+      userId,
+      revision,
+      generation,
+      tokenRevision,
+      sequence: 0,
+      mutationEpoch: 0,
+      requests: new RequestScope(),
+      inboxRequests: new RequestScope(),
+    };
+    if (!currentRealtimeIdentity(session) || !getStoredTokens().accessToken) return;
     sessionRef.current = session;
-    setSnapshot({ ...empty, session });
+    setSnapshot((previous) =>
+      previous.session?.userId === userId &&
+      previous.session.revision === revision &&
+      previous.session.generation === generation
+        ? { ...previous, session, isConnected: false, error: null }
+        : { ...empty, session }
+    );
     let retries = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+    let openTimer: ReturnType<typeof setTimeout> | undefined;
     let pollingRequired = true;
     let socketToken: string | null = null;
     let policyClosed = false;
     const disconnect = () => {
+      clearTimeout(openTimer);
       clearInterval(heartbeatTimer);
       heartbeatTimer = undefined;
       const socket = wsRef.current;
@@ -202,7 +242,7 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
       if (!token) return;
       let socket: WebSocket;
       try {
-        socket = new WebSocket(`${wsBase()}/notifications/ws?token=${encodeURIComponent(token)}`);
+        socket = new WebSocket(realtimeUrl('notifications', token));
       } catch {
         update(session, (previous) => ({
           ...previous,
@@ -213,8 +253,20 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
       }
       wsRef.current = socket;
       const live = () => wsRef.current === socket && current(session, token);
+      openTimer = setTimeout(() => {
+        if (!live()) return;
+        disconnect();
+        pollingRequired = true;
+        update(session, (previous) => ({
+          ...previous,
+          isConnected: false,
+          error: 'La conexión de notificaciones no respondió',
+        }));
+        scheduleReconnect();
+      }, 10000);
       socket.onopen = () => {
         if (!live()) return;
+        clearTimeout(openTimer);
         retries = 0;
         update(session, (previous) => ({ ...previous, isConnected: true, error: null }));
         clearInterval(heartbeatTimer);
@@ -270,7 +322,11 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
               };
             });
             // A fresh SQL snapshot also recovers history when this event overtook the initial request.
-            void refreshInbox();
+            if (!session.refreshTimer)
+              session.refreshTimer = setTimeout(() => {
+                session.refreshTimer = undefined;
+                if (current(session)) void refreshInbox();
+              }, 50);
           }
         } catch {
           /* Malformed events cannot replace the inbox. */
@@ -285,11 +341,26 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
       };
       socket.onclose = (event) => {
         if (!live()) return;
+        disconnect();
         pollingRequired = true;
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = undefined;
-        policyClosed = event.code === 1008;
-        update(session, (previous) => ({ ...previous, isConnected: false }));
+        policyClosed = [1008, 4001].includes(event.code);
+        if (policyClosed) {
+          ++session.sequence;
+          ++session.mutationEpoch;
+          session.inboxRequests.cancelAll();
+          session.inboxRequests = new RequestScope();
+          session.requests.cancelAll();
+          session.requests = new RequestScope();
+          clearTimeout(session.refreshTimer);
+          session.refreshTimer = undefined;
+        }
+        update(session, (previous) => ({
+          ...previous,
+          isConnected: false,
+          ...(policyClosed
+            ? { items: [], unreadCount: 0, error: 'La sesión de notificaciones no está autorizada' }
+            : {}),
+        }));
         scheduleReconnect();
       };
     };
@@ -307,8 +378,9 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     return () => {
       if (sessionRef.current === session) sessionRef.current = null;
       ++session.sequence;
-      session.requests.forEach((controller) => controller.abort());
-      session.requests.clear();
+      session.requests.cancelAll();
+      session.inboxRequests.cancelAll();
+      clearTimeout(session.refreshTimer);
       clearTimeout(reconnectTimer);
       clearInterval(pollTimer);
       disconnect();
@@ -317,6 +389,8 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     enabled,
     userId,
     revision,
+    generation,
+    tokenRevision,
     maxRetries,
     heartbeatSec,
     pollFallbackSec,
@@ -330,13 +404,14 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     enabled &&
     userId &&
     snapshot.session?.userId === userId &&
-    snapshot.session?.revision === revision
+    snapshot.session?.revision === revision &&
+    snapshot.session?.generation === generation
       ? snapshot
       : empty;
   return {
     items: visible.items,
     unreadCount: visible.unreadCount,
-    isConnected: visible.isConnected,
+    isConnected: visible.isConnected && snapshot.session?.tokenRevision === tokenRevision,
     error: visible.error,
     markRead,
     refreshInbox,

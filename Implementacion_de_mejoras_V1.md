@@ -3331,3 +3331,180 @@ La ejecución completa con cobertura aprueba los 544 tests y las 40 suites, pero
 Se repite TypeScript después del build porque una pasada ejecutada en paralelo con Next encontró archivos .next/types ausentes durante su regeneración. El chequeo aislado final pasa. Se unifica la limpieza del hook y se retira un incremento de secuencia redundante; cada setup ya invalida la secuencia anterior y alive bloquea el trabajo desmontado. La regresión de disable/unmount/StrictMode y el caso de storage externo pasan sobre esa versión, sin ocultar la advertencia de lint mediante comentarios.
 
 Se publican veinte archivos relacionados sobre main aa013e6 en un único PR listo para revisión, sin borrador. El contenido de blobs y árbol se compara con el local y se alinea el commit exacto. CI de #286: tests backend y seguridad aprobados; fallaron tipos backend y etapa frontend de tests/cobertura. El CI nuevo se informa por separado. No hay migración, fusión ni despliegue automático y no se declara CI global verde o producción al 100 %.
+
+
+## Entrega ampliada 47 — Ciclo de vida de tiempo real, consistencia del mapa e inbox
+
+Fecha: 27 de octubre de 2026, America/Caracas (28 de octubre UTC). Base main
+e24d6d6b4dd3a860e109421df75d4c260f2d5149, fusión de #287. Se verificó que su árbol
+904a98b1a3374741947538d997c52184525c030e coincide con el código de la entrega 46.
+Rama local: fix/realtime-client-session-lifecycle-v1. Se agrupan transportes
+activos, adaptación de coordenadas/fechas, polling, reconciliación de inbox y
+pruebas relacionadas; no se cambia lógica de producción de backend.
+
+### Problemas comprobados en el código
+
+1. El tracking tenía una URL/configuración incompatible con el flag true/false
+   usado por la pantalla; sus callbacks, posiciones y reconexión no estaban
+   vinculados completamente al usuario verificado y generación de credenciales.
+   Una conexión todavía en apertura y callbacks conservados requerían retiro
+   explícito al desmontar o renovar el token.
+2. El inbox esperaba al polling para adoptar un bearer renovado. Las lecturas y
+   mutaciones sin plazo completo podían quedar pendientes; cada evento podía
+   disparar una lectura adicional. Un ACK PATCH tardío y un GET pendiente podían
+   actuar después de un cierre de política. Una acción pública guardada podía
+   leer el ref de una sesión nueva en lugar de conservar el ámbito de su caller.
+3. El mapa escribía resultados de repartidores/pedidos por separado, sin secuencia
+   común ni guard de sesión/montaje. La velocidad de polling dependía del flag
+   habilitado aunque la conexión hubiera fallado. Una respuesta REST podía
+   sobrescribir una posición WS más reciente y perder metadatos de contacto.
+4. Las coordenadas se evaluaban con operadores que descartaban cero o convertían
+   ausencia en número. Se mostraban fechas fabricadas o dependientes de la zona
+   del navegador. El servicio de tracking guarda UTC sin tzinfo y emite isoformat:
+   tracking_service.py crea datetime.now(timezone.utc).replace(tzinfo=None).
+   Interpretar ese formato como hora local altera el orden REST/WS. El estado
+   RECOLECTADO quedaba fuera de los pedidos activos de esta pantalla.
+5. Un 403 de riderService se convierte en ServiceError con propiedad status. Un
+   clasificador que solo mirase AxiosError conservaría datos antiguos ante ese
+   rechazo. Se verificó el comportamiento con el servicio e interceptores reales.
+6. La revisión de CI de #287 detectó un fallo adicional que no se debe confundir
+   con la deuda de tipos/cobertura: test_two_sockets_receive_one_copy_each_without_
+   cross_broadcast agotó los diez segundos del broker simulado. El resumen remoto
+   fue 1204 aprobados, 2 omitidos y 1 fallo. El caso aislado original pasa localmente;
+   no se afirma haber reproducido o eliminado definitivamente el fallo remoto.
+
+### Implementación y comportamiento resultante
+
+- auth-session incorpora una revisión/señal independiente para rotaciones válidas
+  del access token. Solo se emite después de persistir el par; se aíslan fallos de
+  suscriptores. No se invalida la generación ni se vacían los stores de negocio por
+  un refresh propio correcto. useRealtimeIdentity combina esa revisión con usuario
+  activo, revisión del perfil y generación, sin divulgar credenciales a listeners.
+- Tracking e inbox retiran inmediatamente el socket antiguo al renovar. Validan
+  identidad, credencial e instancia antes de actuar y limpian sockets CONNECTING,
+  timers y handlers. Los datos de otra sesión quedan ocultos en render. Las acciones
+  públicas guardadas tampoco pueden iniciar operaciones como una cuenta nueva.
+- realtime-client centraliza URLs de las rutas reales /tracking/ws/{channel} y
+  /notifications/ws. Conserva prefijos de API, convierte HTTP/HTTPS a WS/WSS,
+  interpreta los flags históricos, codifica parámetros y rechaza esquemas ajenos,
+  userinfo, query/hash base o contenido mixto inseguro. Canales dashboard/rider/order
+  se validan contra el contrato montado. No se imprime la URL con JWT.
+- Tracking tiene plazo de apertura por defecto de 10 segundos y reintentos
+  exponenciales hasta 15 segundos de espera; el presupuesto se reinicia al recibir
+  CONNECTED. La reconexión manual cancela primero el intento anterior. Los cierres
+  1008/4001 retiran posiciones/última actualización sin reintento automático. Se
+  conserva ping/latencia y se corrige el caso del reloj de rendimiento en cero.
+- Los mensajes de tracking validan coordenadas finitas y rangos geográficos,
+  identificador, fecha y magnitudes opcionales. La colección conserva como máximo
+  1000 repartidores por defecto, configurable hasta 5000. Se descartan frames de
+  más de 262144 caracteres y se acota el lote procesado. Un punto anterior o sin
+  fecha no hace retroceder otro ya fechado.
+- RequestScope agrupa cancelación, AbortSignal y plazo de 15 segundos. La operación
+  GET incluye fetch y json para que un body suspendido también venza. Termina la
+  espera aunque el adaptador ignore abort. Las lecturas reemplazadas se cancelan;
+  sus resultados tardíos no publican ni quitan el estado de otra petición.
+- El inbox mantiene la actualización visual inmediata de eventos y agrupa la
+  consulta canónica en una ventana de 50 ms. Marcar leído actualiza una vez de
+  manera optimista y reconcilia al confirmar o fallar. El cierre de política limpia
+  items/contador, invalida GET y épocas de mutación, cancela grupos y conciliación;
+  un resultado retirado no puede recuperar el inbox por su cuenta. REST posterior
+  sigue disponible, condicionado a autorización del servidor.
+- useLiveMapData publica un snapshot completo de repartidores y pedidos, junto a
+  estadísticas opcionales. Gana la última consulta iniciada. El ámbito incluye
+  usuario, revisión y generación; no publica después de desmontar o cambiar de
+  cuenta. Un fallo de red conserva el último snapshot; un 401/403 de las consultas
+  principales retira datos y muestra un mensaje de permisos. Admite el error real
+  normalizado de riderService, no solo errores Axios sin transformar. La página
+  oculta también las posiciones WS conservadas después de ese rechazo y no las
+  restaura por un error de red posterior; exige un snapshot completo autorizado.
+- El polling del mapa usa 10 segundos sin conexión y 60 segundos con WS abierto.
+  El cambio válido de bearer mantiene los datos del mismo usuario y no reinicia por
+  sí solo ese intervalo. Las estadísticas opcionales fallidas quedan en null sin
+  invalidar el snapshot principal. Se conserva la solicitud de hasta 50 pedidos.
+- live-map-data acepta coordenadas numéricas o cadenas numéricas no vacías y
+  conserva cero; rechaza ausencia, NaN e infinitos/rangos imposibles. Cuenta online
+  sin ubicación válida. Fusiona REST/WS por fecha sin perder nombre, teléfono,
+  estado o pedido del snapshot. Normaliza UTC sin offset a Z y conserva offsets
+  explícitos. No inventa la hora de actualización. Incluye RECOLECTADO como activo.
+- La página usa esa fusión derivada y muestra error de actualización. Conserva
+  búsqueda, filtros, proveedores de mapa y el modo de demostración existente,
+  desactivado inicialmente y solo local: no escribe ubicaciones en backend.
+- Se ajusta únicamente la prueba backend que falló en CI: sus dos conexiones
+  usan explícitamente un portal/bucle ASGI compartido, como un worker del servidor,
+  sin ejecutar el lifespan real. Antes, cada websocket_connect podía iniciar un
+  hilo/event loop distinto mientras compartía manager, SQLite y broker. Se añaden
+  aserciones de portal compartido y dos suscriptores independientes; se mantienen
+  entrega de una copia por socket, ausencia de mensajes extra y limpieza. No se
+  aumenta el timeout ni se cambian permisos/handlers para acomodar la prueba.
+
+### Pruebas y evidencia final
+
+| Control | Resultado |
+|---|---|
+| Frontend completo | **643 aprobados, 47 suites**, 99 tests nuevos frente a 544/40 |
+| Nuevas suites | 32 casos de wire/URLs, 4 de RequestScope, 21 de tracking, 11 de adaptación de mapa, 14 del hook REST, 3 de página y 1 de integración HTTP real |
+| Suites existentes | 11 casos nuevos de inbox y 2 de rotación de credenciales; se conservan las aserciones históricas |
+| Casos de carrera | Cambio de cuenta, logout, unmount/disable/StrictMode, apertura pendiente, callback retirado, refresh propio, cierres 1008/4001, respuestas fuera de orden, GET/PATCH/body suspendidos y ráfagas |
+| Integración real | Axios e interceptores + riderService normalizan un 403; se verifica que desaparece el snapshot previo |
+| TypeScript | Aprobado, también de forma aislada después del build |
+| Lint | Aprobado, con advertencias heredadas; sin nuevas advertencias en los hooks/página modificados |
+| Build | Producción frontend aprobado, sin desplegar |
+| Cobertura global | **27,42 % líneas**, 27,35 % sentencias, 21,78 % ramas y 22,83 % funciones; antes 23,98 % líneas |
+| Cobertura de líneas focal | realtime-client, live-map-data, RequestScope y useRealtimeIdentity 100 %; tracking 97,52 %, inbox 96,57 % y hook de mapa 95,45 % |
+| Backend focal | **76 tests aprobados** entre permisos de tracking y WebSockets de notificaciones, con cuatro advertencias existentes |
+| Repetición del caso backend | **10/10 ejecuciones independientes aprobadas**; no reemplaza el nuevo CI remoto |
+| Formato/diff | Black del test y git diff --check; sin cambios de configuración ni exclusiones de cobertura |
+
+La batería con cobertura aprueba los 643 tests pero termina con código 1 por el
+umbral global de 50 %; no se rebaja ni se excluyen rutas para hacerlo pasar. El
+resumen se obtiene de Jest JSON e Istanbul coverage-final.json. Los módulos con
+100 % de líneas no equivalen a cubrir todas las ramas ni toda la aplicación.
+Las primeras iteraciones locales se corrigieron antes de estas pasadas finales;
+no se presenta cada intento de desarrollo como una ejecución sin fallos.
+
+La batería backend completa no se repite porque su lógica de producción no cambia.
+La última referencia local completa sigue siendo 1207 casos de la entrega 43,
+con proveedores opcionales y servicios de prueba; el resultado de CI de #287 es
+el detallado arriba y no se etiqueta como aprobado. El fallo del test aislado no
+se reprodujo localmente; el ajuste elimina el uso involuntario de múltiples loops
+para este escenario compartido. La recurrencia remota debe observarse en el PR.
+Mypy conserva la deuda previa de 314 errores en 52 archivos; no es una medición
+nueva de esta entrega ni se deshabilita el control.
+
+### Alcance, límites y pendientes siguientes
+
+No hay cambios de dependencias, configuración, esquemas, migraciones ni lógica
+productiva de proveedores/backend; se actualiza su guía y un test de simulación.
+Los tests usan transportes simulados y SQLite temporal; la integración Axios no
+llama a un servidor desplegado. No se envían correos, PUSH ni SMS. No se fusiona
+main, se modifica producción ni se despliega automáticamente.
+
+La señal de rotación es local a esta página; no implementa coordinación atómica de
+pestañas ni revocación JWT. Un servidor que acepte todavía el bearer puede servir
+REST tras un cierre WS. No se migra a cookies HttpOnly y se conserva el contrato
+JWT en query del WS; no se certifican las reglas de logs del proxy. Un refresh no
+revalida integralmente todos los permisos y cachés del sistema.
+
+Los pings no incorporan un watchdog de falta de pong; WS abierto no implica salud
+completa de Redis/red. La comparación de timestamps tiene precisión JS de
+milisegundos y no constituye secuenciación durable ni resuelve todos los empates.
+El mapa ignora resultados Axios obsoletos sin abortar necesariamente el transporte.
+Cancelar PATCH o su espera no revierte efectos ya aceptados por el servidor. La
+cota de posiciones no representa un presupuesto global de memoria ni el total de
+pedidos del sistema. El estado de conexión mostrado corresponde al transporte.
+
+Se identifican helpers dormidos useRealtimeUpdates/WebSocketContext sin
+consumidores activos y con ruta /api/v1/ws no montada; sus dependencias podrían
+recrear conexiones si se activasen. useSocket/NotificationContext mantienen
+material de demostración sin uso activo. No se habilitan ni se certifican esos
+productores con este trabajo. Las rutas reales usadas aquí son las específicas
+de tracking y notificaciones.
+
+Permanecen pendientes revocación/sesiones del servidor, coordinación entre
+pestañas, revalidación completa de permisos, watchdog/reanudación fiable de
+streams, retirada de helpers genéricos, PUSH web real, outbox durable,
+conciliación/idempotencia externas, ledger por dispositivo, fallback IN_APP
+general, límites distribuidos, validación de migraciones y deuda de tipos/cobertura.
+El bloque se publica como un PR listo para revisión, sin borrador, sobre e24d6d6;
+se verifican blobs/árbol y se alinea el commit exacto local con GitHub. El estado
+nuevo de CI se informa por separado, sin declarar producción al 100 %.

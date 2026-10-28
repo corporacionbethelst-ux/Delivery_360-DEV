@@ -1,200 +1,268 @@
-/**
- * Fase 8 - Hook de WebSocket para tracking en tiempo real.
- *
- * Conexión al backend FastAPI: ws(s)://<host>/api/v1/tracking/ws/{channel}?token=<jwt>
- * Características:
- *  - Reconexión con backoff exponencial (300ms -> máx 15s, máximo de reintentos configurable)
- *  - Heartbeat ping cada 30s para mantener la conexión viva
- *  - Maneja mensajes POSITION_UPDATE / BATCH_UPDATE / CONNECTED / pong
- */
+/** Tracking transport bound to the verified account, credential generation and socket instance. */
 'use client';
-
 import { useCallback, useEffect, useRef, useState } from 'react';
-
-export interface RiderPosition {
-  riderId: string;
-  lat: number;
-  lng: number;
-  speedKmh?: number | null;
-  headingDegrees?: number | null;
-  accuracyMeters?: number | null;
-  timestamp?: string | null;
-}
-
-interface UseTrackingWebSocketOptions {
+import { getStoredTokens } from '@/lib/auth-session';
+import {
+  useRealtimeIdentity,
+  currentRealtimeIdentity,
+  RealtimeIdentity,
+} from '@/hooks/useRealtimeIdentity';
+import {
+  realtimeUrl,
+  trackingChannel,
+  readPosition,
+  mergePositions,
+  boundedInteger,
+  RiderPosition,
+} from '@/lib/realtime-client';
+export type { RiderPosition } from '@/lib/realtime-client';
+interface Options {
   reconnectIntervalMs?: number;
   maxRetries?: number;
   heartbeatSec?: number;
   enabled?: boolean;
+  openTimeoutMs?: number;
+  maxPositions?: number;
 }
-
-interface UseTrackingWebSocketReturn {
+interface Snapshot {
+  identity: RealtimeIdentity;
+  channel: string;
   positions: RiderPosition[];
   lastUpdate: Date | null;
   isConnected: boolean;
   error: string | null;
-  reconnect: () => void;
   latencyMs: number | null;
 }
-
-function getToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem('access_token') || localStorage.getItem('token');
-    if (!raw) return null;
-    // Soporta tanto JWT plano como JSON envuelto {"token": "..."}
-    try {
-      const parsed = JSON.parse(raw);
-      return parsed?.token || parsed?.access_token || raw;
-    } catch {
-      return raw;
-    }
-  } catch {
-    return null;
-  }
-}
-
-function getWsBaseUrl(): string {
-  // Prioridad 1: NEXT_PUBLIC_TRACKING_WS (puede venir con o sin sufijo /tracking/ws)
-  const explicit = process.env.NEXT_PUBLIC_TRACKING_WS;
-  if (explicit) {
-    return explicit.replace(/\/tracking\/ws\/?$/, '').replace(/\/$/, '');
-  }
-  // Prioridad 2: WS_BASE_URL genérico
-  if (process.env.WS_BASE_URL) {
-    return process.env.WS_BASE_URL.replace(/\/$/, '');
-  }
-  // Fallback: derivar de la API REST
-  const api = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
-  return api.replace(/^http/, 'ws').replace(/\/$/, '');
-}
-
-export function useTrackingWebSocket(
-  channel: string, // p.ej. "dashboard", "rider:<uuid>", "order:<uuid>"
-  options: UseTrackingWebSocketOptions = {}
-): UseTrackingWebSocketReturn {
-  const {
-    reconnectIntervalMs = 3000,
-    maxRetries = 5,
-    heartbeatSec = 30,
-    enabled = true,
-  } = options;
-
-  const [positions, setPositions] = useState<RiderPosition[]>([]);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [latencyMs, setLatencyMs] = useState<number | null>(null);
-
-  const wsRef = useRef<WebSocket | null>(null);
-  const retriesRef = useRef(0);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pingSentAtRef = useRef<number | null>(null);
-
-  const updateOrAddPosition = useCallback((pos: RiderPosition) => {
-    setPositions((prev) => {
-      const idx = prev.findIndex((p) => p.riderId === pos.riderId);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = pos;
-        return next;
-      }
-      return [...prev, pos];
-    });
-    setLastUpdate(new Date());
-  }, []);
-
-  const connect = useCallback(() => {
-    if (typeof window === 'undefined' || !enabled) return;
-
-    const token = getToken();
-    if (!token) {
-      setError('Sin token de autenticación para WebSocket');
-      return;
-    }
-
-    const url = `${getWsBaseUrl()}/tracking/ws/${encodeURIComponent(channel)}?token=${encodeURIComponent(token)}`;
-
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket(url);
-    } catch (e: any) {
-      setError(`No se pudo abrir WebSocket: ${e?.message || e}`);
-      return;
-    }
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setIsConnected(true);
-      setError(null);
-      retriesRef.current = 0;
-
-      // Heartbeat: ping periódico para evitar cierres por inactividad
-      if (heartbeatRef.current) clearInterval(heartbeatRef.current);
-      heartbeatRef.current = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          pingSentAtRef.current = performance.now();
-          ws.send(JSON.stringify({ action: 'ping' }));
-        }
-      }, heartbeatSec * 1000);
+const empty = {
+  positions: [] as RiderPosition[],
+  lastUpdate: null,
+  isConnected: false,
+  error: null,
+  latencyMs: null,
+};
+export function useTrackingWebSocket(channel: string, options: Options = {}) {
+  const { enabled = true } = options;
+  const heartbeatSec = boundedInteger(options.heartbeatSec ?? 30, 30, 1, 300);
+  const maxRetries = boundedInteger(options.maxRetries ?? 5, 5, 0, 10);
+  const intervalMs = boundedInteger(options.reconnectIntervalMs ?? 3000, 3000, 1, 15000);
+  const openTimeoutMs = boundedInteger(options.openTimeoutMs ?? 10000, 10000, 1, 30000);
+  const maxPositions = boundedInteger(options.maxPositions ?? 1000, 1000, 1, 5000);
+  const { userId, revision, generation, tokenRevision } = useRealtimeIdentity();
+  const logical = trackingChannel(channel);
+  const [state, setState] = useState<Snapshot>({
+    ...empty,
+    identity: { userId: null, revision, generation, tokenRevision },
+    channel: '',
+  });
+  const manual = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (!enabled || !userId || !logical) return;
+    const identity = { userId, revision, generation, tokenRevision };
+    if (!currentRealtimeIdentity(identity) || !getStoredTokens().accessToken) return;
+    let active = true,
+      socket: WebSocket | null = null,
+      retry = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
+    let openDeadline: ReturnType<typeof setTimeout> | undefined;
+    let pingAt: number | null = null;
+    const current = () => active && currentRealtimeIdentity(identity);
+    const update = (apply: (snapshot: Snapshot) => Snapshot) => {
+      if (!current()) return;
+      setState((previous) =>
+        current()
+          ? apply(
+              previous.channel === logical &&
+                previous.identity.userId === userId &&
+                previous.identity.revision === revision &&
+                previous.identity.generation === generation
+                ? { ...previous, identity }
+                : { ...empty, identity, channel: logical }
+            )
+          : previous
+      );
     };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'POSITION_UPDATE' && data.payload) {
-          updateOrAddPosition(data.payload as RiderPosition);
-        } else if (data.type === 'BATCH_UPDATE' && Array.isArray(data.payload)) {
-          data.payload.forEach((p: RiderPosition) => updateOrAddPosition(p));
-        } else if (data.type === 'pong' && pingSentAtRef.current) {
-          setLatencyMs(Math.round(performance.now() - pingSentAtRef.current));
-          pingSentAtRef.current = null;
-        } else if (data.type === 'error') {
-          setError(data.message || 'Error reportado por el servidor');
+    const close = () => {
+      clearTimeout(openDeadline);
+      clearInterval(heartbeat);
+      pingAt = null;
+      const old = socket;
+      socket = null;
+      if (old) {
+        old.onopen = old.onmessage = old.onclose = old.onerror = null;
+        try {
+          old.close();
+        } catch {
+          /* Also retire CONNECTING sockets. */
         }
-      } catch {
-        /* mensaje no JSON: ignorar */
       }
     };
-
-    ws.onerror = () => setError('Error en la conexión WebSocket');
-
-    ws.onclose = (ev) => {
-      setIsConnected(false);
-      if (heartbeatRef.current) {
-        clearInterval(heartbeatRef.current);
-        heartbeatRef.current = null;
-      }
-      // No reconectar si el servidor cerró por política (4001/1008: auth inválida)
-      const authClosed = ev.code === 1008 || ev.code === 4001;
-      if (authClosed) {
-        setError('No autorizado para este canal de tracking');
+    const schedule = () => {
+      if (!current()) return;
+      clearTimeout(reconnectTimer);
+      if (retry >= maxRetries) {
+        update((s) => ({ ...s, error: 'Se agotaron los reintentos de tracking' }));
         return;
       }
-      if (retriesRef.current < maxRetries) {
-        const delay = Math.min(
-          reconnectIntervalMs * Math.pow(2, retriesRef.current),
-          15000
-        );
-        retriesRef.current += 1;
-        reconnectTimeoutRef.current = setTimeout(connect, delay);
-      } else {
-        setError('Se agotaron los reintentos de conexión. Recarga la página.');
+      const delay = Math.min(intervalMs * 2 ** retry++, 15000);
+      reconnectTimer = setTimeout(connect, delay);
+    };
+    const connect = () => {
+      if (!current()) return;
+      clearTimeout(reconnectTimer);
+      close();
+      const token = getStoredTokens().accessToken;
+      if (!token || !current()) return;
+      update((s) => ({ ...s, isConnected: false, error: null, latencyMs: null }));
+      let next: WebSocket;
+      try {
+        next = new WebSocket(realtimeUrl('tracking', token, logical));
+      } catch {
+        update((s) => ({ ...s, error: 'No se pudo abrir la conexión de tracking' }));
+        schedule();
+        return;
+      }
+      socket = next;
+      const live = () => socket === next && current() && getStoredTokens().accessToken === token;
+      openDeadline = setTimeout(() => {
+        if (!live()) return;
+        close();
+        update((s) => ({
+          ...s,
+          isConnected: false,
+          error: 'La conexión de tracking no respondió',
+        }));
+        schedule();
+      }, openTimeoutMs);
+      next.onopen = () => {
+        if (!live()) return;
+        clearTimeout(openDeadline);
+        update((s) => ({ ...s, isConnected: true, error: null }));
+        heartbeat = setInterval(() => {
+          if (!live() || next.readyState !== WebSocket.OPEN) return;
+          try {
+            pingAt = performance.now();
+            next.send(JSON.stringify({ action: 'ping' }));
+          } catch {
+            close();
+            update((s) => ({
+              ...s,
+              isConnected: false,
+              error: 'Se interrumpió la conexión de tracking',
+            }));
+            schedule();
+          }
+        }, heartbeatSec * 1000);
+      };
+      next.onmessage = (event) => {
+        if (!live() || typeof event.data !== 'string' || event.data.length > 262144) return;
+        try {
+          const data = JSON.parse(event.data);
+          if (!data || typeof data !== 'object') return;
+          if (data.type === 'CONNECTED') {
+            retry = 0;
+            return;
+          }
+          if (data.type === 'pong' && pingAt !== null) {
+            const latency = Math.max(0, Math.round(performance.now() - pingAt));
+            pingAt = null;
+            update((s) => ({ ...s, latencyMs: latency }));
+            return;
+          }
+          if (data.type === 'error') {
+            update((s) => ({ ...s, error: 'El servidor no pudo procesar el mensaje de tracking' }));
+            return;
+          }
+          const payloads =
+            data.type === 'POSITION_UPDATE'
+              ? [data.payload]
+              : data.type === 'BATCH_UPDATE' && Array.isArray(data.payload)
+                ? data.payload.slice(0, maxPositions * 2)
+                : [];
+          const positions = payloads
+            .map(readPosition)
+            .filter((p: RiderPosition | null): p is RiderPosition => p !== null);
+          if (positions.length)
+            update((s) => ({
+              ...s,
+              positions: mergePositions(s.positions, positions, maxPositions),
+              lastUpdate: new Date(),
+            }));
+        } catch {
+          /* Malformed payloads cannot replace authorized map data. */
+        }
+      };
+      next.onerror = () => {
+        if (live()) update((s) => ({ ...s, error: 'Error en la conexión de tracking' }));
+      };
+      next.onclose = (event) => {
+        if (!live()) return;
+        close();
+        update((s) => ({ ...s, isConnected: false, latencyMs: null }));
+        if ([1008, 4001].includes(event.code)) {
+          update((s) => ({
+            ...s,
+            positions: [],
+            lastUpdate: null,
+            error: 'No autorizado para este canal de tracking',
+          }));
+          return;
+        }
+        schedule();
+      };
+    };
+    update((s) => ({ ...s, isConnected: false, error: null }));
+    const reconnect = () => {
+      if (current()) {
+        retry = 0;
+        connect();
       }
     };
-  }, [channel, enabled, heartbeatSec, maxRetries, reconnectIntervalMs, updateOrAddPosition]);
-
-  useEffect(() => {
+    manual.current = reconnect;
     connect();
     return () => {
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-      if (heartbeatRef.current) clearInterval(heartbeatRef.current);
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.close();
-      }
+      active = false;
+      clearTimeout(reconnectTimer);
+      close();
+      if (manual.current === reconnect) manual.current = null;
     };
-  }, [connect]);
-
-  return { positions, lastUpdate, isConnected, error, reconnect: connect, latencyMs };
+  }, [
+    enabled,
+    userId,
+    revision,
+    generation,
+    tokenRevision,
+    logical,
+    heartbeatSec,
+    maxRetries,
+    intervalMs,
+    openTimeoutMs,
+    maxPositions,
+  ]);
+  const visible =
+    enabled &&
+    logical &&
+    userId &&
+    state.channel === logical &&
+    state.identity.userId === userId &&
+    state.identity.revision === revision &&
+    state.identity.generation === generation
+      ? state
+      : empty;
+  const reconnect = useCallback(() => {
+    if (
+      enabled &&
+      logical &&
+      currentRealtimeIdentity({ userId, revision, generation, tokenRevision })
+    )
+      manual.current?.();
+  }, [enabled, logical, userId, revision, generation, tokenRevision]);
+  return {
+    positions: visible.positions,
+    lastUpdate: visible.lastUpdate,
+    isConnected: visible.isConnected && state.identity.tokenRevision === tokenRevision,
+    error: !logical && enabled && userId ? 'Canal de tracking no válido' : visible.error,
+    latencyMs: visible.latencyMs,
+    reconnect,
+  };
 }
