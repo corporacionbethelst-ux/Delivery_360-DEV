@@ -112,9 +112,8 @@ cookies HttpOnly, protección contra XSS ni coordinación atómica entre pestañ
 Los cambios de storage se detectan al leer; no hay una garantía global frente a
 cambios no observados o ABA externos entre lecturas. Nuevas pestañas/procesos
 requieren su propia verificación. Los consumidores que usen fetch por su cuenta
-no heredan estos interceptores y mantienen sus controles propios. Tampoco se
-resuelven con este lote las actualizaciones tardías de todos los stores de
-negocio fuera del cliente HTTP.
+no heredan estos interceptores y mantienen sus controles propios. La protección adicional de stores y caché se detalla a continuación; los
+consumidores fuera de ese alcance conservan sus obligaciones de ciclo de vida.
 
 El helper heredado authApi.registerRider continúa sin consumidores y conserva
 su ruta histórica `/auth/register`; no se declara funcional contra el backend
@@ -122,3 +121,76 @@ actual. El registro activo usa authService.register y `/auth/register-rider` con
 validación documental. La cobertura de compatibilidad comprueba que el helper
 no borra una sesión por una respuesta sin tokens ni persiste una respuesta
 obsoleta; alinear o retirar esa interfaz antigua queda como limpieza posterior.
+
+
+## Datos de negocio y caché privada
+
+La generación también se aplica a los stores globales de pedidos, entregas,
+repartidores, datos personales del repartidor, finanzas, tiempo real y alertas.
+Al cambiar credenciales, volver a guardar el mismo par o hacer logout se
+restablecen los datos, selección, filtros y flags de carga del estado inicial.
+Se mantienen las funciones de sus acciones. En alertas se avanza además la
+revisión de peticiones que ya protegía las respuestas REST. No es necesario
+que el cambio haya pasado por authStore para limpiar esos datos.
+
+En los cinco stores que hacen HTTP se protegen 33 acciones y 36 continuaciones
+de await. capturePrivateTask exige credenciales al comenzar y cada continuación
+comprueba que todavía pertenece a esa generación antes de actualizar, devolver
+datos o continuar con otra consulta. El catch comprueba lo mismo antes de
+publicar errores/fallbacks. La comprobación pertenece al frame del store: cubre
+el intervalo entre la aceptación del interceptor y la reanudación del caller.
+Un error antiguo no puede quitar los flags de una operación de la cuenta nueva.
+
+Una renovación normal conserva la generación: no vacía los stores ni la caché
+del mismo usuario. El fallo de un suscriptor de invalidación se aísla para que
+no detenga la limpieza de los demás ni la invalidación de credenciales.
+
+### Caché de consultas
+
+private-cache.ts conserva solo memoria de la página, con TTL en segundos y un
+máximo de 500 entradas, expulsando la menos recientemente utilizada. No hay
+serialización, restauración, timer periódico ni beforeunload de datos privados.
+La clave heredada delivery360_cache se intenta retirar sin leer ni interpretar
+su contenido; los nombres persist/restore se mantienen como limpieza compatible.
+Si el navegador prohíbe borrarla, el cliente nuevo no la restaura; no se promete
+su eliminación física ni proteger clientes antiguos que sigan ejecutándose.
+
+Cada entrada tiene una generación; la lectura no devuelve datos sin credenciales
+y el cambio de generación vacía el mapa. Los escritores asíncronos conocidos
+proporcionan la generación esperada al guardar para no atribuir un resultado
+antiguo a otra cuenta. Los valores 0, false y string vacío se conservan como
+hits válidos; ttl cero no conserva una entrada. TTL negativos o no finitos se
+rechazan. La cota es de entradas, no un presupuesto de bytes por respuesta.
+
+useCachedQuery usa una suscripción React al contador puro de generación y
+distingue clave, sesión, secuencia y montaje. Oculta datos ajenos a la clave o
+generación durante render, descarta trabajo tras disable/unmount/StrictMode
+y aplica solo el último refetch. Un callback queryFn inline no dispara un bucle;
+la clave debe representar los parámetros de la consulta y refetch usa su función
+actual. Conserva TTL, staleTime y fallback del ámbito vigente con error genérico.
+queryFn no recibe señal de aborto en esta interfaz: el trabajo puede terminar,
+pero su resultado obsoleto no se aplica ni vuelve a entrar en la caché.
+
+El servicio de pedidos con caché conserva sus exports y captura también la tarea
+privada. Se corrigen el prefijo duplicado /api/v1 y PUT/POST donde el servicio
+principal usa PATCH para edición, cancelación y asignación. Los IDs se codifican
+como componentes de URL. No se activa ese helper en pantallas que no lo usaban,
+ni se certifican con sus pruebas los campos/estados exigidos por el backend: la
+verificación de métodos/rutas se compara con el servicio principal y transportes
+sustituidos. El backend continúa validando permisos y datos de cada operación.
+
+### Alcance de las garantías
+
+No se implementan revocación JWT ni coordinación atómica entre pestañas. Se
+reacciona a cambios de almacenamiento cuando el gestor los observa. Estos
+stores no sustituyen al control de acceso ni verifican en cada hit de caché si
+el servidor ha cambiado el rol de la cuenta. Una revalidación de perfil sin
+cambio de generación no equivale a un logout global de los datos de negocio.
+
+La limpieza del store de tiempo real no cierra por sí misma los sockets de sus
+productores. Los callbacks síncronos externos deben conservar/verificar su
+propio contexto; no se certifican todos los productores WS desde este reset.
+No se ordenan todas las operaciones concurrentes de una misma sesión en los
+stores de negocio; la secuencia de useCachedQuery tiene ese alcance solo en su
+instancia. Una mutación aceptada por el servidor no se revierte al descartar
+su resultado. No se cancela la petición remota desde capturePrivateTask.

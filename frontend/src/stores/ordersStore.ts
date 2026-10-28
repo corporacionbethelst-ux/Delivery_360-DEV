@@ -1,3 +1,4 @@
+import { capturePrivateTask, resetOnSessionChange } from '@/lib/private-task';
 // Store de Orders con Zustand - Delivery360
 import { create } from 'zustand';
 import { api } from '@/lib/api'; // ✅ Usar el wrapper correcto
@@ -98,6 +99,7 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
   // --- ACCIONES ASÍNCRONAS (API) ---
   
   fetchOrders: async (filters) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       const params = new URLSearchParams();
@@ -125,6 +127,7 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
       
       // ✅ CORRECCIÓN: api.get devuelve directamente los datos (T)
       const response = await api.get<any>(`/orders?${params.toString()}`);
+      task.assertCurrent();
       
       // Lógica robusta para extraer lista y total
       // Asume que 'response' es el objeto directo devuelto por el wrapper
@@ -141,6 +144,7 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
         isLoading: false 
       });
     } catch (error: any) {
+      task.assertCurrent();
       console.error('[OrderStore] Error fetching orders:', error);
       set({ 
         error: error.message || 'Error al obtener pedidos',
@@ -151,12 +155,15 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
   },
   
   fetchOrderById: async (id) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       // ✅ Sin .data
       const order = await api.get<Order>(`/orders/${id}`);
+      task.assertCurrent();
       set({ selectedOrder: order, isLoading: false });
     } catch (error: any) {
+      task.assertCurrent();
       set({ 
         error: error.message || 'Error al obtener pedido',
         isLoading: false 
@@ -166,10 +173,12 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
   },
   
   createOrder: async (input) => {
+    const task = capturePrivateTask();
     set({ isCreating: true, error: null });
     try {
       // ✅ Sin .data
       const newOrder = await api.post<Order>('/orders', input);
+      task.assertCurrent();
       
       set((state) => ({ 
         orders: [newOrder, ...state.orders],
@@ -181,6 +190,7 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
       }));
       return newOrder;
     } catch (error: any) {
+      task.assertCurrent();
       set({ 
         error: error.message || 'Error al crear pedido',
         isCreating: false 
@@ -190,13 +200,16 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
   },
   
   updateOrderStatus: async (id, status) => {
+    const task = capturePrivateTask();
     set({ isUpdating: true, error: null });
     try {
       // ✅ Sin .data
       const updatedOrder = await api.patch<Order>(`/orders/${id}/status`, { status });
+      task.assertCurrent();
       get().updateOrderLocal(id, updatedOrder);
       set({ isUpdating: false });
     } catch (error: any) {
+      task.assertCurrent();
       set({ 
         error: error.message || 'Error al actualizar estado',
         isUpdating: false 
@@ -206,13 +219,16 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
   },
   
   assignRider: async (orderId, riderId) => {
+    const task = capturePrivateTask();
     set({ isUpdating: true, error: null });
     try {
       // ✅ Sin .data
       const updatedOrder = await api.patch<Order>(`/orders/${orderId}/assign`, { rider_id: riderId });
+      task.assertCurrent();
       get().updateOrderLocal(orderId, updatedOrder);
       set({ isUpdating: false });
     } catch (error: any) {
+      task.assertCurrent();
       set({ 
         error: error.message || 'Error al asignar repartidor',
         isUpdating: false 
@@ -222,12 +238,15 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
   },
   
   deleteOrder: async (id) => {
+    const task = capturePrivateTask();
     set({ isUpdating: true, error: null });
     try {
       await api.delete(`/orders/${id}`);
+      task.assertCurrent();
       get().removeOrder(id);
       set({ isUpdating: false });
     } catch (error: any) {
+      task.assertCurrent();
       set({ 
         error: error.message || 'Error al eliminar pedido',
         isUpdating: false 
@@ -238,3 +257,4 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
   
   reset: () => set(initialState),
 }));
+resetOnSessionChange(useOrdersStore);

@@ -1,3 +1,4 @@
+import { capturePrivateTask, resetOnSessionChange } from '@/lib/private-task';
 // Rider Personal Store - Para datos específicos del repartidor logueado
 import { create } from 'zustand';
 import { api } from '@/lib/api';
@@ -35,10 +36,12 @@ export const useRiderPersonalStore = create<RiderPersonalState>((set, get) => ({
   ...initialState,
 
   fetchMyDeliveries: async () => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       // CORRECCIÓN: api.get ya devuelve Delivery[] directamente
       const data = await api.get<Delivery[]>('/rider/my-deliveries');
+      task.assertCurrent();
       
       // Validación de seguridad: asegurar que sea un array
       if (!Array.isArray(data)) {
@@ -49,6 +52,7 @@ export const useRiderPersonalStore = create<RiderPersonalState>((set, get) => ({
 
       set({ myDeliveries: data, isLoading: false });
     } catch (error: any) {
+      task.assertCurrent();
       console.error('[RiderStore] Error fetching my deliveries:', error);
       set({ 
         error: error.response?.data?.detail || error.message || 'Error al cargar mis entregas', 
@@ -58,12 +62,14 @@ export const useRiderPersonalStore = create<RiderPersonalState>((set, get) => ({
   },
 
   fetchMyEarnings: async () => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       const [todayRes, weeklyRes] = await Promise.all([
         api.get<EarningsResponse>('/rider/earnings/today'),
         api.get<EarningsResponse>('/rider/earnings/weekly')
       ]);
+      task.assertCurrent();
 
       // CORRECCIÓN: Acceder directamente a las propiedades sin .data
       set({ 
@@ -72,6 +78,7 @@ export const useRiderPersonalStore = create<RiderPersonalState>((set, get) => ({
         isLoading: false
       });
     } catch (error: any) {
+      task.assertCurrent();
       console.error('[RiderStore] Error fetching earnings:', error);
       set({ 
         error: error.response?.data?.detail || error.message || 'Error al cargar ganancias',
@@ -81,9 +88,11 @@ export const useRiderPersonalStore = create<RiderPersonalState>((set, get) => ({
   },
 
   startDeliveryAction: async (deliveryId: string) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       await api.post(`/deliveries/${deliveryId}/start`);
+      task.assertCurrent();
       
       // Actualizar lista localmente de forma optimista
       set((state) => ({
@@ -93,6 +102,7 @@ export const useRiderPersonalStore = create<RiderPersonalState>((set, get) => ({
         isLoading: false
       }));
     } catch (error: any) {
+      task.assertCurrent();
       console.error(`[RiderStore] Error starting delivery ${deliveryId}:`, error);
       set({ 
         error: error.response?.data?.detail || error.message || 'Error al iniciar entrega', 
@@ -103,11 +113,13 @@ export const useRiderPersonalStore = create<RiderPersonalState>((set, get) => ({
   },
 
   finishDeliveryAction: async (deliveryId: string, proof: any) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       // CORRECCIÓN CRÍTICA: Usar POST en /complete en lugar de /finish
       // Esto asegura que se dispare la lógica de creación de registros financieros
       await api.post(`/deliveries/${deliveryId}/complete`, proof);
+      task.assertCurrent();
       
       // Actualizar lista localmente
       set((state) => ({
@@ -117,6 +129,7 @@ export const useRiderPersonalStore = create<RiderPersonalState>((set, get) => ({
         isLoading: false
       }));
     } catch (error: any) {
+      task.assertCurrent();
       console.error(`[RiderStore] Error finishing delivery ${deliveryId}:`, error);
       set({ 
         error: error.response?.data?.detail || error.message || 'Error al finalizar entrega', 
@@ -128,3 +141,4 @@ export const useRiderPersonalStore = create<RiderPersonalState>((set, get) => ({
 }));
 
 export default useRiderPersonalStore;
+resetOnSessionChange(useRiderPersonalStore);

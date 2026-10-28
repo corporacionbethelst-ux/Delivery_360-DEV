@@ -1,3 +1,4 @@
+import { capturePrivateTask, resetOnSessionChange } from '@/lib/private-task';
 // Financial Store - Zustand para gestión financiera
 import { create } from 'zustand';
 import type { Transaction, FinancialReportDetailed, FinancialFilters } from '@/types/financial';
@@ -59,12 +60,15 @@ export const useFinancialStore = create<FinancialState>((set, get) => ({
 
   // Fetch resumen general
   fetchSummary: async () => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       // ✅ CORRECCIÓN: api.get ya devuelve los datos directos (T), no AxiosResponse
       const data = await api.get<FinancialSummary>('/financial/summary');
+      task.assertCurrent();
       set({ summary: data, isLoading: false });
     } catch (error: any) {
+      task.assertCurrent();
       console.error('[FinancialStore] Error fetching summary:', error);
       set({ 
         error: error.message || 'Error al obtener resumen financiero', 
@@ -86,6 +90,7 @@ export const useFinancialStore = create<FinancialState>((set, get) => ({
 
   // Obtener reporte detallado
   getFinancialReport: async (filters?: Partial<FinancialFilters>) => {
+    const task = capturePrivateTask();
     set({ loading: true, error: null });
     try {
       const params = new URLSearchParams();
@@ -97,10 +102,12 @@ export const useFinancialStore = create<FinancialState>((set, get) => ({
       
       // ✅ CORRECCIÓN: Sin .data, asignación directa
       const data = await api.get<FinancialReportDetailed>(`/financial/report${queryString}`);
+      task.assertCurrent();
       
       set({ report: data, loading: false });
       return data;
     } catch (error: any) {
+      task.assertCurrent();
       console.error('[FinancialStore] Error fetching report:', error);
       set({ error: error.message || 'Error al obtener reporte financiero', loading: false });
       return null;
@@ -109,6 +116,7 @@ export const useFinancialStore = create<FinancialState>((set, get) => ({
 
   // ALIAS EXPLÍCITO: getDailySummary
   getDailySummary: async (period: string) => {
+    const task = capturePrivateTask();
     const now = new Date();
     let dateFrom = new Date();
     
@@ -121,6 +129,7 @@ export const useFinancialStore = create<FinancialState>((set, get) => ({
     }
 
     const report = await get().getFinancialReport({ dateFrom, dateTo: now });
+    task.assertCurrent();
     
     if (!report) return null;
 
@@ -141,6 +150,7 @@ export const useFinancialStore = create<FinancialState>((set, get) => ({
 
   // Obtener transacciones
   getTransactions: async (filters?: Partial<FinancialFilters>) => {
+    const task = capturePrivateTask();
     set({ loading: true, error: null });
     try {
       const params = new URLSearchParams();
@@ -152,10 +162,12 @@ export const useFinancialStore = create<FinancialState>((set, get) => ({
       
       // ✅ CORRECCIÓN: Sin .data
       const data = await api.get<Transaction[]>(`/financial/transactions${queryString}`);
+      task.assertCurrent();
       
       set({ transactions: data, loading: false });
       return data;
     } catch (error: any) {
+      task.assertCurrent();
       console.error('[FinancialStore] Error fetching transactions:', error);
       set({ error: error.message || 'Error al obtener transacciones', loading: false });
       return [];
@@ -163,25 +175,32 @@ export const useFinancialStore = create<FinancialState>((set, get) => ({
   },
 
   fetchPaymentRules: async () => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       // ✅ CORRECCIÓN: Sin .data
       const data = await api.get<PaymentRule[]>('/financial/rules');
+      task.assertCurrent();
       set({ rules: data, isLoading: false });
     } catch (error: any) {
+      task.assertCurrent();
       console.error('[FinancialStore] Error fetching rules:', error);
       set({ error: error.message || 'Error al obtener reglas de pago', isLoading: false });
     }
   },
 
   updatePaymentRule: async (id: string, data: Partial<PaymentRule>) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       await api.put(`/financial/rules/${id}`, data);
+      task.assertCurrent();
       // Recargar reglas después de actualizar
       const updatedData = await api.get<PaymentRule[]>('/financial/rules');
+      task.assertCurrent();
       set({ rules: updatedData, isLoading: false });
     } catch (error: any) {
+      task.assertCurrent();
       console.error('[FinancialStore] Error updating rule:', error);
       set({ error: error.message || 'Error al actualizar regla', isLoading: false });
       throw error;
@@ -190,3 +209,4 @@ export const useFinancialStore = create<FinancialState>((set, get) => ({
 }));
 
 export default useFinancialStore;
+resetOnSessionChange(useFinancialStore);

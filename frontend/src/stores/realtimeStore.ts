@@ -1,3 +1,4 @@
+import { resetOnSessionChange } from '@/lib/private-task';
 // Realtime Store - Zustand para actualizaciones en tiempo real (WebSocket)
 import { create } from 'zustand';
 import type { Order, OrderStatus } from '@/types/order';
@@ -198,3 +199,4 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
 }));
 
 export default useRealtimeStore;
+resetOnSessionChange(useRealtimeStore);
