@@ -5,7 +5,8 @@
 
 import { api } from '@/lib/api';
 import { Order, OrderStatus, PriorityLevel } from './order.service';
-import { cacheUtils } from '@/hooks/useCachedQuery';
+import { cacheUtils } from '@/lib/private-cache';
+import { capturePrivateTask } from '@/lib/private-task';
 
 export interface OrderFilters {
   status?: OrderStatus;
@@ -23,12 +24,13 @@ export const orderServiceWithCache = {
    * Obtener todas las órdenes con caché
    */
   async getAllOrders(filters?: OrderFilters): Promise<Order[]> {
+    const task = capturePrivateTask();
     const cacheKey = `orders:list:${JSON.stringify(filters || {})}`;
     
     // Intentar obtener del caché primero
     const cached = cacheUtils.get<Order[]>(cacheKey);
+    task.assertCurrent();
     if (cached) {
-      console.log('📦 [CACHE HIT] orders.getList');
       return cached;
     }
 
@@ -40,11 +42,11 @@ export const orderServiceWithCache = {
     if (filters?.skip !== undefined) params.append('skip', filters.skip.toString());
     if (filters?.limit !== undefined) params.append('limit', filters.limit.toString());
 
-    const orders = await api.get<Order[]>(`/api/v1/orders?${params.toString()}`);
+    const orders = await api.get<Order[]>(`/orders?${params.toString()}`);
+    task.assertCurrent();
 
     // Guardar en caché
-    cacheUtils.set(cacheKey, orders, ORDERS_LIST_CACHE_TTL);
-    console.log('💾 [CACHE SET] orders.getList');
+    cacheUtils.set(cacheKey, orders, ORDERS_LIST_CACHE_TTL, task.generation);
 
     return orders;
   },
@@ -53,21 +55,22 @@ export const orderServiceWithCache = {
    * Obtener una orden específica con caché
    */
   async getOrderById(orderId: string): Promise<Order> {
-    const cacheKey = `order:${orderId}`;
+    const task = capturePrivateTask();
+    const cacheKey = `order:${encodeURIComponent(orderId)}`;
     
     // Intentar obtener del caché
     const cached = cacheUtils.get<Order>(cacheKey);
+    task.assertCurrent();
     if (cached) {
-      console.log(`📦 [CACHE HIT] order:${orderId}`);
       return cached;
     }
 
     // Hacer llamada a API
-    const order = await api.get<Order>(`/api/v1/orders/${orderId}`);
+    const order = await api.get<Order>(`/orders/${encodeURIComponent(orderId)}`);
+    task.assertCurrent();
 
     // Guardar en caché
-    cacheUtils.set(cacheKey, order, ORDER_CACHE_TTL);
-    console.log(`💾 [CACHE SET] order:${orderId}`);
+    cacheUtils.set(cacheKey, order, ORDER_CACHE_TTL, task.generation);
 
     return order;
   },
@@ -76,11 +79,12 @@ export const orderServiceWithCache = {
    * Crear una orden (invalida caché relacionado)
    */
   async createOrder(orderData: Partial<Order>): Promise<Order> {
-    const order = await api.post<Order>('/api/v1/orders', orderData);
+    const task = capturePrivateTask();
+    const order = await api.post<Order>('/orders', orderData);
+    task.assertCurrent();
 
     // Invalidar caché de listados de órdenes
     cacheUtils.removePattern('orders:list');
-    console.log('🗑️ [CACHE INVALIDATED] orders:list (new order created)');
 
     return order;
   },
@@ -89,13 +93,14 @@ export const orderServiceWithCache = {
    * Actualizar una orden (invalida caché específico y de listados)
    */
   async updateOrder(orderId: string, updateData: Partial<Order>): Promise<Order> {
-    const order = await api.put<Order>(`/api/v1/orders/${orderId}`, updateData);
+    const task = capturePrivateTask();
+    const order = await api.patch<Order>(`/orders/${encodeURIComponent(orderId)}`, updateData);
+    task.assertCurrent();
 
     // Invalidar caché específico
-    cacheUtils.remove(`order:${orderId}`);
+    cacheUtils.remove(`order:${encodeURIComponent(orderId)}`);
     // Invalidar listados
     cacheUtils.removePattern('orders:list');
-    console.log(`🗑️ [CACHE INVALIDATED] order:${orderId} and orders:list`);
 
     return order;
   },
@@ -104,12 +109,13 @@ export const orderServiceWithCache = {
    * Cancelar una orden (invalida caché relacionado)
    */
   async cancelOrder(orderId: string, reason: string): Promise<Order> {
-    const order = await api.post<Order>(`/api/v1/orders/${orderId}/cancel`, { reason });
+    const task = capturePrivateTask();
+    const order = await api.patch<Order>(`/orders/${encodeURIComponent(orderId)}/cancel`, { reason });
+    task.assertCurrent();
 
     // Invalidar caché
-    cacheUtils.remove(`order:${orderId}`);
+    cacheUtils.remove(`order:${encodeURIComponent(orderId)}`);
     cacheUtils.removePattern('orders:list');
-    console.log(`🗑️ [CACHE INVALIDATED] order:${orderId} cancelled`);
 
     return order;
   },
@@ -118,13 +124,14 @@ export const orderServiceWithCache = {
    * Asignar repartidor a una orden (invalida caché relacionado)
    */
   async assignRider(orderId: string, riderId: string): Promise<Order> {
-    const order = await api.post<Order>(`/api/v1/orders/${orderId}/assign`, { rider_id: riderId });
+    const task = capturePrivateTask();
+    const order = await api.patch<Order>(`/orders/${encodeURIComponent(orderId)}/assign`, { rider_id: riderId });
+    task.assertCurrent();
 
     // Invalidar caché de orden y repartidor
-    cacheUtils.remove(`order:${orderId}`);
+    cacheUtils.remove(`order:${encodeURIComponent(orderId)}`);
     cacheUtils.removePattern('orders:list');
     cacheUtils.removePattern(`rider:${riderId}`);
-    console.log(`🗑️ [CACHE INVALIDATED] order:${orderId} assigned to rider:${riderId}`);
 
     return order;
   },
@@ -133,8 +140,10 @@ export const orderServiceWithCache = {
    * Forzar refresh del caché de órdenes
    */
   async refreshOrdersCache(filters?: OrderFilters): Promise<Order[]> {
+    const task = capturePrivateTask();
     const cacheKey = `orders:list:${JSON.stringify(filters || {})}`;
     cacheUtils.remove(cacheKey);
+    task.assertCurrent();
     return this.getAllOrders(filters);
   },
 
@@ -144,7 +153,6 @@ export const orderServiceWithCache = {
   clearCache(): void {
     cacheUtils.removePattern('order:');
     cacheUtils.removePattern('orders:list');
-    console.log('🧹 [CACHE CLEARED] All order cache removed');
   },
 };
 

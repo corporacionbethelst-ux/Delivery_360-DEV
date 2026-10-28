@@ -20,7 +20,9 @@ const browser = () => typeof window !== 'undefined';
 
 function invalidate(): void {
   ++generation;
-  listeners.forEach((listener) => listener());
+  listeners.forEach((listener) => {
+    try { listener(); } catch { /* One subscriber must not block credential cleanup or other stores. */ }
+  });
 }
 /** Internal invalidation only. Does not expose credentials to subscribers. */
 export function onCredentialsChanged(listener: () => void): () => void {
@@ -50,6 +52,8 @@ export function getStoredTokens(): AuthTokens {
   }
   return { ...tokens };
 }
+/** Pure snapshot for React subscriptions; observing storage remains an explicit read. */
+export const getCredentialGeneration = (): number => generation;
 export function captureAuthSession(): AuthSession {
   return { ...getStoredTokens(), generation };
 }

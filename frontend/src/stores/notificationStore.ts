@@ -1,6 +1,7 @@
 /** Operational alerts are private session data: no browser persistence. */
 import { create } from 'zustand';
 import { api } from '@/lib/api';
+import { onCredentialsChanged } from '@/lib/auth-session';
 
 export type NotificationType = 'ORDER' | 'PAYMENT' | 'ALERT' | 'SYSTEM' | 'USER' | 'OPERATIONAL';
 export interface Notification {
@@ -145,3 +146,6 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   },
   reset: () => get().setSession(null),
 }));
+
+// Advance the request revision too, so an already accepted old REST result cannot revive alerts.
+onCredentialsChanged(() => useNotificationStore.getState().reset());

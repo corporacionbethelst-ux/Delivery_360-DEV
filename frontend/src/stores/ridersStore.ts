@@ -1,3 +1,4 @@
+import { capturePrivateTask, resetOnSessionChange } from '@/lib/private-task';
 // Riders Store - Zustand para gestión de repartidores
 // VERSIÓN DEFINITIVA: Consistente con user.ts (snake_case) y api wrapper
 
@@ -90,6 +91,7 @@ export const useRidersStore = create<RidersState>((set, get) => ({
   // ==========================================================================
   
   fetchRiders: async (filters?: Partial<RiderFilters>) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       const allFilters = { ...get().filters, ...filters };
@@ -105,6 +107,7 @@ export const useRidersStore = create<RidersState>((set, get) => ({
       
       // ✅ api.get devuelve directamente { items: Rider[], total: number }
       const response = await api.get<{ items: Rider[]; total: number }>(`/riders?${params.toString()}`);
+      task.assertCurrent();
       
       set({ 
         riders: response.items || [], 
@@ -112,6 +115,7 @@ export const useRidersStore = create<RidersState>((set, get) => ({
         isLoading: false 
       });
     } catch (error: any) {
+      task.assertCurrent();
       console.error('[RidersStore] Error fetching riders:', error);
       set({ error: error.message || 'Error al obtener repartidores', isLoading: false });
       throw error;
@@ -119,12 +123,15 @@ export const useRidersStore = create<RidersState>((set, get) => ({
   },
   
   fetchRiderById: async (id: string) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       // ✅ Devuelve directamente el objeto Rider
       const rider = await api.get<Rider>(`/riders/${id}`);
+      task.assertCurrent();
       set({ selectedRider: rider, isLoading: false });
     } catch (error: any) {
+      task.assertCurrent();
       console.error(`[RidersStore] Error fetching rider ${id}:`, error);
       set({ error: error.message || 'Error al obtener detalle del repartidor', isLoading: false });
       throw error;
@@ -132,11 +139,14 @@ export const useRidersStore = create<RidersState>((set, get) => ({
   },
   
   fetchPendingDocuments: async () => {
+    const task = capturePrivateTask();
     try {
       // ✅ Devuelve directamente el array de documentos
       const docs = await api.get<RiderDocument[]>('/riders/documents/pending');
+      task.assertCurrent();
       return docs;
     } catch (error: any) {
+      task.assertCurrent();
       console.error('[RidersStore] Error fetching pending documents:', error);
       set({ error: error.message });
       throw error;
@@ -148,10 +158,12 @@ export const useRidersStore = create<RidersState>((set, get) => ({
   // ==========================================================================
   
   createRider: async (data: RiderCreateInput) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       if (data.vehicle_ownership_type === 'EMPRESA') requireVehicleRevision(data.expected_vehicle_revision);
       const newRider = await api.post<Rider>('/riders', data);
+      task.assertCurrent();
       set((state) => ({ 
         riders: [...state.riders, newRider],
         total: state.total + 1,
@@ -159,6 +171,7 @@ export const useRidersStore = create<RidersState>((set, get) => ({
       }));
       return newRider;
     } catch (error: any) {
+      task.assertCurrent();
       console.error('[RidersStore] Error creating rider:', { status: error?.status ?? error?.response?.status });
       set({ error: error.message || 'Error al crear repartidor', isLoading: false });
       throw error;
@@ -166,9 +179,11 @@ export const useRidersStore = create<RidersState>((set, get) => ({
   },
   
   updateRider: async (id: string, data: RiderUpdateInput) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       const updatedRider = await riderService.updateRider(id, { ...data, phone: data.phone ?? undefined });
+      task.assertCurrent();
       set((state) => ({
         riders: state.riders.map(r => r.id === id ? updatedRider : r),
         selectedRider: state.selectedRider?.id === id ? updatedRider : state.selectedRider,
@@ -176,6 +191,7 @@ export const useRidersStore = create<RidersState>((set, get) => ({
       }));
       return updatedRider;
     } catch (error: any) {
+      task.assertCurrent();
       console.error(`[RidersStore] Error updating rider ${id}:`, error);
       set({ error: error.message || 'Error al actualizar repartidor', isLoading: false });
       throw error;
@@ -183,9 +199,11 @@ export const useRidersStore = create<RidersState>((set, get) => ({
   },
   
   deleteRider: async (id: string) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       await api.delete(`/riders/${id}`);
+      task.assertCurrent();
       set((state) => ({
         riders: state.riders.filter(r => r.id !== id),
         total: state.total - 1,
@@ -193,6 +211,7 @@ export const useRidersStore = create<RidersState>((set, get) => ({
         isLoading: false
       }));
     } catch (error: any) {
+      task.assertCurrent();
       console.error(`[RidersStore] Error deleting rider ${id}:`, error);
       set({ error: error.message || 'Error al eliminar repartidor', isLoading: false });
       throw error;
@@ -200,15 +219,19 @@ export const useRidersStore = create<RidersState>((set, get) => ({
   },
   
   approveRider: async (id: string, observations?: string) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       await api.post(`/riders/${id}/approve`, { observations });
+      task.assertCurrent();
       const updatedRider = await api.get<Rider>(`/riders/${id}`);
+      task.assertCurrent();
       set((state) => ({
         riders: state.riders.map(r => r.id === id ? updatedRider : r),
         isLoading: false
       }));
     } catch (error: any) {
+      task.assertCurrent();
       console.error(`[RidersStore] Error approving rider ${id}:`, error);
       set({ error: error.message || 'Error al aprobar repartidor', isLoading: false });
       throw error;
@@ -216,15 +239,19 @@ export const useRidersStore = create<RidersState>((set, get) => ({
   },
   
   rejectRider: async (id: string, reason: string) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       await api.post(`/riders/${id}/reject`, { reason });
+      task.assertCurrent();
       const updatedRider = await api.get<Rider>(`/riders/${id}`);
+      task.assertCurrent();
       set((state) => ({
         riders: state.riders.map(r => r.id === id ? updatedRider : r),
         isLoading: false
       }));
     } catch (error: any) {
+      task.assertCurrent();
       console.error(`[RidersStore] Error rejecting rider ${id}:`, error);
       set({ error: error.message || 'Error al rechazar repartidor', isLoading: false });
       throw error;
@@ -307,3 +334,4 @@ export const useRidersStore = create<RidersState>((set, get) => ({
 }));
 
 export default useRidersStore;
+resetOnSessionChange(useRidersStore);

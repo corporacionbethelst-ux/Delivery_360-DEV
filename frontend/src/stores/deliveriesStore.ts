@@ -1,3 +1,4 @@
+import { capturePrivateTask, resetOnSessionChange } from '@/lib/private-task';
 // src/stores/deliveryStore.ts
 import { create } from 'zustand';
 import type { Delivery, DeliveryStatus, DeliveryFilters, ProofOfDelivery, DeliveryEvent, DeliveryLocation } from '@/types/delivery';
@@ -88,6 +89,7 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
   // ---------------------------------------------------------------------------
   
   fetchDeliveries: async (filters?: Partial<DeliveryFilters>) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       const currentFilters = get().filters;
@@ -106,6 +108,7 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
       if (allFilters.search) params.append('search', allFilters.search);
       
       const response = await api.get<any>(`/deliveries?${params.toString()}`);
+      task.assertCurrent();
       
       // Normalizar datos recibidos
       const rawItems = response.data?.items || response.data || [];
@@ -117,6 +120,7 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
         isLoading: false 
       });
     } catch (error: any) {
+      task.assertCurrent();
       console.error('[DeliveryStore] Error fetching deliveries:', error);
       set({ 
         error: error.response?.data?.message || error.message || 'Error al obtener entregas', 
@@ -127,12 +131,15 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
   },
   
   fetchDeliveryById: async (id: string) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       const response = await api.get<any>(`/deliveries/${id}`);
+      task.assertCurrent();
       const normalized = get().normalizeDelivery(response.data);
       set({ selectedDelivery: normalized, isLoading: false });
     } catch (error: any) {
+      task.assertCurrent();
       console.error(`[DeliveryStore] Error fetching delivery ${id}:`, error);
       set({ 
         error: error.response?.data?.message || error.message || 'Error al obtener detalle', 
@@ -143,9 +150,11 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
   },
   
   fetchActiveDeliveries: async () => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       const response = await api.get<any>('/deliveries/active');
+      task.assertCurrent();
       const normalizedItems = (response.data || []).map((item: any) => get().normalizeDelivery(item));
       
       set({ 
@@ -154,6 +163,7 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
         isLoading: false 
       });
     } catch (error: any) {
+      task.assertCurrent();
       console.error('[DeliveryStore] Error fetching active deliveries:', error);
       set({ error: error.message || 'Error al obtener entregas activas', isLoading: false });
       throw error;
@@ -161,9 +171,11 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
   },
   
   fetchPendingDeliveries: async () => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       const response = await api.get<any>('/deliveries/pending');
+      task.assertCurrent();
       const normalizedItems = (response.data || []).map((item: any) => get().normalizeDelivery(item));
 
       set({ 
@@ -172,6 +184,7 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
         isLoading: false 
       });
     } catch (error: any) {
+      task.assertCurrent();
       console.error('[DeliveryStore] Error fetching pending deliveries:', error);
       set({ error: error.message || 'Error al obtener entregas pendientes', isLoading: false });
       throw error;
@@ -183,9 +196,11 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
   // ---------------------------------------------------------------------------
 
   assignDelivery: async (deliveryId: string, riderId: string) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       const response = await api.post<any>(`/deliveries/${deliveryId}/assign`, { riderId });
+      task.assertCurrent();
       const updated = get().normalizeDelivery(response.data);
       
       set((state) => ({
@@ -195,6 +210,7 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
       }));
       return updated;
     } catch (error: any) {
+      task.assertCurrent();
       console.error(`[DeliveryStore] Error assigning delivery ${deliveryId}:`, error);
       set({ error: error.message || 'Error al asignar entrega', isLoading: false });
       throw error;
@@ -202,9 +218,11 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
   },
   
   unassignDelivery: async (deliveryId: string) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       const response = await api.post<any>(`/deliveries/${deliveryId}/unassign`);
+      task.assertCurrent();
       const updated = get().normalizeDelivery(response.data);
       
       set((state) => ({
@@ -214,6 +232,7 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
       }));
       return updated;
     } catch (error: any) {
+      task.assertCurrent();
       console.error(`[DeliveryStore] Error unassigning delivery ${deliveryId}:`, error);
       set({ error: error.message || 'Error al desasignar entrega', isLoading: false });
       throw error;
@@ -221,9 +240,11 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
   },
   
   startDelivery: async (deliveryId: string) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       const response = await api.post<any>(`/deliveries/${deliveryId}/start`);
+      task.assertCurrent();
       const updated = get().normalizeDelivery(response.data);
       
       set((state) => ({
@@ -233,6 +254,7 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
       }));
       return updated;
     } catch (error: any) {
+      task.assertCurrent();
       console.error(`[DeliveryStore] Error starting delivery ${deliveryId}:`, error);
       set({ error: error.message || 'Error al iniciar entrega', isLoading: false });
       throw error;
@@ -240,9 +262,11 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
   },
   
   finishDelivery: async (deliveryId: string, proof: Omit<ProofOfDelivery, 'id' | 'deliveryId' | 'timestamp'>) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       const response = await api.post<any>(`/deliveries/${deliveryId}/complete`, proof);
+      task.assertCurrent();
       const updated = get().normalizeDelivery(response.data);
       
       set((state) => ({
@@ -252,6 +276,7 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
       }));
       return updated;
     } catch (error: any) {
+      task.assertCurrent();
       console.error(`[DeliveryStore] Error finishing delivery ${deliveryId}:`, error);
       set({ error: error.message || 'Error al finalizar entrega', isLoading: false });
       throw error;
@@ -259,9 +284,11 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
   },
   
   cancelDelivery: async (deliveryId: string, reason: string) => {
+    const task = capturePrivateTask();
     set({ isLoading: true, error: null });
     try {
       const response = await api.post<any>(`/deliveries/${deliveryId}/cancel`, { reason });
+      task.assertCurrent();
       const updated = get().normalizeDelivery(response.data);
       
       set((state) => ({
@@ -271,6 +298,7 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
       }));
       return updated;
     } catch (error: any) {
+      task.assertCurrent();
       console.error(`[DeliveryStore] Error cancelling delivery ${deliveryId}:`, error);
       set({ error: error.message || 'Error al cancelar entrega', isLoading: false });
       throw error;
@@ -352,3 +380,4 @@ export const useDeliveriesStore = create<DeliveriesState>((set, get) => ({
 }));
 
 export default useDeliveriesStore;
+resetOnSessionChange(useDeliveriesStore);

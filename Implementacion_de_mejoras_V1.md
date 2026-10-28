@@ -3272,3 +3272,62 @@ Siguen pendientes la revocación/sesiones de backend, PUSH web real, outbox dura
 Los 395 tests y las 35 suites pasan también en la ejecución con cobertura; el comando termina con código 1 exclusivamente porque no se alcanza el umbral global. No se rebaja el umbral ni se excluyen archivos. TypeScript detectó dos callbacks nuevos de Storage con this sin anotación; se corrigieron con this: Storage y el chequeo final pasa. No hubo fallos funcionales en las ejecuciones focalizadas ni globales.
 
 Se preparan trece archivos relacionados, con informe y guía nueva, en un PR sin borrador sobre b3f6ede. La publicación verifica los blobs y árbol contra el código probado y alinea el commit local con GitHub. CI de #285: tests backend aprobados y seguridad aprobada; fallaron el tipado backend y la etapa frontend de tests/cobertura. Se informa el CI del PR nuevo por separado. Sin migración, mensajes externos, fusión ni despliegue automático.
+
+
+## Entrega ampliada 46 — Aislamiento de stores y caché privada por sesión
+
+Fecha: 27 de octubre de 2026, America/Caracas. Base main aa013e6, fusión de #286 sin hilos de revisión pendientes. Se verificó el árbol idéntico a cce50ef antes de crear fix/private-store-session-isolation-v1. Se mantiene la lógica de backend y se agrupan limpieza de datos privados, continuaciones asíncronas y caché.
+
+### Hallazgos verificados
+
+El cliente HTTP ya descartaba respuestas de una generación anterior, pero los stores conservaban pedidos, entregas, repartidores, ingresos y reportes después del logout. Existía además una ventana entre el interceptor que aceptaba una respuesta y la continuación que escribía el store. Un catch antiguo podía publicar un error, fabricar un resumen vacío o quitar los flags de una operación nueva. Los flujos mutación -> consulta y reporte -> adaptación necesitaban comprobar de nuevo su contexto.
+
+useCachedQuery compartía un Map global con claves que no incluían sesión, restauraba su contenido desde delivery360_cache y lo escribía automáticamente cada 30 segundos y al cerrar la página. No verificaba generación, clave ni montaje al terminar queryFn. La persistencia podía trasladar datos privados a otra sesión; un resultado tardío podía repoblar tanto la vista como el mapa. Sus comprobaciones truthy trataban 0/false/string vacío como misses, y las dependencias del efecto omitían fetchData.
+
+El servicio de pedidos con caché añadía /api/v1 a rutas de un cliente que ya tiene base de API y usaba PUT/POST en tres operaciones donde el servicio principal emplea PATCH. No se activa ese helper en nuevas pantallas; se alinea su contrato HTTP y se conserva su superficie pública.
+
+### Cambios relacionados
+
+- Nuevo private-task.ts: captura generación y exige credenciales antes de iniciar una acción privada. Los cinco stores con HTTP usan esta captura en sus 33 acciones; se comprueban sus 36 continuaciones await y los catches antes de publicar datos/errores o continuar. Se conserva la lógica de filtros, validaciones de revisión y transformaciones de negocio.
+- Pedidos, entregas, repartidores, datos personales del repartidor, finanzas y tiempo real se restauran al estado inicial en cada invalidación de credenciales, manteniendo las acciones. Alertas se enlaza al mismo cambio mediante su reset para avanzar también la revisión interna de REST. Son siete stores; el logout ya no depende solo de desmontar componentes para retirar esos datos.
+- La captura se verifica en el frame que consume el resultado. Una prueba con Axios real cambia la cuenta después del interceptor de respuesta, antes del store; el store rechaza A y mantiene los datos sembrados para B. Se prueban también mutación -> segunda consulta y reporte -> adaptación.
+- El gestor expone un getter puro de generación para React. Se aísla la excepción de un suscriptor para que no impida invalidar credenciales o limpiar los demás. La rotación válida de refresh conserva generación y no borra los datos del mismo usuario.
+- Nuevo private-cache.ts: memoria de página, entradas por generación, TTL y máximo 500 con expulsión de la menos usada. No devuelve datos sin credenciales. Los escritores asíncronos conocidos adjuntan la generación esperada. Se aceptan hits con valores falsy, se vence en el límite exacto del TTL y se rechazan TTL negativos/no finitos.
+- Se retira la persistencia privada: no se lee ni interpreta la caché anterior, se intenta eliminar la clave y se conservan persist/restore como limpieza compatible. Se eliminan auto-restore, intervalo y beforeunload. No se toca el tema ni otras preferencias.
+- useCachedQuery se vincula a generación, clave, secuencia y montaje. Oculta una vista de otra clave/sesión durante render; ignora respuestas/errores tras logout, disable, unmount o StrictMode. El último refetch prevalece y un queryFn inline no crea un bucle. Se conservan staleTime, TTL y fallback de la misma generación con mensajes de error genéricos.
+- El servicio con caché de pedidos verifica también su tarea antes de cachear/devolver. Usa rutas relativas /orders, PATCH para edición/cancelación/asignación y codificación de IDs. Conserva invalidaciones de detalle/lista y exports; retira diagnósticos de consola con IDs de pedido/repartidor.
+- Se amplía frontend/AUTH_SESSION_LIFECYCLE.md con datos de negocio, caché y límites. Sin dependencias runtime nuevas, migraciones, cambios de permisos ni lógica de servidor.
+
+### Verificación de regresión y límites
+
+La primera pasada global aprobó 540 tests y señaló tres tests de revisión de vehículos que ejecutaban el store sin preparar credenciales. Se añade un par ficticio en su setup y limpieza posterior, conservando sus aserciones de precondiciones, snapshots, PATCH, conflictos y privacidad. No se relaja el guard de sesión para que esos tests pasen. La focalización posterior aprueba los primeros 148 casos nuevos y los 10 de esa suite previa; se añade después un caso de observación de storage externo antes de iniciar la consulta.
+
+La protección de tareas cubre las acciones asíncronas enumeradas, no callbacks arbitrarios que escriban mediante setters síncronos. El reset de tiempo real no cierra sus sockets ni certifica todos los productores WS. No se ordenan todas las operaciones simultáneas de una misma cuenta en los stores de negocio; la secuencia latest-wins pertenece al hook de consultas. Las peticiones ya enviadas pueden producir efectos en el servidor; rechazar el resultado no las revierte ni implica haberlas abortado.
+
+Los cambios externos de storage se detectan al observarlos y no se garantiza atomicidad/ABA entre pestañas. El caché no verifica roles del servidor por cada hit y no sustituye a SessionGate/RBAC. Una revalidación de perfil sin nueva generación no limpia por sí sola todos los datos de negocio. El TTL y la cota son políticas de memoria local, no una garantía de actualización permanente de todos los datos ni un límite de bytes por entrada.
+
+Si el navegador prohíbe borrar la clave antigua, el cliente nuevo no la restaura; no se promete borrado físico ni proteger pestañas con código antiguo. queryFn no recibe AbortSignal en esta interfaz, por lo que se ignora su resultado obsoleto sin prometer cancelar su trabajo. El helper de pedidos con caché no se conecta automáticamente a pantallas ni sus pruebas sustituyen la validación operativa contra backend.
+
+Permanecen pendientes revocación/sesiones de backend, coordinación de pestañas, renovación de permisos/revalidación de ámbitos, productores WS fuera del alcance, ordenación concurrente de estados de negocio, PUSH web real, outbox durable, conciliación/idempotencia externas, ledger por dispositivo, fallback IN_APP general, límites distribuidos, migraciones y deuda global de tipos/cobertura.
+
+### Evidencia final de la entrega ampliada 46
+
+| Control | Resultado |
+|---|---|
+| Frontend completo | **544 tests aprobados en 40 suites**, 149 nuevos frente a 395/35 |
+| Casos nuevos | 106 de stores/acciones, 16 de caché privada, 15 de hook, 9 de servicio con caché y 3 de integración con Axios real |
+| Acciones cubiertas | 33 entradas asíncronas: resultado tardío, error tardío y ausencia de credenciales en cada una; regresiones de comportamiento vigente y cadenas adicionales |
+| Integración | Ventana posterior al interceptor, logout real desde authStore y refresh normal que conserva datos del mismo usuario |
+| TypeScript | Aprobado de forma aislada después del build |
+| Lint | Aprobado con advertencias existentes; useCachedQuery ya no produce advertencia y no se desactivan reglas |
+| Build | Build de producción frontend aprobado, sin desplegar |
+| Cobertura global | **23,98 % líneas**, 23,96 % sentencias, 17,78 % ramas y 19,59 % funciones; desde 19,84 % líneas, todavía por debajo del 50 % requerido |
+| Módulos centrales | private-task.ts, private-cache.ts y useCachedQuery.ts con **100 % de líneas**; esto no equivale a cobertura completa de ramas/funciones de todo el proyecto |
+| git diff --check | Aprobado |
+| Backend | Sin cambios ni repetición de su batería; última referencia: 1207 tests y Mypy 314 errores/52 archivos, no una medición nueva |
+
+La ejecución completa con cobertura aprueba los 544 tests y las 40 suites, pero termina con código 1 exclusivamente por el umbral global del 50 %. Se mantienen las reglas y todos los archivos en el cálculo. La captura final usa la salida JSON de Jest y coverage-final.json, con verificación del resumen mediante Istanbul. Las pruebas usan transportes sustituidos, cookies/storage de JSDOM y código real de Axios donde se indica; no se envían mensajes ni se opera sobre datos de producción.
+
+Se repite TypeScript después del build porque una pasada ejecutada en paralelo con Next encontró archivos .next/types ausentes durante su regeneración. El chequeo aislado final pasa. Se unifica la limpieza del hook y se retira un incremento de secuencia redundante; cada setup ya invalida la secuencia anterior y alive bloquea el trabajo desmontado. La regresión de disable/unmount/StrictMode y el caso de storage externo pasan sobre esa versión, sin ocultar la advertencia de lint mediante comentarios.
+
+Se publican veinte archivos relacionados sobre main aa013e6 en un único PR listo para revisión, sin borrador. El contenido de blobs y árbol se compara con el local y se alinea el commit exacto. CI de #286: tests backend y seguridad aprobados; fallaron tipos backend y etapa frontend de tests/cobertura. El CI nuevo se informa por separado. No hay migración, fusión ni despliegue automático y no se declara CI global verde o producción al 100 %.

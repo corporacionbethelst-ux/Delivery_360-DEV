@@ -1,3 +1,4 @@
+import { storeTokens, clearStoredTokens } from '@/lib/auth-session';
 import { riderService } from '@/services/rider.service';
 import { api } from '@/lib/api';
 import { VehicleRevisionError } from '@/lib/vehicle-revision';
@@ -5,7 +6,12 @@ jest.mock('@/lib/api', () => ({ api: { get:jest.fn(), post:jest.fn(), patch:jest
 const post = jest.mocked(api.post), patch = jest.mocked(api.patch), get = jest.mocked(api.get);
 const id = '123e4567-e89b-42d3-a456-426614174000', revision = 'a'.repeat(64), selected = 'b'.repeat(64);
 const create = { email:'rider@example.test', password:'ValidPassword123!', first_name:'Test', last_name:'Rider', phone:'+584121234567', vehicle_type:'MOTO', vehicle_ownership_type:'EMPRESA' as const, assigned_vehicle_id:id };
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  clearStoredTokens();
+  storeTokens({ access_token: 'selected-vehicle-test-access', refresh_token: 'selected-vehicle-test-refresh' });
+  jest.clearAllMocks();
+});
+afterEach(() => clearStoredTokens());
 it.each([undefined, '', 'bad', 'A'.repeat(64)])('refuses an unbound candidate for creation/update: %s', async value => {
   await expect(riderService.createRider({ ...create, expected_vehicle_revision:value })).rejects.toBeInstanceOf(VehicleRevisionError);
   await expect(riderService.updateRider(id, { assigned_vehicle_id:id, expected_assignment_revision:revision, expected_vehicle_revision:value })).rejects.toBeInstanceOf(VehicleRevisionError);
