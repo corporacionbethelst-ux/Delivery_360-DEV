@@ -1,4 +1,6 @@
 import {
+  getAccessTokenRevision,
+  onAccessTokenRotated,
   captureAuthSession,
   clearStoredTokens,
   commitRefreshedTokens,
@@ -148,4 +150,43 @@ it('notifies invalidation without sending credentials and permits unsubscribe', 
   stop();
   clearStoredTokens();
   expect(listener).toHaveBeenCalledTimes(1);
+});
+
+it('announces a complete token rotation without invalidating this user generation', () => {
+  storeTokens(original);
+  const before = captureAuthSession(),
+    revision = getAccessTokenRevision();
+  const invalidated = jest.fn(),
+    rotated = jest.fn();
+  const stop = onCredentialsChanged(invalidated),
+    end = onAccessTokenRotated(rotated);
+  try {
+    commitRefreshedTokens(before, { access_token: 'new-access', refresh_token: 'new-refresh' });
+    expect(isCurrentAuthSession(before)).toBe(true);
+    expect(getAccessTokenRevision()).toBe(revision + 1);
+    expect(invalidated).not.toHaveBeenCalled();
+    expect(rotated).toHaveBeenCalledWith();
+  } finally {
+    stop();
+    end();
+  }
+});
+it('a failed rotation observer cannot block other transports or roll back a committed pair', () => {
+  storeTokens(original);
+  const before = captureAuthSession();
+  const tail = jest.fn();
+  const stop = onAccessTokenRotated(() => {
+      throw new Error('observer failed');
+    }),
+    end = onAccessTokenRotated(tail);
+  try {
+    expect(() =>
+      commitRefreshedTokens(before, { access_token: 'new-access', refresh_token: 'new-refresh' })
+    ).not.toThrow();
+    expect(tail).toHaveBeenCalledTimes(1);
+    expect(getStoredTokens().accessToken).toBe('new-access');
+  } finally {
+    stop();
+    end();
+  }
 });

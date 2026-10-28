@@ -194,3 +194,89 @@ No se ordenan todas las operaciones concurrentes de una misma sesión en los
 stores de negocio; la secuencia de useCachedQuery tiene ese alcance solo en su
 instancia. Una mutación aceptada por el servidor no se revierte al descartar
 su resultado. No se cancela la petición remota desde capturePrivateTask.
+
+
+## Transporte en tiempo real y mapa (entrega ampliada 47)
+
+`useRealtimeIdentity` combina perfil activo verificado, usuario, revisión de
+`authStore`, generación de credenciales y una revisión independiente del access
+token. `commitRefreshedTokens` emite la señal de rotación después de persistir el
+par válido. Los errores de un suscriptor no impiden notificar a los demás. Una
+rotación propia conserva la generación y los datos de negocio del mismo usuario;
+login, logout o un par externo observado mantienen la invalidación anterior.
+La señal no lleva tokens ni sustituye la autorización del servidor.
+
+Los hooks activos `useTrackingWebSocket` y `useNotifications` reemplazan el socket
+al recibir esa señal. Cada callback verifica además la instancia concreta y el
+token capturado. La limpieza retira handlers, intervalos, reintentos y conexiones
+incluso si siguen en CONNECTING. Los datos de otro usuario/revisión/generación se
+ocultan durante render. Los callbacks públicos guardados de una sesión anterior
+no pueden refrescar, marcar lecturas ni reconectar como una cuenta nueva.
+
+Tracking limita la apertura a 10 segundos por defecto, reintenta con espera
+exponencial hasta 15 segundos y conserva un presupuesto acotado por configuración
+(máximo diez reintentos). Solo el mensaje CONNECTED reinicia el presupuesto.
+Una reconexión manual retira antes el socket y temporizador anteriores. Los
+cierres 1008/4001 limpian posiciones y no abren otro socket automáticamente con
+ese contexto; una acción manual explícita puede intentar de nuevo. Se mantienen
+pings y medición de latencia, incluido performance.now() igual a cero.
+
+Las URLs se derivan de la configuración existente; los valores históricos
+true/false de NEXT_PUBLIC_TRACKING_WS se interpretan como flags. Se conservan
+prefijos de API y se codifican canal/token. Se rechazan protocolos ajenos a
+WS/WSS, userinfo, query/hash en la URL base y WS inseguro desde una página HTTPS.
+Los canales son dashboard o rider/order con UUID canónico. No se registra la
+URL autenticada. El protocolo del backend continúa pasando el JWT en query;
+esta entrega no modifica la política de logs del proxy ni migra autenticación.
+
+El inbox tiene dos grupos de solicitudes: lecturas reemplazables y mutaciones.
+`RequestScope` limita a 15 segundos fetch y consumo JSON cuando ambos forman la
+misma operación; aborta al limpiar y termina la espera aunque un adaptador
+ignore AbortSignal. Una respuesta anterior no sustituye una lectura más nueva.
+Los eventos se muestran inmediatamente y agrupan la recuperación canónica de SQL
+en una ventana de 50 ms. El ACK de marcar leído también reconcilia el historial.
+El cierre de política limpia items/contador, invalida GET y resultados PATCH
+pendientes y cancela la recuperación programada. No reintenta automáticamente
+ese WS, pero conserva REST: una consulta posterior puede recuperar el inbox
+si el servidor todavía la autoriza. No se equipara ese cierre a revocación JWT.
+
+El mapa publica un snapshot completo de repartidores y pedidos, con estadísticas
+opcionales. La última consulta iniciada prevalece, sin publicar resultados al
+desmontar o cambiar ámbito. Un fallo transitorio conserva el snapshot anterior;
+401/403 de las consultas principales limpia datos y muestra el error de acceso.
+Se reconocen tanto AxiosError como el error normalizado del servicio real de
+repartidores. La página oculta también las posiciones WS retenidas tras ese
+rechazo; un fallo transitorio posterior no las restaura. Solo un snapshot
+completo autorizado permite mostrarlas de nuevo. Las estadísticas opcionales fallidas pasan a null. El polling
+usa 10 segundos sin WS abierto y 60 segundos con WS abierto. La rotación propia
+no borra el snapshot ni recrea por sí sola ese intervalo.
+
+Coordenadas cero son válidas; null, texto vacío, NaN y rangos imposibles no se
+convierten en ubicaciones. REST conserva nombre, teléfono y estado al incorporar
+WS. Se compara la fecha de posición y se evita retroceder con un snapshot/evento
+antiguo; un punto sin fecha no reemplaza uno fechado. El escritor de tracking
+actual guarda UTC sin tzinfo: se normalizan esas fechas a Z antes de comparar o
+mostrar; los offsets explícitos se conservan. No se inventa una fecha actual.
+RECOLECTADO se considera pedido activo. El límite de 50 pedidos solicitado por
+la pantalla se mantiene y no representa el total de todos los pedidos del sistema.
+
+La memoria WS se limita a 1000 repartidores por defecto (configurable hasta
+5000), frames de 262144 caracteres y lotes procesados de hasta el doble del límite.
+No es un presupuesto de bytes de toda la aplicación. La demostración de
+movimiento local existente sigue requiriendo activación explícita; no escribe
+ubicaciones en el servidor y no constituye seguimiento real.
+
+Estas pruebas no certifican redes móviles, gateways, navegadores físicos ni
+revocación del servidor. La comparación de fechas usa precisión de milisegundos;
+no sustituye una secuencia durable ni ordena todos los eventos simultáneos. La
+apertura de un WS no certifica que Redis esté sano y no hay watchdog de pongs
+perdidos en una conexión ya abierta. El mapa no aborta las consultas Axios ya
+enviadas: descarta sus resultados obsoletos. Los PATCH enviados pueden haberse
+aplicado aunque se cancele la espera del navegador.
+
+Los helpers heredados `useRealtimeUpdates`/`WebSocketContext` y
+`useSocket`/`NotificationContext` no se activan con esta entrega. El primero
+conserva una ruta genérica /api/v1/ws sin endpoint montado y dependencias que
+pueden recrear conexiones; el segundo conserva demostración histórica. No se
+presentan como transportes productivos. Siguen pendientes revocación JWT,
+coordinación entre pestañas y revalidación integral de permisos/cachés.

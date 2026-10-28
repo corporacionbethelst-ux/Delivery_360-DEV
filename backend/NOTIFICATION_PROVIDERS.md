@@ -177,13 +177,26 @@ y cierra el socket con sus temporizadores. Solo usa access_token del cliente
 central, sin rescatar el antiguo token de localStorage. El render oculta datos
 de otra revisión antes incluso de la limpieza del efecto.
 
-Una respuesta vieja no reemplaza la más reciente. Un evento en vivo descarta
-el snapshot pendiente y solicita uno nuevo para recuperar el historial de SQL.
-Los payloads sin id o ajenos a IN_APP se ignoran; no se inventan identificadores.
-Los errores de red del hook son genéricos. Tras rotar el bearer, el socket viejo
-no aplica eventos; la siguiente comprobación de polling conecta con el nuevo
-token y actualiza el inbox. El cierre 1008 sigue sin reconexión con el mismo
-bearer, manteniendo REST.
+Una respuesta vieja no reemplaza la más reciente. Los eventos en vivo invalidan
+el snapshot pendiente y agrupan una lectura canónica de SQL en una ventana de
+50 ms; el ACK de marcar leído también solicita conciliación. Los payloads sin
+id o ajenos a IN_APP se ignoran; no se inventan identificadores. Los errores de
+red del hook son genéricos. GET y PATCH tienen esperas acotadas a 15 segundos y
+se cancelan al limpiar su contexto, incluso si el adaptador ignora AbortSignal.
+
+Tras rotar correctamente el bearer, la señal central reemplaza inmediatamente
+el socket y su contexto REST; conserva los items del mismo usuario/generación.
+No espera al siguiente polling para adoptar el token nuevo. Los callbacks del
+socket retirado y las acciones públicas guardadas de otra sesión no pueden
+escribir ni enviar como la sesión actual. La apertura se limita a 10 segundos.
+
+Los cierres 1008/4001 limpian items y contador, invalidan/cancelan GET y resultados
+PATCH pendientes y retiran el temporizador de conciliación. No hay reconexión
+WS automática con ese contexto; REST permanece como alternativa y puede
+recuperar datos posteriormente si el servidor lo autoriza. El cierre de socket
+no equivale a revocación global de JWT. Cancelar una espera PATCH no deshace una
+lectura ya marcada por el servidor. Estos cambios son de cliente; no se altera
+la lógica de proveedores ni de autorización del backend.
 
 El POST de logout usa el bearer capturado antes de limpiar credenciales, sin
 entrar al interceptor de refresh ni reintentar contra una cuenta nueva. El

@@ -16,12 +16,25 @@ let tokens: AuthTokens = { ...empty };
 let generation = 0;
 let ignoreStorage = false;
 const listeners = new Set<() => void>();
+const rotationListeners = new Set<() => void>();
+let accessTokenRevision = 0;
+export const getAccessTokenRevision = (): number => accessTokenRevision;
+export function onAccessTokenRotated(listener: () => void): () => void {
+  rotationListeners.add(listener);
+  return () => {
+    rotationListeners.delete(listener);
+  };
+}
 const browser = () => typeof window !== 'undefined';
 
 function invalidate(): void {
   ++generation;
   listeners.forEach((listener) => {
-    try { listener(); } catch { /* One subscriber must not block credential cleanup or other stores. */ }
+    try {
+      listener();
+    } catch {
+      /* One subscriber must not block credential cleanup or other stores. */
+    }
   });
 }
 /** Internal invalidation only. Does not expose credentials to subscribers. */
@@ -151,6 +164,14 @@ export function commitRefreshedTokens(session: AuthSession, pair: TokenPair): vo
   } catch {
     /* The next verified profile check also synchronizes navigation cookies. */
   }
+  ++accessTokenRevision;
+  rotationListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch {
+      /* Other transports still rotate. */
+    }
+  });
 }
 export function clearStoredTokens(): void {
   tokens = { ...empty };

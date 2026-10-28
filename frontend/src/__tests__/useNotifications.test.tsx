@@ -281,7 +281,9 @@ it('an older REST snapshot cannot erase a newer live event or its recovered hist
   act(() =>
     Socket.instances[0].message({ type: 'NEW_NOTIFICATION', ...inboxItem('live'), unread_count: 2 })
   );
-  await act(async () => {});
+  await act(async () => {
+    jest.advanceTimersByTime(50);
+  });
   await act(async () => {
     old.resolve(response('stale'));
   });
@@ -403,10 +405,226 @@ it('uses a generic REST error instead of a private network exception', async () 
 });
 
 it('React StrictMode cleanup cannot revive the first generation', async () => {
-  const old = pendingResponse(); fetcher.mockReturnValueOnce(old.promise).mockResolvedValueOnce(response('current'));
-  const wrapper = ({ children }: { children: React.ReactNode }) => <React.StrictMode>{children}</React.StrictMode>;
+  const old = pendingResponse();
+  fetcher.mockReturnValueOnce(old.promise).mockResolvedValueOnce(response('current'));
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <React.StrictMode>{children}</React.StrictMode>
+  );
   const { result, unmount } = renderHook(() => useNotifications(), { wrapper });
-  await act(async () => { old.resolve(response('discarded')); });
-  expect(Socket.instances).toHaveLength(2); expect(Socket.instances[0].close).toHaveBeenCalled();
-  expect(result.current.items.map(n => n.id)).toEqual(['current']); unmount(); expect(jest.getTimerCount()).toBe(0);
+  await act(async () => {
+    old.resolve(response('discarded'));
+  });
+  expect(Socket.instances).toHaveLength(2);
+  expect(Socket.instances[0].close).toHaveBeenCalled();
+  expect(result.current.items.map((n) => n.id)).toEqual(['current']);
+  unmount();
+  expect(jest.getTimerCount()).toBe(0);
+});
+
+it('coalesces a live burst into one canonical inbox read', async () => {
+  const { result, unmount } = renderHook(() => useNotifications());
+  await act(async () => {});
+  const before = fetcher.mock.calls.length;
+  act(() => {
+    for (let i = 0; i < 100; i++)
+      Socket.instances[0].message({
+        type: 'NEW_NOTIFICATION',
+        ...inboxItem(String(i)),
+        unread_count: 100,
+      });
+  });
+  expect(fetcher).toHaveBeenCalledTimes(before);
+  expect(result.current.items).toHaveLength(50);
+  await act(async () => {
+    jest.advanceTimersByTime(50);
+  });
+  expect(fetcher).toHaveBeenCalledTimes(before + 1);
+  unmount();
+});
+it('replaces the socket immediately on an ordinary refresh without erasing same-user inbox data', async () => {
+  const { captureAuthSession, commitRefreshedTokens } = await import('@/lib/auth-session');
+  fetcher.mockResolvedValue(response('same-owner'));
+  const { result, unmount } = renderHook(() => useNotifications());
+  await act(async () => {});
+  const old = Socket.instances[0];
+  act(() =>
+    commitRefreshedTokens(captureAuthSession(), {
+      access_token: 'rotated-direct',
+      refresh_token: 'rotated-refresh-direct',
+    })
+  );
+  expect(old.close).toHaveBeenCalled();
+  expect(Socket.instances[1].url).toContain('token=rotated-direct');
+  expect(result.current.items[0].id).toBe('same-owner');
+  await act(async () => {});
+  unmount();
+});
+it('replaces a superseded inbox request and ignores an adapter result after abort', async () => {
+  const old = pendingResponse();
+  fetcher.mockReturnValueOnce(old.promise);
+  const { result, unmount } = renderHook(() => useNotifications());
+  const signal = fetcher.mock.calls[0][1].signal as AbortSignal;
+  fetcher.mockResolvedValueOnce(response('latest'));
+  await act(async () => {
+    await result.current.refreshInbox();
+  });
+  expect(signal.aborted).toBe(true);
+  await act(async () => {
+    old.resolve(response('obsolete'));
+  });
+  expect(result.current.items.map((n) => n.id)).toEqual(['latest']);
+  unmount();
+});
+it('bounds an inbox response body that never finishes and does not expose its diagnostics', async () => {
+  const late = pendingResponse();
+  fetcher.mockResolvedValueOnce({ ok: true, json: () => late.promise });
+  const { result, unmount } = renderHook(() => useNotifications());
+  act(() => Socket.instances[0].open());
+  await act(async () => {
+    jest.advanceTimersByTime(15000);
+  });
+  expect(result.current.error).toBe('No se pudo actualizar el inbox');
+  await act(async () => {
+    late.resolve({ items: [inboxItem('obsolete')], unread_count: 1 });
+  });
+  expect(result.current.items).toEqual([]);
+  unmount();
+  expect(jest.getTimerCount()).toBe(0);
+});
+it('times out a read mutation and reconciles from a fresh canonical inbox', async () => {
+  fetcher.mockResolvedValueOnce(response());
+  const { result, unmount } = renderHook(() => useNotifications());
+  await act(async () => {});
+  act(() => Socket.instances[0].open());
+  const late = pendingResponse();
+  fetcher
+    .mockReturnValueOnce(late.promise)
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ items: [{ ...inboxItem(), status: 'LEIDO' }], unread_count: 0 }),
+    });
+  let work!: Promise<void>;
+  act(() => {
+    work = result.current.markRead('private-a');
+  });
+  const signal = fetcher.mock.calls[1][1].signal as AbortSignal;
+  await act(async () => {
+    jest.advanceTimersByTime(15000);
+    await work;
+  });
+  expect(signal.aborted).toBe(true);
+  expect(result.current.items[0].status).toBe('LEIDO');
+  await act(async () => {
+    late.resolve({ ok: true });
+  });
+  unmount();
+});
+it('a successful read schedules a canonical refresh after its acknowledgement', async () => {
+  fetcher.mockResolvedValueOnce(response());
+  const { result, unmount } = renderHook(() => useNotifications());
+  await act(async () => {});
+  fetcher
+    .mockResolvedValueOnce({ ok: true })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ items: [{ ...inboxItem(), status: 'LEIDO' }], unread_count: 0 }),
+    });
+  await act(async () => {
+    await result.current.markRead('private-a');
+  });
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  await act(async () => {
+    jest.advanceTimersByTime(50);
+  });
+  expect(fetcher).toHaveBeenCalledTimes(3);
+  expect(result.current.unreadCount).toBe(0);
+  unmount();
+});
+it('an opening deadline retires a notification socket that remains pending', async () => {
+  const { unmount } = renderHook(() =>
+    useNotifications({ maxRetries: 1, reconnectIntervalMs: 10 })
+  );
+  await act(async () => {});
+  const old = Socket.instances[0];
+  await act(async () => {
+    jest.advanceTimersByTime(10010);
+  });
+  expect(old.close).toHaveBeenCalled();
+  expect(Socket.instances).toHaveLength(2);
+  unmount();
+  expect(jest.getTimerCount()).toBe(0);
+});
+
+it('policy close clears its inbox and a saved callback from that closed socket cannot restore it', async () => {
+  fetcher.mockResolvedValueOnce(response());
+  const { result, unmount } = renderHook(() => useNotifications());
+  await act(async () => {});
+  const old = Socket.instances[0],
+    message = old.onmessage;
+  expect(result.current.items).toHaveLength(1);
+  act(() => {
+    old.end(1008);
+    message({
+      data: JSON.stringify({ type: 'NEW_NOTIFICATION', ...inboxItem(), unread_count: 99 }),
+    });
+  });
+  expect(result.current.items).toEqual([]);
+  expect(result.current.unreadCount).toBe(0);
+  expect(result.current.isConnected).toBe(false);
+  unmount();
+});
+
+it('a pending inbox response cannot restore records after policy close', async () => {
+  const old = pendingResponse();
+  fetcher.mockReturnValueOnce(old.promise);
+  const { result, unmount } = renderHook(() => useNotifications());
+  const signal = fetcher.mock.calls[0][1].signal as AbortSignal;
+  act(() => Socket.instances[0].end(1008));
+  expect(signal.aborted).toBe(true);
+  await act(async () => {
+    old.resolve(response('retired'));
+  });
+  expect(result.current.items).toEqual([]);
+  expect(result.current.unreadCount).toBe(0);
+  unmount();
+});
+it('a read acknowledgement retired by policy close cannot start another inbox request', async () => {
+  fetcher.mockResolvedValueOnce(response());
+  const { result, unmount } = renderHook(() => useNotifications());
+  await act(async () => {});
+  const old = pendingResponse();
+  fetcher.mockReturnValueOnce(old.promise);
+  let work!: Promise<void>;
+  act(() => {
+    work = result.current.markRead('private-a');
+    Socket.instances[0].end(1008);
+  });
+  await act(async () => {
+    old.resolve({ ok: true });
+    await work;
+    jest.advanceTimersByTime(50);
+  });
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(result.current.items).toEqual([]);
+  unmount();
+});
+
+it('public inbox actions retained by owner A cannot send requests under owner B', async () => {
+  const { storeTokens } = await import('@/lib/auth-session');
+  const { result, unmount } = renderHook(() => useNotifications());
+  await act(async () => {});
+  const oldRefresh = result.current.refreshInbox,
+    oldRead = result.current.markRead;
+  act(() => {
+    storeTokens({ access_token: 'owner-b-access', refresh_token: 'owner-b-refresh' });
+    useAuthStore.setState({ user: { ...profile, id: 'owner-b' }, sessionRevision: 2 });
+  });
+  await act(async () => {});
+  const before = fetcher.mock.calls.length;
+  await act(async () => {
+    await oldRefresh();
+    await oldRead('private-a');
+  });
+  expect(fetcher).toHaveBeenCalledTimes(before);
+  unmount();
 });
