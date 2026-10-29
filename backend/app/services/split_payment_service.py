@@ -78,11 +78,12 @@ async def resolve_share_rule(
             try:
                 parsed = json.loads(raw)
                 if isinstance(parsed, dict):
-                    pct = float(
-                        parsed.get(
-                            "platform_pct", parsed.get("platform_percentage", "")
-                        )
+                    candidate = parsed.get(
+                        "platform_pct", parsed.get("platform_percentage", "")
                     )
+                    if candidate is None:
+                        raise TypeError("Missing share percentage")
+                    pct = float(candidate)
                 else:
                     pct = float(parsed)
             except (ValueError, TypeError):

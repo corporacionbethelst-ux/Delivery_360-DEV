@@ -1,34 +1,25 @@
 """Motor de Facturación Electrónica — Fase 10 (Hito 3).
 
 Diseño:
-- `ElectronicInvoiceProvider` es una ABC; los adaptadores DIAN (CO, UBL 2.1) y
-  SAT (MX, CFDI 4.0) generan el documento fiscal y envían a la autoridad.
-- SIN credenciales reales → modo STUB sandbox: firma simulada (hash), respuesta
-  ACEPTADA local determinista. Jamás crash (patrón omnichannel Fase 9).
-- Los imports costosos/opcionales (lxml, cryptography) van en try/except con
-  fallback a stdlib (xml.etree / hashlib+secrets) — patrón OR-Tools Fase 8.
-- Hook post-entrega NO bloqueante: `issue_invoice_for_order_safe()` se invoca
-  vía asyncio.create_task después del commit; cualquier excepción solo loggea.
-- Feature flag maestro: settings.ENABLE_ELECTRONIC_INVOICING=False → no emite.
-- Protección anti-fraude: límite diario INVOICE_DAILY_LIMIT por resolución.
-- Numeración atómica: UPDATE ... current_counter+1 con row lock (SELECT FOR UPDATE).
+- Los adaptadores locales generan previsualizaciones, no acreditan emisión fiscal.
+- Ningún adaptador predeterminado tiene transporte real homologado.
+- Reserva de numeración/cuota persistida antes de trabajo del proveedor.
+- Sandbox opt-in, separado por resolución, bloqueado en producción.
 """
 
 from __future__ import annotations
 
-import base64
-import hashlib
 import json
 import logging
-import secrets
 import uuid
+from urllib.parse import urlsplit
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from xml.etree import ElementTree as ET
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, select, text, update, or_, and_, case
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,8 +33,23 @@ from app.models.fiscal import (
 )
 from app.models.order import Order
 from app.services.tax_engine import TaxCalculator, get_tax_calculator
+from app.services.fiscal_integrity import (
+    sandbox_allowed,
+    checked_cents,
+    decimal_amount,
+    decimal_unit_amount,
+    money_to_cents,
+    invoice_evidence,
+    MAX_CENTS,
+    PREVIEW_NOTE,
+)
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("delivery360.invoicing")
+
+
+class InvoiceOrderNotFound(ValueError):
+    """The referenced order does not exist."""
 
 
 class InvoiceSubmissionError(Exception):
@@ -55,8 +61,7 @@ class InvoiceSubmissionError(Exception):
 # ──────────────────────────────────────────────────────────────
 try:  # pragma: no cover - entorno sin extras
     from cryptography.hazmat.primitives import hashes, serialization  # noqa
-    from cryptography.hazmat.primitives.asymmetric import padding  # noqa
-    from cryptography.x509 import load_pem_x509_certificate  # noqa
+    from cryptography.hazmat.primitives.asymmetric import padding, rsa  # noqa
 
     _HAVE_CRYPTO = True
 except Exception:  # ImportError o binario ausente
@@ -64,25 +69,24 @@ except Exception:  # ImportError o binario ausente
 
 
 def sign_document(content: str, key_path: Optional[str] = None) -> bytes:
-    """Firma digital real si hay clave+cryptography; stub determinista si no.
+    """RSA/SHA256 over the supplied bytes; never a simulated fallback.
 
-    Stub: SHA-256(content)+nonce → hex firmado 'simulado'. Suficiente para
-    sandbox/dev; NUNCA usar en producción (el adapter chequea credenciales).
+    This primitive is not XMLDSig/XAdES or an authority accreditation.
     """
-    raw = content.encode("utf-8")
-    if _HAVE_CRYPTO and key_path:
-        try:
-            with open(key_path, "rb") as fh:
-                from cryptography.hazmat.primitives.serialization import (
-                    load_pem_private_key,
-                )
+    if not _HAVE_CRYPTO or not key_path:
+        raise InvoiceSubmissionError("Firma RSA no disponible o clave no configurada")
+    try:
+        if not isinstance(content, str) or not content:
+            raise ValueError("empty document")
+        from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
-                pkey = load_pem_private_key(fh.read(), password=None)
-            return pkey.sign(raw, padding.PKCS1v15(), hashes.SHA256())
-        except Exception as exc:
-            logger.warning("Firma real falló (%s); uso stub firmado", exc)
-    digest = hashlib.sha256(raw + b"stub:" + secrets.token_bytes(8)).hexdigest()
-    return digest.encode("ascii")
+        with open(key_path, "rb") as source:
+            key = load_pem_private_key(source.read(), password=None)
+        if not isinstance(key, rsa.RSAPrivateKey) or key.key_size < 2048:
+            raise ValueError("unsupported key")
+        return key.sign(content.encode("utf-8"), padding.PKCS1v15(), hashes.SHA256())
+    except Exception:
+        raise InvoiceSubmissionError("No se pudo firmar el documento fiscal") from None
 
 
 # ──────────────────────────────────────────────────────────────
@@ -100,15 +104,18 @@ class ElectronicInvoiceProvider(ABC):
         """Envía a la autoridad. Retorna {unique_identifier, pdf_url, qr_code_url}.
 
         Raises InvoiceSubmissionError si la autoridad rechaza.
-        En modo stub retorna ACEPTADO simulado determinista.
+        Un adaptador real debe devolver accepted=True e identificador verificable.
         """
 
+    def supports_real_submission(self) -> bool:
+        return False
+
     def is_stub(self) -> bool:
-        return True  # sobreescrito por adaptadores con credenciales
+        return not self.supports_real_submission()
 
 
 class DianColombiaAdapter(ElectronicInvoiceProvider):
-    """DIAN Colombia — UBL 2.1 (sandbox/stub sin api_key)."""
+    """Borrador XML inspirado en UBL; sin transporte DIAN homologado."""
 
     country = CountryTaxRegime.COLOMBIA
     _NS = "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
@@ -123,14 +130,13 @@ class DianColombiaAdapter(ElectronicInvoiceProvider):
         self.certificate_path = certificate_path or settings.DIAN_CERTIFICATE_PATH
         self.password = password or settings.DIAN_PASSWORD
 
-    def is_stub(self) -> bool:
-        return not (self.api_key and self.certificate_path)
-
     async def generate_document(self, d: dict) -> str:
         root = ET.Element("Invoice", xmlns=self._NS)
 
-        def sub(parent, tag, value=None):
-            el = ET.SubElement(parent, tag)
+        def sub(parent, tag, value=None, **attributes):
+            el = ET.SubElement(
+                parent, tag, {key: str(value) for key, value in attributes.items()}
+            )
             if value is not None:
                 el.text = str(value)
             return el
@@ -186,43 +192,13 @@ class DianColombiaAdapter(ElectronicInvoiceProvider):
         return ET.tostring(root, encoding="unicode")
 
     async def submit_to_authority(self, document: str, signature: bytes) -> dict:
-        if self.is_stub():
-            cufe = hashlib.sha256(document.encode()).hexdigest()
-            logger.info("DIAN STUB sandbox: factura aceptada localmente")
-            return {
-                "unique_identifier": cufe,
-                "pdf_url": f"stub://invoice/{cufe[:16]}.pdf",
-                "qr_code_url": f"https://catalogodatos.dian.gov.co/catalogador/web/#/facturas?cufe={cufe}",
-            }
-        try:
-            import httpx
-
-            payload = {
-                "document": base64.b64encode(document.encode()).decode(),
-                "signature": base64.b64encode(signature).decode(),
-            }
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    "https://bac.dian.gov.co/descargables/BES.asmx/AddDocument",
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                    json=payload,
-                )
-                result = resp.json()
-            if result.get("StatusCode") == "Accepted":
-                return {
-                    "unique_identifier": result.get("CUFE"),
-                    "pdf_url": result.get("PDFPreviewURL"),
-                    "qr_code_url": result.get("QRCodeURL"),
-                }
-            raise InvoiceSubmissionError(result.get("ErrorMessage", "Rechazo DIAN"))
-        except InvoiceSubmissionError:
-            raise
-        except Exception as exc:
-            raise InvoiceSubmissionError(f"Fallo envío DIAN: {exc}") from exc
+        raise InvoiceSubmissionError(
+            "Integración fiscal real no homologada; envío externo no habilitado"
+        )
 
 
 class SatMexicoAdapter(ElectronicInvoiceProvider):
-    """SAT México — CFDI 4.0 (JSON canónico; stub sin e.firma)."""
+    """Vista JSON de previsualización; sin timbrado SAT/PAC homologado."""
 
     country = CountryTaxRegime.MEXICO
 
@@ -230,21 +206,18 @@ class SatMexicoAdapter(ElectronicInvoiceProvider):
         self.cert_file = cert_file or settings.SAT_CERT_FILE
         self.key_file = key_file or settings.SAT_KEY_FILE
 
-    def is_stub(self) -> bool:
-        return not (self.cert_file and self.key_file)
-
     async def generate_document(self, d: dict) -> str:
         cfdi = {
             "Version": "4.0",
             "Serie": d.get("serie", "A"),
             "Folio": d["sequence"],
             "Fecha": f"{d['issue_date']}T{d['issue_time']}Z",
-            "SubTotal": float(Decimal(d["subtotal_cents"]) / 100),
-            "Total": float(Decimal(d["grand_total_cents"]) / 100),
+            "SubTotal": decimal_amount(d["subtotal_cents"]),
+            "Total": decimal_amount(d["grand_total_cents"]),
             "MetodoPago": d.get("payment_method", "PPD"),
             "UsoCfdi": d.get("usage_code", "G03"),
-            "Moneda": d["currency"] if d["currency"] != "COP" else "MXN",
-            "TipoCambio": float(d.get("exchange_rate", 1)),
+            "Moneda": d["currency"],
+            "TipoCambio": str(d.get("exchange_rate", "1.0000")),
             "Emisor": {
                 "Rfc": settings.COMPANY_NIT,
                 "Nombre": settings.COMPANY_NAME,
@@ -260,13 +233,15 @@ class SatMexicoAdapter(ElectronicInvoiceProvider):
                     "ClaveProdServ": c.get("product_key", "81101500"),
                     "Cantidad": c.get("quantity", 1),
                     "Descripcion": c.get("name", "Servicio de entrega"),
-                    "ValorUnitario": float(Decimal(str(c["base_amount_cents"])) / 100),
-                    "Importe": float(Decimal(str(c["base_amount_cents"])) / 100),
+                    "ValorUnitario": decimal_unit_amount(
+                        c["base_amount_cents"], c.get("quantity", 1)
+                    ),
+                    "Importe": decimal_amount(c["base_amount_cents"]),
                 }
                 for c in d.get("items", [])
             ],
             "Impuestos": {
-                "TotalImpuestosTrasladados": float(Decimal(d["tax_total_cents"]) / 100),
+                "TotalImpuestosTrasladados": decimal_amount(d["tax_total_cents"]),
                 "Traslados": [
                     {"Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": "0.160000"}
                 ],
@@ -275,44 +250,9 @@ class SatMexicoAdapter(ElectronicInvoiceProvider):
         return json.dumps(cfdi, ensure_ascii=False)
 
     async def submit_to_authority(self, document: str, signature: bytes) -> dict:
-        if self.is_stub():
-            uuid_v = str(uuid.uuid4())
-            logger.info("SAT STUB sandbox: CFDI aceptado localmente")
-            return {
-                "unique_identifier": uuid_v,
-                "pdf_url": f"stub://cfdi/{uuid_v}.pdf",
-                "qr_code_url": f"https://verificacfdi.facturaelectronica.sat.gob.mx/default.aspx?id={uuid_v}",
-            }
-        try:
-            import httpx
-
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    settings.SAT_API_ENDPOINT
-                    or "https://prod-publica.cfdi.sat.gob.mx/wsConsultaSat",
-                    content=document.encode(),
-                    headers={"Content-Type": "application/xml"},
-                )
-                resp.raise_for_status()
-                data = (
-                    resp.json()
-                    if resp.headers.get("content-type", "").startswith(
-                        "application/json"
-                    )
-                    else {}
-                )
-            uid = data.get("UUID") or data.get("id")
-            if not uid:
-                raise InvoiceSubmissionError("SAT no devolvió UUID")
-            return {
-                "unique_identifier": uid,
-                "pdf_url": data.get("PdfUrl"),
-                "qr_code_url": data.get("QrUrl"),
-            }
-        except InvoiceSubmissionError:
-            raise
-        except Exception as exc:
-            raise InvoiceSubmissionError(f"Fallo timbrado SAT: {exc}") from exc
+        raise InvoiceSubmissionError(
+            "Integración fiscal real no homologada; envío externo no habilitado"
+        )
 
 
 PROVIDERS: Dict[CountryTaxRegime, type] = {
@@ -334,16 +274,14 @@ class InvoicingEngine:
         if prov is None:
             cls = PROVIDERS.get(country)
             if cls is None:
-                # régimen sin adaptador → CO como base con warning (extensible)
-                logger.warning("Sin adaptador para %s; uso genérico CO", country.value)
-                cls = DianColombiaAdapter
+                raise InvoiceSubmissionError("País sin adaptador fiscal disponible")
             prov = cls()
             self._providers[country] = prov
         return prov
 
     # ------------------------------------------------------------------
     async def _get_active_resolution(
-        self, country: CountryTaxRegime
+        self, country: CountryTaxRegime, *, preview: bool = False
     ) -> InvoiceResolution:
         today = datetime.now(timezone.utc).date()
         res = await self.db.execute(
@@ -351,11 +289,14 @@ class InvoicingEngine:
             .where(
                 InvoiceResolution.country_code == country,
                 InvoiceResolution.is_active.is_(True),
+                InvoiceResolution.is_sandbox.is_(preview),
                 InvoiceResolution.valid_from <= today,
                 InvoiceResolution.valid_until >= today,
             )
             .order_by(InvoiceResolution.valid_until.desc())
             .limit(1)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         resolution = res.scalar_one_or_none()
         if resolution is None:
@@ -365,31 +306,74 @@ class InvoicingEngine:
         return resolution
 
     async def _next_sequence(self, resolution: InvoiceResolution) -> int:
-        """Contador atómico con row-lock (seguro multi-worker)."""
-        await self.db.execute(
-            update(InvoiceResolution)
-            .where(InvoiceResolution.id == resolution.id)
-            .values(current_counter=InvoiceResolution.current_counter + 1)
-        )
-        await self.db.flush()
-        refreshed = await self.db.get(InvoiceResolution, resolution.id)
-        seq = int(refreshed.current_counter) + 1  # inicia en 1
-        if seq > int(refreshed.end_range):
-            raise InvoiceSubmissionError(
-                f"Resolución {refreshed.prefix} agotada (seq {seq} > {refreshed.end_range})"
+        """Atomic allocation from the current SQL row, with no double increment."""
+        today = datetime.now(timezone.utc).date()
+        history = (
+            select(func.max(ElectronicInvoice.sequence_number))
+            .where(
+                or_(
+                    ElectronicInvoice.resolution_id == resolution.id,
+                    and_(
+                        ElectronicInvoice.resolution_id.is_(None),
+                        ElectronicInvoice.provider_type == resolution.country_code,
+                        ElectronicInvoice.resolution_number == resolution.start_range,
+                    ),
+                )
             )
-        return seq
+            .scalar_subquery()
+        )
+        candidate = case(
+            (
+                InvoiceResolution.current_counter < InvoiceResolution.start_range,
+                InvoiceResolution.start_range,
+            ),
+            else_=InvoiceResolution.current_counter + 1,
+        )
+        historical_next = func.coalesce(history, 0) + 1
+        allocation = case(
+            (candidate < historical_next, historical_next), else_=candidate
+        )
+        result = await self.db.execute(
+            update(InvoiceResolution)
+            .where(
+                InvoiceResolution.id == resolution.id,
+                InvoiceResolution.is_active.is_(True),
+                InvoiceResolution.start_range >= 1,
+                InvoiceResolution.end_range >= InvoiceResolution.start_range,
+                InvoiceResolution.current_counter >= 0,
+                allocation <= InvoiceResolution.end_range,
+                InvoiceResolution.valid_from <= today,
+                InvoiceResolution.valid_until >= today,
+            )
+            .values(current_counter=allocation)
+            .returning(InvoiceResolution.current_counter)
+            .execution_options(synchronize_session=False)
+        )
+        sequence = result.scalar_one_or_none()
+        if type(sequence) is not int:
+            raise InvoiceSubmissionError(
+                "Resolución ausente, no vigente o rango agotado"
+            )
+        return sequence
 
-    async def _daily_count(self, resolution_id: uuid.UUID) -> int:
-        res = await self.db.execute(
+    async def _daily_count(self, resolution: InvoiceResolution) -> int:
+        # Legacy rows without an FK count conservatively against any matching range.
+        count = await self.db.scalar(
             select(func.count())
             .select_from(ElectronicInvoice)
             .where(
-                ElectronicInvoice.resolution_number.isnot(None),
                 ElectronicInvoice.issue_date == datetime.now(timezone.utc).date(),
+                or_(
+                    ElectronicInvoice.resolution_id == resolution.id,
+                    and_(
+                        ElectronicInvoice.resolution_id.is_(None),
+                        ElectronicInvoice.provider_type == resolution.country_code,
+                        ElectronicInvoice.resolution_number == resolution.start_range,
+                    ),
+                ),
             )
         )
-        return int(res.scalar() or 0)
+        return int(count or 0)
 
     # ------------------------------------------------------------------
     async def create_electronic_invoice(
@@ -401,6 +385,7 @@ class InvoicingEngine:
         country: Optional[CountryTaxRegime] = None,
         invoice_type: InvoiceType = InvoiceType.VENTA,
         reference_invoice_id: Optional[uuid.UUID] = None,
+        preview: bool = False,
     ) -> ElectronicInvoice:
         """Flujo completo: resolver → impuestos → documento → firma → envío → persistir.
 
@@ -408,17 +393,40 @@ class InvoicingEngine:
         Nunca lanza por fallos del proveedor: persiste RECHAZADA con error_message.
         Lanza ValueError solo por datos de entrada inválidos.
         """
+        if not settings.ENABLE_ELECTRONIC_INVOICING:
+            raise InvoiceSubmissionError("Facturación electrónica deshabilitada")
         country = country or CountryTaxRegime(settings.FISCAL_DEFAULT_COUNTRY)
-        if not items:
-            raise ValueError("Factura sin líneas de detalle")
+        provider = self.provider_for(country)
+        if preview:
+            if not sandbox_allowed():
+                raise InvoiceSubmissionError(
+                    "Previsualización fiscal no habilitada en este entorno"
+                )
+        elif not provider.supports_real_submission():
+            raise InvoiceSubmissionError(
+                "Integración fiscal real no homologada; envío externo no habilitado"
+            )
+        if not items or len(items) > 100:
+            raise ValueError("La factura requiere entre 1 y 100 líneas")
+        for item in items:
+            checked_cents(item.get("unit_price_cents"))
+            quantity = item.get("quantity", 1)
+            if type(quantity) is not int or not 1 <= quantity <= 1000:
+                raise ValueError("Cantidad de línea inválida")
 
+        if await self.db.scalar(select(Order.id).where(Order.id == order_id)) is None:
+            raise InvoiceOrderNotFound("Pedido no encontrado")
         calc: TaxCalculator = await get_tax_calculator(country, self.db)
         line_results = calc.apply_taxes_to_items(items)
 
         subtotal = sum(r.base_amount_cents for r in line_results)
-        tax_total = sum(r.total_tax_cents for r in line_results)
+        tax_total = sum(r.total_tax_cents + r.included_tax_cents for r in line_results)
         retentions = sum(r.total_retentions_cents for r in line_results)
-        grand = subtotal + tax_total - retentions
+        grand = sum(r.line_total_cents for r in line_results)
+        if any(
+            abs(value) > MAX_CENTS for value in (subtotal, tax_total, retentions, grand)
+        ):
+            raise ValueError("Total fiscal fuera de rango")
         if invoice_type == InvoiceType.NOTA_CREDITO:
             subtotal, tax_total, retentions, grand = (
                 -subtotal,
@@ -428,29 +436,30 @@ class InvoicingEngine:
             )
 
         now = datetime.now(timezone.utc).replace(tzinfo=None)
-        resolution = await self._get_active_resolution(country)
+        resolution = await self._get_active_resolution(country, preview=preview)
 
-        if await self._daily_count(resolution.id) >= settings.INVOICE_DAILY_LIMIT:
+        if await self._daily_count(resolution) >= settings.INVOICE_DAILY_LIMIT:
             raise InvoiceSubmissionError(
                 f"Límite diario de emisión ({settings.INVOICE_DAILY_LIMIT}) alcanzado"
             )
 
         sequence = await self._next_sequence(resolution)
 
-        from app.services.fx_service import get_exchange_rate
-
-        exchange_rate = await get_exchange_rate("USD", "COP")
+        # Inputs are already denominated in the selected country's minor units.
+        exchange_rate = Decimal("1.0000")
 
         invoice = ElectronicInvoice(
             id=uuid.uuid4(),
             order_id=order_id,
+            resolution_id=resolution.id,
+            execution_mode="sandbox" if preview else "real",
             invoice_type=invoice_type,
             resolution_number=int(resolution.start_range),
             sequence_number=sequence,
             issue_date=now.date(),
             issue_time=now.time(),
             provider_type=country,
-            currency_code="COP",
+            currency_code="COP" if country == CountryTaxRegime.COLOMBIA else "MXN",
             exchange_rate=exchange_rate,
             subtotal_cents=subtotal,
             tax_total_cents=tax_total,
@@ -465,8 +474,10 @@ class InvoicingEngine:
             ),
         )
         self.db.add(invoice)
+        # Persist reservation and release the range lock before signing/provider I/O.
+        await self.db.commit()
+        await self.db.refresh(invoice)
 
-        provider = self.provider_for(country)
         payload = {
             "resolution_number": invoice.resolution_number,
             "sequence": sequence,
@@ -484,25 +495,51 @@ class InvoicingEngine:
         }
         try:
             document = await provider.generate_document(payload)
-            signature = sign_document(document, resolution.private_key_path)
+            invoice.signed_xml_content = document
+            if preview:
+                invoice.error_message = PREVIEW_NOTE
+                await self.db.commit()
+                await self.db.refresh(invoice)
+                return invoice
+            signature = await run_in_threadpool(
+                sign_document, document, resolution.private_key_path
+            )
             result = await provider.submit_to_authority(document, signature)
+            identifier = result.get("unique_identifier")
+            if (
+                result.get("accepted") is not True
+                or not isinstance(identifier, str)
+                or not identifier
+                or len(identifier) > 100
+                or any(not 33 <= ord(char) <= 126 for char in identifier)
+                or identifier.lower().startswith(("stub:", "sandbox:"))
+            ):
+                raise InvoiceSubmissionError("Aceptación fiscal no verificable")
+            for field in ("pdf_url", "qr_code_url"):
+                link = result.get(field)
+                if link is not None:
+                    if not isinstance(link, str) or len(link) > 4096:
+                        raise InvoiceSubmissionError("Enlace fiscal inválido")
+                    parsed = urlsplit(link)
+                    if (
+                        parsed.scheme != "https"
+                        or not parsed.hostname
+                        or parsed.username
+                        or parsed.password
+                    ):
+                        raise InvoiceSubmissionError("Enlace fiscal inválido")
             invoice.status = InvoiceStatus.ACEPTADA
             invoice.unique_identifier = result.get("unique_identifier")
             invoice.pdf_url = result.get("pdf_url")
             invoice.qr_code_url = result.get("qr_code_url")
             invoice.signed_xml_content = document
-        except InvoiceSubmissionError as exc:
+        except SQLAlchemyError:
+            await self.db.rollback()
+            raise
+        except Exception:
             invoice.status = InvoiceStatus.RECHAZADA
-            invoice.error_message = str(exc)[:2000]
-            logger.error("Factura orden %s rechazada: %s", order_id, exc)
-        except SQLAlchemyError as exc:
-            invoice.status = InvoiceStatus.RECHAZADA
-            invoice.error_message = f"Error persistencia: {exc}"[:2000]
-            logger.exception("DB error facturación orden %s", order_id)
-        except Exception as exc:  # defensa final: jamás romper el flujo padre
-            invoice.status = InvoiceStatus.RECHAZADA
-            invoice.error_message = f"Error inesperado: {exc}"[:2000]
-            logger.exception("Error inesperado facturación orden %s", order_id)
+            invoice.error_message = "No se obtuvo aceptación fiscal verificable"
+            logger.warning("Emisión fiscal terminada sin aceptación verificable")
 
         await self.db.commit()
         await self.db.refresh(invoice)
@@ -516,8 +553,10 @@ class InvoicingEngine:
         original = await self.db.get(ElectronicInvoice, original_invoice_id)
         if original is None:
             raise ValueError("Factura original no encontrada")
-        if original.status != InvoiceStatus.ACEPTADA:
-            raise ValueError("Solo se pueden anular facturas ACEPTADAS")
+        if not invoice_evidence(original)["is_officially_accepted"]:
+            raise ValueError(
+                "Se requiere aceptación fiscal verificable para una nota crédito"
+            )
         nc_items = [
             {
                 "name": f"Nota crédito: {reason}"[:120],
@@ -546,12 +585,9 @@ class InvoicingEngine:
             raise ValueError("Factura no encontrada")
         if inv.status not in (InvoiceStatus.ACEPTADA, InvoiceStatus.ENVIADA):
             raise ValueError("Solo facturas ENVIADA/ACEPTADA son cancelables")
-        inv.status = InvoiceStatus.CANCELADA
-        inv.cancellation_date = datetime.now(timezone.utc).replace(tzinfo=None)
-        inv.error_message = f"Cancelada: {reason}"[:2000]
-        await self.db.commit()
-        await self.db.refresh(inv)
-        return inv
+        raise InvoiceSubmissionError(
+            "Cancelación fiscal no homologada; no se modificó el estado"
+        )
 
 
 # ──────────────────────────────────────────────────────────────
@@ -575,8 +611,8 @@ async def issue_invoice_for_order_safe(order_id: uuid.UUID) -> None:
             if order is None:
                 logger.warning("Hook factura: orden %s inexistente", order_id)
                 return
-            fee_cents = int(round(float(order.delivery_fee or 0) * 100))
-            gross_cents = int(round(float(order.total or 0) * 100))
+            fee_cents = money_to_cents(order.delivery_fee)
+            gross_cents = money_to_cents(order.total)
             if gross_cents <= 0:
                 logger.info("Orden %s sin monto; no se factura", order_id)
                 return
@@ -614,4 +650,6 @@ async def issue_invoice_for_order_safe(order_id: uuid.UUID) -> None:
                 fee_cents,
             )
     except Exception:
-        logger.exception("Hook factura orden %s falló (no bloqueante)", order_id)
+        logger.warning(
+            "Hook fiscal sin emisión confirmada; revisar configuración y evidencia local"
+        )

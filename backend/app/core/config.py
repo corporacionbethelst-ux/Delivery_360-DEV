@@ -168,17 +168,16 @@ class Settings(BaseSettings):
 
     # ════════════════════════════════════════════════════════════
     # FASE 10 — Facturación Electrónica & Motor Fiscal
-    # Defaults seguros para dev: facturación en modo STUB (sin credenciales
-    # reales de DIAN/SAT se simula ACEPTADA localmente, jamás crash).
-    # ════════════════════════════════════════════════════════════
-    ENABLE_ELECTRONIC_INVOICING: bool = True  # feature flag maestro del flujo
+    # No se emite ni simula aceptación fiscal por defecto.
+    ENABLE_ELECTRONIC_INVOICING: bool = False
+    FISCAL_SANDBOX_ENABLED: bool = False  # previews explícitos, nunca en producción
     FISCAL_DEFAULT_COUNTRY: str = "CO"  # régimen por defecto (ISO alfa-2)
     COMPANY_NIT: str = "900000000-1"  # NIT/RFC emisor demo
     COMPANY_NAME: str = "Delivery360 S.A.S."
     COMPANY_ADDRESS: str = "Bogotá D.C., Colombia"
     COMPANY_CITY_CODE: str = "11001"  # código DANE Bogotá
     INVOICE_DAILY_LIMIT: int = 500  # protección anti-fraude emisión/día
-    # Proveedores fiscales (opcionales → stub sandbox)
+    # Material configurado para futuras integraciones homologadas; no activa transporte.
     DIAN_API_KEY: Optional[str] = None
     DIAN_CERTIFICATE_PATH: Optional[str] = None
     DIAN_PASSWORD: Optional[str] = None

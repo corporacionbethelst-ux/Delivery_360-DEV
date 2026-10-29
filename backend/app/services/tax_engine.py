@@ -70,7 +70,8 @@ class TaxLineResult:
     taxes: List[dict] = field(default_factory=list)
     total_tax_cents: int = 0  # impuestos trasladados (no retenciones)
     total_retentions_cents: int = 0  # retenciones (descuentan del total)
-    line_total_cents: int = 0  # base + taxes - retentions
+    line_total_cents: int = 0  # bruto + impuestos externos - retenciones
+    included_tax_cents: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -79,6 +80,7 @@ class TaxLineResult:
             "total_tax_cents": self.total_tax_cents,
             "total_retentions_cents": self.total_retentions_cents,
             "line_total_cents": self.line_total_cents,
+            "included_tax_cents": self.included_tax_cents,
         }
 
 
@@ -243,72 +245,76 @@ class TaxCalculator:
         trata como precio final: se extrae base = bruto / (1+rate) y el IVA
         NO se suma de nuevo al total (ya viene incluido).
         """
-        gross_cents = int(unit_price_cents) * max(int(quantity), 0)
-        taxes_out: List[dict] = []
-        total_tax = 0
-        total_ret = 0
-        # Base imponible por defecto = bruto; si hay un impuesto incluido,
-        # la base se redefine a la fracción excluida de ese impuesto.
-        base_cents = gross_cents
+        from app.services.fiscal_integrity import checked_cents
 
+        checked_cents(unit_price_cents)
+        if type(quantity) is not int or not 1 <= quantity <= 1000:
+            raise ValueError("Cantidad de línea inválida")
+        gross_cents = checked_cents(unit_price_cents * quantity)
+        applicable = []
         for rule in self.rules:
             if not self._evaluate_applicability(rule, gross_cents, category):
                 continue
+            rate = _c(rule.rate)
+            if not rate.is_finite() or not 0 <= rate <= 1:
+                raise ValueError("Tasa fiscal inválida")
+            if rule.included_in_price and rule.is_retention:
+                raise ValueError("Una retención no puede ser un impuesto incluido")
+            applicable.append((rule, rate))
+        included = [(rule, rate) for rule, rate in applicable if rule.included_in_price]
+        combined_rate = sum((rate for _, rate in included), Decimal(0))
 
+        def cents(value: Decimal) -> int:
+            return int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+        base_cents = (
+            cents(_c(gross_cents) / (1 + combined_rate)) if included else gross_cents
+        )
+        included_total = gross_cents - base_cents
+        included_left = included_total
+        included_count = 0
+        taxes_out: List[dict] = []
+        total_tax = total_ret = 0
+        for rule, rate in applicable:
+            entry = {
+                "code": rule.code,
+                "name": rule.name,
+                "rate": float(rate),
+                "base_amount_cents": base_cents,
+            }
             if rule.included_in_price:
-                # Importe: extraer base y impuesto del precio bruto.
-                base_i = q2(_c(gross_cents) / (Decimal(1) + rule.rate))
-                tax_i = q2(_c(gross_cents) - base_i)
-                base_cents = int(base_i)  # la siguiente regla gravará la base neta
-                amount = int(tax_i)
-                taxes_out.append(
-                    {
-                        "code": rule.code,
-                        "name": rule.name,
-                        "rate": float(rule.rate),
-                        "amount_cents": amount,
-                        "base_amount_cents": int(base_i),
-                        "included": True,
-                    }
+                included_count += 1
+                share = (
+                    cents(_c(included_total) * rate / combined_rate)
+                    if combined_rate
+                    else 0
                 )
-                # No se suma al total: ya está dentro del bruto.
-                continue
-
-            if rule.is_retention:
-                amount = int(q2(_c(base_cents) * rule.rate))
-                total_ret += amount
-                taxes_out.append(
-                    {
-                        "code": rule.code,
-                        "name": rule.name,
-                        "rate": float(rule.rate),
-                        "amount_cents": amount,
-                        "base_amount_cents": int(base_cents),
-                        "retention": True,
-                    }
+                amount = (
+                    included_left
+                    if included_count == len(included)
+                    else min(included_left, share)
                 )
-                continue
-
-            amount = int(q2(_c(base_cents) * rule.rate))
-            total_tax += amount
-            taxes_out.append(
-                {
-                    "code": rule.code,
-                    "name": rule.name,
-                    "rate": float(rule.rate),
-                    "amount_cents": amount,
-                    "base_amount_cents": int(base_cents),
-                    "included": False,
-                }
-            )
-
-        line_total = base_cents + total_tax - total_ret
+                included_left -= amount
+                entry.update(amount_cents=amount, included=True)
+            else:
+                amount = cents(_c(base_cents) * rate)
+                entry["amount_cents"] = amount
+                if rule.is_retention:
+                    total_ret += amount
+                    entry["retention"] = True
+                else:
+                    total_tax += amount
+            taxes_out.append(entry)
+        line_total = gross_cents + total_tax - total_ret
+        if abs(line_total) > (1 << 63) - 1:
+            raise ValueError("Total fiscal fuera de rango")
         return TaxLineResult(
-            base_amount_cents=int(base_cents),
+            base_amount_cents=base_cents,
             taxes=taxes_out,
-            total_tax_cents=int(total_tax),
-            total_retentions_cents=int(total_ret),
-            line_total_cents=int(line_total),
+            total_tax_cents=total_tax,
+            total_retentions_cents=total_ret,
+            line_total_cents=line_total,
+            included_tax_cents=included_total,
         )
 
     # ------------------------------------------------------------------
@@ -318,8 +324,8 @@ class TaxCalculator:
         for it in items:
             results.append(
                 self.apply_taxes(
-                    unit_price_cents=int(it.get("unit_price_cents", 0)),
-                    quantity=int(it.get("quantity", 1)),
+                    unit_price_cents=it.get("unit_price_cents", 0),
+                    quantity=it.get("quantity", 1),
                     category=str(it.get("category", "general")),
                 )
             )

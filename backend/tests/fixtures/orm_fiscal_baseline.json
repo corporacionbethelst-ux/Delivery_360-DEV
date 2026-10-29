@@ -1,0 +1,1034 @@
+{
+  "electronic_invoices": {
+    "ddl": "\nCREATE TABLE electronic_invoices (\n\tid UUID NOT NULL, \n\torder_id UUID NOT NULL, \n\tinvoice_type invoicetype NOT NULL, \n\tresolution_number INTEGER NOT NULL, \n\tsequence_number INTEGER NOT NULL, \n\tunique_identifier VARCHAR(100), \n\tissue_date DATE NOT NULL, \n\tissue_time TIME WITHOUT TIME ZONE NOT NULL, \n\tcancellation_date TIMESTAMP WITHOUT TIME ZONE, \n\tprovider_type countrytaxregime NOT NULL, \n\tcurrency_code VARCHAR(3) NOT NULL, \n\texchange_rate NUMERIC(10, 4) NOT NULL, \n\tsubtotal_cents BIGINT NOT NULL, \n\ttax_total_cents BIGINT NOT NULL, \n\tretention_total_cents BIGINT NOT NULL, \n\tdiscount_total_cents BIGINT NOT NULL, \n\tgrand_total_cents BIGINT NOT NULL, \n\tstatus invoicestatus NOT NULL, \n\terror_message TEXT, \n\tsigned_xml_content TEXT, \n\tpdf_url TEXT, \n\tqr_code_url TEXT, \n\treference_invoice_id UUID, \n\tcustomer_info_json TEXT NOT NULL, \n\ttax_breakdown_json TEXT, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tCONSTRAINT uq_invoice_resolution_sequence UNIQUE (provider_type, resolution_number, sequence_number), \n\tFOREIGN KEY(order_id) REFERENCES orders (id) ON DELETE CASCADE, \n\tFOREIGN KEY(reference_invoice_id) REFERENCES electronic_invoices (id) ON DELETE SET NULL\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_electronic_invoices_issue_date ON electronic_invoices (issue_date)",
+      "CREATE INDEX ix_electronic_invoices_order_id ON electronic_invoices (order_id)",
+      "CREATE INDEX ix_electronic_invoices_status ON electronic_invoices (status)",
+      "CREATE INDEX ix_electronic_invoices_unique_identifier ON electronic_invoices (unique_identifier)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "order_id": [
+        null,
+        null
+      ],
+      "invoice_type": [
+        "InvoiceType.VENTA",
+        null
+      ],
+      "resolution_number": [
+        null,
+        null
+      ],
+      "sequence_number": [
+        null,
+        null
+      ],
+      "unique_identifier": [
+        null,
+        null
+      ],
+      "issue_date": [
+        "utc_now_naive",
+        null
+      ],
+      "issue_time": [
+        "datetime.time",
+        null
+      ],
+      "cancellation_date": [
+        null,
+        null
+      ],
+      "provider_type": [
+        null,
+        null
+      ],
+      "currency_code": [
+        "COP",
+        null
+      ],
+      "exchange_rate": [
+        "1",
+        null
+      ],
+      "subtotal_cents": [
+        null,
+        null
+      ],
+      "tax_total_cents": [
+        "0",
+        null
+      ],
+      "retention_total_cents": [
+        "0",
+        null
+      ],
+      "discount_total_cents": [
+        "0",
+        null
+      ],
+      "grand_total_cents": [
+        null,
+        null
+      ],
+      "status": [
+        "InvoiceStatus.PENDIENTE",
+        null
+      ],
+      "error_message": [
+        null,
+        null
+      ],
+      "signed_xml_content": [
+        null,
+        null
+      ],
+      "pdf_url": [
+        null,
+        null
+      ],
+      "qr_code_url": [
+        null,
+        null
+      ],
+      "reference_invoice_id": [
+        null,
+        null
+      ],
+      "customer_info_json": [
+        "{}",
+        null
+      ],
+      "tax_breakdown_json": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {
+      "invoice_type": [
+        "VENTA",
+        "COMPRA",
+        "NOTA_CREDITO",
+        "NOTA_DEBITO"
+      ],
+      "provider_type": [
+        "CO",
+        "MX",
+        "CL",
+        "PE"
+      ],
+      "status": [
+        "PENDIENTE",
+        "ENVIADA",
+        "ACEPTADA",
+        "RECHAZADA",
+        "CANCELADA"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "order_id",
+        "target": "orders.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "reference_invoice_id",
+        "target": "electronic_invoices.id",
+        "ondelete": "SET NULL",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "invoice_type": {
+        "name": "invoicetype",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "provider_type": {
+        "name": "countrytaxregime",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "status": {
+        "name": "invoicestatus",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    },
+    "columns": {
+      "id": {
+        "sql_type": "UUID",
+        "nullable": false,
+        "primary_key": true,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "order_id": {
+        "sql_type": "UUID",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "invoice_type": {
+        "sql_type": "invoicetype",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": false
+      },
+      "resolution_number": {
+        "sql_type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "sequence_number": {
+        "sql_type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "unique_identifier": {
+        "sql_type": "VARCHAR(100)",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "issue_date": {
+        "sql_type": "DATE",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "issue_time": {
+        "sql_type": "TIME WITHOUT TIME ZONE",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "cancellation_date": {
+        "sql_type": "TIMESTAMP WITHOUT TIME ZONE",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "provider_type": {
+        "sql_type": "countrytaxregime",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": false
+      },
+      "currency_code": {
+        "sql_type": "VARCHAR(3)",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "exchange_rate": {
+        "sql_type": "NUMERIC(10, 4)",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "subtotal_cents": {
+        "sql_type": "BIGINT",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "tax_total_cents": {
+        "sql_type": "BIGINT",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "retention_total_cents": {
+        "sql_type": "BIGINT",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "discount_total_cents": {
+        "sql_type": "BIGINT",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "grand_total_cents": {
+        "sql_type": "BIGINT",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "status": {
+        "sql_type": "invoicestatus",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": false
+      },
+      "error_message": {
+        "sql_type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "signed_xml_content": {
+        "sql_type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "pdf_url": {
+        "sql_type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "qr_code_url": {
+        "sql_type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "reference_invoice_id": {
+        "sql_type": "UUID",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "customer_info_json": {
+        "sql_type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "tax_breakdown_json": {
+        "sql_type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "created_at": {
+        "sql_type": "TIMESTAMP WITHOUT TIME ZONE",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "updated_at": {
+        "sql_type": "TIMESTAMP WITHOUT TIME ZONE",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      }
+    }
+  },
+  "invoice_resolutions": {
+    "ddl": "\nCREATE TABLE invoice_resolutions (\n\tid UUID NOT NULL, \n\tprefix VARCHAR(10) NOT NULL, \n\tstart_range INTEGER NOT NULL, \n\tend_range INTEGER NOT NULL, \n\tcurrent_counter INTEGER NOT NULL, \n\tvalid_from DATE NOT NULL, \n\tvalid_until DATE NOT NULL, \n\tis_active BOOLEAN NOT NULL, \n\tprivate_key_path TEXT, \n\tcertificate_path TEXT, \n\tpassword_encrypted TEXT, \n\tcountry_code countrytaxregime NOT NULL, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tCONSTRAINT uq_resolution_prefix_range UNIQUE (prefix, start_range, end_range)\n)\n\n",
+    "indexes": [],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "prefix": [
+        null,
+        null
+      ],
+      "start_range": [
+        null,
+        null
+      ],
+      "end_range": [
+        null,
+        null
+      ],
+      "current_counter": [
+        "0",
+        null
+      ],
+      "valid_from": [
+        null,
+        null
+      ],
+      "valid_until": [
+        null,
+        null
+      ],
+      "is_active": [
+        "True",
+        null
+      ],
+      "private_key_path": [
+        null,
+        null
+      ],
+      "certificate_path": [
+        null,
+        null
+      ],
+      "password_encrypted": [
+        null,
+        null
+      ],
+      "country_code": [
+        "CountryTaxRegime.COLOMBIA",
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {
+      "country_code": [
+        "CO",
+        "MX",
+        "CL",
+        "PE"
+      ]
+    },
+    "foreign_keys": [],
+    "enum_options": {
+      "country_code": {
+        "name": "countrytaxregime",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    },
+    "columns": {
+      "id": {
+        "sql_type": "UUID",
+        "nullable": false,
+        "primary_key": true,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "prefix": {
+        "sql_type": "VARCHAR(10)",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "start_range": {
+        "sql_type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "end_range": {
+        "sql_type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "current_counter": {
+        "sql_type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "valid_from": {
+        "sql_type": "DATE",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "valid_until": {
+        "sql_type": "DATE",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "is_active": {
+        "sql_type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "private_key_path": {
+        "sql_type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "certificate_path": {
+        "sql_type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "password_encrypted": {
+        "sql_type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "country_code": {
+        "sql_type": "countrytaxregime",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": false
+      },
+      "created_at": {
+        "sql_type": "TIMESTAMP WITHOUT TIME ZONE",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "updated_at": {
+        "sql_type": "TIMESTAMP WITHOUT TIME ZONE",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      }
+    }
+  },
+  "payment_distribution_snapshots": {
+    "ddl": "\nCREATE TABLE payment_distribution_snapshots (\n\tid UUID NOT NULL, \n\torder_id UUID NOT NULL, \n\tgross_amount_cents BIGINT NOT NULL, \n\tplatform_share_cents BIGINT NOT NULL, \n\trestaurant_share_cents BIGINT NOT NULL, \n\trider_share_cents BIGINT NOT NULL, \n\tapplied_rule_json TEXT NOT NULL, \n\ttax_allocation_json TEXT, \n\tsettled_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tCONSTRAINT uq_distribution_order UNIQUE (order_id), \n\tFOREIGN KEY(order_id) REFERENCES orders (id) ON DELETE CASCADE\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_payment_distribution_snapshots_order_id ON payment_distribution_snapshots (order_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "order_id": [
+        null,
+        null
+      ],
+      "gross_amount_cents": [
+        null,
+        null
+      ],
+      "platform_share_cents": [
+        null,
+        null
+      ],
+      "restaurant_share_cents": [
+        "0",
+        null
+      ],
+      "rider_share_cents": [
+        null,
+        null
+      ],
+      "applied_rule_json": [
+        "{}",
+        null
+      ],
+      "tax_allocation_json": [
+        null,
+        null
+      ],
+      "settled_at": [
+        "utc_now_naive",
+        null
+      ]
+    },
+    "enums": {},
+    "foreign_keys": [
+      {
+        "column": "order_id",
+        "target": "orders.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {},
+    "columns": {
+      "id": {
+        "sql_type": "UUID",
+        "nullable": false,
+        "primary_key": true,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "order_id": {
+        "sql_type": "UUID",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "gross_amount_cents": {
+        "sql_type": "BIGINT",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "platform_share_cents": {
+        "sql_type": "BIGINT",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "restaurant_share_cents": {
+        "sql_type": "BIGINT",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "rider_share_cents": {
+        "sql_type": "BIGINT",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "applied_rule_json": {
+        "sql_type": "TEXT",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "tax_allocation_json": {
+        "sql_type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "settled_at": {
+        "sql_type": "TIMESTAMP WITHOUT TIME ZONE",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      }
+    }
+  },
+  "fiscal_configurations": {
+    "ddl": "\nCREATE TABLE fiscal_configurations (\n\tid UUID NOT NULL, \n\tcountry_code countrytaxregime NOT NULL, \n\tzone_id UUID, \n\ttax_code VARCHAR(20) NOT NULL, \n\ttax_name VARCHAR(100) NOT NULL, \n\trate NUMERIC(5, 4) NOT NULL, \n\tapplicability_condition TEXT, \n\ttaxable_base_type VARCHAR(20) NOT NULL, \n\tincluded_in_price BOOLEAN NOT NULL, \n\tpriority INTEGER NOT NULL, \n\tis_active BOOLEAN NOT NULL, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tCONSTRAINT uq_fiscal_country_tax_zone UNIQUE (country_code, tax_code, zone_id), \n\tFOREIGN KEY(zone_id) REFERENCES zones (id) ON DELETE CASCADE\n)\n\n",
+    "indexes": [],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "country_code": [
+        null,
+        null
+      ],
+      "zone_id": [
+        null,
+        null
+      ],
+      "tax_code": [
+        null,
+        null
+      ],
+      "tax_name": [
+        null,
+        null
+      ],
+      "rate": [
+        null,
+        null
+      ],
+      "applicability_condition": [
+        null,
+        null
+      ],
+      "taxable_base_type": [
+        "gross",
+        null
+      ],
+      "included_in_price": [
+        "False",
+        null
+      ],
+      "priority": [
+        "0",
+        null
+      ],
+      "is_active": [
+        "True",
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {
+      "country_code": [
+        "CO",
+        "MX",
+        "CL",
+        "PE"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "zone_id",
+        "target": "zones.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "country_code": {
+        "name": "countrytaxregime",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    },
+    "columns": {
+      "id": {
+        "sql_type": "UUID",
+        "nullable": false,
+        "primary_key": true,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "country_code": {
+        "sql_type": "countrytaxregime",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": false
+      },
+      "zone_id": {
+        "sql_type": "UUID",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "tax_code": {
+        "sql_type": "VARCHAR(20)",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "tax_name": {
+        "sql_type": "VARCHAR(100)",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "rate": {
+        "sql_type": "NUMERIC(5, 4)",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "applicability_condition": {
+        "sql_type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "taxable_base_type": {
+        "sql_type": "VARCHAR(20)",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "included_in_price": {
+        "sql_type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "priority": {
+        "sql_type": "INTEGER",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "is_active": {
+        "sql_type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "created_at": {
+        "sql_type": "TIMESTAMP WITHOUT TIME ZONE",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "updated_at": {
+        "sql_type": "TIMESTAMP WITHOUT TIME ZONE",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      }
+    }
+  },
+  "bank_reconciliation_records": {
+    "ddl": "\nCREATE TABLE bank_reconciliation_records (\n\tid UUID NOT NULL, \n\tstatement_date DATE NOT NULL, \n\tbank_reference VARCHAR(100), \n\tinternal_transaction_id UUID, \n\tstatement_amount_cents BIGINT NOT NULL, \n\tmatched_amount_cents BIGINT, \n\tvariance_cents BIGINT NOT NULL, \n\tmatch_confidence_score NUMERIC(3, 2), \n\tstatus reconciliationstatus NOT NULL, \n\tresolved_manually BOOLEAN NOT NULL, \n\tnotes TEXT, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(internal_transaction_id) REFERENCES financial_transactions (id) ON DELETE SET NULL\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_bank_reconciliation_records_bank_reference ON bank_reconciliation_records (bank_reference)",
+      "CREATE INDEX ix_bank_reconciliation_records_statement_date ON bank_reconciliation_records (statement_date)",
+      "CREATE INDEX ix_bank_reconciliation_records_status ON bank_reconciliation_records (status)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "statement_date": [
+        null,
+        null
+      ],
+      "bank_reference": [
+        null,
+        null
+      ],
+      "internal_transaction_id": [
+        null,
+        null
+      ],
+      "statement_amount_cents": [
+        null,
+        null
+      ],
+      "matched_amount_cents": [
+        null,
+        null
+      ],
+      "variance_cents": [
+        "0",
+        null
+      ],
+      "match_confidence_score": [
+        null,
+        null
+      ],
+      "status": [
+        "ReconciliationStatus.SIN_RELACIONAR",
+        null
+      ],
+      "resolved_manually": [
+        "False",
+        null
+      ],
+      "notes": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ]
+    },
+    "enums": {
+      "status": [
+        "SIN_RELACIONAR",
+        "RELACIONADO",
+        "VARIANCIA",
+        "RESUELTO_MANUAL"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "internal_transaction_id",
+        "target": "financial_transactions.id",
+        "ondelete": "SET NULL",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "status": {
+        "name": "reconciliationstatus",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    },
+    "columns": {
+      "id": {
+        "sql_type": "UUID",
+        "nullable": false,
+        "primary_key": true,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "statement_date": {
+        "sql_type": "DATE",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "bank_reference": {
+        "sql_type": "VARCHAR(100)",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "internal_transaction_id": {
+        "sql_type": "UUID",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "statement_amount_cents": {
+        "sql_type": "BIGINT",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "matched_amount_cents": {
+        "sql_type": "BIGINT",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "variance_cents": {
+        "sql_type": "BIGINT",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "match_confidence_score": {
+        "sql_type": "NUMERIC(3, 2)",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "status": {
+        "sql_type": "reconciliationstatus",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": false
+      },
+      "resolved_manually": {
+        "sql_type": "BOOLEAN",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "notes": {
+        "sql_type": "TEXT",
+        "nullable": true,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      },
+      "created_at": {
+        "sql_type": "TIMESTAMP WITHOUT TIME ZONE",
+        "nullable": false,
+        "primary_key": false,
+        "server_default": null,
+        "enum_create_type": null
+      }
+    }
+  }
+}
