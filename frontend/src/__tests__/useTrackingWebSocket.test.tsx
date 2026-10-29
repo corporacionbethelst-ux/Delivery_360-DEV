@@ -292,3 +292,108 @@ it('policy rejection retires previously visible coordinates instead of retaining
   expect(result.current.positions).toEqual([]);
   expect(result.current.lastUpdate).toBeNull();
 });
+
+it('retires an open but silent socket and reconnects after the unanswered ping deadline', () => {
+  const { result } = renderHook(() =>
+    useTrackingWebSocket('dashboard', { heartbeatSec: 1, reconnectIntervalMs: 10 })
+  );
+  const socket = TestSocket.instances[0];
+  act(() => {
+    socket.open();
+    socket.message({ type: 'CONNECTED' });
+    socket.message({ type: 'POSITION_UPDATE', payload: position() });
+    jest.advanceTimersByTime(10999);
+  });
+  expect(socket.send).toHaveBeenCalledTimes(1);
+  expect(socket.close).not.toHaveBeenCalled();
+  act(() => jest.advanceTimersByTime(1));
+  expect(socket.close).toHaveBeenCalledTimes(1);
+  expect(result.current.isConnected).toBe(false);
+  expect(result.current.positions).toHaveLength(1);
+  expect(result.current.error).toContain('dejó de responder');
+  act(() => jest.advanceTimersByTime(10));
+  expect(TestSocket.instances).toHaveLength(2);
+});
+it('healthy pongs keep the socket open without duplicate ping waiters', () => {
+  const { result, unmount } = renderHook(() =>
+    useTrackingWebSocket('dashboard', { heartbeatSec: 1 })
+  );
+  const socket = TestSocket.instances[0];
+  socket.send.mockImplementation(() => socket.message({ type: 'pong' }));
+  act(() => {
+    socket.open();
+    jest.advanceTimersByTime(60000);
+  });
+  expect(socket.send).toHaveBeenCalledTimes(60);
+  expect(socket.close).not.toHaveBeenCalled();
+  expect(result.current.isConnected).toBe(true);
+  unmount();
+  expect(jest.getTimerCount()).toBe(0);
+});
+it.each([1008, 4001])('policy close %i cancels an outstanding pong deadline', (code) => {
+  renderHook(() => useTrackingWebSocket('dashboard', { heartbeatSec: 1 }));
+  const socket = TestSocket.instances[0];
+  act(() => {
+    socket.open();
+    jest.advanceTimersByTime(1000);
+    socket.end(code);
+    jest.advanceTimersByTime(60000);
+  });
+  expect(TestSocket.instances).toHaveLength(1);
+  expect(socket.send).toHaveBeenCalledTimes(1);
+  expect(jest.getTimerCount()).toBe(0);
+});
+it('a retired owner pong cannot acknowledge the new owner heartbeat', () => {
+  renderHook(() => useTrackingWebSocket('dashboard', { heartbeatSec: 1, maxRetries: 0 }));
+  const old = TestSocket.instances[0],
+    message = old.onmessage!;
+  act(() => {
+    old.open();
+    jest.advanceTimersByTime(1000);
+    storeTokens({ access_token: 'new-owner-access', refresh_token: 'new-owner-refresh' });
+    useAuthStore.setState({ user: { ...profile, id: 'owner-b' }, sessionRevision: 2 });
+  });
+  const next = TestSocket.instances[1];
+  act(() => {
+    next.open();
+    jest.advanceTimersByTime(1000);
+    message({ data: JSON.stringify({ type: 'pong' }) } as MessageEvent);
+    jest.advanceTimersByTime(10000);
+  });
+  expect(next.close).toHaveBeenCalled();
+  expect(TestSocket.instances).toHaveLength(2);
+});
+it('ordinary bearer rotation cancels its old deadline without closing the replacement early', () => {
+  renderHook(() => useTrackingWebSocket('dashboard', { heartbeatSec: 1, maxRetries: 0 }));
+  const old = TestSocket.instances[0];
+  act(() => {
+    old.open();
+    jest.advanceTimersByTime(1000);
+    commitRefreshedTokens(captureAuthSession(), {
+      access_token: 'rotated-access',
+      refresh_token: 'rotated-refresh',
+    });
+  });
+  const next = TestSocket.instances[1];
+  act(() => {
+    next.open();
+    jest.advanceTimersByTime(10000);
+  });
+  expect(old.close).toHaveBeenCalled();
+  expect(next.close).not.toHaveBeenCalled();
+  act(() => jest.advanceTimersByTime(1000));
+  expect(next.close).toHaveBeenCalledTimes(1);
+});
+it('StrictMode and unmount remove the current heartbeat deadline and all connection timers', () => {
+  const { unmount } = renderHook(() => useTrackingWebSocket('dashboard', { heartbeatSec: 1 }), {
+    wrapper: ({ children }) => <React.StrictMode>{children}</React.StrictMode>,
+  });
+  const socket = TestSocket.instances.at(-1)!;
+  act(() => {
+    socket.open();
+    jest.advanceTimersByTime(1000);
+  });
+  unmount();
+  expect(socket.close).toHaveBeenCalled();
+  expect(jest.getTimerCount()).toBe(0);
+});

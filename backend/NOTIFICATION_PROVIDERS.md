@@ -209,3 +209,23 @@ No se garantiza la baja al cerrar la pestaña sin logout, con red ausente ni
 entre todas las pestañas: la sincronización global y las sesiones por dispositivo
 siguen pendientes. Los sockets detectan revocación al comprobar entrada/envío;
 no se añade desconexión instantánea distribuida ni baja automática de FCM.
+
+
+## Contratos SQL y detección de sockets silenciosos (entrega 49)
+
+NotificationTemplate, NotificationLog, UserDeviceToken y NotificationPreference
+usan Mapped/mapped_column con tipos escalares y nulabilidad explícita. Sus 43
+columnas conservan el contrato PostgreSQL capturado antes del cambio: enums,
+create_type, FK, índices/constraints, defaults y DDL. No hay migración adicional.
+Las tablas legacy notifications y alerts conservan sus mapeos existentes.
+El resultado de dedupe se materializa como list y el módulo Redis opcional se
+comprueba antes de usarlo; no se cambian proveedores, reintentos de envíos ni
+reglas de deduplicación. La lectura HTTP del log recibe valores escalares reales.
+
+El cliente omnicanal incorpora un deadline de pong: por defecto ping a los 30 s y
+hasta 10 s de respuesta, con un solo ping pendiente. Si falla send o vence, retira
+el socket, pasa a REST inmediatamente y usa su reconexión acotada. Un socket sano
+que anuncia Redis no disponible conserva el polling; un pong no prueba salud de
+Redis ni aceptación por FCM/SMTP/Twilio. Los cierres 1008/4001 conservan la limpieza
+y no se reintentan como simples timeouts. La revocación de cuenta sigue siendo
+la de la entrega 48 y no se sustituye por un temporizador del navegador.

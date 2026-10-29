@@ -2,6 +2,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getStoredTokens } from '@/lib/auth-session';
+import { startHeartbeat, Heartbeat } from '@/lib/realtime-heartbeat';
 import {
   useRealtimeIdentity,
   currentRealtimeIdentity,
@@ -63,9 +64,8 @@ export function useTrackingWebSocket(channel: string, options: Options = {}) {
       socket: WebSocket | null = null,
       retry = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-    let heartbeat: ReturnType<typeof setInterval> | undefined;
+    let heartbeat: Heartbeat | undefined;
     let openDeadline: ReturnType<typeof setTimeout> | undefined;
-    let pingAt: number | null = null;
     const current = () => active && currentRealtimeIdentity(identity);
     const update = (apply: (snapshot: Snapshot) => Snapshot) => {
       if (!current()) return;
@@ -84,8 +84,8 @@ export function useTrackingWebSocket(channel: string, options: Options = {}) {
     };
     const close = () => {
       clearTimeout(openDeadline);
-      clearInterval(heartbeat);
-      pingAt = null;
+      heartbeat?.stop();
+      heartbeat = undefined;
       const old = socket;
       socket = null;
       if (old) {
@@ -138,21 +138,26 @@ export function useTrackingWebSocket(channel: string, options: Options = {}) {
         if (!live()) return;
         clearTimeout(openDeadline);
         update((s) => ({ ...s, isConnected: true, error: null }));
-        heartbeat = setInterval(() => {
-          if (!live() || next.readyState !== WebSocket.OPEN) return;
-          try {
-            pingAt = performance.now();
+        heartbeat?.stop();
+        heartbeat = startHeartbeat(
+          () => {
+            if (!live() || next.readyState !== WebSocket.OPEN)
+              throw new Error('Conexión de tracking no disponible');
             next.send(JSON.stringify({ action: 'ping' }));
-          } catch {
+          },
+          () => {
+            if (!live()) return;
             close();
             update((s) => ({
               ...s,
               isConnected: false,
-              error: 'Se interrumpió la conexión de tracking',
+              latencyMs: null,
+              error: 'La conexión de tracking dejó de responder',
             }));
             schedule();
-          }
-        }, heartbeatSec * 1000);
+          },
+          heartbeatSec * 1000
+        );
       };
       next.onmessage = (event) => {
         if (!live() || typeof event.data !== 'string' || event.data.length > 262144) return;
@@ -163,10 +168,9 @@ export function useTrackingWebSocket(channel: string, options: Options = {}) {
             retry = 0;
             return;
           }
-          if (data.type === 'pong' && pingAt !== null) {
-            const latency = Math.max(0, Math.round(performance.now() - pingAt));
-            pingAt = null;
-            update((s) => ({ ...s, latencyMs: latency }));
+          if (data.type === 'pong') {
+            const latency = heartbeat?.pong();
+            if (latency != null) update((s) => ({ ...s, latencyMs: latency }));
             return;
           }
           if (data.type === 'error') {

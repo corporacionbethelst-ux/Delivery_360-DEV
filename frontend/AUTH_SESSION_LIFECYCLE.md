@@ -271,9 +271,9 @@ ubicaciones en el servidor y no constituye seguimiento real.
 Las pruebas de cliente no certifican redes móviles, gateways ni navegadores
 físicos. La revocación del servidor se verifica por separado en la entrega 48. La comparación de fechas usa precisión de milisegundos;
 no sustituye una secuencia durable ni ordena todos los eventos simultáneos. La
-apertura de un WS no certifica que Redis esté sano y no hay watchdog de pongs
-perdidos en una conexión ya abierta. El mapa no aborta las consultas Axios ya
-enviadas: descarta sus resultados obsoletos. Los PATCH enviados pueden haberse
+apertura de un WS no certifica que Redis esté sano. La entrega 49 añade un
+watchdog de pongs para conexiones ya abiertas, descrito al final de esta guía.
+El mapa no aborta las consultas Axios ya enviadas: descarta sus resultados obsoletos. Los PATCH enviados pueden haberse
 aplicado aunque se cancele la espera del navegador.
 
 Los helpers heredados `useRealtimeUpdates`/`WebSocketContext` y
@@ -316,3 +316,46 @@ omite ticks automáticos si una consulta del mismo ámbito sigue pendiente; no
 invalida indefinidamente respuestas que tardan más de diez segundos. El refresh
 manual conserva prioridad y un finally antiguo no libera el slot de una petición
 nueva. Un cambio de ámbito/conexión retira el slot anterior.
+
+
+## Salud del transporte y recuperación (entrega ampliada 49)
+
+Los dos hooks activos comparten `realtime-heartbeat.ts`. Cada socket tiene su
+propio controlador: envía un ping cada 30 segundos por defecto y espera como
+máximo 10 segundos al pong. Solo mantiene un ping pendiente; los ticks siguientes
+no reenvían ni extienden ese plazo. Un pong sin ping pendiente se ignora, y la
+latencia admite un reloj de rendimiento en cero o un pequeño salto hacia atrás.
+
+Si no llega pong o send lanza, el controlador se detiene antes de informar la
+pérdida. El hook verifica otra vez usuario/revisión/generación/token/instancia,
+retira handlers, cierra el socket y pasa por su reconexión existente. Tracking
+conserva la última posición de la misma cuenta como dato anterior y marca la
+conexión caída; la pantalla activa su polling rápido. Notificaciones activa
+polling y solicita inmediatamente un inbox canónico por REST. Ese GET conserva
+su límite/cancelación de la entrega anterior. No se fabrican datos ni mensajes.
+
+Un cierre 1008/4001 mantiene su semántica: limpieza de datos y sin reintento WS
+con ese contexto. No se interpreta como una simple pérdida de pong. Logout,
+cambio de cuenta, renovación del bearer, disable, unmount y StrictMode detienen
+intervalo y deadline. Un pong de un socket retirado no puede confirmar el ping
+ni aplazar la desconexión del socket que lo reemplaza.
+
+El presupuesto es de fallos consecutivos, no un límite vitalicio de conexiones:
+CONNECTED reinicia el contador. El inbox pasa a ese mismo criterio y ya no lo
+reinicia por el solo evento onopen del navegador. La reconexión conserva espera
+exponencial acotada. Las opciones de inbox se normalizan: reintentos 0..10,
+intervalo de reconexión 1..15000 ms, heartbeat y polling 1..300 segundos y tamaño
+1..50; un valor inválido usa el default, sin bucles de cero milisegundos.
+
+Un WS que responde pong puede tener Redis no disponible. Se conserva
+CONNECTED.realtime_available=false y REST; esta entrega no añade resuscripción
+Redis automática en backend. No se certifica salud de proveedores, persistencia
+GPS o entrega final porque el socket responda. El máximo de unos 40 segundos
+hasta detectar silencio se aplica a los timers de una pestaña activa: suspensión,
+sleep y throttling pueden retrasarlos o producir una reconexión conservadora.
+No es un SLA de reloj de pared ni añade secuenciación/reanudación durable.
+
+Las pruebas de transporte son de JSDOM con sockets y timers sustituidos. Los dos
+casos históricos de conexión sana ahora responden a los pings como el servidor
+real; conservan sus aserciones de polling/sin polling. Una conexión sin ese pong
+se prueba explícitamente como caída. No se habilitan los helpers WS heredados.

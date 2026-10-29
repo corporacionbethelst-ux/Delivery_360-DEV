@@ -8,7 +8,8 @@ import {
   currentRealtimeIdentity,
   RealtimeIdentity,
 } from '@/hooks/useRealtimeIdentity';
-import { realtimeUrl } from '@/lib/realtime-client';
+import { realtimeUrl, boundedInteger } from '@/lib/realtime-client';
+import { startHeartbeat, Heartbeat } from '@/lib/realtime-heartbeat';
 import { RequestScope } from '@/lib/request-scope';
 
 export interface InboxNotification {
@@ -52,12 +53,17 @@ const validCount = (value: unknown): value is number =>
 export function useNotifications(options: UseNotificationsOptions = {}) {
   const {
     enabled = true,
-    reconnectIntervalMs = 300,
-    maxRetries = 5,
-    heartbeatSec = 30,
-    pollFallbackSec = 60,
-    inboxSize = 10,
+    reconnectIntervalMs: reconnectOption = 300,
+    maxRetries: retriesOption = 5,
+    heartbeatSec: heartbeatOption = 30,
+    pollFallbackSec: pollingOption = 60,
+    inboxSize: sizeOption = 10,
   } = options;
+  const reconnectIntervalMs = boundedInteger(reconnectOption, 300, 1, 15000);
+  const maxRetries = boundedInteger(retriesOption, 5, 0, 10);
+  const heartbeatSec = boundedInteger(heartbeatOption, 30, 1, 300);
+  const pollFallbackSec = boundedInteger(pollingOption, 60, 1, 300);
+  const inboxSize = boundedInteger(sizeOption, 10, 1, 50);
   const { userId, revision, generation, tokenRevision } = useRealtimeIdentity();
   const sessionRef = useRef<Session | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -204,15 +210,15 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     );
     let retries = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-    let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+    let heartbeat: Heartbeat | undefined;
     let openTimer: ReturnType<typeof setTimeout> | undefined;
     let pollingRequired = true;
     let socketToken: string | null = null;
     let policyClosed = false;
     const disconnect = () => {
       clearTimeout(openTimer);
-      clearInterval(heartbeatTimer);
-      heartbeatTimer = undefined;
+      heartbeat?.stop();
+      heartbeat = undefined;
       const socket = wsRef.current;
       wsRef.current = null;
       if (socket) {
@@ -267,24 +273,39 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
       socket.onopen = () => {
         if (!live()) return;
         clearTimeout(openTimer);
-        retries = 0;
         update(session, (previous) => ({ ...previous, isConnected: true, error: null }));
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = setInterval(() => {
-          if (live() && socket.readyState === WebSocket.OPEN) {
-            try {
-              socket.send(JSON.stringify({ type: 'ping' }));
-            } catch {
-              /* Polling remains available. */
-            }
-          }
-        }, heartbeatSec * 1000);
+        heartbeat?.stop();
+        heartbeat = startHeartbeat(
+          () => {
+            if (!live() || socket.readyState !== WebSocket.OPEN)
+              throw new Error('Conexión de notificaciones no disponible');
+            socket.send(JSON.stringify({ type: 'ping' }));
+          },
+          () => {
+            if (!live()) return;
+            disconnect();
+            pollingRequired = true;
+            update(session, (previous) => ({
+              ...previous,
+              isConnected: false,
+              error: 'La conexión de notificaciones dejó de responder',
+            }));
+            void refreshInbox();
+            scheduleReconnect();
+          },
+          heartbeatSec * 1000
+        );
       };
       socket.onmessage = (event) => {
         if (!live()) return;
         try {
           const msg = JSON.parse(event.data);
+          if (msg.type === 'pong') {
+            heartbeat?.pong();
+            return;
+          }
           if (msg.type === 'CONNECTED') {
+            retries = 0;
             pollingRequired = msg.realtime_available === false;
             update(session, (previous) => ({
               ...previous,

@@ -27,6 +27,7 @@ import logging
 import re
 import time
 import uuid
+from types import ModuleType
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, cast
 
@@ -51,8 +52,11 @@ from app.services.notification_devices import DeviceRevision, device_revisions
 logger = logging.getLogger(__name__)
 
 # Redis async NATIVO (redis>=5). PROHIBIDO el paquete deprecado `aioredis`.
+aioredis: ModuleType | None = None
 try:  # pragma: no cover
-    from redis import asyncio as aioredis
+    from redis import asyncio as _redis_asyncio
+
+    aioredis = _redis_asyncio
 
     REDIS_LIB_AVAILABLE = True
 except Exception:
@@ -137,7 +141,7 @@ class OmnichannelNotificationService:
         # -1 centinela: ya se intentó conectar y falló → no reintentar por request
         if self._redis is not None and self._redis is not False:
             return self._redis
-        if self._redis is False or not REDIS_LIB_AVAILABLE:
+        if self._redis is False or not REDIS_LIB_AVAILABLE or aioredis is None:
             return None
         try:
             client = aioredis.from_url(
@@ -430,7 +434,7 @@ class OmnichannelNotificationService:
                 logger.info("Dedupe (carrera): %s ya existía (skip)", template_code)
                 return []
             await self.db.commit()
-            logs = (
+            logs = list(
                 (
                     await self.db.execute(
                         select(NotificationLog).where(

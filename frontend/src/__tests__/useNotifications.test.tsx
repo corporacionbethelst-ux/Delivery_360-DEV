@@ -74,6 +74,7 @@ it('continues REST polling while an open socket has no realtime transport', asyn
   });
   expect(result.current.isConnected).toBe(false);
   expect(result.current.unreadCount).toBe(3);
+  Socket.instances[0].send.mockImplementation(() => Socket.instances[0].message({ type: 'pong' }));
   const before = fetcher.mock.calls.length;
   await act(async () => {
     jest.advanceTimersByTime(60000);
@@ -90,6 +91,7 @@ it('does not poll just because an authorized realtime connection is idle', async
     Socket.instances[0].open();
     Socket.instances[0].message({ type: 'CONNECTED', unread_count: 0, realtime_available: true });
   });
+  Socket.instances[0].send.mockImplementation(() => Socket.instances[0].message({ type: 'pong' }));
   const before = fetcher.mock.calls.length;
   await act(async () => {
     jest.advanceTimersByTime(60000);
@@ -497,12 +499,10 @@ it('times out a read mutation and reconciles from a fresh canonical inbox', asyn
   await act(async () => {});
   act(() => Socket.instances[0].open());
   const late = pendingResponse();
-  fetcher
-    .mockReturnValueOnce(late.promise)
-    .mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ items: [{ ...inboxItem(), status: 'LEIDO' }], unread_count: 0 }),
-    });
+  fetcher.mockReturnValueOnce(late.promise).mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({ items: [{ ...inboxItem(), status: 'LEIDO' }], unread_count: 0 }),
+  });
   let work!: Promise<void>;
   act(() => {
     work = result.current.markRead('private-a');
@@ -523,12 +523,10 @@ it('a successful read schedules a canonical refresh after its acknowledgement', 
   fetcher.mockResolvedValueOnce(response());
   const { result, unmount } = renderHook(() => useNotifications());
   await act(async () => {});
-  fetcher
-    .mockResolvedValueOnce({ ok: true })
-    .mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ items: [{ ...inboxItem(), status: 'LEIDO' }], unread_count: 0 }),
-    });
+  fetcher.mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({ items: [{ ...inboxItem(), status: 'LEIDO' }], unread_count: 0 }),
+  });
   await act(async () => {
     await result.current.markRead('private-a');
   });
@@ -627,4 +625,134 @@ it('public inbox actions retained by owner A cannot send requests under owner B'
   });
   expect(fetcher).toHaveBeenCalledTimes(before);
   unmount();
+});
+
+it('a silent open transport is retired and immediately recovers the current inbox over REST', async () => {
+  fetcher.mockResolvedValue(response('retained'));
+  const { result, unmount } = renderHook(() =>
+    useNotifications({ heartbeatSec: 1, maxRetries: 0 })
+  );
+  await act(async () => {});
+  const socket = Socket.instances[0];
+  act(() => {
+    socket.open();
+    socket.message({ type: 'CONNECTED', unread_count: 1, realtime_available: true });
+  });
+  const before = fetcher.mock.calls.length;
+  await act(async () => {
+    jest.advanceTimersByTime(11000);
+  });
+  expect(socket.send).toHaveBeenCalledTimes(1);
+  expect(socket.close).toHaveBeenCalledTimes(1);
+  expect(result.current.isConnected).toBe(false);
+  expect(fetcher).toHaveBeenCalledTimes(before + 1);
+  expect(result.current.items[0].id).toBe('retained');
+  expect(Socket.instances).toHaveLength(1);
+  unmount();
+  expect(jest.getTimerCount()).toBe(0);
+});
+it('a heartbeat send failure follows the same bounded loss and REST path', async () => {
+  const { result, unmount } = renderHook(() =>
+    useNotifications({ heartbeatSec: 1, maxRetries: 0 })
+  );
+  await act(async () => {});
+  const socket = Socket.instances[0];
+  socket.send.mockImplementation(() => {
+    throw new Error('private websocket diagnostic');
+  });
+  act(() => socket.open());
+  const before = fetcher.mock.calls.length;
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(socket.close).toHaveBeenCalledTimes(1);
+  expect(result.current.isConnected).toBe(false);
+  expect(fetcher).toHaveBeenCalledTimes(before + 1);
+  expect(JSON.stringify(result.current)).not.toContain('diagnostic');
+  unmount();
+  expect(jest.getTimerCount()).toBe(0);
+});
+it('browser open events without CONNECTED acknowledgments cannot reset the retry budget', async () => {
+  const { unmount } = renderHook(() =>
+    useNotifications({ heartbeatSec: 1, reconnectIntervalMs: 10, maxRetries: 1 })
+  );
+  await act(async () => {});
+  act(() => {
+    Socket.instances[0].open();
+    jest.advanceTimersByTime(11010);
+  });
+  expect(Socket.instances).toHaveLength(2);
+  act(() => {
+    Socket.instances[1].open();
+    jest.advanceTimersByTime(60000);
+  });
+  expect(Socket.instances).toHaveLength(2);
+  expect(Socket.instances[1].close).toHaveBeenCalled();
+  unmount();
+  expect(jest.getTimerCount()).toBe(0);
+});
+it('a pong from a retired session cannot keep its replacement alive', async () => {
+  const { unmount } = renderHook(() => useNotifications({ heartbeatSec: 1, maxRetries: 0 }));
+  await act(async () => {});
+  const old = Socket.instances[0],
+    message = old.onmessage;
+  act(() => {
+    old.open();
+    jest.advanceTimersByTime(1000);
+    useAuthStore.setState({ user: { ...profile, id: 'owner-2' }, sessionRevision: 2 });
+  });
+  const next = Socket.instances[1];
+  await act(async () => {
+    next.open();
+    jest.advanceTimersByTime(1000);
+    message({ data: JSON.stringify({ type: 'pong' }) });
+    jest.advanceTimersByTime(10000);
+  });
+  expect(next.close).toHaveBeenCalled();
+  expect(Socket.instances).toHaveLength(2);
+  unmount();
+  expect(jest.getTimerCount()).toBe(0);
+});
+it.each([1008, 4001])(
+  'policy close %i retires a pending heartbeat without reviving the WS',
+  async (code) => {
+    const { result, unmount } = renderHook(() => useNotifications({ heartbeatSec: 1 }));
+    await act(async () => {});
+    const socket = Socket.instances[0];
+    await act(async () => {
+      socket.open();
+      jest.advanceTimersByTime(1000);
+      socket.end(code);
+      jest.advanceTimersByTime(60000);
+    });
+    expect(result.current.isConnected).toBe(false);
+    expect(Socket.instances).toHaveLength(1);
+    expect(socket.send).toHaveBeenCalledTimes(1);
+    unmount();
+    expect(jest.getTimerCount()).toBe(0);
+  }
+);
+it('normalizes invalid options without opening a timer or request hot loop', async () => {
+  const { unmount } = renderHook(() =>
+    useNotifications({
+      heartbeatSec: 0,
+      pollFallbackSec: 0,
+      inboxSize: NaN,
+      reconnectIntervalMs: 0,
+      maxRetries: Infinity,
+    })
+  );
+  await act(async () => {});
+  const socket = Socket.instances[0];
+  act(() => socket.open());
+  expect(fetcher.mock.calls[0][0]).toContain('size=10');
+  await act(async () => {
+    jest.advanceTimersByTime(29999);
+  });
+  expect(socket.send).not.toHaveBeenCalled();
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  act(() => jest.advanceTimersByTime(1));
+  expect(socket.send).toHaveBeenCalledTimes(1);
+  unmount();
+  expect(jest.getTimerCount()).toBe(0);
 });
