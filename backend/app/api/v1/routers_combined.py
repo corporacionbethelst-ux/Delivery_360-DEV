@@ -651,54 +651,9 @@ async def performance_ranking(
 # ─────────────────────────────────────────────────────────────────────────────
 # ROUTES GPS
 # ─────────────────────────────────────────────────────────────────────────────
-routes_router = APIRouter(prefix="/routes")
-
-
-class GPSPoint(BaseModel):
-    lat: float
-    lng: float
-
-
-@routes_router.post("/{rider_id}/track")
-async def add_gps_point(
-    rider_id: str,
-    point: GPSPoint,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    rider_uuid = _parse_uuid(rider_id, "rider_id")
-    await _ensure_rider_scope(db, current_user, rider_uuid)
-
-    result = await db.execute(
-        select(Route)
-        .where(Route.rider_id == rider_uuid, Route.end_time.is_(None))
-        .order_by(Route.start_time.desc())
-    )
-    route = result.scalar_one_or_none()
-
-    now_naive = utc_now_naive()
-
-    if not route:
-        route = Route(
-            rider_id=rider_uuid, points=[], start_time=now_naive, status="EN_PROGRESO"
-        )
-        db.add(route)
-        await db.flush()
-
-    points = list(route.points or [])
-    points.append({"lat": point.lat, "lng": point.lng, "ts": now_naive.isoformat()})
-    route.points = points
-
-    result2 = await db.execute(select(Rider).where(Rider.id == rider_uuid))
-    rider = result2.scalar_one_or_none()
-    if rider:
-        rider.last_lat = point.lat
-        rider.last_lng = point.lng
-        rider.last_location_at = now_naive
-
-    await db.commit()
-    return {"ok": True, "points_count": len(points)}
-
+from app.api.v1.routes import (
+    router as routes_router,
+)  # noqa: F401 (compatibility export)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DASHBOARD

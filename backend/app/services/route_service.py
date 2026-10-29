@@ -1,19 +1,25 @@
-"""Servicio para gestión de rutas y geolocalización del sistema Delivery360."""
+"""GPS analysis: metres for geometry, km/h for device speed, UTC storage."""
 
-from typing import List, Optional, Dict, Any, TypedDict
+from collections.abc import Sequence
 from datetime import datetime
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TypedDict
+from uuid import UUID
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
+from app.crud.route import route as crud
 from app.models.route import Route, RoutePoint, RouteDeviation
-from app.utils.geolocation import calculate_distance, is_point_in_polygon
-import logging
-
-logger = logging.getLogger(__name__)
+from app.services.route_geometry import (
+    coordinate,
+    distance_m,
+    finite_number,
+    planned_coordinates,
+    route_distance_m,
+    utc_naive,
+)
 
 
 class RouteMetricsData(TypedDict):
-    """Tipo de retorno para métricas de ruta"""
-
     total_distance_km: float
     avg_speed_kmh: float
     max_speed_kmh: float
@@ -23,190 +29,266 @@ class RouteMetricsData(TypedDict):
 
 
 class RouteService:
-    """Servicio para gestión de rutas y tracking GPS"""
-
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create_route(self, delivery_id: int) -> Route:
-        """Crear una nueva ruta para una entrega"""
-        route = Route(delivery_id=delivery_id, status="active")
-        self.db.add(route)
-        await self.db.commit()
-        await self.db.refresh(route)
-        logger.info(f"Ruta creada: {route.id} para delivery {delivery_id}")
-        return route
+    async def create_route(
+        self,
+        delivery_id: UUID,
+        planned_route: list[dict[str, float]],
+        distance_km: float = 0,
+        duration_minutes: int = 0,
+    ) -> Route:
+        return await crud.create_route(
+            self.db, delivery_id, distance_km, duration_minutes, planned_route
+        )
 
     async def add_route_point(
         self,
-        route_id: int,
+        route_id: UUID,
         latitude: float,
         longitude: float,
-        speed: Optional[float] = None,
-        bearing: Optional[float] = None,
+        speed: float | None = None,
+        bearing: float | None = None,
     ) -> RoutePoint:
-        """Agregar un punto de geolocalización a una ruta"""
-        point = RoutePoint(
-            route_id=route_id,
-            latitude=latitude,
-            longitude=longitude,
-            speed=speed,
-            bearing=bearing,
+        return await crud.add_route_point(
+            self.db, route_id, latitude, longitude, speed=speed, heading=bearing
         )
-        self.db.add(point)
-        await self.db.commit()
-        await self.db.refresh(point)
-        return point
 
     async def detect_deviation(
         self,
-        route_id: int,
+        route_id: UUID,
         current_lat: float,
         current_lon: float,
-        expected_route: List[Dict[str, float]],
-        threshold_meters: float = 100.0,
-    ) -> Optional[RouteDeviation]:
-        """Detectar si el repartidor se desvió de la ruta esperada"""
-        # Verificar si está dentro del polígono de la ruta esperada
-        is_on_route = is_point_in_polygon(current_lat, current_lon, expected_route)
-
-        if not is_on_route:
-            # Calcular distancia al punto más cercano de la ruta
-            min_distance = float("inf")
-            for point in expected_route:
-                distance = calculate_distance(
-                    current_lat, current_lon, point["latitude"], point["longitude"]
-                )
-                min_distance = min(min_distance, distance)
-
-            if min_distance > threshold_meters:
-                deviation = RouteDeviation(
-                    route_id=route_id,
-                    deviation_latitude=current_lat,
-                    deviation_longitude=current_lon,
-                    deviation_distance=min_distance,
-                    deviation_duration=0,
-                    is_resolved=False,
-                )
-                self.db.add(deviation)
-                await self.db.commit()
-                await self.db.refresh(deviation)
-
-                logger.warning(
-                    f"Desviación detectada en ruta {route_id}: {min_distance:.2f}m"
-                )
-                return deviation
-
-        return None
+        expected_route: list[dict[str, float]],
+        threshold_meters: float = 100,
+    ) -> RouteDeviation | None:
+        position, path = coordinate(current_lat, current_lon), planned_coordinates(
+            expected_route
+        )
+        threshold = finite_number(threshold_meters, "threshold_meters", 1, 100_000)
+        meters = route_distance_m(position, path)
+        if meters <= threshold:
+            return None
+        # A reference waypoint, not a projected road position.
+        nearest = min(path, key=lambda p: distance_m(position, p))
+        return await crud.log_deviation(
+            self.db,
+            route_id,
+            meters,
+            *nearest,
+            *position,
+            severity="high" if meters > 500 else "low",
+        )
 
     async def get_route_history(
         self,
-        route_id: int,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-    ) -> List[RoutePoint]:
-        """Obtener historial de puntos de una ruta"""
-        query = select(RoutePoint).where(RoutePoint.route_id == route_id)
-
-        if start_time:
-            query = query.where(RoutePoint.timestamp >= start_time)
-        if end_time:
-            query = query.where(RoutePoint.timestamp <= end_time)
-
-        query = query.order_by(RoutePoint.timestamp.asc())
-
-        result = await self.db.execute(query)
-        points = result.scalars().all()
-        return list(points)
-
-    async def calculate_route_metrics(self, route_id: int) -> RouteMetricsData:
-        """Calcular métricas de una ruta"""
-        points_query = await self.db.execute(
-            select(RoutePoint)
-            .where(RoutePoint.route_id == route_id)
-            .order_by(RoutePoint.timestamp.asc())
+        route_id: UUID,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        limit: int = 1000,
+        skip: int = 0,
+    ) -> list[RoutePoint]:
+        if not 1 <= limit <= 1000 or skip < 0:
+            raise ValueError("Paginación inválida")
+        start, end = utc_naive(start_time) if start_time else None, (
+            utc_naive(end_time) if end_time else None
         )
-        points = points_query.scalars().all()
+        if start and end and start > end:
+            raise ValueError("Intervalo de fechas inválido")
+        query = select(RoutePoint).where(RoutePoint.route_id == route_id)
+        if start:
+            query = query.where(RoutePoint.timestamp >= start)
+        if end:
+            query = query.where(RoutePoint.timestamp <= end)
+        return list(
+            (
+                await self.db.scalars(
+                    query.order_by(RoutePoint.timestamp, RoutePoint.id)
+                    .offset(skip)
+                    .limit(limit)
+                )
+            ).all()
+        )
 
-        if len(points) < 2:
-            return {
-                "total_distance_km": 0,
-                "avg_speed_kmh": 0,
-                "max_speed_kmh": 0,
-                "total_time_minutes": 0,
-                "stops_count": 0,
-            }
+    async def calculate_route_metrics(self, route_id: UUID) -> RouteMetricsData:
+        points = list(
+            (
+                await self.db.scalars(
+                    select(RoutePoint)
+                    .where(RoutePoint.route_id == route_id)
+                    .order_by(RoutePoint.timestamp, RoutePoint.id)
+                    .limit(10_001)
+                )
+            ).all()
+        )
+        if len(points) > 10_000:
+            raise ValueError("Ruta excede 10000 puntos; requiere análisis por lotes")
+        return await run_in_threadpool(self.metrics, points)
 
-        total_distance = 0
-        speeds = []
-
-        for i in range(1, len(points)):
-            prev_point = points[i - 1]
-            curr_point = points[i]
-
-            distance = calculate_distance(
-                prev_point.latitude,
-                prev_point.longitude,
-                curr_point.latitude,
-                curr_point.longitude,
-            )
-            total_distance += distance
-
-            if curr_point.speed is not None:
-                speeds.append(curr_point.speed)
-
-        time_diff = (points[-1].timestamp - points[0].timestamp).total_seconds() / 60
-
+    @staticmethod
+    def metrics(points: Sequence[RoutePoint]) -> RouteMetricsData:
+        positions = [coordinate(p.latitude, p.longitude) for p in points]
+        timestamps = [utc_naive(p.timestamp) for p in points]
+        if timestamps != sorted(timestamps):
+            raise ValueError("Puntos fuera de orden temporal")
+        distance = sum(distance_m(a, b) for a, b in zip(positions, positions[1:]))
+        seconds = (
+            (timestamps[-1] - timestamps[0]).total_seconds()
+            if len(points) >= 2
+            else 0.0
+        )
+        speeds = [
+            finite_number(p.speed, "speed", 0, 300)
+            for p in points
+            if p.speed is not None
+        ]
         return {
-            "total_distance_km": round(total_distance / 1000, 2),
-            "avg_speed_kmh": round(sum(speeds) / len(speeds), 2) if speeds else 0,
-            "max_speed_kmh": round(max(speeds), 2) if speeds else 0,
-            "total_time_minutes": round(time_diff, 2),
+            "total_distance_km": round(distance / 1000, 3),
+            "avg_speed_kmh": round(distance / seconds * 3.6, 2) if seconds > 0 else 0.0,
+            "max_speed_kmh": round(max(speeds), 2) if speeds else 0.0,
+            "total_time_minutes": round(seconds / 60, 2),
             "points_count": len(points),
-            "stops_count": self._detect_stops(points),
+            "stops_count": RouteService._detect_stops(points),
         }
 
+    @staticmethod
     def _detect_stops(
-        self, points: List[RoutePoint], threshold_minutes: float = 5
+        points: Sequence[RoutePoint], threshold_minutes: float = 5
     ) -> int:
-        """Detectar paradas significativas en la ruta"""
-        stops = 0
-        i = 0
-
-        while i < len(points) - 1:
-            stop_start = points[i]
-            j = i + 1
-
-            while j < len(points):
-                time_diff = (
-                    points[j].timestamp - stop_start.timestamp
-                ).total_seconds() / 60
-                if time_diff > threshold_minutes:
-                    stops += 1
-                    i = j
-                    break
-                j += 1
-
-            if j >= len(points):
-                break
-
+        """Stationary cluster <=30m for >=5min; GPS gaps over 120s break evidence."""
+        if not points:
+            return 0
+        anchor = previous = points[0]
+        counted, stops = False, 0
+        for point in points[1:]:
+            gap = (
+                utc_naive(point.timestamp) - utc_naive(previous.timestamp)
+            ).total_seconds()
+            if (
+                gap < 0
+                or gap > 120
+                or distance_m(
+                    coordinate(anchor.latitude, anchor.longitude),
+                    coordinate(point.latitude, point.longitude),
+                )
+                > 30
+            ):
+                anchor, counted = point, False
+            elif (
+                not counted
+                and (
+                    utc_naive(point.timestamp) - utc_naive(anchor.timestamp)
+                ).total_seconds()
+                >= threshold_minutes * 60
+            ):
+                stops += 1
+                counted = True
+            previous = point
         return stops
 
     async def resolve_deviation(
-        self, deviation_id: int, resolution_notes: Optional[str] = None
-    ):
-        """Marcar una desviación como resuelta"""
-        result = await self.db.execute(
-            select(RouteDeviation).where(RouteDeviation.id == deviation_id)
+        self,
+        deviation_id: UUID,
+        resolution_notes: str | None = None,
+        actor_id: UUID | None = None,
+    ) -> RouteDeviation:
+        result = await crud.resolve_deviation(
+            self.db, deviation_id, resolution_notes, actor_id
         )
-        deviation = result.scalar_one_or_none()
-
-        if not deviation:
+        if result is None:
             raise ValueError("Desviación no encontrada")
+        return result
 
-        deviation.is_resolved = True
-        deviation.resolution_notes = resolution_notes
-        deviation.resolved_at = datetime.utcnow()
-
-        await self.db.commit()
-        logger.info(f"Desviación {deviation_id} marcada como resuelta")
+    async def analyze_route(
+        self, delivery_id: UUID, threshold_meters: float = 500
+    ) -> dict[str, object]:
+        """Bounded manual batch; cooperative workers serialize and deduplicate point IDs."""
+        threshold = finite_number(threshold_meters, "threshold_meters", 1, 100_000)
+        try:
+            obj = await self.db.scalar(
+                select(Route)
+                .where(Route.delivery_id == delivery_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if obj is None:
+                return {"success": False, "reason": "Route not found"}
+            path = planned_coordinates(obj.planned_route)
+            points = list(
+                (
+                    await self.db.scalars(
+                        select(RoutePoint)
+                        .where(RoutePoint.route_id == obj.id)
+                        .order_by(RoutePoint.timestamp, RoutePoint.id)
+                        .limit(10_001)
+                    )
+                ).all()
+            )
+            if len(points) > 10_000:
+                raise ValueError(
+                    "Ruta excede 10000 puntos; requiere análisis por lotes"
+                )
+            previous = (
+                await self.db.scalars(
+                    select(RouteDeviation.actual_location).where(
+                        RouteDeviation.route_id == obj.id
+                    )
+                )
+            ).all()
+            seen = {
+                v["route_point_id"]
+                for v in previous
+                if isinstance(v, dict) and isinstance(v.get("route_point_id"), str)
+            }
+            # Copy scalar observations before offloading the CPU-heavy geometry;
+            # the worker thread never accesses a session or lazy ORM relations.
+            observations = [
+                (point.id, coordinate(point.latitude, point.longitude), point.timestamp)
+                for point in points
+                if str(point.id) not in seen
+            ]
+            distances = await run_in_threadpool(
+                lambda: [
+                    route_distance_m(position, path) for _, position, _ in observations
+                ]
+            )
+            count = 0
+            for (point_id, position, timestamp), meters in zip(observations, distances):
+                if meters <= threshold:
+                    continue
+                self.db.add(
+                    RouteDeviation(
+                        route_id=obj.id,
+                        deviation_type="distance",
+                        severity="high",
+                        latitude=position[0],
+                        longitude=position[1],
+                        detected_at=timestamp,
+                        distance_from_route_km=meters / 1000,
+                        status="abierto",
+                        actual_location={
+                            "route_point_id": str(point_id),
+                            "latitude": position[0],
+                            "longitude": position[1],
+                        },
+                        expected_location={
+                            "reference": "planned_route",
+                            "threshold_meters": threshold,
+                        },
+                    )
+                )
+                obj.has_deviation = True
+                obj.deviation_distance_km = max(
+                    obj.deviation_distance_km or 0, meters / 1000
+                )
+                count += 1
+            await self.db.commit()
+            return {
+                "success": True,
+                "deviations_count": count,
+                "points_count": len(points),
+            }
+        except Exception:
+            await self.db.rollback()
+            raise

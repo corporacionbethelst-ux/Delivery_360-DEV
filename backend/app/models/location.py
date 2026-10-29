@@ -10,9 +10,9 @@ Tablas:
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Index, text
+from sqlalchemy import String, Float, DateTime, ForeignKey, Index, text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
@@ -27,22 +27,36 @@ class RiderLiveLocation(Base):
 
     __tablename__ = "rider_live_locations"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    rider_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True,
+        nullable=False,
+    )
+    rider_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("riders.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    latitude = Column(Float, nullable=False)
-    longitude = Column(Float, nullable=False)
-    accuracy_meters = Column(
+    latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    accuracy_meters: Mapped[float | None] = mapped_column(
         Float, nullable=True
     )  # Precisión GPS reportada por el dispositivo
-    speed_kmh = Column(Float, nullable=True)  # Velocidad instantánea normalizada a km/h
-    heading_degrees = Column(Float, nullable=True)  # Dirección de brújula (0-360)
-    recorded_at = Column(DateTime, default=utc_now_naive, nullable=False, index=True)
-    created_at = Column(DateTime, default=utc_now_naive, nullable=False)
+    speed_kmh: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )  # Velocidad instantánea normalizada a km/h
+    heading_degrees: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )  # Dirección de brújula (0-360)
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=False
+    )
 
     # Índices compuestos para las consultas calientes de la Fase 8:
     #   1) última posición por rider (dashboard / live fallback REST)
@@ -63,21 +77,31 @@ class DeliveryRouteSnapshot(Base):
 
     __tablename__ = "delivery_route_snapshots"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    delivery_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True,
+        nullable=False,
+    )
+    delivery_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("deliveries.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    optimized_sequence_json = Column(
+    optimized_sequence_json: Mapped[str] = mapped_column(
         String, nullable=False
     )  # JSON array de waypoints calculados
-    original_distance_km = Column(Float, nullable=False)
-    optimized_distance_km = Column(Float, nullable=False)
-    savings_percentage = Column(Float, nullable=False, default=0.0)
-    calculated_at = Column(DateTime, default=utc_now_naive, nullable=False)
-    expires_at = Column(
+    original_distance_km: Mapped[float] = mapped_column(Float, nullable=False)
+    optimized_distance_km: Mapped[float] = mapped_column(Float, nullable=False)
+    savings_percentage: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0
+    )
+    calculated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True, index=True
     )  # TTL: job periódico elimina snapshots vencidos
 

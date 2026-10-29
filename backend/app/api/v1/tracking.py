@@ -63,6 +63,7 @@ from app.services.tracking_service import (
     haversine_km,
     build_redis_client,
 )
+from app.services.route_geometry import coordinate
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tracking", tags=["Tracking (Fase 8)"])
@@ -127,11 +128,7 @@ async def update_location(
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
 
     # Solo el propio rider, un GERENTE o SUPERADMIN pueden reportar su ubicación
-    role = (
-        current_user.role.value
-        if hasattr(current_user.role, "value")
-        else str(current_user.role)
-    )
+    role = optional_enum_value(current_user.role) or ""
     if role not in ("SUPERADMIN", "GERENTE") and rider.user_id != current_user.id:
         raise HTTPException(
             status_code=403, detail="No autorizado para actualizar este repartidor"
@@ -208,7 +205,11 @@ async def get_live_tracking(
         )
 
     rider = delivery.rider
-    if rider is None or rider.last_lat is None or rider.last_lng is None:
+    try:
+        if rider is None:
+            raise ValueError("Sin repartidor")
+        coordinate(rider.last_lat, rider.last_lng)
+    except ValueError:
         return {
             "order_id": str(order_id),
             "delivery_id": str(delivery.id),
@@ -226,13 +227,26 @@ async def get_live_tracking(
 
     order = delivery.order
     distance_km = None
-    if order and order.delivery_latitude is not None:
-        distance_km = haversine_km(
-            float(rider.last_lat),
-            float(rider.last_lng),
-            float(order.delivery_latitude),
-            float(order.delivery_longitude),
-        )
+    destination: dict[str, float | None] = {"lat": None, "lng": None}
+    if (
+        order
+        and order.delivery_latitude is not None
+        and order.delivery_longitude is not None
+    ):
+        try:
+            distance_km = haversine_km(
+                float(rider.last_lat),
+                float(rider.last_lng),
+                float(order.delivery_latitude),
+                float(order.delivery_longitude),
+            )
+            destination = {
+                "lat": float(order.delivery_latitude),
+                "lng": float(order.delivery_longitude),
+            }
+        except (TypeError, ValueError):
+            # Incomplete/invalid legacy destinations must not invent a distance.
+            distance_km = None
 
     return {
         "order_id": str(order_id),
@@ -252,10 +266,7 @@ async def get_live_tracking(
             "lng": rider.last_lng,
             "recorded_at": rider.last_location_at,
         },
-        "destination": {
-            "lat": order.delivery_latitude if order else None,
-            "lng": order.delivery_longitude if order else None,
-        },
+        "destination": destination,
         "distance_km": distance_km,
         "eta_minutes": eta_minutes,
     }
@@ -271,11 +282,7 @@ async def get_dashboard_data(
     current_user: User = Depends(get_current_user),
 ):
     """Datos agregados para el dashboard operativo: riders online, posiciones y métricas."""
-    role = (
-        current_user.role.value
-        if hasattr(current_user.role, "value")
-        else str(current_user.role)
-    )
+    role = optional_enum_value(current_user.role) or ""
     if role not in ("SUPERADMIN", "GERENTE"):
         raise HTTPException(
             status_code=403,
@@ -362,11 +369,7 @@ async def optimize_routes_batch(
     current_user: User = Depends(get_current_user),
 ):
     """Trigger manual de re-optimización VRP (el cron interno usa la misma función)."""
-    role = (
-        current_user.role.value
-        if hasattr(current_user.role, "value")
-        else str(current_user.role)
-    )
+    role = optional_enum_value(current_user.role) or ""
     if role not in ("SUPERADMIN", "GERENTE"):
         raise HTTPException(
             status_code=403,

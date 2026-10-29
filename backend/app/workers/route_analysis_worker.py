@@ -1,59 +1,35 @@
-"""
-Worker Celery para análisis de rutas
-"""
+"""Manual Celery route analysis, with an async engine scoped to each invocation."""
 
+import asyncio
+from uuid import UUID
 from celery import shared_task
-from datetime import datetime
-from app.core.database import get_db_session
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
+from app.core.database import db_url
+from app.services.route_service import RouteService
+
+
+async def run_analysis(delivery_id: UUID) -> dict[str, object]:
+    engine = create_async_engine(db_url, poolclass=NullPool)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            return await RouteService(db).analyze_route(delivery_id)
+    finally:
+        await engine.dispose()
 
 
 @shared_task(bind=True, max_retries=3)
-def analyze_route_deviations(self, delivery_id: int):
-    """Analizar desviaciones de ruta en una entrega"""
+def analyze_route_deviations(self, delivery_id: str):
     try:
-        db_session = next(get_db_session())
-
-        from app.models.route import Route, RouteDeviation
-        from app.utils.geolocation import calculate_distance
-        from sqlalchemy import select
-
-        # Obtener ruta esperada y puntos reales
-        query = select(Route).where(Route.delivery_id == delivery_id)
-        result = db_session.execute(query)
-        route = result.scalars().first()
-
-        if not route:
-            return {"success": False, "reason": "Route not found"}
-
-        # Analizar puntos GPS
-        deviations = []
-        for point in route.points:
-            distance_from_expected = calculate_distance(
-                point["lat"], point["lon"], route.expected_lat, route.expected_lon
-            )
-
-            if distance_from_expected > 0.5:  # Más de 500m de desvío
-                deviation = RouteDeviation(
-                    route_id=route.id,
-                    actual_lat=point["lat"],
-                    actual_lon=point["lon"],
-                    expected_lat=route.expected_lat,
-                    expected_lon=route.expected_lon,
-                    deviation_meters=distance_from_expected * 1000,
-                    detected_at=datetime.utcnow(),
-                )
-                deviations.append(deviation)
-                db_session.add(deviation)
-
-        if deviations:
-            route.has_deviation = True
-            db_session.commit()
-
-            return {"success": True, "deviations_count": len(deviations)}
-
-        return {"success": True, "deviations_count": 0}
-
-    except Exception as e:
-        raise self.retry(exc=e, countdown=60)
-    finally:
-        db_session.close()
+        identifier = UUID(delivery_id)
+    except (ValueError, TypeError, AttributeError):
+        return {"success": False, "reason": "Invalid delivery UUID"}
+    try:
+        return asyncio.run(run_analysis(identifier))
+    except ValueError:
+        return {"success": False, "reason": "Route requires manual review"}
+    except Exception:
+        # Avoid putting raw DB/provider errors or coordinates in Celery result/logs.
+        raise self.retry(
+            exc=RuntimeError("Route analysis unavailable"), countdown=60
+        ) from None

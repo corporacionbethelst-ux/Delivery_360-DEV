@@ -4066,3 +4066,245 @@ PUSH web real, outbox de comunicaciones, conciliación externa, límites distrib
 y deuda global de tipos/cobertura. El bloque se prepara en un PR nuevo sin borrador,
 verificando blobs/árbol y commit local contra GitHub. Sin fusión, despliegue ni
 migraciones de producción.
+
+## Entrega ampliada 51 — Rutas GPS persistidas, desvíos verificables y ETA correcto
+
+Fecha: 29 de octubre de 2026, America/Caracas. Base contrastada: main
+48312692162cfbc54cab4374ca4f86fcb777ac3d, fusión del PR #291. El árbol de esa
+fusión coincide con el bloque fiscal probado y publicado. Esta entrega continúa
+la fase 8 del ROADMAP_PROXIMAS_FASES_7-10.md con una corrección funcional del
+seguimiento de rutas y sus controles de acceso.
+
+### Estado comprobado antes de continuar
+
+El PR #291 ya fue fusionado por el repositorio. Su CI ejecutó **1398 pruebas
+backend aprobadas, dos SDK opcionales omitidos**, cuatro advertencias, en 441,66 s.
+Los controles de formato, lint crítico y seguridad aprobaron; Mypy falló con
+219 errores en 44 archivos. Frontend: **678 pruebas/48 suites aprobadas**, con
+TypeScript/lint/build correctos; el control de pruebas falló por cobertura de
+líneas **27,72 %**, inferior al 50 % (ramas 22,04 %, funciones 23,08 %).
+No había hilos de revisión pendientes al iniciar este trabajo. No se confunde
+pasar los casos de prueba con tener todos los controles de calidad en verde.
+
+### Hallazgos críticos corregidos
+
+1. El endpoint GPS realmente montado estaba bajo
+   /api/v1/routes/routes/{rider_id}/track. Consultaba Route.rider_id, end_time y
+   start_time, campos inexistentes, y escribía diccionarios dentro de Route.points,
+   que es una relación SQL con RoutePoint. No podía persistir una traza válida.
+2. El CRUD y el servicio creaban rutas/puntos/desvíos con nombres de columnas
+   inexistentes, estado active incompatible con el enum y sin timestamp requerido.
+   Resolver un desvío asignaba is_resolved a un objeto Python sin actualizar el
+   status persistido; consultar ese campo en SQL fallaba.
+3. La detección trataba la ruta como polígono y medía solo sus vértices. El worker
+   comparaba metros con 0,5 y volvía a multiplicar la distancia por 1000, por lo
+   que podía detectar y guardar desviaciones con magnitudes falsas.
+4. La detección de paradas solo examinaba tiempo, sin comprobar permanencia
+   geográfica; podía declarar paradas durante movimiento o pérdida de señal.
+   El resultado de métricas para cero/un punto omitía points_count.
+5. El worker importaba get_db_session inexistente, mezclaba acceso síncrono y
+   asíncrono y podía cerrar una variable no inicializada. Los errores crudos podían
+   incorporarse a los resultados de reintento.
+6. Un destino con latitud o longitud cero se sustituía por la posición actual del
+   repartidor; la ausencia de destino también podía convertirse en un ETA falso.
+   El SDK opcional de Google ejecutaba transporte síncrono dentro del event loop.
+
+### Funcionalidad implementada
+
+Se sustituye el escritor GPS roto por un router funcional sobre el esquema real.
+El prefijo canónico es /api/v1/routes y se mantiene como alias la ruta anterior
+con /routes repetido. El router sigue exportado por routers_combined y se monta
+una sola vez; no se modifica el API global ni se duplica un conjunto de endpoints.
+
+| Endpoint bajo /api/v1/routes | Resultado y control |
+| --- | --- |
+| GET / | Lista paginada; rider solo sus rutas; hasta 200 por petición |
+| POST / | Plan manual de una entrega no terminal; solo personal operativo |
+| GET /{route_id} | Estado, plan y datos persistidos de una ruta autorizada |
+| POST /{rider_id}/track | Punto GPS y última posición del rider en una transacción |
+| POST /routes/{rider_id}/track | Alias compatible del endpoint previo, mismo control |
+| GET /{route_id}/points | Hasta 1000 puntos por página, orden temporal/UUID y filtros de fecha |
+| GET /{route_id}/metrics | Seis métricas completas, incluidos cero/un punto |
+| GET /{route_id}/deviations | Lista limitada con evidencia y datos de resolución |
+| POST /{route_id}/analyze | Análisis manual de los puntos guardados, umbral 500 m |
+| POST /{route_id}/deviations/{deviation_id}/resolve | Cierra el evento correspondiente a esa ruta, con notas, actor y fecha |
+
+La autorización no depende de autenticar a un usuario y aceptar cualquier rider_id.
+Personal operativo puede consultar; AUDITOR tiene acceso de lectura; REPARTIDOR
+solo accede a su perfil/rutas mediante Delivery.rider_id y Rider.user_id. CLIENTE
+y rol desconocido/NULL no heredan acceso. Crear planes, ejecutar el análisis y
+resolver eventos requiere SUPERADMIN/GERENTE/OPERADOR. La resolución comprueba
+tanto el ID de la ruta como el ID del evento para evitar acceso por un UUID ajeno.
+
+La ingesta GPS aplica el mismo guard de cuenta/documentos de tracking en vivo.
+Exige rider ACTIVO/OCUPADO y archivos requeridos aprobados/disponibles; un rechazo
+no escribe su posición. Debe haber una entrega activa y una ruta planificada no
+terminal. Si hay varias entregas activas, se exige delivery_id explícito. No se
+selecciona una entrega arbitraria ni se inventa una ruta. Una entrega ajena,
+terminada o sin plan devuelve un error explícito.
+
+Se validan coordenadas finitas, velocidad 0–300 km/h y heading 0–360 grados,
+sin booleanos/cadenas numéricas/NaN/infinito. El punto usa UTC del servidor y no
+admite timestamp inyectado. El punto, la transición a EN_PROGRESO y la última
+posición del rider se confirman juntos; un error revierte esos tres efectos.
+No se fuerza disponibilidad online ni se rehabilitan cuentas. El guard de
+documentos puede conservar la restricción de seguridad antes del 403, sin guardar
+el payload GPS rechazado, siguiendo su contrato previo.
+
+### Algoritmos y reglas de datos
+
+El plan es una lista canónica de entre 2 y 2000 puntos latitude/longitude. No se
+interpreta silenciosamente GeoJSON ni JSON legado desconocido. La distancia y
+duración suministradas en el plan son estimaciones del solicitante, no tiempos
+ni distancias viales verificados. No se añade Directions ni se llama a proveedores
+para inventar un plan. Sus valores predeterminados cero no certifican ausencia
+de distancia o de tiempo de viaje.
+
+La distancia a la ruta es la mínima distancia al arco menor de sus segmentos,
+limitada a los extremos, sobre esfera de radio 6 371 000 m. Funciona al cruzar el
+antimeridiano; se rechazan segmentos antipodales ambiguos. Se evita el problema
+de medir solo vértices o declarar válido todo punto interior de un polígono.
+Geometría y umbrales usan metros; distance_from_route_km persiste kilómetros.
+
+| Métrica | Regla |
+| --- | --- |
+| total_distance_km | Suma geodésica entre observaciones consecutivas, tres decimales |
+| avg_speed_kmh | Distancia/tiempo total, incluidas paradas; cero sin intervalo positivo |
+| max_speed_kmh | Máxima velocidad válida reportada, cero si falta, sin fingir una medición |
+| total_time_minutes | Tiempo transcurrido entre primer y último timestamp |
+| points_count | Número de observaciones, también cero/un punto |
+| stops_count | Grupos estacionarios con continuidad de señal |
+
+Una parada requiere permanencia dentro de 30 m del punto inicial del grupo durante
+al menos cinco minutos, sin huecos entre muestras mayores a 120 segundos. Un grupo
+se cuenta una vez; movimiento fuera del radio o discontinuidad inicia otro grupo.
+No se usa solo el tiempo para inferir una parada. Siguen siendo heurísticas
+dependientes de calidad y frecuencia GPS; no se integran en sanciones, facturación,
+SLA o liquidación financiera.
+
+Métricas/análisis aceptan como máximo 10 000 observaciones; consultan una fila
+adicional para detectar exceso y devuelven error, sin reportar un total parcial.
+La geometría intensiva se ejecuta en un hilo fuera del event loop. En el análisis
+de desvíos se copian escalares antes de salir del hilo de la sesión; no se ejecuta
+SQL ni lazy loading desde el cálculo geométrico.
+
+### Diccionario y compatibilidad SQL
+
+Se tipan **74 columnas existentes** con Mapped/mapped_column y valores escalares:
+24 routes, 14 route_points, 19 route_deviations, nueve rider_live_locations y ocho
+delivery_route_snapshots. Los contratos versionados comparan DDL PostgreSQL,
+default/onupdate, índices, enums y claves foráneas. No se añade migración ni se
+cambian nombres, tipos SQL, nullabilidad o valores históricos.
+
+| Tabla/campos principales | Uso correcto |
+| --- | --- |
+| routes.id/delivery_id | UUID; entrega con relación UNIQUE, no una ruta directamente ligada a rider_id |
+| routes.status/planned_route | Enum real PLANIFICADA/EN_PROGRESO/COMPLETADA/CANCELADA; plan JSON validado |
+| routes.planned_distance_km/planned_duration_minutes | Estimaciones proporcionadas al crear el plan |
+| routes.has_deviation/deviation_distance_km | Evidencia histórica; distancia máxima registrada por estos escritores, no suma recorrida fuera de ruta |
+| route_points.route_id/latitude/longitude/timestamp | Observación SQL real; timestamp obligatorio UTC |
+| route_points.speed/heading | km/h y grados en los escritores nuevos, sin renombrar columnas |
+| route_deviations.distance_from_route_km | Distancia mínima al recorrido, persistida en kilómetros |
+| route_deviations.actual_location | JSON de observación; análisis automático añade route_point_id como referencia de replay |
+| route_deviations.status/resolved_at/resolved_by/resolution_notes | Cierre persistido abierto→resuelto, actor UUID FK users y notas |
+| rider_live_locations/delivery_route_snapshots | Tipado conserva índices, retención y el algoritmo VRP existentes |
+
+Las relaciones Route.points/RoutePoint.route y Route.deviations/RouteDeviation.route
+se vinculan en ambos sentidos con back_populates. Se eliminan sus dos advertencias
+de solapamiento sin cambiar DDL ni suprimir advertencias globales. No se alteran
+las relaciones o advertencias pendientes del módulo de productividad.
+
+### Concurrencia, replay y worker
+
+Crear una ruta bloquea la entrega antes de revisar su ruta existente y la
+restricción UNIQUE. Dos creaciones simultáneas cooperantes producen una ruta y un
+conflicto. El análisis bloquea Route con FOR UPDATE y guarda route_point_id en el
+evento. Tres analizadores simultáneos del mismo conjunto de puntos no duplican
+sus eventos. El evento y el resumen de desvío se confirman juntos.
+
+Resolver el evento usa lock y persiste estado, fecha, actor y notas. Repetir la
+resolución conserva la primera evidencia; un estado desconocido exige revisión.
+No se eliminan eventos ni se limpia el histórico de has_deviation/tiempos al cerrar.
+
+La tarea Celery recibe UUID de entrega en texto y usa engine asíncrono por
+invocación con NullPool, sesión contextual y dispose incluso ante error. Entradas
+o planes inválidos devuelven revisión manual sin reintento inútil; infraestructura
+reintenta con causa genérica, sin guardar URLs/errores crudos/coordenadas en el
+resultado de fallo. Se registra el módulo en include; no se programa Beat ni se
+encola automáticamente desde GPS o desde una entrega.
+
+Estas garantías se prueban en PostgreSQL temporal con sesiones distintas. La
+deduplicación no es una restricción única SQL: cubre estos escritores cooperantes
+y eventos retenidos para el mismo plan. No cubre borrados externos, código antiguo,
+replanificación directa ni reintentos HTTP de GPS que creen otro ID de punto.
+El lock se mantiene durante el cálculo; trabajos grandes, cursor de análisis y
+reclamación durable quedan pendientes. SQLite no acredita exclusión distribuida.
+
+Tampoco se declara validado el arranque del conjunto completo Celery: otros workers
+legacy aún importan get_db_session inexistente. Se corrige y prueba el módulo de
+rutas y su registro; la salud de los demás workers requiere otro bloque antes de
+habilitar todo el conjunto en producción.
+
+### ETA y estado en vivo
+
+El ETA conserva destinos de latitud/longitud cero y exige destino válido del pedido.
+No usa la posición del repartidor como sustituto. Valida velocidad configurada
+positiva y finita (0,1–300 km/h). El cálculo local sigue siendo distancia geodésica
+dividida por velocidad, con mínimo un minuto; no es predicción vial/de tráfico.
+
+Google Distance Matrix se ejecuta opcionalmente en un hilo con timeout de petición
+5 s, retry_timeout 5 s y sin retry_over_query_limit. No se promete un deadline
+global exacto independiente del SDK. Respuestas malformadas, status sin éxito o
+duración no numérica/positiva/finita no reemplazan el ETA local. Los errores usan
+logging genérico sin incluir excepciones crudas. Los tests sustituyen el SDK;
+no se usa una clave real ni se llama a Google.
+
+El fallback REST declara posición inválida como no disponible y destino inválido
+como desconocido, sin distancia/ETA inventados ni NaN en coordenadas de destino.
+El manejo de roles usa el contrato nullable del enum sin ampliar autorización.
+
+### Pruebas y deuda residual
+
+**116 pruebas nuevas**: 49 de geometría/esquema/entrada, 31 de PostgreSQL/API,
+siete de worker/recursos y 29 de ETA/tracking/esquema. Incluyen antimeridiano,
+distancia a segmentos, huecos GPS, dos paradas separadas, destino cero, transporte
+en hilo, permisos reales de lectura/escritura, cuenta/documentos restringidos,
+rollback, elección de entrega inequívoca, concurrencia y replay, historial excesivo
+sin métricas parciales y contratos físicos del esquema.
+
+Los siete casos de integración previos de fase 8 usan ahora UserRole real en sus
+dobles de autenticación; objetos SimpleNamespace que fingían el enum hacían fallar
+tres casos al usar el serializador común. Se corrigió el doble, sin relajar el
+control productivo. Las pruebas del worker síncrono se ejecutan en un hilo para no
+cerrar el event loop de pytest, conservando la ejecución síncrona real de Celery.
+
+| Verificación | Resultado |
+| --- | --- |
+| Bloque focal + tracking/permisos previo | **174 aprobados**, dos advertencias, antes del último caso de CPU; el cierre definitivo está incluido en la batería completa |
+| Contratos/threads PostgreSQL finales | **Cuatro aprobados**, 27 deseleccionados, 7,05 s; concurrencia, límite y cálculo en hilo |
+| Backend completo final | **1514 aprobados, dos SDK opcionales omitidos**, 2 advertencias; 717.83 s |
+| SDK opcionales con HTTP sustituido | **Dos aprobados aparte**, sin envíos externos |
+| Mypy | **193 errores/38 archivos**, antes 219/44; 26 menos, sin excluir módulos/reglas |
+| Black / flake8 crítico / diff | **Aprobados** sobre el cierre definitivo: Black app (180 archivos), flake8 crítico y git diff --check |
+| Frontend | Sin cambios ni nueva medición; referencia CI #291: 678 pruebas, cobertura líneas 27,72 %, tipos/lint/build aprobados |
+
+No se añaden dependencias, se aplican migraciones ni se tocan datos de producción.
+Se entrega guía backend/ROUTE_ANALYSIS.md y enlace desde backend/README.md, con
+contratos, diccionario, operación y límites. PR nuevo sin borrador, con blobs/árbol
+y commit local contrastados con GitHub; sin fusionar ni desplegar automáticamente.
+
+### Qué falta después de este bloque
+
+La nueva API de rutas no crea registros rider_live_locations ni publica eventos
+WebSocket/Redis: son historiales distintos. El canal /tracking conserva esas
+funciones. Faltan unificación de trazas e ingesta idempotente, conexión automática
+del frontend con route_points, UI de planificación/revisión, replanificación y
+cierre completo de rutas, geometría vial y tráfico, evaluación/retención de calidad
+GPS, outbox de alertas y auditoría integral, límites distribuidos y salud del resto
+de workers. No se habilitan envíos externos ni se cambian pagos o liquidaciones.
+
+Continúan también los pendientes de sesiones por dispositivo, refresh de un solo
+uso, coordinación entre pestañas, comunicaciones/outbox, conciliación externa,
+Mypy global/cobertura y certificación de producción. El transporte fiscal real
+permanece bloqueado hasta integración/homologación verificable; el bloque de rutas
+no cambia esa protección. No se declara terminada la fase 8 ni producción al 100 %.

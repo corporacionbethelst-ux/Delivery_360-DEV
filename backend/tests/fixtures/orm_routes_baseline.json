@@ -1,0 +1,325 @@
+{
+  "routes": {
+    "ddl": "\nCREATE TABLE routes (\n\tid UUID NOT NULL, \n\tdelivery_id UUID, \n\tstatus routestatus, \n\tplanned_route JSON, \n\tactual_route JSON, \n\tpickup_latitude FLOAT, \n\tpickup_longitude FLOAT, \n\tdelivery_latitude FLOAT, \n\tdelivery_longitude FLOAT, \n\tplanned_distance_km FLOAT, \n\tactual_distance_km FLOAT, \n\tplanned_duration_minutes INTEGER, \n\tactual_duration_minutes INTEGER, \n\thas_deviation BOOLEAN, \n\tdeviation_distance_km FLOAT, \n\tdeviation_time_minutes INTEGER, \n\tdeviation_reason VARCHAR(255), \n\ttraffic_level VARCHAR(20), \n\tweather_condition VARCHAR(50), \n\tefficiency_score FLOAT, \n\tstarted_at TIMESTAMP WITHOUT TIME ZONE, \n\tcompleted_at TIMESTAMP WITHOUT TIME ZONE, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(delivery_id) REFERENCES deliveries (id)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_routes_id ON routes (id)",
+      "CREATE UNIQUE INDEX ix_routes_delivery_id ON routes (delivery_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "delivery_id": [
+        null,
+        null
+      ],
+      "status": [
+        "RouteStatus.PLANIFICADA",
+        null
+      ],
+      "planned_route": [
+        null,
+        null
+      ],
+      "actual_route": [
+        null,
+        null
+      ],
+      "pickup_latitude": [
+        null,
+        null
+      ],
+      "pickup_longitude": [
+        null,
+        null
+      ],
+      "delivery_latitude": [
+        null,
+        null
+      ],
+      "delivery_longitude": [
+        null,
+        null
+      ],
+      "planned_distance_km": [
+        null,
+        null
+      ],
+      "actual_distance_km": [
+        null,
+        null
+      ],
+      "planned_duration_minutes": [
+        null,
+        null
+      ],
+      "actual_duration_minutes": [
+        null,
+        null
+      ],
+      "has_deviation": [
+        "False",
+        null
+      ],
+      "deviation_distance_km": [
+        "0.0",
+        null
+      ],
+      "deviation_time_minutes": [
+        "0",
+        null
+      ],
+      "deviation_reason": [
+        null,
+        null
+      ],
+      "traffic_level": [
+        null,
+        null
+      ],
+      "weather_condition": [
+        null,
+        null
+      ],
+      "efficiency_score": [
+        "0.0",
+        null
+      ],
+      "started_at": [
+        null,
+        null
+      ],
+      "completed_at": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {
+      "status": [
+        "PLANIFICADA",
+        "EN_PROGRESO",
+        "COMPLETADA",
+        "CANCELADA"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "delivery_id",
+        "target": "deliveries.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "status": {
+        "name": "routestatus",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    }
+  },
+  "route_points": {
+    "ddl": "\nCREATE TABLE route_points (\n\tid UUID NOT NULL, \n\troute_id UUID, \n\tlatitude FLOAT NOT NULL, \n\tlongitude FLOAT NOT NULL, \n\taltitude FLOAT, \n\taccuracy FLOAT, \n\tspeed FLOAT, \n\theading FLOAT, \n\ttimestamp TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tbattery_level INTEGER, \n\tis_charging BOOLEAN, \n\tnetwork_type VARCHAR(20), \n\tsource VARCHAR(50), \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(route_id) REFERENCES routes (id)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_route_points_id ON route_points (id)",
+      "CREATE INDEX ix_route_points_route_id ON route_points (route_id)",
+      "CREATE INDEX ix_route_points_timestamp ON route_points (timestamp)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "route_id": [
+        null,
+        null
+      ],
+      "latitude": [
+        null,
+        null
+      ],
+      "longitude": [
+        null,
+        null
+      ],
+      "altitude": [
+        null,
+        null
+      ],
+      "accuracy": [
+        null,
+        null
+      ],
+      "speed": [
+        null,
+        null
+      ],
+      "heading": [
+        null,
+        null
+      ],
+      "timestamp": [
+        null,
+        null
+      ],
+      "battery_level": [
+        null,
+        null
+      ],
+      "is_charging": [
+        "False",
+        null
+      ],
+      "network_type": [
+        null,
+        null
+      ],
+      "source": [
+        "gps",
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ]
+    },
+    "enums": {},
+    "foreign_keys": [
+      {
+        "column": "route_id",
+        "target": "routes.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {}
+  },
+  "route_deviations": {
+    "ddl": "\nCREATE TABLE route_deviations (\n\tid UUID NOT NULL, \n\troute_id UUID, \n\tdeviation_type VARCHAR(50), \n\tseverity VARCHAR(20), \n\tlatitude FLOAT, \n\tlongitude FLOAT, \n\tdetected_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tresolved_at TIMESTAMP WITHOUT TIME ZONE, \n\texpected_location JSON, \n\tactual_location JSON, \n\tdistance_from_route_km FLOAT, \n\ttime_lost_minutes INTEGER, \n\tstatus VARCHAR(20), \n\tresolution_notes TEXT, \n\tresolved_by UUID, \n\talert_sent BOOLEAN, \n\talert_channels JSON, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(route_id) REFERENCES routes (id), \n\tFOREIGN KEY(resolved_by) REFERENCES users (id)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_route_deviations_id ON route_deviations (id)",
+      "CREATE INDEX ix_route_deviations_route_id ON route_deviations (route_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "route_id": [
+        null,
+        null
+      ],
+      "deviation_type": [
+        null,
+        null
+      ],
+      "severity": [
+        null,
+        null
+      ],
+      "latitude": [
+        null,
+        null
+      ],
+      "longitude": [
+        null,
+        null
+      ],
+      "detected_at": [
+        null,
+        null
+      ],
+      "resolved_at": [
+        null,
+        null
+      ],
+      "expected_location": [
+        null,
+        null
+      ],
+      "actual_location": [
+        null,
+        null
+      ],
+      "distance_from_route_km": [
+        null,
+        null
+      ],
+      "time_lost_minutes": [
+        "0",
+        null
+      ],
+      "status": [
+        "abierto",
+        null
+      ],
+      "resolution_notes": [
+        null,
+        null
+      ],
+      "resolved_by": [
+        null,
+        null
+      ],
+      "alert_sent": [
+        "False",
+        null
+      ],
+      "alert_channels": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {},
+    "foreign_keys": [
+      {
+        "column": "resolved_by",
+        "target": "users.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "route_id",
+        "target": "routes.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {}
+  }
+}

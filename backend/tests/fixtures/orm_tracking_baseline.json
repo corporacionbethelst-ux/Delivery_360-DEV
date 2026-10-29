@@ -1,0 +1,122 @@
+{
+  "rider_live_locations": {
+    "ddl": "\nCREATE TABLE rider_live_locations (\n\tid UUID NOT NULL, \n\trider_id UUID NOT NULL, \n\tlatitude FLOAT NOT NULL, \n\tlongitude FLOAT NOT NULL, \n\taccuracy_meters FLOAT, \n\tspeed_kmh FLOAT, \n\theading_degrees FLOAT, \n\trecorded_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(rider_id) REFERENCES riders (id) ON DELETE CASCADE\n)\n\n",
+    "indexes": [
+      "CREATE INDEX idx_rider_locations_recent ON rider_live_locations (rider_id, recorded_at DESC)",
+      "CREATE INDEX idx_rider_locations_recorded ON rider_live_locations (recorded_at)",
+      "CREATE INDEX ix_rider_live_locations_id ON rider_live_locations (id)",
+      "CREATE INDEX ix_rider_live_locations_recorded_at ON rider_live_locations (recorded_at)",
+      "CREATE INDEX ix_rider_live_locations_rider_id ON rider_live_locations (rider_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "rider_id": [
+        null,
+        null
+      ],
+      "latitude": [
+        null,
+        null
+      ],
+      "longitude": [
+        null,
+        null
+      ],
+      "accuracy_meters": [
+        null,
+        null
+      ],
+      "speed_kmh": [
+        null,
+        null
+      ],
+      "heading_degrees": [
+        null,
+        null
+      ],
+      "recorded_at": [
+        "utc_now_naive",
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ]
+    },
+    "enums": {},
+    "foreign_keys": [
+      {
+        "column": "rider_id",
+        "target": "riders.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {}
+  },
+  "delivery_route_snapshots": {
+    "ddl": "\nCREATE TABLE delivery_route_snapshots (\n\tid UUID NOT NULL, \n\tdelivery_id UUID NOT NULL, \n\toptimized_sequence_json VARCHAR NOT NULL, \n\toriginal_distance_km FLOAT NOT NULL, \n\toptimized_distance_km FLOAT NOT NULL, \n\tsavings_percentage FLOAT NOT NULL, \n\tcalculated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\texpires_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(delivery_id) REFERENCES deliveries (id) ON DELETE CASCADE\n)\n\n",
+    "indexes": [
+      "CREATE INDEX idx_route_snapshots_delivery ON delivery_route_snapshots (delivery_id)",
+      "CREATE INDEX idx_route_snapshots_expires ON delivery_route_snapshots (expires_at)",
+      "CREATE INDEX ix_delivery_route_snapshots_delivery_id ON delivery_route_snapshots (delivery_id)",
+      "CREATE INDEX ix_delivery_route_snapshots_expires_at ON delivery_route_snapshots (expires_at)",
+      "CREATE INDEX ix_delivery_route_snapshots_id ON delivery_route_snapshots (id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "delivery_id": [
+        null,
+        null
+      ],
+      "optimized_sequence_json": [
+        null,
+        null
+      ],
+      "original_distance_km": [
+        null,
+        null
+      ],
+      "optimized_distance_km": [
+        null,
+        null
+      ],
+      "savings_percentage": [
+        "0.0",
+        null
+      ],
+      "calculated_at": [
+        "utc_now_naive",
+        null
+      ],
+      "expires_at": [
+        null,
+        null
+      ]
+    },
+    "enums": {},
+    "foreign_keys": [
+      {
+        "column": "delivery_id",
+        "target": "deliveries.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {}
+  }
+}

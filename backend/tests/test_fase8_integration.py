@@ -158,7 +158,7 @@ def client(monkeypatch, tmp_path):
         async def _dep():
             return SimpleNamespace(
                 id=uuid.uuid4(),
-                role=SimpleNamespace(value=role_value),
+                role=RoleType(role_value),
                 is_active=True,
             )
 
@@ -191,7 +191,7 @@ def client(monkeypatch, tmp_path):
             raise HTTPException(status_code=st.HTTP_401_UNAUTHORIZED, detail="Token invalido")
         return SimpleNamespace(
             id=payload.get("sub"),
-            role=SimpleNamespace(value=payload.get("role", "CLIENTE")),
+            role=RoleType(payload.get("role", "CLIENTE")),
             is_active=True,
         )
 
