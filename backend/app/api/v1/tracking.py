@@ -173,6 +173,7 @@ async def update_location(
                     "riderId": str(rider_id),
                     "lat": payload.lat,
                     "lng": payload.lng,
+                    "timestamp": location.recorded_at.isoformat(),
                 },
             },
             topic="dashboard",

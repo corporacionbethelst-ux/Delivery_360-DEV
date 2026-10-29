@@ -11,6 +11,8 @@ from app.core.config import settings
 from app.services.document_uploads import validate_document, DocumentUploadBatch
 from app.services.user_emails import claim_email, flush_email_change, find_email_account
 from app.services.session_policy import ensure_session_allowed
+from app.services.token_revocation import revoke_user_tokens
+from app.core.token_version import token_version_matches
 from app.services.password_reset import issue_password_reset, consume_password_reset
 from app.core.database import get_db
 from app.core.security import (
@@ -74,9 +76,18 @@ async def get_current_user(
     except ValueError:
         raise credentials_exception
 
-    result = await db.execute(select(User).where(User.id == user_uuid))
+    result = await db.execute(
+        select(User)
+        .where(User.id == user_uuid)
+        .execution_options(populate_existing=True)
+    )
     user = result.scalar_one_or_none()
-    if not user or not user.is_active or user.role is None:
+    if (
+        not user
+        or not user.is_active
+        or user.role is None
+        or not token_version_matches(payload, user.token_version)
+    ):
         raise credentials_exception
 
     await ensure_session_allowed(db, user)
@@ -115,14 +126,21 @@ async def login(
 
     await ensure_session_allowed(db, user)
 
+    # Keep the epoch of the password/profile we just verified. If a concurrent
+    # security change commits later, these tokens will correctly be rejected.
+    credential_version = user.token_version
     # 3. Actualizar último login
     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
     user.last_login = now_naive
     await db.commit()
 
     return TokenResponse(
-        access_token=create_access_token(str(user.id)),
-        refresh_token=create_refresh_token(str(user.id)),
+        access_token=create_access_token(
+            str(user.id), token_version=credential_version
+        ),
+        refresh_token=create_refresh_token(
+            str(user.id), token_version=credential_version
+        ),
         user_id=str(user.id),
         role=user.role.value,
         full_name=f"{user.first_name} {user.last_name}",
@@ -147,16 +165,26 @@ async def refresh_token(
     except ValueError:
         raise HTTPException(status_code=401, detail="Token de refresco inválido")
     result = await db.execute(
-        select(User).where(User.id == user_id, User.is_active.is_(True))
+        select(User)
+        .where(User.id == user_id, User.is_active.is_(True))
+        .execution_options(populate_existing=True)
     )
     user = result.scalar_one_or_none()
-    if not user or user.role is None:
+    if (
+        not user
+        or user.role is None
+        or not token_version_matches(payload, user.token_version)
+    ):
         raise HTTPException(status_code=401, detail="Usuario no encontrado")
 
     await ensure_session_allowed(db, user)
     return TokenResponse(
-        access_token=create_access_token(str(user.id)),
-        refresh_token=create_refresh_token(str(user.id)),
+        access_token=create_access_token(
+            str(user.id), token_version=user.token_version
+        ),
+        refresh_token=create_refresh_token(
+            str(user.id), token_version=user.token_version
+        ),
         user_id=str(user.id),
         role=user.role.value,
         full_name=f"{user.first_name} {user.last_name}",
@@ -233,8 +261,33 @@ async def register_rider(
 
 
 @router.post("/logout")
-async def logout():
-    return {"message": "Logout exitoso"}
+async def logout(
+    token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)
+):
+    """Retire all tokens of the presented account epoch, including refresh JWTs.
+
+    Disabled accounts/riders may still retire their credentials: logout grants
+    no operational permissions. A stale logout cannot retire a newer epoch.
+    """
+    rejected = HTTPException(
+        status_code=401,
+        detail="Credenciales inválidas",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    payload = decode_token(token, verify_type="access")
+    if not payload or not isinstance(payload.get("sub"), str):
+        raise rejected
+    try:
+        user_id = uuid.UUID(payload["sub"])
+    except ValueError:
+        raise rejected
+    retired = await revoke_user_tokens(
+        db, user_id, expected_version=payload.get("ver", 0)
+    )
+    if retired is None:
+        raise rejected
+    await db.commit()
+    return {"message": "Logout exitoso", "scope": "all_sessions"}
 
 
 @router.get("/me")

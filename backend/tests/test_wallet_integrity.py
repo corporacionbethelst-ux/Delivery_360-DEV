@@ -32,7 +32,7 @@ from app.services.wallet_service import MAX_CENTS, WalletService
 from tests.orm_contract import mapping_contract
 
 
-def test_mapped_columns_preserve_original_postgresql_schema():
+def test_mapped_columns_match_versioned_postgresql_schema():
     expected = json.loads(
         (Path(__file__).parent / "fixtures/wallet_orm_contract.json").read_text()
     )

@@ -10,6 +10,7 @@ from app.crud.base import CRUDBase
 from app.models.user import User, UserRole
 from app.schemas.user import UserCreate, UserUpdate
 from app.core.security import get_password_hash
+from app.services.token_revocation import revoke_user_tokens
 
 
 class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
@@ -53,7 +54,9 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
     ) -> User:
         """Update user password"""
         db_obj.hashed_password = get_password_hash(new_password)
+        db_obj.reset_token = db_obj.reset_token_expires = None
         db.add(db_obj)
+        await revoke_user_tokens(db, db_obj.id)
         await db.commit()
         await db.refresh(db_obj)
         return db_obj

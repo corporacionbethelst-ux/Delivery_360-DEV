@@ -231,3 +231,74 @@ it('does not send anonymous map requests if credentials disappear before authSto
   expect(riders).toHaveBeenCalledTimes(before);
   expect(result.current.riders).toEqual([]);
 });
+
+it('accepts an initial slow snapshot instead of superseding it on every fallback tick', async () => {
+  const late = deferred<never>();
+  riders.mockReturnValueOnce(late.promise);
+  const { result } = renderHook(() => useLiveMapData(false));
+  await act(async () => {
+    jest.advanceTimersByTime(20000);
+  });
+  expect(riders).toHaveBeenCalledTimes(1);
+  expect(result.current.isLoadingInitial).toBe(true);
+  await act(async () => {
+    late.resolve([row('slow')] as never);
+  });
+  expect(result.current.riders[0].id).toBe('slow');
+  expect(result.current.isLoadingInitial).toBe(false);
+  await act(async () => {
+    jest.advanceTimersByTime(10000);
+  });
+  expect(riders).toHaveBeenCalledTimes(2);
+  expect(result.current.riders[0].id).toBe('r');
+});
+it('manual refresh can supersede a slow poll without its old finalizer reopening the polling slot', async () => {
+  const { result } = renderHook(() => useLiveMapData(false));
+  await act(async () => {});
+  const old = deferred<never>(),
+    next = deferred<never>();
+  riders.mockReturnValueOnce(old.promise);
+  await act(async () => {
+    jest.advanceTimersByTime(10000);
+  });
+  riders.mockReturnValueOnce(next.promise);
+  let refresh!: Promise<void>;
+  act(() => {
+    refresh = result.current.fetchData(true);
+  });
+  await act(async () => {
+    old.resolve([row('old')] as never);
+  });
+  await act(async () => {
+    jest.advanceTimersByTime(20000);
+  });
+  expect(riders).toHaveBeenCalledTimes(3);
+  await act(async () => {
+    next.resolve([row('manual')] as never);
+    await refresh;
+  });
+  expect(result.current.riders[0].id).toBe('manual');
+  await act(async () => {
+    jest.advanceTimersByTime(10000);
+  });
+  expect(riders).toHaveBeenCalledTimes(4);
+});
+it('releases automatic polling after a slow failure so a later snapshot can recover', async () => {
+  const late = deferred<never>();
+  riders.mockReturnValueOnce(late.promise);
+  const { result } = renderHook(() => useLiveMapData(false));
+  await act(async () => {
+    jest.advanceTimersByTime(20000);
+  });
+  expect(riders).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    late.reject(new Error('network failure'));
+  });
+  expect(result.current.error).toContain('No se pudo actualizar');
+  await act(async () => {
+    jest.advanceTimersByTime(10000);
+  });
+  expect(riders).toHaveBeenCalledTimes(2);
+  expect(result.current.riders[0].id).toBe('r');
+  expect(result.current.error).toBeNull();
+});

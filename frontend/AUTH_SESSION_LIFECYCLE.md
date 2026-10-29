@@ -107,8 +107,10 @@ con adaptadores de transporte sustituidos. La integración usa authService,
 authStore, SessionGate, cookies y almacenamiento de JSDOM. No autentica contra
 un backend desplegado ni comprueba criptográficamente JWT reales.
 
-No se añade revocación de JWT en el servidor, una sesión persistida en BD,
-cookies HttpOnly, protección contra XSS ni coordinación atómica entre pestañas.
+El alcance de cliente de las entregas 45–47 no incluía revocación del servidor.
+La entrega 48 incorpora la versión de credenciales descrita al final de esta
+guía. No incorpora sesiones por dispositivo, cookies HttpOnly, protección contra
+XSS ni coordinación atómica entre pestañas.
 Los cambios de storage se detectan al leer; no hay una garantía global frente a
 cambios no observados o ABA externos entre lecturas. Nuevas pestañas/procesos
 requieren su propia verificación. Los consumidores que usen fetch por su cuenta
@@ -266,8 +268,8 @@ No es un presupuesto de bytes de toda la aplicación. La demostración de
 movimiento local existente sigue requiriendo activación explícita; no escribe
 ubicaciones en el servidor y no constituye seguimiento real.
 
-Estas pruebas no certifican redes móviles, gateways, navegadores físicos ni
-revocación del servidor. La comparación de fechas usa precisión de milisegundos;
+Las pruebas de cliente no certifican redes móviles, gateways ni navegadores
+físicos. La revocación del servidor se verifica por separado en la entrega 48. La comparación de fechas usa precisión de milisegundos;
 no sustituye una secuencia durable ni ordena todos los eventos simultáneos. La
 apertura de un WS no certifica que Redis esté sano y no hay watchdog de pongs
 perdidos en una conexión ya abierta. El mapa no aborta las consultas Axios ya
@@ -278,5 +280,39 @@ Los helpers heredados `useRealtimeUpdates`/`WebSocketContext` y
 `useSocket`/`NotificationContext` no se activan con esta entrega. El primero
 conserva una ruta genérica /api/v1/ws sin endpoint montado y dependencias que
 pueden recrear conexiones; el segundo conserva demostración histórica. No se
-presentan como transportes productivos. Siguen pendientes revocación JWT,
-coordinación entre pestañas y revalidación integral de permisos/cachés.
+presentan como transportes productivos. La revocación por cuenta se incorpora
+en la entrega 48; siguen pendientes coordinación entre pestañas, sesiones individuales y revalidación integral de
+permisos/cachés.
+
+
+## Revocación de servidor y logout global (entrega ampliada 48)
+
+El servidor comprueba ahora el claim ver de access/refresh contra
+users.token_version. Un logout confirmado incrementa condicionalmente esa versión
+y retira todos los JWT anteriores de la cuenta; la UI lo expresa como
+**Cerrar todas las sesiones**. Un logout antiguo no incrementa una versión nueva
+tras una revocación previa. Contraseña y revocación se confirman juntas en reset
+y en el cambio administrativo, y los cambios efectivos de rol/is_active también
+invalidan credenciales. Los JWT históricos sin ver pertenecen solo a versión 0.
+
+El navegador sigue limpiando datos inmediatamente. Su POST capturado conserva el
+plazo de 1500 ms y no intenta renovar ni reenvía bajo otra cuenta. Sin confirmación
+no garantiza revocación del servidor. Las otras pestañas descubren el rechazo en
+su próxima actividad; no se añade comunicación atómica entre ellas. Los sockets
+se cierran al detectar la revocación en una comprobación de entrada/envío, no por
+un broadcast instantáneo nuevo. Los refresh de una misma versión conservan su
+semántica de rotación anterior y aún no son de un solo uso.
+
+Esta funcionalidad requiere migrar el esquema y retirar workers antiguos antes
+de considerarla efectiva. Consulte [guía operativa de backend](../backend/AUTH_TOKEN_REVOCATION.md).
+La persistencia local/cookie y la defensa contra XSS mantienen los límites
+anteriores; tener revocación de servidor no los sustituye.
+
+
+En el cierre de revisión de la entrega 48, el productor dashboard incorpora la
+misma fecha recorded_at que el canal rider; la fusión puede así aceptar movimiento
+real sin permitir que un evento sin fecha reemplace un snapshot fechado. El mapa
+omite ticks automáticos si una consulta del mismo ámbito sigue pendiente; no
+invalida indefinidamente respuestas que tardan más de diez segundos. El refresh
+manual conserva prioridad y un finally antiguo no libera el slot de una petición
+nueva. Un cambio de ámbito/conexión retira el slot anterior.

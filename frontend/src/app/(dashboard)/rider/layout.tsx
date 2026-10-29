@@ -129,7 +129,7 @@ export default function RiderLayout({ children }: { children: React.ReactNode })
                 onClick={handleLogout}
                 disabled={isLoggingOut}
                 className="hidden lg:flex items-center justify-center w-9 h-9 text-red-500 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
-                title="Cerrar sesión"
+                title="Cerrar todas las sesiones"
               >
                 <LogOut className="w-5 h-5" />
               </button>
@@ -192,7 +192,7 @@ export default function RiderLayout({ children }: { children: React.ReactNode })
                   className="w-full justify-start text-red-600 border-red-200 hover:bg-red-50 bg-white"
                 >
                   <LogOut className="w-4 h-4 mr-2" />
-                  Cerrar sesión
+                  Cerrar todas las sesiones
                 </Button>
               </div>
             </div>

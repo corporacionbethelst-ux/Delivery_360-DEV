@@ -16,6 +16,7 @@ from app.core.security import hash_password
 from app.models.user import User, UserRole
 from app.services.user_emails import claim_email, flush_email_change
 from app.services.user_revision import user_revision, lock_user, ensure_user_revision
+from app.services.token_revocation import revoke_user_tokens
 
 router = APIRouter()
 
@@ -72,7 +73,7 @@ def _serialize_user(user: User) -> dict:
         "first_name": user.first_name,
         "last_name": user.last_name,
         "full_name": full_name,
-        "role": user.role.value if hasattr(user.role, "value") else user.role,
+        "role": getattr(user.role, "value", user.role),
         "is_active": bool(user.is_active),
         "is_superuser": bool(user.is_superuser),
         "phone": user.phone,
@@ -94,7 +95,7 @@ def _require_user_manager(current_user: User) -> None:
 
 
 def _ensure_can_manage_role(
-    current_user: User, target_role: UserRole, target_user: Optional[User] = None
+    current_user: User, target_role: UserRole | None, target_user: Optional[User] = None
 ) -> None:
     if current_user.role == UserRole.SUPERADMIN:
         return
@@ -285,6 +286,9 @@ async def update_user(
     _ensure_can_manage_role(current_user, body.role or user.role, user)
 
     ensure_user_revision(user, body.expected_user_revision)
+    revoke_credentials = (body.role is not None and body.role != user.role) or (
+        body.is_active is not None and body.is_active != user.is_active
+    )
 
     if body.email is not None:
         user.email = canonical if canonical is not None else user.email
@@ -299,6 +303,8 @@ async def update_user(
         user.is_superuser = body.role == UserRole.SUPERADMIN
     if body.is_active is not None:
         user.is_active = body.is_active
+    if revoke_credentials:
+        await revoke_user_tokens(db, user.id)
 
     if body.email is not None:
         await flush_email_change(db)
@@ -320,6 +326,8 @@ async def update_user_password(
     _ensure_can_manage_role(current_user, user.role, user)
 
     user.hashed_password = hash_password(body.password)
+    user.reset_token = user.reset_token_expires = None
+    await revoke_user_tokens(db, user.id)
     await db.commit()
     await db.refresh(user)
     return {"message": "Contraseña actualizada", "user": _serialize_user(user)}
@@ -344,5 +352,6 @@ async def delete_user(
 
     ensure_user_revision(user, if_match)
     user.is_active = False
+    await revoke_user_tokens(db, user.id)
     await db.commit()
     return None

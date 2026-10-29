@@ -3508,3 +3508,223 @@ general, límites distribuidos, validación de migraciones y deuda de tipos/cobe
 El bloque se publica como un PR listo para revisión, sin borrador, sobre e24d6d6;
 se verifican blobs/árbol y se alinea el commit exacto local con GitHub. El estado
 nuevo de CI se informa por separado, sin declarar producción al 100 %.
+
+
+## Entrega ampliada 48 — Revocación persistida de JWT y cambios de seguridad atómicos
+
+Fecha: 28 de octubre de 2026, America/Caracas (29 de octubre UTC). Base main
+02ece9a038544540931a41dff20ef10ee5d37b4e, fusión de #288. Se verificó el árbol
+fc194af14bb1f7ceb08f43c5bc0840ba21116b91 contra el contenido local de la entrega 47.
+Rama: fix/server-token-revocation-v1. Este bloque implementa revocación por cuenta;
+no se presenta como un ledger completo de sesiones individuales por dispositivo.
+
+### Hallazgos y finalidad
+
+El endpoint de logout confirmaba éxito sin autenticar el bearer ni invalidar
+credenciales. Un access/refresh JWT conservado seguía siendo utilizable hasta
+expirar. Cambiar una contraseña, consumir recuperación o cambiar permisos no
+retiraba necesariamente esos tokens. La presencia de jti aleatorio identificaba
+cada JWT, pero no existía un registro que hiciera efectivo el retiro.
+
+Los dos caminos activos de autenticación —router auth y core/security— debían
+comprobar el mismo estado de revocación para proteger API y los WS que ya usan
+sus guards. También era necesario evitar que una copia precargada de User en el
+identity map de SQLAlchemy sustituyera la versión actualizada por otro worker.
+
+La solución agrega una versión monotónica de credenciales a cada cuenta. Los
+JWT access y refresh emitidos por login/renovación llevan esa versión y deben
+coincidir con SQL. El incremento invalida todas las credenciales de versiones
+anteriores sin almacenar cada JWT. Esto aborda la revocación que había quedado
+pendiente en las entregas de sesión de cliente y tracking/notificaciones.
+
+### Diccionario y migración del nuevo dato
+
+| Elemento | Definición | Propósito |
+|---|---|---|
+| users.token_version | BIGINT NOT NULL; default SQL/Python 0 | Versión vigente de credenciales de la cuenta |
+| ck_users_token_version_nonnegative | CHECK token_version >= 0 | Integridad de la versión en SQL |
+| Claim JWT ver | Entero JSON no booleano, 0..9223372036854775807 | Versión capturada al emitir el token |
+| JWT histórico sin ver | Se interpreta exclusivamente como versión 0 | Compatibilidad sin permitir que resucite después de revocar |
+| Revisión Alembic | 20261028_auth_version, padre 20260930_fase10 | Añade campo, default y constraint antes de desplegar código |
+
+La revisión mantiene el default de servidor para altas que no indiquen el campo.
+No guarda JWT, refresh, jti ni hashes de credenciales. Los perfiles públicos no
+exponen la versión. Se actualiza solo el contrato ORM esperado de users; se
+comprueba que los contratos de wallets/transacciones restantes no cambian.
+La revisión aparece como head único al consultar Alembic sin ejecutar migraciones.
+
+Se prueban las operaciones de upgrade sobre filas existentes de un esquema
+PostgreSQL temporal, el default y los rechazos de null/negativo. El downgrade
+bloquea la tabla antes de comprobar versiones y se niega a borrar el historial
+si alguna cuenta fue revocada. No hace un reset silencioso a cero. La cadena
+histórica completa desde una BD vacía conserva su validación operativa pendiente;
+probar esta revisión de forma aislada no certifica esa cadena.
+
+### Cambios funcionales agrupados
+
+- Login/refresh pasan la versión real del usuario a los dos emisores. Los helpers
+  conservan compatibilidad de argumentos, pero su default 0 no autoriza una cuenta
+  cuya versión ya avanzó. Se rechazan booleanos, negativos, floats, strings, null,
+  listas/dicts y valores fuera de BIGINT en emisores/decoder.
+- Las dos dependencias activas contrastan el claim con SQL y recargan atributos
+  mediante populate_existing. Mantienen firma, expiración, cuenta activa, roles y
+  política del repartidor. Un token sin ver solo funciona mientras su cuenta siga
+  en versión cero; tras revocar ya no puede renovar ni abrir API/WS protegidos.
+- POST /auth/logout requiere un access JWT firmado, vigente y de una cuenta
+  existente. Incrementa con WHERE id + versión presentada y confirma solo tras el
+  commit, devolviendo scope=all_sessions. Un token de refresh, expirado, malformado,
+  ajeno a una cuenta existente o retirado recibe 401. No depende del rol operativo
+  ni de que la cuenta pueda repartir: retirarse no concede permisos de negocio.
+- Cuatro logouts concurrentes de la misma versión producen un único incremento;
+  el ganador confirma y los otros reciben 401. Un logout antiguo no incrementa una
+  versión nueva tras una revocación previa. El alcance global sí retira cualquier
+  login emitido antes del commit de ese logout y perteneciente a la versión vieja.
+- El servicio común incrementa sobre el valor de SQL, sin += sobre una copia
+  antigua y sin commit propio. Las revocaciones incondicionales concurrentes no
+  pierden incrementos. Se valida también el escalar devuelto por persistencia y
+  se rechaza la operación si una revocación obligatoria no puede realizarse.
+- El reset de contraseña suma la versión dentro del mismo UPDATE condicional que
+  guarda el nuevo hash y consume el enlace. Rechazos, expiración y replay no avanzan
+  la versión. Un fallo de commit revierte contraseña, consumo y credenciales juntos.
+- El cambio administrativo de contraseña y CRUDUser.update_password retiran los
+  enlaces pendientes y revocan dentro de su propia transacción. Se prueba que una
+  revocación imposible, incluido el límite del contador, no confirma contraseña
+  nueva dejando credenciales anteriores válidas.
+- Los cambios administrativos efectivos de rol/is_active, incluida reactivación,
+  revocan; también el soft delete. Una edición de teléfono/nombre o reasignar los
+  mismos valores de seguridad no revoca. La revisión pública de metadatos no se
+  altera solo por actualizar un contador de autenticación.
+- Los guards de tracking/inbox heredan la comparación persistida. Un token retirado
+  se rechaza en el handshake y un socket abierto se cierra con 1008 al comprobar
+  actividad o envío posterior. Se prueba un envío del servidor sin esperar ping.
+- Los menús muestran Cerrar todas las sesiones para describir el nuevo alcance.
+  El cliente mantiene limpieza local inmediata y POST best effort con el bearer
+  capturado, sin refresh/reintento bajo otra cuenta. Su plazo sigue en 1500 ms;
+  sin confirmación no promete revocación remota.
+- Se eliminan cuatro errores Mypy de users.py sin alterar permisos: el serializador
+  maneja role opcional y el helper de administración declara ese caso explícito.
+  Mypy global baja de 314 errores/52 archivos a 310 errores/51 archivos.
+
+### Verificaciones, incidencias de desarrollo y evidencia
+
+El CI anterior de #288 aprobó tests backend (1205 aprobados, dos SDK opcionales
+omitidos), seguridad, TypeScript/lint/build frontend. El job de backend falló por
+Mypy y el de frontend por su etapa de tests/cobertura. No se declara ese CI verde.
+El timeout de dos sockets visto en #287 ya pasó en #288.
+
+Las primeras focalizaciones aprobaron 156 regresiones existentes, 53 casos nuevos
+HTTP/claims y 18 PostgreSQL/WS. Una repetición de PostgreSQL detectó que RETURNING
+junto a synchronize_session=fetch podía devolver el UUID donde se esperaba la
+versión, por la incorporación del PK al resultado ORM. La reproducción puntual
+no ocurre en cada ejecución. Se retira esa sincronización: RETURNING entrega el
+escalar explícito, se valida como entero y las comprobaciones de autenticación
+siguen recargando SQL. Los tests consultan el valor autoritativo en SQL cuando no
+hay refresh del objeto; no se debilitan guards para acomodar una copia obsoleta.
+
+La focalización final aprueba los **73 casos nuevos**: 53 de HTTP/claims, 15 de
+PostgreSQL y 5 de WebSockets. La prueba de incrementos incondicionales se refuerza
+con cinco rondas de cuatro operaciones, esperando exactamente versiones 1..20.
+La primera batería completa aprobó 1278 casos y omitió dos SDK; al modificar el
+servicio después de esa pasada se repite sobre la versión final, sin reutilizar
+su resultado como si verificara el código corregido.
+
+| Control final | Resultado |
+|---|---|
+| Backend completo final | **1278 aprobados y dos SDK opcionales omitidos** en 394,39 s; revisión posterior de tracking: 45 aprobados, con un caso nuevo adicional |
+| Casos nuevos | **77**: 74 backend (73 de revocación + 1 de productor tracking) y 3 frontend de polling lento |
+| SDK opcionales reales | 2 aprobados aisladamente con Firebase/Twilio instalados y transporte HTTP sustituido; sin mensajes externos |
+| Frontend completo | **646 aprobados en 47 suites**; incluye tres casos nuevos de consultas lentas y prioridad manual |
+| TypeScript | Aprobado después del build |
+| Lint frontend | Aprobado con advertencias heredadas |
+| Build frontend | Producción aprobado, sin desplegar |
+| Mypy backend | 310 errores/51 archivos, antes 314/52; nuevos módulos sin errores de tipos |
+| Black/flake8 | Formato y comprobación crítica aprobados; no se silencian reglas |
+| Alembic | Head 20261028_auth_version; operaciones de la revisión probadas solo en esquema temporal |
+| Contrato ORM | Solo users cambia por migración explícita; wallets/transacciones conservan su contrato |
+| Cobertura frontend | **27,46 % líneas**, 27,39 % sentencias, 21,84 % ramas y 22,83 % funciones; todavía inferior al 50 % |
+| git diff --check | Aprobado |
+
+Los SDK opcionales se omiten en la batería general porque no son dependencias del
+venv base; se ejercitan aparte con instalaciones aisladas. Una primera ejecución
+bajo el sandbox de red restringida quedó pendiente y se interrumpió; la pasada
+con el permiso de red del entorno termina con dos aprobados y los transportes
+siguen sustituidos. No se instala ni cambia una dependencia runtime del proyecto.
+
+### Condiciones de operación y trabajo siguiente
+
+El esquema debe migrarse antes de levantar este código. No se aplica la revisión
+a producción ni se levanta el servicio contra una BD real del usuario. Los tests
+usan contenedores desechables PostgreSQL/PostGIS y Redis, bases test_* y esquemas
+privados. Una ventana con workers antiguos y nuevos no garantiza revocación:
+los antiguos ignoran el campo; deben retirarse antes de considerar efectivo el
+control. La guía backend/AUTH_TOKEN_REVOCATION.md describe esa secuencia.
+
+No deben reiniciarse versiones a cero ni eliminar el campo después de revocar.
+Un rollback de código antiguo o restaurar una copia vieja de la BD puede permitir
+credenciales que ya se habían retirado; requiere un plan explícito de seguridad,
+no un downgrade automático de conveniencia. Se documenta el riesgo sin ejecutar
+rotación de claves ni acciones de despliegue en este trabajo.
+
+La revocación es de cuenta, no por dispositivo. Los refresh individuales de una
+misma versión pueden reutilizarse: se mantiene pendiente su ledger, rotación de
+un solo uso y detección de replay. No hay cookies HttpOnly nuevas ni coordinación
+atómica entre pestañas. El logout sin red o con un bearer expirado puede limpiar
+solo localmente; no se afirma revocación remota sin confirmación.
+
+Los sockets detectan el cambio al comprobar actividad/envío; no hay broadcast de
+desconexión distribuida inmediata. Las peticiones/frames que ya superaron su guard
+pueden completar en una carrera con logout; no se revierten mutaciones aceptadas.
+No se retiran automáticamente tokens FCM ni envíos ya aceptados por proveedores.
+Los cambios de estado de Rider mantienen su política previa y no se añaden epochs
+a todas sus transiciones en esta entrega. Helpers históricos AuthService/UserService
+sin rutas activas y con referencias como is_deleted siguen sin certificarse.
+
+Continúan pendientes sesiones por dispositivo y refresh de un uso, coordinación
+de pestañas, revalidación integral de permisos/cachés, watchdog y reanudación de
+streams, PUSH web real, outbox durable, idempotencia/conciliación externas, ledger
+por dispositivo, fallback IN_APP general, límites distribuidos, validación de la
+cadena de migraciones y deuda global de tipos/cobertura. No se presenta el sistema
+como 100 % productivo. Se prepara un único PR listo para revisión, sin borrador,
+verificando blobs/árbol y el commit local contra GitHub, sin fusionar ni desplegar.
+
+
+### Cierre de dos hallazgos de revisión de #288
+
+La consulta de hilos de GitHub encontró dos hallazgos adicionales en el mapa de
+la entrega anterior. Se verifican contra el código y se incluyen en este bloque:
+
+- **P1, stream dashboard sin fecha:** el productor de /tracking/update-location
+  ya añadía recorded_at al canal individual, pero no al dashboard. El consumidor
+  que protege una posición REST fechada descartaba ese evento sin fecha. Se añade
+  al dashboard la misma location.recorded_at.isoformat() del registro retornado
+  por el escritor; no se debilita el orden cronológico ni se inventa Date.now().
+- **P2, starvation de polling lento:** el intervalo de diez segundos iniciaba otra
+  consulta e invalidaba siempre la anterior si cada snapshot tardaba más de ese
+  intervalo. Se omite un tick automático mientras haya un snapshot pendiente del
+  mismo ámbito. El refresh manual sí puede sustituirlo y conserva la prioridad de
+  la última petición. El finally de una petición retirada no libera el slot de
+  su sucesora; cleanup retira el slot al cambiar conexión/ámbito o desmontar.
+
+Se añade una prueba de ruta HTTP y ambos sockets realmente montados, con permisos
+SQL y un escritor GPS sustituido que devuelve una fecha canónica conocida. Se
+comprueba que ambos streams y la respuesta REST entregan exactamente esa fecha,
+el mismo rider y coordenadas cero. No se presenta esta sustitución del escritor
+como una prueba de persistencia GPS real. Ese caso más los 44 de permisos de
+tracking aprueban: **45 tests**. Las tres regresiones frontend verifican un
+snapshot inicial de veinte segundos, prioridad manual con un finally antiguo y
+recuperación del polling después de un rechazo lento.
+
+La batería general de 1278 corresponde a la versión corregida de revocación,
+antes de añadir la línea de timestamp del productor y su test. Sobre ese ajuste
+posterior se ejecuta la focalización de 45; la batería frontend completa de 646,
+con cobertura/build/tipos/lint, corresponde al mapa corregido. No se suma el test
+posterior dentro del número de la batería general. En total se añaden 77 tests
+entre backend y frontend, sin duplicar las regresiones existentes de tracking.
+La ejecución final con cobertura aprueba los 646 tests pero termina con código 1
+por el umbral global de 50 %; se conservan reglas y archivos en el cálculo.
+
+Los hilos de #288 se mantienen como referencia de revisión: la corrección se
+publica en el PR nuevo y aún no se afirma aplicada a main antes de su fusión.
+Se agrupan 26 archivos relacionados, sin nuevas dependencias runtime. Las guías
+explican la revocación global y la política actualizada de polling. Se verifica
+que el contenido publicado y el commit coinciden exactamente con el local probado.

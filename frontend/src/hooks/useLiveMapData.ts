@@ -34,6 +34,7 @@ export function useLiveMapData(isConnected: boolean) {
   const key = JSON.stringify([userId, revision, generation]);
   const scope = useRef(key);
   scope.current = key;
+  const pending = useRef<{ key: string; request: number } | null>(null);
   const alive = useRef(false),
     sequence = useRef(0);
   const [snapshot, setSnapshot] = useState<Snapshot>({ ...empty, key });
@@ -42,8 +43,10 @@ export function useLiveMapData(isConnected: boolean) {
       const identity = { userId, revision, generation, tokenRevision };
       const current = () =>
         alive.current && scope.current === key && currentRealtimeIdentity(identity, false);
-      if (!current()) return;
+      if (!current() || (!isManual && pending.current?.key === key)) return;
       const request = ++sequence.current;
+      const work = { key, request };
+      pending.current = work;
       setSnapshot((previous) => ({
         ...(previous.key === key ? previous : { ...empty, key }),
         isRefreshing: isManual,
@@ -84,6 +87,8 @@ export function useLiveMapData(isConnected: boolean) {
               ? 'No se pudo acceder al mapa. Verifica tu sesión y permisos.'
               : 'No se pudo actualizar el mapa. Se conservan los últimos datos disponibles.',
           }));
+      } finally {
+        if (pending.current === work) pending.current = null;
       }
     },
     [userId, revision, generation, tokenRevision, key]
@@ -105,6 +110,7 @@ export function useLiveMapData(isConnected: boolean) {
       : undefined;
     return () => {
       alive.current = false;
+      if (pending.current?.key === key) pending.current = null;
       clearInterval(interval);
     };
   }, [key, userId, isConnected]);

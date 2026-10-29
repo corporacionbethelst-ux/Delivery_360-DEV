@@ -94,7 +94,10 @@ async def consume_password_reset(
             User.hashed_password == previous_password,
         )
         .values(
-            hashed_password=password_hash, reset_token=None, reset_token_expires=None
+            hashed_password=password_hash,
+            reset_token=None,
+            reset_token_expires=None,
+            token_version=User.token_version + 1,
         )
         .returning(User.id)
         .execution_options(synchronize_session=False)
