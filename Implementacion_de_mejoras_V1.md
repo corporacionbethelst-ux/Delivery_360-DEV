@@ -3873,3 +3873,196 @@ transporte y sus límites. El bloque se publica en un PR nuevo listo para revisi
 sin borrador, sobre main 7d35510. Se comparan blobs/árbol con el local probado y
 se alinea el commit exacto. Sin fusión, despliegue, archivos de configuración nuevos,
 dependencias nuevas ni operaciones sobre datos de producción.
+
+
+## Entrega ampliada 50 — Integridad fiscal, folios y previsualización sin aceptación ficticia
+
+Fecha: 28 de octubre de 2026, America/Caracas (29 de octubre UTC). Base main
+65bc54ccf7aec41512c241427a677d0109cb309a, fusión de #290. Su árbol
+7ac88884e24aae07f1e5f918081d0b0169d7b649 se verificó idéntico al local probado.
+Sin hilos de revisión pendientes. Rama: fix/fiscal-integrity-and-safe-preview-v1.
+Se agrupan quince archivos y 112 pruebas nuevas de backend. No se envían documentos,
+pagos ni mensajes a servicios externos y no se ejecuta la migración en producción.
+
+### Hallazgos confirmados en el motor anterior
+
+- sign_document capturaba un fallo de clave/firma, registraba detalle sensible y
+  devolvía una firma simulada. Una clave configurada incorrecta no impedía seguir.
+- Sin credenciales, los adaptadores inventaban CUFE/UUID y URLs y el orquestador
+  persistía ACEPTADA como si hubiera aceptación fiscal. Los endpoints reales
+  propuestos no estaban homologados; la presencia de credenciales no lo resolvía.
+- El helper XML colombiano no aceptaba schemeID, aunque se invocaba con ese
+  argumento, por lo que el documento terminaba en TypeError.
+- SAT convertía importes a float, etiquetaba COP como MXN sin convertir y daba
+  como valor unitario el importe total de la línea. El orquestador guardaba COP
+  para ambos países y consultaba una tasa USD/COP que no aplicaba al importe.
+- El contador se incrementaba en SQL y luego otra vez para devolver el folio.
+  No partía correctamente de un rango cuyo inicio fuera mayor que uno. Se leía
+  un objeto potencialmente desactualizado y el conteo diario ignoraba su parámetro
+  de resolución. Esos comportamientos no tenían cobertura de orquestación nativa.
+- Extraer IVA incluido y truncar decimales de centavos podía perder una unidad;
+  además el total de factura excluía ese IVA ya contenido en el precio mexicano.
+- Un país sin adaptador usaba Colombia y una cancelación cambiaba a CANCELADA
+  localmente sin confirmación de autoridad. El status endpoint se describía como
+  una consulta a autoridad, aunque solo leía SQL.
+
+### Comportamiento nuevo y alcance real
+
+La emisión queda deshabilitada por defecto y el sandbox también. Un preview
+requiere ENABLE_ELECTRONIC_INVOICING=true, FISCAL_SANDBOX_ENABLED=true, ambos
+entornos dentro de la lista no productiva, preview=true en la solicitud y una
+resolución marcada is_sandbox=true. No se activa implícitamente en el hook de
+entrega. Las resoluciones se preparan expresamente; no se crean automáticamente.
+
+El preview conserva PENDIENTE, marca execution_mode=sandbox y no asigna CUFE/UUID,
+PDF ni QR oficiales. Una petición real se rechaza antes de reservar si el proveedor
+no tiene capacidad real. **Ninguno de los dos adaptadores predeterminados tiene
+transporte homologado**: se retiran las llamadas a endpoints supuestos y sus
+submit rechazan siempre. Esto corrige una funcionalidad ficticia; no constituye
+la integración productiva DIAN/SAT/PAC, que continúa pendiente.
+
+La firma configurada exige RSA PEM de al menos 2048 bits y SHA256/PKCS1v15. Una
+clave ausente, corrupta, cifrada sin soporte, débil o de otro tipo falla sin
+sustitución. El orquestador la ejecuta en threadpool. Se verifica criptográficamente
+con claves temporales de prueba, no con material del usuario. Esa firma de bytes
+no implementa XMLDSig/XAdES ni valida certificados o acreditación fiscal.
+
+La rama preparada para un futuro proveedor real exige accepted=true, identificador
+no vacío/imprimible/sin prefijo stub o sandbox y enlaces opcionales HTTPS válidos.
+Son controles estructurales, no una prueba independiente ante la autoridad. Los tests inyectan un
+proveedor offline para verificarla. Respuestas ambiguas y errores no se convierten
+en aceptación. No se expone el detalle del proveedor ni rutas de claves en la fila,
+API o logs de esos fallos. Se registra RECHAZADA local con mensaje genérico, que
+no acredita por sí mismo un rechazo de la autoridad.
+
+La API añade execution_mode, is_simulation, is_officially_accepted y
+status_source=local_snapshot. Conserva el status histórico sin fingir una consulta
+externa. Los registros anteriores conocidos como stub se clasifican; el resto no
+se presume real. Las notas crédito requieren evidencia de aceptación real; una
+simulación legacy no basta. La cancelación no homologada rechaza la operación sin
+cambiar estado. País inválido responde 400, país sin adaptador 422 y pedido que
+no existe 404, sin reservar folio. Se conservan los permisos de administración.
+
+### Diccionario, mapeos y migración
+
+La revisión 20261029_fiscal_integrity continúa desde 20261028_auth_version.
+
+| Elemento | Definición y finalidad |
+|---|---|
+| electronic_invoices.resolution_id | UUID nullable, FK RESTRICT a invoice_resolutions.id; identifica la resolución de nuevas reservas |
+| electronic_invoices.execution_mode | VARCHAR(20) NOT NULL, default legacy_unverified; valores legacy_unverified/sandbox/real |
+| ck_invoice_execution_mode | CHECK que limita esos valores |
+| invoice_resolutions.is_sandbox | BOOLEAN NOT NULL, default false; separa rangos de prueba |
+| idx_invoice_resolution_date | Índice (resolution_id, issue_date) para reservas del día |
+
+Los 75 campos fiscales existentes pasan a Mapped con escalares, Decimal, UUID,
+fechas y enums. Se captura su contrato antes de editar y se verifican tipos SQL,
+nulos, defaults, enums, índices y FK previas. Las tres tablas sin campos nuevos
+mantienen su DDL completo; en facturas/resoluciones se comprueban las adiciones
+explícitas de la migración. Se conserva create_type=False en enums PG.
+
+Upgrade añade los tres campos, FK, CHECK e índice. Marca sandbox únicamente donde
+pdf_url comienza con stub://. No cambia importes, status, identificadores ni fechas
+históricas y no adivina resolution_id. Downgrade bloquea las tablas y rechaza
+eliminar evidencia si ya hay asociaciones, clasificaciones o rangos sandbox.
+Las pruebas ejecutan las operaciones sobre filas y esquemas PostgreSQL temporales;
+no certifican la cadena histórica completa desde una base vacía ni se usa stamp
+para saltar prerrequisitos.
+
+### Folios, cuota y persistencia
+
+UPDATE condicional/RETURNING asigna una sola vez desde start_range y comprueba
+vigencia, estado y límite con los datos actuales de SQL. Se incluye el máximo de
+folios registrados para evitar reutilizar números que el bug previo dejó por
+encima del contador. Un objeto precargado en otro worker no determina el valor.
+
+La resolución se bloquea durante comprobación de cupo y reserva. Contador y fila
+PENDIENTE confirman juntos; después se libera el lock antes de generar, firmar o
+trabajar con el proveedor. La siguiente petición concurrente ve esa reserva.
+El cupo es por resolución/día y cuenta todos los estados, incluidos fallos. Los
+históricos sin FK cuentan conservadoramente contra rangos coincidentes de país e
+inicio. Se prueban ocho asignaciones concurrentes únicas y cuatro creaciones con
+límite dos, sin excederlo.
+
+Un commit inicial fallido revierte folio y fila. Una caída posterior puede dejar
+PENDIENTE y necesita conciliación. No se promete numeración sin huecos, outbox
+fiscal, exactamente una emisión por pedido ni idempotencia de las peticiones
+repetidas. Se preserva la unicidad legacy país + inicio + secuencia, que puede
+limitar rangos de igual inicio con prefijos distintos; esa evolución sigue pendiente.
+
+### Exactitud monetaria y representaciones
+
+Los centavos son enteros estrictos, sin booleanos, floats o coerciones silenciosas.
+Se valida BIGINT, cantidad 1..1000, detalle 1..100 y total antes de reservar.
+Decimal/ROUND_HALF_UP redondea al centavo entero. Base + IVA incluido conserva
+exactamente el precio bruto; el reparto entre varios impuestos incluidos conserva
+residual sin producir negativos. Impuestos externos y retenciones mantienen su
+separación. El desglose añade included_tax_cents, que la factura suma al impuesto
+externo para obtener su total tributario.
+
+CO queda en COP y MX en MXN, con exchange_rate=1.0000 porque los inputs ya están
+en moneda local. No se consulta ni se inventa conversión USD/COP. Los importes
+mexicanos se representan como strings exactos y el precio unitario contempla la
+cantidad. Las lecturas monetarias del pedido dejan de pasar por float/round.
+El XML admite atributos y escapa texto; esas representaciones siguen siendo
+previews, sin afirmar conformidad normativa o documental homologada.
+
+FiscalConfigPatch usa Decimal con precisión compatible con la columna SQL.
+También se aclara el caso JSON null en la regla de reparto, conservando el fallback
+previo. El servicio fiscal, modelo, API, cálculo y reparto activos quedan sin
+los errores de tipos que afectaban a este bloque. El Mypy global baja de
+272 errores/49 archivos a **219 errores/44 archivos**, sin silenciar reglas.
+
+### Evidencia final
+
+La focalización termina con 124 aprobados, incluidos trece casos fiscales previos.
+Se añade después una prueba del fallo de clave configurada que no puede llamar
+al proveedor y se incorpora a la batería completa. Una pasada anterior detectó
+solo que el fixture mínimo de riders no tenía status para el guard REPARTIDOR;
+se añade su enum nativo en el fixture, conservando el rechazo 403 del permiso.
+Los primeros intentos de edición/ruta local se corrigieron antes de validar;
+no se presentan como ejecuciones aprobadas.
+
+| Control | Resultado |
+|---|---|
+| Backend completo final | **1398 aprobados, dos SDK opcionales omitidos**, cuatro advertencias existentes; 491,08 s |
+| Casos nuevos | **112**: 57 de aritmética/documentos/firma/política, 47 de PostgreSQL/API/orquestación y ocho de contrato/migración |
+| SDK opcionales | Dos contratos aprobados aparte, con SDK instalado y transporte HTTP sustituido; no se enviaron mensajes |
+| Mypy | **219 errores en 44 archivos**, antes 272/49; nuevos módulos y bloque fiscal activo sin errores de tipos |
+| Black / flake8 crítico | Aprobados; sin exclusiones ni reglas deshabilitadas |
+| Alembic | Head 20261029_fiscal_integrity; revisión probada aisladamente en PostgreSQL |
+| git diff --check | Aprobado |
+| Frontend | Sin cambios ni repetición innecesaria de su build; última referencia verificada #290: 678 tests/48 suites y tipos/lint/build aprobados |
+| Cobertura frontend | Última medición #290: 27,72 % líneas, inferior al 50 %; no es una medición nueva de esta entrega |
+
+El CI de #290 aprobó 1286 tests backend, 678 frontend y seguridad; falló por Mypy
+272 y el umbral de cobertura. No se declara ese CI ni el proyecto global verde.
+Las suites nuevas usan PostgreSQL/Redis desechables, esquemas test_* privados y
+claves temporales. Los ACK reales se sustituyen por un proveedor offline; no
+acreditan comunicación con una autoridad. No hay modificación de datos reales.
+
+### Operación y pendientes siguientes
+
+Definir el flag de emisión explícitamente en false en todos los workers, también
+los anteriores, y retirarlos antes de considerar efectivos estos controles.
+Aplicar la nueva revisión antes del código que lee sus campos, con validación en
+staging del historial real. Mantener la emisión apagada en producción hasta que
+exista un transporte homologado y verificado. No activar sandbox para sustituir
+ese trabajo, ni marcar rangos oficiales como de prueba. Volver al código anterior
+recuperaría las aceptaciones/cancelaciones simuladas; cualquier rollback debe
+preservar evidencia y revisarse, sin limpiar datos para forzarlo.
+
+La guía backend/FISCAL_INTEGRITY.md detalla configuración, diccionario, invariantes,
+reserva, firmas y límites. Se conserva la FK legacy de pedido con ON DELETE CASCADE;
+la política integral de retención y auditoría fiscal continúa pendiente, sin añadir
+borrados en esta entrega. Faltan transporte y homologación DIAN/PAC/SAT, certificados
+y formatos fiscales, consulta/cancelación externas verificables, actualización
+normativa, outbox/conciliación e idempotencia, UI de resoluciones y revisión de
+prefijos/rangos. No se presenta la facturación como productiva al 100 %.
+
+Continúan además los pendientes generales de sesiones por dispositivo, refresh de
+un solo uso, coordinación de pestañas, permisos/cachés, reanudación de streams,
+PUSH web real, outbox de comunicaciones, conciliación externa, límites distribuidos
+y deuda global de tipos/cobertura. El bloque se prepara en un PR nuevo sin borrador,
+verificando blobs/árbol y commit local contra GitHub. Sin fusión, despliegue ni
+migraciones de producción.

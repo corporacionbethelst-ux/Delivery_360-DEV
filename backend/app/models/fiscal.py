@@ -8,8 +8,9 @@ Diseño:
 """
 
 import uuid
-from datetime import datetime, timezone
-from typing import Any
+from datetime import date, time, datetime, timezone
+from decimal import Decimal
+from sqlalchemy.orm import Mapped, mapped_column
 
 from sqlalchemy import (
     BigInteger,
@@ -18,6 +19,8 @@ from sqlalchemy import (
     Date,
     DateTime,
     Integer,
+    Index,
+    CheckConstraint,
     Numeric,
     String,
     Text,
@@ -25,6 +28,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Enum as SQLEnum,
     ForeignKey,
+    false,
 )
 from sqlalchemy.dialects.postgresql import UUID, ENUM as PGEnum
 import enum
@@ -105,77 +109,112 @@ class ElectronicInvoice(Base):
 
     __tablename__ = "electronic_invoices"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    order_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    order_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("orders.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    invoice_type: Any = Column(
+    invoice_type: Mapped[InvoiceType] = mapped_column(
         _pg_enum(InvoiceType, "invoicetype"),
         nullable=False,
         default=InvoiceType.VENTA,
     )
 
+    resolution_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "invoice_resolutions.id",
+            ondelete="RESTRICT",
+            name="fk_invoice_resolution_identity",
+        ),
+        nullable=True,
+    )
+    execution_mode: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="legacy_unverified",
+        server_default="legacy_unverified",
+    )
+
     # Numeración oficial (resolución autorizada)
-    resolution_number = Column(Integer, nullable=False)
-    sequence_number = Column(Integer, nullable=False)
-    unique_identifier = Column(
+    resolution_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    unique_identifier: Mapped[str | None] = mapped_column(
         String(100), nullable=True, index=True
     )  # CUFE / UUID CFDI
 
     # Fechas oficiales
-    issue_date = Column(Date, nullable=False, index=True, default=utc_now_naive)
-    issue_time = Column(Time, nullable=False, default=datetime.min.time)
-    cancellation_date = Column(DateTime, nullable=True)
+    issue_date: Mapped[date] = mapped_column(
+        Date, nullable=False, index=True, default=utc_now_naive
+    )
+    issue_time: Mapped[time] = mapped_column(
+        Time, nullable=False, default=datetime.min.time
+    )
+    cancellation_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Datos tributarios
-    provider_type: Any = Column(
+    provider_type: Mapped[CountryTaxRegime] = mapped_column(
         _pg_enum(CountryTaxRegime, "countrytaxregime"),
         nullable=False,
     )
-    currency_code = Column(String(3), nullable=False, default="COP")
-    exchange_rate = Column(Numeric(10, 4), nullable=False, default=1)
+    currency_code: Mapped[str] = mapped_column(String(3), nullable=False, default="COP")
+    exchange_rate: Mapped[Decimal] = mapped_column(
+        Numeric(10, 4), nullable=False, default=1
+    )
 
     # Valores monetarios en CENTAVOS (enteros exactos)
-    subtotal_cents = Column(BigInteger, nullable=False)
-    tax_total_cents = Column(BigInteger, nullable=False, default=0)
-    retention_total_cents = Column(BigInteger, nullable=False, default=0)
-    discount_total_cents = Column(BigInteger, nullable=False, default=0)
-    grand_total_cents = Column(BigInteger, nullable=False)
+    subtotal_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    tax_total_cents: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    retention_total_cents: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
+    )
+    discount_total_cents: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
+    )
+    grand_total_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
     # Estado del proceso
-    status: Any = Column(
+    status: Mapped[InvoiceStatus] = mapped_column(
         _pg_enum(InvoiceStatus, "invoicestatus"),
         nullable=False,
         default=InvoiceStatus.PENDIENTE,
         index=True,
     )
-    error_message = Column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Contenido técnico
-    signed_xml_content = Column(Text, nullable=True)
-    pdf_url = Column(Text, nullable=True)
-    qr_code_url = Column(Text, nullable=True)
+    signed_xml_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pdf_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    qr_code_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Vinculaciones (notas crédito/débito referencian factura original)
-    reference_invoice_id = Column(
+    reference_invoice_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("electronic_invoices.id", ondelete="SET NULL"),
         nullable=True,
     )
 
     # Metadata extendida (snapshot inmutable del cálculo)
-    customer_info_json = Column(Text, nullable=False, default="{}")
-    tax_breakdown_json = Column(Text, nullable=True)
+    customer_info_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    tax_breakdown_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    created_at = Column(DateTime, default=utc_now_naive, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=False
     )
 
     __table_args__ = (
+        Index("idx_invoice_resolution_date", "resolution_id", "issue_date"),
+        CheckConstraint(
+            "execution_mode IN ('legacy_unverified','sandbox','real')",
+            name="ck_invoice_execution_mode",
+        ),
         UniqueConstraint(
             "provider_type",
             "resolution_number",
@@ -190,28 +229,36 @@ class InvoiceResolution(Base):
 
     __tablename__ = "invoice_resolutions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    prefix = Column(String(10), nullable=False)
-    start_range = Column(Integer, nullable=False)
-    end_range = Column(Integer, nullable=False)
-    current_counter = Column(Integer, nullable=False, default=0)
-    valid_from = Column(Date, nullable=False)
-    valid_until = Column(Date, nullable=False)
-    is_active = Column(Boolean, nullable=False, default=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    prefix: Mapped[str] = mapped_column(String(10), nullable=False)
+    start_range: Mapped[int] = mapped_column(Integer, nullable=False)
+    end_range: Mapped[int] = mapped_column(Integer, nullable=False)
+    current_counter: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    valid_until: Mapped[date] = mapped_column(Date, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    is_sandbox: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
 
     # Seguridad: SOLO rutas/identificadores, nunca material de clave en claro.
-    private_key_path = Column(Text, nullable=True)
-    certificate_path = Column(Text, nullable=True)
-    password_encrypted = Column(Text, nullable=True)
+    private_key_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    certificate_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    password_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    country_code: Any = Column(
+    country_code: Mapped[CountryTaxRegime] = mapped_column(
         _pg_enum(CountryTaxRegime, "countrytaxregime"),
         nullable=False,
         default=CountryTaxRegime.COLOMBIA,
     )
 
-    created_at = Column(DateTime, default=utc_now_naive, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=False
     )
 
@@ -227,20 +274,26 @@ class PaymentDistributionSnapshot(Base):
 
     __tablename__ = "payment_distribution_snapshots"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    order_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    order_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("orders.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    gross_amount_cents = Column(BigInteger, nullable=False)
-    platform_share_cents = Column(BigInteger, nullable=False)
-    restaurant_share_cents = Column(BigInteger, nullable=False, default=0)
-    rider_share_cents = Column(BigInteger, nullable=False)
-    applied_rule_json = Column(Text, nullable=False, default="{}")
-    tax_allocation_json = Column(Text, nullable=True)
-    settled_at = Column(DateTime, default=utc_now_naive, nullable=False)
+    gross_amount_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    platform_share_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    restaurant_share_cents: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0
+    )
+    rider_share_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    applied_rule_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    tax_allocation_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    settled_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=False
+    )
 
     __table_args__ = (UniqueConstraint("order_id", name="uq_distribution_order"),)
 
@@ -250,27 +303,35 @@ class FiscalConfiguration(Base):
 
     __tablename__ = "fiscal_configurations"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    country_code: Any = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    country_code: Mapped[CountryTaxRegime] = mapped_column(
         _pg_enum(CountryTaxRegime, "countrytaxregime"),
         nullable=False,
     )
-    zone_id = Column(
+    zone_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("zones.id", ondelete="CASCADE"), nullable=True
     )
-    tax_code = Column(String(20), nullable=False)
-    tax_name = Column(String(100), nullable=False)
-    rate = Column(Numeric(5, 4), nullable=False)  # 0.1900 = 19%
-    applicability_condition = Column(
+    tax_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    tax_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    rate: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)  # 0.1900 = 19%
+    applicability_condition: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )  # 'always' | 'conditional' | expr simple
-    taxable_base_type = Column(String(20), nullable=False, default="gross")
-    included_in_price = Column(Boolean, nullable=False, default=False)
-    priority = Column(Integer, nullable=False, default=0)
-    is_active = Column(Boolean, nullable=False, default=True)
+    taxable_base_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="gross"
+    )
+    included_in_price: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
-    created_at = Column(DateTime, default=utc_now_naive, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=False
     )
 
@@ -286,24 +347,34 @@ class BankReconciliationRecord(Base):
 
     __tablename__ = "bank_reconciliation_records"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    statement_date = Column(Date, nullable=False, index=True)
-    bank_reference = Column(String(100), nullable=True, index=True)
-    internal_transaction_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    statement_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    bank_reference: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, index=True
+    )
+    internal_transaction_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("financial_transactions.id", ondelete="SET NULL"),
         nullable=True,
     )
-    statement_amount_cents = Column(BigInteger, nullable=False)
-    matched_amount_cents = Column(BigInteger, nullable=True)
-    variance_cents = Column(BigInteger, nullable=False, default=0)
-    match_confidence_score = Column(Numeric(3, 2), nullable=True)  # 0.00–1.00
-    status: Any = Column(
+    statement_amount_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    matched_amount_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    variance_cents: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    match_confidence_score: Mapped[Decimal | None] = mapped_column(
+        Numeric(3, 2), nullable=True
+    )  # 0.00–1.00
+    status: Mapped[ReconciliationStatus] = mapped_column(
         _pg_enum(ReconciliationStatus, "reconciliationstatus"),
         nullable=False,
         default=ReconciliationStatus.SIN_RELACIONAR,
         index=True,
     )
-    resolved_manually = Column(Boolean, nullable=False, default=False)
-    notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=utc_now_naive, nullable=False)
+    resolved_manually: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=False
+    )

@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -36,7 +37,12 @@ from app.models.fiscal import (
     ReconciliationStatus,
 )
 from app.models.user import User, UserRole
-from app.services.invoicing_engine import InvoicingEngine, InvoiceSubmissionError
+from app.services.invoicing_engine import (
+    InvoicingEngine,
+    InvoiceSubmissionError,
+    InvoiceOrderNotFound,
+)
+from app.services.fiscal_integrity import invoice_evidence, MAX_CENTS
 from app.services.split_payment_service import (
     process_order_settlement,
     resolve_share_rule,
@@ -57,8 +63,8 @@ _read = require_role(
 # ──────────────────────────────────────────────────────────────
 class InvoiceItemIn(BaseModel):
     name: str = Field(..., max_length=200)
-    unit_price_cents: int = Field(..., ge=0)
-    quantity: int = Field(1, ge=1, le=1000)
+    unit_price_cents: int = Field(..., ge=0, le=MAX_CENTS, strict=True)
+    quantity: int = Field(1, ge=1, le=1000, strict=True)
     category: str = Field("general", max_length=50)
 
 
@@ -67,14 +73,15 @@ class IssueInvoiceIn(BaseModel):
     customer_name: str = Field(..., max_length=255)
     customer_tax_id: str = Field("NN", max_length=20)
     customer_email: Optional[str] = Field(None, max_length=255)
-    items: List[InvoiceItemIn]
+    items: List[InvoiceItemIn] = Field(..., min_length=1, max_length=100)
     payment_method: str = Field("TARJETA", max_length=30)
+    preview: bool = False
     country: str = Field(default="", max_length=2)  # vacío → default config
 
 
 class CreditNoteIn(BaseModel):
     reason: str = Field(..., min_length=3, max_length=300)
-    amount_cents: int = Field(..., gt=0)
+    amount_cents: int = Field(..., gt=0, le=MAX_CENTS, strict=True)
 
 
 class CancelIn(BaseModel):
@@ -85,6 +92,8 @@ def _serialize_invoice(inv: ElectronicInvoice) -> dict:
     return {
         "id": str(inv.id),
         "order_id": str(inv.order_id),
+        "resolution_id": str(inv.resolution_id) if inv.resolution_id else None,
+        **invoice_evidence(inv),
         "invoice_type": inv.invoice_type.value if inv.invoice_type else None,
         "resolution_number": inv.resolution_number,
         "sequence_number": inv.sequence_number,
@@ -120,11 +129,14 @@ async def emit_invoice(
         raise HTTPException(
             status.HTTP_423_LOCKED, "Facturación electrónica deshabilitada (flag)"
         )
-    country = (
-        CountryTaxRegime(body.country.upper())
-        if body.country
-        else CountryTaxRegime(settings.FISCAL_DEFAULT_COUNTRY)
-    )
+    try:
+        country = CountryTaxRegime(
+            body.country.upper() if body.country else settings.FISCAL_DEFAULT_COUNTRY
+        )
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "País fiscal inválido"
+        ) from None
     engine = InvoicingEngine(db)
     try:
         inv = await engine.create_electronic_invoice(
@@ -134,12 +146,15 @@ async def emit_invoice(
                 "tax_id": body.customer_tax_id,
                 "email": body.customer_email,
             },
-            items=[it.dict() for it in body.items],
+            items=[it.model_dump() for it in body.items],
             payment_method=body.payment_method,
             country=country,
+            preview=body.preview,
         )
     except InvoiceSubmissionError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+    except InvoiceOrderNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
     return _serialize_invoice(inv)
@@ -189,12 +204,13 @@ async def invoice_status_check(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(_read),
 ):
-    """Consulta el estado ante la autoridad (stub local; real: CUFE/UUID lookup)."""
+    """Evidencia local persistida; no consulta el estado de la autoridad."""
     inv = await db.get(ElectronicInvoice, invoice_id)
     if inv is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Factura no encontrada")
     return {
         "id": str(inv.id),
+        **invoice_evidence(inv),
         "status": inv.status.value,
         "unique_identifier": inv.unique_identifier,
     }
@@ -227,6 +243,8 @@ async def cancel_invoice(
     engine = InvoicingEngine(db)
     try:
         inv = await engine.cancel_invoice(invoice_id, body.reason)
+    except InvoiceSubmissionError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
     return _serialize_invoice(inv)
@@ -298,7 +316,9 @@ async def get_fiscal_config(
 
 
 class FiscalConfigPatch(BaseModel):
-    rate: Optional[float] = Field(None, ge=0, le=1)
+    rate: Optional[Decimal] = Field(
+        None, ge=0, le=1, max_digits=5, decimal_places=4, allow_inf_nan=False
+    )
     is_active: Optional[bool] = None
     applicability_condition: Optional[str] = Field(None, max_length=200)
 
@@ -345,6 +365,7 @@ async def list_resolutions(
             "valid_from": r.valid_from.isoformat(),
             "valid_until": r.valid_until.isoformat(),
             "is_active": r.is_active,
+            "is_sandbox": r.is_sandbox,
             "country_code": r.country_code.value,
         }
         for r in res.scalars().all()

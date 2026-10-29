@@ -89,3 +89,12 @@ los workers antiguos para que la revocación sea uniforme. Logout confirmado,
 contraseñas y cambios administrativos de rol/estado retiran credenciales previas.
 El logout tiene alcance de todas las sesiones de esa cuenta. Consulte
 [contrato, migración, rollback y límites](AUTH_TOKEN_REVOCATION.md).
+
+## Integridad fiscal y previews
+
+La entrega 50 requiere la revisión `20261029_fiscal_integrity` antes del código
+nuevo. Emisión y sandbox están deshabilitados por defecto. Los adaptadores
+DIAN/SAT actuales no tienen transporte homologado y rechazan la emisión real;
+las previsualizaciones son explícitas, solo fuera de producción y con resolución
+sandbox, sin aceptación ni identificadores oficiales simulados. Consulte
+[configuración, diccionario, numeración, migración y límites](FISCAL_INTEGRITY.md).
