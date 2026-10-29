@@ -2,7 +2,15 @@
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Boolean, DateTime, Enum as SQLEnum, text
+from sqlalchemy import (
+    String,
+    Boolean,
+    DateTime,
+    BigInteger,
+    CheckConstraint,
+    Enum as SQLEnum,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
@@ -30,6 +38,11 @@ class UserRole(str, enum.Enum):
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "token_version >= 0", name="ck_users_token_version_nonnegative"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -42,6 +55,9 @@ class User(Base):
         String(255), unique=True, index=True, nullable=False
     )
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    token_version: Mapped[int] = mapped_column(
+        BigInteger, default=0, server_default=text("0"), nullable=False
+    )
     is_active: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
     is_superuser: Mapped[bool | None] = mapped_column(
         Boolean, default=False, nullable=True

@@ -149,7 +149,7 @@ function DashboardContent({
                   ) : (
                     <LogOut className="w-4 h-4 mr-2" /> 
                   )}
-                  <span className="truncate">Cerrar Sesión</span>
+                  <span className="truncate">Cerrar todas las sesiones</span>
                 </Button>
               </>
             ) : (

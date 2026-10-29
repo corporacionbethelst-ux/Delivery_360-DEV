@@ -201,6 +201,11 @@ la lógica de proveedores ni de autorización del backend.
 El POST de logout usa el bearer capturado antes de limpiar credenciales, sin
 entrar al interceptor de refresh ni reintentar contra una cuenta nueva. El
 logout local es inmediato; la petición es best effort y se aborta a los 1500 ms.
-El endpoint del servidor sigue siendo una confirmación sin revocación de JWT.
+Con la entrega 48, una confirmación del servidor incrementa la versión de
+credenciales de la cuenta e invalida sus access/refresh anteriores. El logout
+tiene alcance global de cuenta y requiere la migración de token_version y
+workers actualizados; ver [guía de revocación](AUTH_TOKEN_REVOCATION.md).
 No se garantiza la baja al cerrar la pestaña sin logout, con red ausente ni
-entre todas las pestañas: sincronización global y revocación siguen pendientes.
+entre todas las pestañas: la sincronización global y las sesiones por dispositivo
+siguen pendientes. Los sockets detectan revocación al comprobar entrada/envío;
+no se añade desconexión instantánea distribuida ni baja automática de FCM.

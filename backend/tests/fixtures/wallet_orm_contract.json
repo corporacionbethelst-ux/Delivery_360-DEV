@@ -1,6 +1,6 @@
 {
   "users": {
-    "ddl": "\nCREATE TABLE users (\n\tid UUID NOT NULL, \n\temail VARCHAR(255) NOT NULL, \n\thashed_password VARCHAR(255) NOT NULL, \n\tis_active BOOLEAN, \n\tis_superuser BOOLEAN, \n\tfirst_name VARCHAR(100) NOT NULL, \n\tlast_name VARCHAR(100) NOT NULL, \n\tphone VARCHAR(20), \n\trole userrole, \n\tavatar_url VARCHAR(500), \n\tlast_login TIMESTAMP WITHOUT TIME ZONE, \n\tfailed_login_attempts VARCHAR, \n\tlocked_until TIMESTAMP WITHOUT TIME ZONE, \n\treset_token VARCHAR(500), \n\treset_token_expires TIMESTAMP WITHOUT TIME ZONE, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id)\n)\n\n",
+    "ddl": "\nCREATE TABLE users (\n\tid UUID NOT NULL, \n\temail VARCHAR(255) NOT NULL, \n\thashed_password VARCHAR(255) NOT NULL, \n\ttoken_version BIGINT DEFAULT 0 NOT NULL, \n\tis_active BOOLEAN, \n\tis_superuser BOOLEAN, \n\tfirst_name VARCHAR(100) NOT NULL, \n\tlast_name VARCHAR(100) NOT NULL, \n\tphone VARCHAR(20), \n\trole userrole, \n\tavatar_url VARCHAR(500), \n\tlast_login TIMESTAMP WITHOUT TIME ZONE, \n\tfailed_login_attempts VARCHAR, \n\tlocked_until TIMESTAMP WITHOUT TIME ZONE, \n\treset_token VARCHAR(500), \n\treset_token_expires TIMESTAMP WITHOUT TIME ZONE, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tCONSTRAINT ck_users_token_version_nonnegative CHECK (token_version >= 0)\n)\n\n",
     "indexes": [
       "CREATE INDEX ix_users_id ON users (id)",
       "CREATE UNIQUE INDEX ix_users_email ON users (email)"
@@ -16,6 +16,10 @@
       ],
       "hashed_password": [
         null,
+        null
+      ],
+      "token_version": [
+        "0",
         null
       ],
       "is_active": [

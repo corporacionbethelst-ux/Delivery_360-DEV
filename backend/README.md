@@ -79,3 +79,13 @@ pytest
 black .
 flake8
 ```
+
+
+## Revocación JWT y despliegue
+
+La entrega 48 incorpora una versión de credenciales por cuenta. Requiere aplicar
+la migración `20261028_auth_version` antes de desplegar el código nuevo y retirar
+los workers antiguos para que la revocación sea uniforme. Logout confirmado,
+contraseñas y cambios administrativos de rol/estado retiran credenciales previas.
+El logout tiene alcance de todas las sesiones de esa cuenta. Consulte
+[contrato, migración, rollback y límites](AUTH_TOKEN_REVOCATION.md).

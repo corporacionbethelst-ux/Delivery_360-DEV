@@ -127,7 +127,8 @@ export const authService = {
   },
 
   /**
-   * Cerrar sesión
+   * Cerrar localmente y solicitar la revocación de todas las sesiones de la cuenta.
+   * Best effort: sin confirmación del servidor no se garantiza la revocación.
    */
   logout: async (accessToken: string | null = getStoredTokens().accessToken): Promise<void> => {
     if (!accessToken || typeof window === 'undefined') return;

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
 from app.models.user import User, UserRole
+from app.core.token_version import valid_token_version, token_version_matches
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from app.core.config import settings
@@ -57,7 +58,9 @@ def hash_password(password: str) -> str:
 get_password_hash = hash_password
 
 
-def create_access_token(subject: Any, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(
+    subject: Any, expires_delta: Optional[timedelta] = None, *, token_version: int = 0
+) -> str:
     """
     Crear un JWT access token para autenticación de usuario
 
@@ -73,8 +76,11 @@ def create_access_token(subject: Any, expires_delta: Optional[timedelta] = None)
         - exp: Timestamp de expiración
         - type: Tipo de token ("access")
         - iat: Timestamp de creación (issued at)
-        - jti: ID único del token para prevenir replay attacks
+        - jti: Identificador único; no sustituye un registro de reutilización
+        - ver: Versión persistida de credenciales de la cuenta
     """
+    if not valid_token_version(token_version):
+        raise ValueError("Invalid credential version")
     # Calcular timestamp de expiración: ahora + tiempo configurado o personalizado
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -85,6 +91,7 @@ def create_access_token(subject: Any, expires_delta: Optional[timedelta] = None)
             "sub": str(subject),  # Identificador del usuario
             "exp": expire,  # Fecha de expiración
             "type": "access",  # Tipo de token
+            "ver": token_version,
             "iat": datetime.now(timezone.utc),  # Fecha de emisión
             "jti": secrets.token_hex(16),  # ID único para seguridad
         },
@@ -93,7 +100,7 @@ def create_access_token(subject: Any, expires_delta: Optional[timedelta] = None)
     )
 
 
-def create_refresh_token(subject: Any) -> str:
+def create_refresh_token(subject: Any, *, token_version: int = 0) -> str:
     """
     Crear un JWT refresh token para renovar access tokens expirados
 
@@ -108,6 +115,8 @@ def create_refresh_token(subject: Any) -> str:
         - Se usa solo para obtener nuevos access tokens
         - Debe almacenarse de forma más segura (httpOnly cookie)
     """
+    if not valid_token_version(token_version):
+        raise ValueError("Invalid credential version")
     # Calcular expiración basada en días configurados (ej: 7 días)
     expire = datetime.now(timezone.utc) + timedelta(
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
@@ -118,6 +127,7 @@ def create_refresh_token(subject: Any) -> str:
             "sub": str(subject),  # Identificador del usuario
             "exp": expire,  # Fecha de expiración (larga)
             "type": "refresh",  # Tipo de token
+            "ver": token_version,
             "iat": datetime.now(timezone.utc),  # Fecha de emisión
             "jti": secrets.token_hex(16),  # ID único para seguridad
         },
@@ -157,6 +167,9 @@ def decode_token(token: str, verify_type: Optional[str] = None) -> Optional[dict
 
         # Verificar que el token tenga ID único (jti) para seguridad
         if "jti" not in payload:
+            return None
+
+        if "ver" in payload and not valid_token_version(payload["ver"]):
             return None
 
         # Retornar payload completo con todos los claims
@@ -300,11 +313,17 @@ async def get_current_active_user(
         )
 
     # Query asíncrona para buscar usuario por ID en base de datos
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(
+        select(User).where(User.id == user_id).execution_options(populate_existing=True)
+    )
     # Obtener usuario o None si no existe
     current_user = result.scalar_one_or_none()
     # Verificar que usuario exista y esté activo (no baneado/eliminado)
-    if not current_user or not current_user.is_active:
+    if (
+        not current_user
+        or not current_user.is_active
+        or not token_version_matches(payload, current_user.token_version)
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Usuario no autorizado",
