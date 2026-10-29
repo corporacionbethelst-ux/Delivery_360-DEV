@@ -19,6 +19,8 @@ import json
 import logging
 import math
 import uuid
+from importlib import import_module
+from types import ModuleType
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -31,25 +33,23 @@ from app.models.location import RiderLiveLocation, DeliveryRouteSnapshot
 from app.models.rider import Rider
 from app.services.document_review import ensure_rider_can_report_online
 from fastapi import HTTPException
+from starlette.concurrency import run_in_threadpool
 from app.models.delivery import Delivery
+from app.services.route_geometry import coordinate, distance_m, finite_number
 
 logger = logging.getLogger(__name__)
 
 # Intento de usar redis-py async NATIVO (redis>=5). aioredis está deprecado y NO se usa.
+aioredis: ModuleType | None
 try:  # pragma: no cover - dependencia de entorno
-    from redis import asyncio as aioredis  # redis>=5.0: módulo oficial async
+    aioredis = import_module("redis.asyncio")
 except ImportError:  # pragma: no cover
     aioredis = None
 
 
 def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Distancia ortodrómica aproximada entre dos puntos en kilómetros."""
-    r = 6371.0
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlmb = math.radians(lng2 - lng1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
-    return round(2 * r * math.asin(math.sqrt(a)), 4)
+    return round(distance_m(coordinate(lat1, lng1), coordinate(lat2, lng2)) / 1000, 4)
 
 
 class TrackingService:
@@ -255,16 +255,15 @@ class TrackingService:
         order = getattr(delivery, "order", None)
         dest_lat = getattr(order, "delivery_latitude", None) if order else None
         dest_lng = getattr(order, "delivery_longitude", None) if order else None
-        # Fallbacks defensivos por si la entrega ya trae coordenadas propias
-        dest_lat = dest_lat or getattr(delivery, "current_latitude", None)
-        dest_lng = dest_lng or getattr(delivery, "current_longitude", None)
         if dest_lat is None or dest_lng is None:
             raise ValueError("La entrega no tiene coordenadas de destino")
 
-        distance_km = haversine_km(
-            current_lat, current_lng, float(dest_lat), float(dest_lng)
+        origin = coordinate(current_lat, current_lng)
+        destination = coordinate(dest_lat, dest_lng)
+        distance_km = haversine_km(*origin, *destination)
+        speed = finite_number(
+            settings.AVG_RIDER_SPEED_KMH, "AVG_RIDER_SPEED_KMH", 0.1, 300
         )
-        speed = float(getattr(settings, "AVG_RIDER_SPEED_KMH", 18.0)) or 18.0
         eta_minutes = int(math.ceil((distance_km / speed) * 60))
 
         # Capa opcional Google (no bloqueante-fatal: si falla se conserva el ETA local)
@@ -276,15 +275,12 @@ class TrackingService:
                         api_key,
                         current_lat,
                         current_lng,
-                        float(dest_lat),
-                        float(dest_lng),
+                        *destination,
                     )
                     or eta_minutes
                 )
-            except Exception as exc:  # pragma: no cover
-                logger.debug(
-                    "Distance Matrix no disponible (%s). Usando ETA local.", exc
-                )
+            except Exception:
+                logger.debug("Distance Matrix no disponible. Usando ETA local.")
 
         return max(1, eta_minutes)
 
@@ -296,25 +292,59 @@ class TrackingService:
         dest_lat: float,
         dest_lng: float,
     ) -> Optional[int]:
-        """Consulta ligera a Distance Matrix (solo si hay SDK/red disponibles)."""
+        """Bound synchronous SDK transport to a worker thread and request timeouts."""
+        return await run_in_threadpool(
+            self._distance_matrix_eta_sync,
+            api_key,
+            origin_lat,
+            origin_lng,
+            dest_lat,
+            dest_lng,
+        )
+
+    @staticmethod
+    def _distance_matrix_eta_sync(
+        api_key: str,
+        origin_lat: float,
+        origin_lng: float,
+        dest_lat: float,
+        dest_lng: float,
+    ) -> Optional[int]:
         try:
             import googlemaps  # import perezoso: la librería es opcional
         except ImportError:
             return None
-        gmaps = googlemaps.Client(key=api_key)
+        gmaps = googlemaps.Client(
+            key=api_key, timeout=5, retry_timeout=5, retry_over_query_limit=False
+        )
         resp = gmaps.distance_matrix(
             origins=(origin_lat, origin_lng),
             destinations=(dest_lat, dest_lng),
             mode="driving",
             departure_time="now",
         )
-        elements = resp.get("rows", [{}])[0].get("elements", [])
-        if elements and elements[0].get("status") == "OK":
-            seconds = (
-                elements[0].get("duration_in_traffic", {}).get("value")
-                or elements[0]["duration"]["value"]
-            )
-            return int(math.ceil(seconds / 60))
+        if not isinstance(resp, dict):
+            return None
+        rows = resp.get("rows")
+        if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+            return None
+        elements = rows[0].get("elements")
+        if (
+            not isinstance(elements, list)
+            or not elements
+            or not isinstance(elements[0], dict)
+        ):
+            return None
+        element = elements[0]
+        if element.get("status") == "OK":
+            duration = element.get("duration_in_traffic") or element.get("duration")
+            if not isinstance(duration, dict):
+                return None
+            try:
+                seconds = finite_number(duration.get("value"), "duration", 1, 604800)
+            except ValueError:
+                return None
+            return math.ceil(seconds / 60)
         return None
 
     # ------------------------------------------------------------------

@@ -98,3 +98,12 @@ DIAN/SAT actuales no tienen transporte homologado y rechazan la emisión real;
 las previsualizaciones son explícitas, solo fuera de producción y con resolución
 sandbox, sin aceptación ni identificadores oficiales simulados. Consulte
 [configuración, diccionario, numeración, migración y límites](FISCAL_INTEGRITY.md).
+
+## Rutas GPS y ETA
+
+La entrega 51 conecta `/api/v1/routes` con rutas y puntos persistidos, añade
+planificación manual, historial, métricas y revisión de desvíos con permisos.
+Conserva el alias GPS anterior y el esquema SQL; no requiere migración nueva.
+El ETA conserva destinos con coordenadas cero y no usa la posición del rider como
+destino. Consulte [contratos, diccionario, concurrencia y límites](ROUTE_ANALYSIS.md),
+incluidas las tareas pendientes del conjunto de workers y la unificación de trazas.

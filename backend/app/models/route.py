@@ -3,19 +3,18 @@
 import uuid
 from datetime import datetime, timezone  # CORREGIDO
 from sqlalchemy import (
-    Column,
     String,
     Float,
     DateTime,
     ForeignKey,
     Enum as SQLEnum,
     Text,
-    text,
     Boolean,
     JSON,
     Integer,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from app.core.json_types import JsonValue
 from sqlalchemy.dialects.postgresql import UUID
 import enum
 from app.core.database import Base
@@ -36,40 +35,64 @@ class RouteStatus(str, enum.Enum):
 class Route(Base):
     __tablename__ = "routes"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-
-    delivery_id = Column(
-        UUID(as_uuid=True), ForeignKey("deliveries.id"), unique=True, index=True
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True,
+        nullable=False,
     )
 
-    status = Column(SQLEnum(RouteStatus), default=RouteStatus.PLANIFICADA)
-    planned_route = Column(JSON)
-    actual_route = Column(JSON)
+    delivery_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("deliveries.id"),
+        unique=True,
+        index=True,
+        nullable=True,
+    )
 
-    pickup_latitude = Column(Float)
-    pickup_longitude = Column(Float)
-    delivery_latitude = Column(Float)
-    delivery_longitude = Column(Float)
+    status: Mapped[RouteStatus | None] = mapped_column(
+        SQLEnum(RouteStatus), default=RouteStatus.PLANIFICADA, nullable=True
+    )
+    planned_route: Mapped[JsonValue] = mapped_column(JSON, nullable=True)
+    actual_route: Mapped[JsonValue] = mapped_column(JSON, nullable=True)
 
-    planned_distance_km = Column(Float)
-    actual_distance_km = Column(Float)
-    planned_duration_minutes = Column(Integer)
-    actual_duration_minutes = Column(Integer)
+    pickup_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pickup_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    delivery_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    delivery_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    has_deviation = Column(Boolean, default=False)
-    deviation_distance_km = Column(Float, default=0.0)
-    deviation_time_minutes = Column(Integer, default=0)
-    deviation_reason = Column(String(255))
+    planned_distance_km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    actual_distance_km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    planned_duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actual_duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    traffic_level = Column(String(20))
-    weather_condition = Column(String(50))
-    efficiency_score = Column(Float, default=0.0)
+    has_deviation: Mapped[bool | None] = mapped_column(
+        Boolean, default=False, nullable=True
+    )
+    deviation_distance_km: Mapped[float | None] = mapped_column(
+        Float, default=0.0, nullable=True
+    )
+    deviation_time_minutes: Mapped[int | None] = mapped_column(
+        Integer, default=0, nullable=True
+    )
+    deviation_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    started_at = Column(DateTime)
-    completed_at = Column(DateTime)
+    traffic_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    weather_condition: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    efficiency_score: Mapped[float | None] = mapped_column(
+        Float, default=0.0, nullable=True
+    )
 
-    created_at = Column(DateTime, default=utc_now_naive)
-    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=True
+    )
 
     delivery = relationship(
         "Delivery",
@@ -77,8 +100,8 @@ class Route(Base):
         primaryjoin="Route.delivery_id == Delivery.id",
         foreign_keys="[Route.delivery_id]",
     )
-    points = relationship("RoutePoint")
-    deviations = relationship("RouteDeviation")
+    points = relationship("RoutePoint", back_populates="route")
+    deviations = relationship("RouteDeviation", back_populates="route")
 
     def __repr__(self):
         return f"<Route(id={self.id}, delivery={self.delivery_id})>"
@@ -86,21 +109,33 @@ class Route(Base):
 
 class RoutePoint(Base):
     __tablename__ = "route_points"
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    route_id = Column(UUID(as_uuid=True), ForeignKey("routes.id"), index=True)
-    latitude = Column(Float, nullable=False)
-    longitude = Column(Float, nullable=False)
-    altitude = Column(Float)
-    accuracy = Column(Float)
-    speed = Column(Float)
-    heading = Column(Float)
-    timestamp = Column(DateTime, nullable=False, index=True)
-    battery_level = Column(Integer)
-    is_charging = Column(Boolean, default=False)
-    network_type = Column(String(20))
-    source = Column(String(50), default="gps")
-    created_at = Column(DateTime, default=utc_now_naive)
-    route = relationship("Route")
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True,
+        nullable=False,
+    )
+    route_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("routes.id"), index=True, nullable=True
+    )
+    latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    altitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)
+    speed: Mapped[float | None] = mapped_column(Float, nullable=True)
+    heading: Mapped[float | None] = mapped_column(Float, nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    battery_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_charging: Mapped[bool | None] = mapped_column(
+        Boolean, default=False, nullable=True
+    )
+    network_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(50), default="gps", nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
+    route = relationship("Route", back_populates="points")
 
     def __repr__(self):
         return f"<RoutePoint(route={self.route_id})>"
@@ -108,28 +143,46 @@ class RoutePoint(Base):
 
 class RouteDeviation(Base):
     __tablename__ = "route_deviations"
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    route_id = Column(UUID(as_uuid=True), ForeignKey("routes.id"), index=True)
-    deviation_type = Column(String(50))
-    severity = Column(String(20))
-    latitude = Column(Float)
-    longitude = Column(Float)
-    detected_at = Column(DateTime, nullable=False)
-    resolved_at = Column(DateTime)
-    expected_location = Column(JSON)
-    actual_location = Column(JSON)
-    distance_from_route_km = Column(Float)
-    time_lost_minutes = Column(Integer, default=0)
-    status = Column(String(20), default="abierto")
-    resolution_notes = Column(Text)
-    resolved_by = Column(
-        UUID(as_uuid=True), ForeignKey("users.id")
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True,
+        nullable=False,
+    )
+    route_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("routes.id"), index=True, nullable=True
+    )
+    deviation_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    severity: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    detected_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    expected_location: Mapped[JsonValue] = mapped_column(JSON, nullable=True)
+    actual_location: Mapped[JsonValue] = mapped_column(JSON, nullable=True)
+    distance_from_route_km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    time_lost_minutes: Mapped[int | None] = mapped_column(
+        Integer, default=0, nullable=True
+    )
+    status: Mapped[str | None] = mapped_column(
+        String(20), default="abierto", nullable=True
+    )
+    resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )  # Asegúrate que sea UUID si users.id es UUID
-    alert_sent = Column(Boolean, default=False)
-    alert_channels = Column(JSON)
-    created_at = Column(DateTime, default=utc_now_naive)
-    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
-    route = relationship("Route")
+    alert_sent: Mapped[bool | None] = mapped_column(
+        Boolean, default=False, nullable=True
+    )
+    alert_channels: Mapped[JsonValue] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=True
+    )
+    route = relationship("Route", back_populates="deviations")
 
     def __repr__(self):
         return f"<RouteDeviation(route={self.route_id})>"
