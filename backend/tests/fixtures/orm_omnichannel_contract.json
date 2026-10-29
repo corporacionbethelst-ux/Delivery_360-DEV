@@ -1,0 +1,333 @@
+{
+  "notification_templates": {
+    "ddl": "\nCREATE TABLE notification_templates (\n\tid UUID NOT NULL, \n\tcode VARCHAR(50) NOT NULL, \n\tchannel notificationchannel NOT NULL, \n\tsubject VARCHAR(200), \n\tbody_template TEXT NOT NULL, \n\tlanguage VARCHAR(5) NOT NULL, \n\tis_active BOOLEAN NOT NULL, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tPRIMARY KEY (id)\n)\n\n",
+    "indexes": [
+      "CREATE UNIQUE INDEX ix_notification_templates_code ON notification_templates (code)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "code": [
+        null,
+        null
+      ],
+      "channel": [
+        null,
+        null
+      ],
+      "subject": [
+        null,
+        null
+      ],
+      "body_template": [
+        null,
+        null
+      ],
+      "language": [
+        "es",
+        null
+      ],
+      "is_active": [
+        "True",
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {
+      "channel": [
+        "PUSH",
+        "SMS",
+        "EMAIL",
+        "IN_APP"
+      ]
+    },
+    "foreign_keys": [],
+    "enum_options": {
+      "channel": {
+        "name": "notificationchannel",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    }
+  },
+  "notification_logs": {
+    "ddl": "\nCREATE TABLE notification_logs (\n\tid UUID NOT NULL, \n\tuser_id UUID NOT NULL, \n\ttemplate_code VARCHAR(50), \n\tdelivery_id UUID, \n\tpayout_id UUID, \n\tchannel notificationchannel NOT NULL, \n\tstatus notificationstatus_fase9 NOT NULL, \n\tpayload_json TEXT, \n\tprovider_message_id VARCHAR(200), \n\terror_message TEXT, \n\tretry_count INTEGER NOT NULL, \n\tnext_retry_at TIMESTAMP WITHOUT TIME ZONE, \n\tdedupe_key VARCHAR(120), \n\ttitle VARCHAR(255), \n\tbody TEXT, \n\tread_at TIMESTAMP WITHOUT TIME ZONE, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tsent_at TIMESTAMP WITHOUT TIME ZONE, \n\tdelivered_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(user_id) REFERENCES users (id), \n\tFOREIGN KEY(delivery_id) REFERENCES deliveries (id), \n\tFOREIGN KEY(payout_id) REFERENCES payouts (id), \n\tUNIQUE (dedupe_key)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX idx_notiflogs_status_retry ON notification_logs (status, next_retry_at)",
+      "CREATE INDEX idx_notiflogs_user_created ON notification_logs (user_id, created_at DESC)",
+      "CREATE INDEX ix_notification_logs_created_at ON notification_logs (created_at)",
+      "CREATE INDEX ix_notification_logs_user_id ON notification_logs (user_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "user_id": [
+        null,
+        null
+      ],
+      "template_code": [
+        null,
+        null
+      ],
+      "delivery_id": [
+        null,
+        null
+      ],
+      "payout_id": [
+        null,
+        null
+      ],
+      "channel": [
+        null,
+        null
+      ],
+      "status": [
+        "OmnichannelStatus.PENDIENTE",
+        null
+      ],
+      "payload_json": [
+        null,
+        null
+      ],
+      "provider_message_id": [
+        null,
+        null
+      ],
+      "error_message": [
+        null,
+        null
+      ],
+      "retry_count": [
+        "0",
+        null
+      ],
+      "next_retry_at": [
+        null,
+        null
+      ],
+      "dedupe_key": [
+        null,
+        null
+      ],
+      "title": [
+        null,
+        null
+      ],
+      "body": [
+        null,
+        null
+      ],
+      "read_at": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "sent_at": [
+        null,
+        null
+      ],
+      "delivered_at": [
+        null,
+        null
+      ]
+    },
+    "enums": {
+      "channel": [
+        "PUSH",
+        "SMS",
+        "EMAIL",
+        "IN_APP"
+      ],
+      "status": [
+        "PENDIENTE",
+        "ENVIADO",
+        "ENTREGADO",
+        "FALLIDO",
+        "LEIDO"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "delivery_id",
+        "target": "deliveries.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "payout_id",
+        "target": "payouts.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "user_id",
+        "target": "users.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "channel": {
+        "name": "notificationchannel",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "status": {
+        "name": "notificationstatus_fase9",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    }
+  },
+  "user_device_tokens": {
+    "ddl": "\nCREATE TABLE user_device_tokens (\n\tid UUID NOT NULL, \n\tuser_id UUID NOT NULL, \n\tdevice_token VARCHAR(255) NOT NULL, \n\tplatform VARCHAR(10) NOT NULL, \n\tfailure_count INTEGER NOT NULL, \n\tis_active BOOLEAN NOT NULL, \n\tlast_seen_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(user_id) REFERENCES users (id), \n\tUNIQUE (device_token)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_user_device_tokens_user_id ON user_device_tokens (user_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "user_id": [
+        null,
+        null
+      ],
+      "device_token": [
+        null,
+        null
+      ],
+      "platform": [
+        "web",
+        null
+      ],
+      "failure_count": [
+        "0",
+        null
+      ],
+      "is_active": [
+        "True",
+        null
+      ],
+      "last_seen_at": [
+        "utc_now_naive",
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ]
+    },
+    "enums": {},
+    "foreign_keys": [
+      {
+        "column": "user_id",
+        "target": "users.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {}
+  },
+  "notification_preferences": {
+    "ddl": "\nCREATE TABLE notification_preferences (\n\tid UUID NOT NULL, \n\tuser_id UUID NOT NULL, \n\tevent_code VARCHAR(50) NOT NULL, \n\tchannel notificationchannel NOT NULL, \n\tenabled BOOLEAN NOT NULL, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tCONSTRAINT uq_notifpref_user_event_channel UNIQUE (user_id, event_code, channel), \n\tFOREIGN KEY(user_id) REFERENCES users (id)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_notification_preferences_user_id ON notification_preferences (user_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "user_id": [
+        null,
+        null
+      ],
+      "event_code": [
+        null,
+        null
+      ],
+      "channel": [
+        null,
+        null
+      ],
+      "enabled": [
+        "True",
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {
+      "channel": [
+        "PUSH",
+        "SMS",
+        "EMAIL",
+        "IN_APP"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "user_id",
+        "target": "users.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "channel": {
+        "name": "notificationchannel",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    }
+  }
+}

@@ -3728,3 +3728,148 @@ publica en el PR nuevo y aún no se afirma aplicada a main antes de su fusión.
 Se agrupan 26 archivos relacionados, sin nuevas dependencias runtime. Las guías
 explican la revocación global y la política actualizada de polling. Se verifica
 que el contenido publicado y el commit coinciden exactamente con el local probado.
+
+
+## Entrega ampliada 49 — Contratos omnicanal tipados y salud de WebSockets activos
+
+Fecha: 28 de octubre de 2026, America/Caracas (29 de octubre UTC). La entrega 48
+se revisó primero en #289, que seguía abierto al comenzar y fue fusionado durante
+el trabajo. Se importa y verifica la base main
+7d35510e95cb3888be0da6be229e0e2297f82d23, con árbol
+5a7516612e67280472ccf7937d159ee57f9cbbde idéntico al local probado de #289.
+El cambio de base conserva cada modificación local. Rama nueva:
+fix/realtime-health-and-notification-contracts-v1. Se agrupan trece archivos,
+con 39 pruebas nuevas; no se crea otra migración ni se envían mensajes externos.
+
+### Hallazgos y propósito
+
+Los modelos de Fase 9 aún declaraban atributos como Column sin contrato escalar
+Mapped. Mypy veía descriptores donde el servicio/serializador necesitaba UUID,
+str, datetime, enum o int. La deuda incluía 31 errores del servicio omnicanal y
+siete de su API. Cambiar solo anotaciones sin comprobar nulabilidad/defaults
+podía alterar el DDL inferido. Además, el servicio trataba un Sequence como list
+y su importación opcional de Redis no expresaba correctamente el caso ausente.
+
+Los hooks activos enviaban pings, pero no establecían un plazo para recibir pong.
+Un socket podía permanecer OPEN indefinidamente sin responder mientras la UI
+lo trataba como conexión activa y reducían las consultas del mapa. Los ticks
+podían sustituir la referencia de latencia del ping anterior sin saber si se
+había contestado. El inbox también reiniciaba sus reintentos por el evento open
+del navegador, incluso sin saludo de la aplicación.
+
+### Implementación agrupada
+
+1. NotificationTemplate, NotificationLog, UserDeviceToken y NotificationPreference
+   pasan sus **43 columnas a Mapped/mapped_column** con tipos escalares y nulls
+   explícitos. Los UUID, estados/canales enum, contadores y timestamps reflejan
+   los valores realmente persistidos. No se tipa artificialmente un None como
+   valor obligatorio para esconder errores.
+2. Antes de editar se captura el contrato PostgreSQL de las cuatro tablas. Una
+   prueba en un proceso nuevo compara DDL, defaults Python, índices, FK y sus
+   opciones, enums y opciones de enums. Se mantiene _pg_enum/create_type=False,
+   nulabilidad y constraints. No se actualiza ese snapshot para aceptar una
+   diferencia después del cambio. Las tablas legacy notifications/alerts no se
+   convierten ni se certifican como parte de esta adaptación.
+3. El resultado de dedupe se materializa expresamente como list, conservando orden
+   y datos. El módulo Redis opcional usa ModuleType | None y comprueba su presencia
+   antes de from_url. Se conserva el cliente inyectado y el fallback existente.
+   No se cambian reglas de dedupe, reintentos de envío ni proveedores.
+4. Nuevo realtime-heartbeat.ts: un controlador por socket, ping periódico y un
+   único pong pendiente. El intervalo default es 30 s y el deadline 10 s; un tick
+   mientras se espera no crea otro ping ni extiende el plazo. Valores de timer
+   fuera de límites usan defaults. Un pong no solicitado no reinicia el reloj.
+5. El controlador usa performance.now para latencia, incluyendo origen cero y
+   clamp a cero ante un salto hacia atrás. stop es idempotente y retira intervalo
+   y deadline. Si send lanza o vence el plazo, se detiene antes de notificar la
+   pérdida, para no producir múltiples cierres/reintentos por la misma conexión.
+6. Tracking e inbox comparten ese controlador. Cada callback verifica aún su
+   usuario, revisión, generación, bearer e instancia antes de actuar. Una pérdida
+   retira handlers/cierra el socket y entra por su reconexión existente. Tracking
+   conserva la última posición conocida del mismo ámbito y marca la conexión
+   caída; la pantalla vuelve al polling rápido. Inbox activa polling y solicita
+   inmediatamente el snapshot REST con su cancelación/deadline anterior.
+7. Cambio de cuenta, logout, renovación válida del bearer, disable, unmount y
+   StrictMode retiran ambos timers. Un pong guardado de una instancia antigua no
+   puede mantener viva su sustituta ni confirmar un ping de otra cuenta. Los
+   cierres 1008/4001 conservan limpieza y ausencia de reconexión automática con
+   ese contexto; no se convierten en simples pérdidas de salud de transporte.
+8. Inbox normaliza opciones de forma acotada: maxRetries 0..10, reconexión
+   1..15000 ms, heartbeat/polling 1..300 s y tamaño 1..50. Un valor inválido usa
+   default; no crea intervalos de cero milisegundos ni presupuestos infinitos.
+   CONNECTED reinicia los fallos consecutivos; open del navegador ya no basta.
+   Tracking conserva su criterio previo de reinicio en CONNECTED.
+
+### Pruebas, comparación y resultados
+
+La primera focalización frontend señaló dos casos históricos que avanzaban un
+minuto suponiendo conexión sana sin simular sus pongs. Ahora su socket responde
+como el backend real y se conservan todas las aserciones de polling/sin polling.
+El cliente sin respuesta se prueba explícitamente como pérdida; no se desactiva
+el watchdog para acomodar esas dos expectativas anteriores.
+
+Las pruebas nuevas son **39**: siete de contrato/persistencia backend y 32 del
+cliente (18 del controlador, siete de tracking y siete de inbox). Las cuatro
+variantes de canal verifican UUID/enum/defaults y nulls en PostgreSQL real; se
+incluyen timestamps/provider fields borrables y un UPDATE RETURNING con escalar.
+Se ejercita también _log_out/Pydantic con valores cargados de SQL.
+
+Las pruebas de tiempo real cubren deadline sin respuesta, un ping pendiente pese
+a intervalos cortos, pong tardío/no solicitado, fallo de send, relojes cero o
+hacia atrás, respuesta sincrónica, parámetros inválidos, limpieza, rotación,
+propietario retirado, StrictMode, cierres de política y presupuesto de sockets
+que abren sin CONNECTED. El inbox comprueba la recuperación REST inmediata. Las
+focalizaciones pasan con 14 backend y 85 frontend, incluyendo sus regresiones.
+
+| Control final | Resultado |
+|---|---|
+| Backend completo | **1286 aprobados, 2 SDK opcionales omitidos**, cuatro advertencias existentes; 530,64 s |
+| SDK opcionales reales | **2 aprobados aparte** con instalaciones aisladas y HTTP sustituido; sin mensajes externos |
+| Frontend completo | **678 aprobados en 48 suites**, 32 nuevos frente a 646/47 |
+| Total nuevo | **39 tests**, siete backend y 32 frontend |
+| Mypy | **272 errores en 49 archivos**, frente a 310/51; reducción de 38, sin silenciar reglas ni ampliar Any para esconderlos |
+| Alcance tipado | Los cuatro modelos y el servicio/API omnicanal activos no producen errores de Mypy; módulos legacy siguen fuera de esa afirmación |
+| TypeScript | Aprobado de forma aislada después del build |
+| Lint | Aprobado con advertencias heredadas; no se añaden advertencias en los hooks modificados |
+| Build frontend | Producción aprobado, sin desplegar |
+| Cobertura global | **27,72 % líneas**, 27,65 % sentencias, 22,04 % ramas y 23,08 % funciones; antes 27,46 % líneas |
+| Controlador heartbeat | **100 % líneas y funciones**, 96,29 % sentencias y 90,9 % ramas; no se declara cobertura total de toda la aplicación |
+| Black / flake8 crítico | Aprobados, sin exclusiones nuevas |
+| git diff --check | Aprobado |
+| Esquema | Contrato PostgreSQL original conservado para las cuatro tablas; sin migración adicional |
+
+La pasada con cobertura aprueba todos los tests pero sale con código 1 por el
+umbral global del 50 %. Las cifras se verifican con Jest JSON y el resumen de
+Istanbul; se conservan reglas y archivos incluidos. Los 272 errores globales de
+Mypy continúan pendientes. Ni esa deuda ni la cobertura se presentan como CI
+verde. El CI final de #289 aprobó 1279 tests backend, 646 frontend, seguridad y
+build/tipos/lint frontend; sus jobs fallaron exclusivamente en Mypy y cobertura.
+No tenía hilos de revisión pendientes al comprobarlo.
+
+### Límites operativos y pendientes
+
+Un pong valida la respuesta del handler del socket, no salud de Redis, entrega
+final por FCM/SMTP/Twilio ni persistencia GPS. Si CONNECTED anuncia
+realtime_available=false, se mantiene REST aunque el socket responda. No se
+implementa una resuscripción Redis automática nueva en backend. El presupuesto
+es de fallos consecutivos, no un circuito de desconexión vitalicio; un CONNECTED
+válido lo reinicia como contrato explícito.
+
+El plazo aproximado de 40 s por defecto presupone timers de una pestaña activa.
+Sleep, throttling y suspensión pueden retrasarlo o provocar una reconexión
+conservadora. No es un SLA de reloj de pared ni una garantía criptográfica de
+salud. Los tests cliente usan JSDOM y transportes/timers sustituidos, no prueban
+gateways ni todos los navegadores/dispositivos físicos.
+
+La revocación por cuenta sigue siendo la de la entrega 48, incluidas su migración
+y retirada de workers antiguos antes de considerarla efectiva. No se añade una
+migración para este bloque, cookies HttpOnly ni sesiones por dispositivo. Sigue
+pendiente el ledger y refresh de un solo uso, coordinación de pestañas,
+revalidación integral de permisos/cachés, reanudación durable de streams, PUSH web
+real, outbox durable, idempotencia/conciliación externa, fallback IN_APP general,
+límites distribuidos y validación de la cadena histórica de migraciones.
+
+Se actualizan las guías de sesión y proveedores para reflejar la nueva salud del
+transporte y sus límites. El bloque se publica en un PR nuevo listo para revisión,
+sin borrador, sobre main 7d35510. Se comparan blobs/árbol con el local probado y
+se alinea el commit exacto. Sin fusión, despliegue, archivos de configuración nuevos,
+dependencias nuevas ni operaciones sobre datos de producción.

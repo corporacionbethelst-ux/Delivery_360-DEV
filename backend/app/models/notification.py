@@ -31,7 +31,7 @@ def _pg_enum(python_enum, name):
     )
 
 
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 import enum
 import sqlalchemy as sa
@@ -236,19 +236,27 @@ class NotificationTemplate(Base):
 
     __tablename__ = "notification_templates"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    code = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    code: Mapped[str] = mapped_column(
         String(50), unique=True, nullable=False, index=True
     )  # ej 'payout_aprobado'
-    channel = Column(
+    channel: Mapped[NotificationChannel] = mapped_column(
         _pg_enum(NotificationChannel, "notificationchannel"), nullable=False
     )
-    subject = Column(String(200), nullable=True)  # null para push/sms
-    body_template = Column(Text, nullable=False)  # sintaxis {{variable}}
-    language = Column(String(5), nullable=False, default="es")
-    is_active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    updated_at = Column(
+    subject: Mapped[str | None] = mapped_column(
+        String(200), nullable=True
+    )  # null para push/sms
+    body_template: Mapped[str] = mapped_column(
+        Text, nullable=False
+    )  # sintaxis {{variable}}
+    language: Mapped[str] = mapped_column(String(5), nullable=False, default="es")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now_naive
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive
     )
 
@@ -261,33 +269,47 @@ class NotificationLog(Base):
 
     __tablename__ = "notification_logs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
     )
-    template_code = Column(String(50), nullable=True)
-    delivery_id = Column(UUID(as_uuid=True), ForeignKey("deliveries.id"), nullable=True)
-    payout_id = Column(UUID(as_uuid=True), ForeignKey("payouts.id"), nullable=True)
-    channel = Column(
+    template_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    delivery_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("deliveries.id"), nullable=True
+    )
+    payout_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("payouts.id"), nullable=True
+    )
+    channel: Mapped[NotificationChannel] = mapped_column(
         _pg_enum(NotificationChannel, "notificationchannel"), nullable=False
     )
-    status = Column(
+    status: Mapped[OmnichannelStatus] = mapped_column(
         _pg_enum(OmnichannelStatus, "notificationstatus_fase9"),
         nullable=False,
         default=OmnichannelStatus.PENDIENTE,
     )
-    payload_json = Column(Text, nullable=True)  # datos renderizados
-    provider_message_id = Column(String(200), nullable=True)
-    error_message = Column(Text, nullable=True)
-    retry_count = Column(Integer, nullable=False, default=0)
-    next_retry_at = Column(DateTime, nullable=True)
-    dedupe_key = Column(String(120), unique=True, nullable=True)  # evita reenvío <5min
-    title = Column(String(255), nullable=True)  # para campana IN_APP
-    body = Column(Text, nullable=True)
-    read_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive, index=True)
-    sent_at = Column(DateTime, nullable=True)
-    delivered_at = Column(DateTime, nullable=True)
+    payload_json: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )  # datos renderizados
+    provider_message_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    dedupe_key: Mapped[str | None] = mapped_column(
+        String(120), unique=True, nullable=True
+    )  # evita reenvío <5min
+    title: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )  # para campana IN_APP
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now_naive, index=True
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     __table_args__ = (
         Index("idx_notiflogs_user_created", "user_id", sa.text("created_at DESC")),
@@ -303,18 +325,26 @@ class UserDeviceToken(Base):
 
     __tablename__ = "user_device_tokens"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
     )
-    device_token = Column(String(255), unique=True, nullable=False)
-    platform = Column(
+    device_token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    platform: Mapped[str] = mapped_column(
         String(10), nullable=False, default="web"
     )  # 'android'|'ios'|'web'
-    failure_count = Column(Integer, nullable=False, default=0)  # auto-disable tras 3
-    is_active = Column(Boolean, nullable=False, default=True)
-    last_seen_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    failure_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )  # auto-disable tras 3
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now_naive
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now_naive
+    )
 
     def __repr__(self):
         return f"<UserDeviceToken(user={self.user_id}, platform={self.platform})>"
@@ -325,17 +355,23 @@ class NotificationPreference(Base):
 
     __tablename__ = "notification_preferences"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
     )
-    event_code = Column(String(50), nullable=False)  # ej 'payout_aprobado'
-    channel = Column(
+    event_code: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # ej 'payout_aprobado'
+    channel: Mapped[NotificationChannel] = mapped_column(
         _pg_enum(NotificationChannel, "notificationchannel"), nullable=False
     )
-    enabled = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
-    updated_at = Column(
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now_naive
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive
     )
 
