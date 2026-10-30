@@ -159,3 +159,7 @@ nuevos están deshabilitados por defecto y se habilitan explícitamente. Los ant
 envíos simulados, la liquidación sin evidencia y el borrado global ya no declaran
 éxito ni se programan. No requiere migración nueva. Consulte
 [configuración, arranque, contratos y límites](WORKER_OPERATIONS.md).
+
+SLA e integridad de notificaciones legacy: [bloqueos, avisos previos, evidencia de
+envío, diccionario y límites](SLA_AND_LEGACY_INBOX.md). La entrega 59 elimina el
+ciclo de bloqueo con la cancelación y conserva el esquema y las rutas.

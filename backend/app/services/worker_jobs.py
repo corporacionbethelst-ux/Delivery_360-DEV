@@ -3,7 +3,7 @@
 import math
 from datetime import date, datetime
 from uuid import UUID, uuid4
-from sqlalchemy import exists, func, insert, select, text, cast, String
+from sqlalchemy import func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.delivery import Delivery, DeliveryStatus
@@ -159,48 +159,11 @@ class WorkerJobs:
     async def monitor_sla(
         self, now: datetime, batch_size: int = 100, delivery_id: UUID | None = None
     ) -> dict[str, object]:
-        if type(batch_size) is not int or not 1 <= batch_size <= 100:
-            raise ValueError("Invalid batch size")
-        if now.tzinfo is not None:
-            raise ValueError("Expected UTC naive clock")
-        previous = exists(
-            select(Alert.id).where(
-                Alert.delivery_id == Delivery.id, Alert.alert_type == "SLA_BREACH"
-            )
-        )
-        query = select(Delivery).where(
-            ~exists(
-                select(Order.id).where(
-                    Order.id == Delivery.order_id,
-                    cast(Order.status, String) == "CANCELADO",
-                )
-            ),
-            Delivery.status.in_(
-                (
-                    DeliveryStatus.INICIADA,
-                    DeliveryStatus.EN_PICKUP,
-                    DeliveryStatus.EN_ROUTE,
-                    DeliveryStatus.EN_DESTINO,
-                )
-            ),
-            Delivery.started_at.is_not(None),
-            Delivery.sla_expected_minutes > 0,
-            Delivery.started_at
-            + Delivery.sla_expected_minutes * text("INTERVAL '1 minute'")
-            < now,
-            ~previous,
-        )
-        if delivery_id is not None:
-            query = query.where(Delivery.id == delivery_id)
+        from app.services.sla_monitor import lock_sla_deliveries
+
         try:
-            deliveries = list(
-                (
-                    await self.db.scalars(
-                        query.order_by(Delivery.id)
-                        .limit(batch_size)
-                        .with_for_update(skip_locked=True, of=Delivery)
-                    )
-                ).all()
+            deliveries = await lock_sla_deliveries(
+                self.db, now, batch_size=batch_size, delivery_id=delivery_id
             )
             managers = list(
                 (

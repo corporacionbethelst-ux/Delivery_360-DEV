@@ -221,3 +221,14 @@ global y grandes lotes, retención por tabla/legal hold, liquidación con provee
 y conciliación, UI y outbox. Continúan Mypy/cobertura globales y la homologación
 fiscal. No se declara producción completa ni se habilita ninguna operación real
 en el entorno del usuario durante esta entrega.
+
+## Actualización de la entrega 59
+
+El monitor comparte ahora el protocolo Order → Delivery con la cancelación y usa
+SKIP LOCKED sobre la orden antes de tocar sus hijos. El worker existente ejecuta
+aviso previo de cinco minutos y después incumplimiento con el mismo reloj UTC;
+conserva flags y agenda. Cada fase confirma por separado y sus recibos impiden
+duplicados en reintentos. warning_inbox_created cuenta filas legacy, no mensajes
+externos. La pausa global/preferencia de SLA conserva la alerta operativa y
+suprime los avisos de bandeja. No se habilita ningún flag. Consulte
+[contratos, diccionario y pendientes](SLA_AND_LEGACY_INBOX.md).

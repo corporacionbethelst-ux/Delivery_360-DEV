@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { alertDate } from '@/lib/alert-date';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -58,7 +59,8 @@ const getBorderClass = (severity: AlertSeverity, isRead: boolean) => {
 };
 
 const formatTimeAgo = (dateString: string) => {
-  const date = new Date(dateString);
+  const date = alertDate(dateString);
+  if (!date) return 'Fecha no disponible';
   const now = new Date();
   const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 

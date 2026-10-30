@@ -37,6 +37,7 @@ import enum
 import sqlalchemy as sa
 
 from app.core.database import Base
+from app.core.json_types import JsonValue
 
 
 def utc_now_naive():
@@ -94,47 +95,57 @@ class Notification(Base):
 
     __tablename__ = "notifications"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid4
+    )
 
     # Destinatarios (puede ser usuario, rider o ambos)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
-    rider_id = Column(UUID(as_uuid=True), ForeignKey("riders.id"), index=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), index=True
+    )
+    rider_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("riders.id"), index=True
+    )
 
     # Contenido
-    notification_type: Any = Column(SQLEnum(NotificationType), nullable=False)
-    priority: Any = Column(
+    notification_type: Mapped[NotificationType] = mapped_column(
+        SQLEnum(NotificationType), nullable=False
+    )
+    priority: Mapped[NotificationPriority | None] = mapped_column(
         SQLEnum(NotificationPriority), default=NotificationPriority.NORMAL
     )
 
-    title = Column(String(255), nullable=False)
-    message = Column(Text, nullable=False)
-    data = Column(sa.JSON)  # Datos extra para la UI
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    data: Mapped[JsonValue] = mapped_column(sa.JSON)  # Datos extra para la UI
 
     # Canales de envío
-    channels = Column(String(100))  # Ej: "email,push,sms"
-    sent_channels = Column(String(100))
+    channels: Mapped[str | None] = mapped_column(String(100))  # Ej: "email,push,sms"
+    sent_channels: Mapped[str | None] = mapped_column(String(100))
 
     # Estado
-    is_read = Column(Boolean, default=False)
-    read_at = Column(DateTime)
-    is_sent = Column(Boolean, default=False)
-    sent_at = Column(DateTime)
-    failed_channels = Column(String(100))
-    error_message = Column(Text)
+    is_read: Mapped[bool | None] = mapped_column(Boolean, default=False)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime)
+    is_sent: Mapped[bool | None] = mapped_column(Boolean, default=False)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime)
+    failed_channels: Mapped[str | None] = mapped_column(String(100))
+    error_message: Mapped[str | None] = mapped_column(Text)
 
     # Acción asociada
-    action_url = Column(String(500))
-    action_type = Column(String(50))
+    action_url: Mapped[str | None] = mapped_column(String(500))
+    action_type: Mapped[str | None] = mapped_column(String(50))
 
     # Relación genérica a otros recursos
-    related_type = Column(String(50))
-    related_id = Column(String(100))
+    related_type: Mapped[str | None] = mapped_column(String(50))
+    related_id: Mapped[str | None] = mapped_column(String(100))
 
     # Programación
-    scheduled_for = Column(DateTime)
-    expires_at = Column(DateTime)
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime)
 
-    created_at = Column(DateTime, default=utc_now_naive, index=True)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, index=True
+    )
 
     # Relaciones
     user = relationship("User", back_populates="notifications")

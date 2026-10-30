@@ -5602,3 +5602,162 @@ y la cobertura global inferior a 50 % continúan siendo deuda verificable. No se
 declara el proyecto al cien por ciento para producción.
 
 Guía operativa y diccionario detallado: backend/ORDER_CANCELLATION.md.
+
+
+---
+
+## Entrega 59 — SLA sin bloqueo circular y notificaciones verificables
+
+**Fecha: 30 de octubre de 2026, America/Caracas.** Base verificada: main
+`4b653f77e679b2fdd55cc85223fdcf9782a906fb`, merge del PR #299. El árbol coincide
+con el código publicado de la entrega 58. CI #299: **2170 backend aprobados, dos
+SDK omitidos, 759,55 s**; Mypy falló con los 121 errores previos. Frontend: **759
+aprobados / 53 suites**, cobertura de líneas **29,54 %** inferior al umbral 50 %;
+el job falló por cobertura. Seguridad aprobada. No se describe ese CI como verde.
+
+### Hallazgo de revisión confirmado y resuelto
+
+La revisión de #299 señaló un deadlock: cancelación bloqueaba primero la orden y
+esperaba la entrega; el monitor bloqueaba la entrega y la FK de una alerta nueva
+necesitaba un bloqueo de clave compartida en la orden. El filtro CANCELADO no
+impedía el ciclo cuando la cancelación todavía no estaba confirmada.
+
+Se reproduce con el monitor original del merge usando una prueba PostgreSQL:
+**falla con DeadlockDetectedError, 3,30 s**. La misma prueba pasa con el monitor
+corregido. También se comprueba la intercalación contraria, en la que una
+cancelación pendiente debe hacer que el monitor omita esa orden antes de tocar
+su entrega. Se observan bloqueos reales con pg_blocking_pids y sesiones distintas.
+
+El selector SLA común toma primero órdenes en orden de UUID con FOR UPDATE OF
+orders SKIP LOCKED; después bloquea entregas y revalida vínculo, estado activo,
+plazo y ausencia de recibo. Omite órdenes ocupadas y permite procesar otra dentro
+del límite. Los monitores de advertencia e incumplimiento cooperan con el orden
+Order → Delivery utilizado por cierres/cancelación. Ningún commit está oculto en
+el selector; el llamador confirma o revierte alerta y bandeja conjuntamente.
+
+### Avisos previos y monitor operativo
+
+Se elimina la consulta a IN_PROGRESS y expected_completion_at, que no existen.
+El aviso previo usa started_at + sla_expected_minutes, con inicio y SLA positivo,
+orden existente no cancelada y entrega activa. Se mantiene el tratamiento previo
+de órdenes con status NULL para esta alerta informativa; no se interpreta ese
+NULL como una transición de negocio. No se generan avisos para hijos huérfanos.
+
+| Resultado | Condición / persistencia |
+| --- | --- |
+| Aviso previo | ahora < plazo <= ahora + ventana; Alert SLA_WARNING y filas Notification legacy |
+| Incumplimiento | plazo < ahora; Alert SLA_BREACH y NotificationLog IN_APP existentes |
+| Instante exacto del plazo | Se conserva la comparación estricta del breach; el siguiente escaneo posterior puede detectarlo |
+| Reintento | El recibo Alert evita duplicar la misma clase de aviso por entrega |
+| Aviso descartado | Se elimina la fila legacy según el contrato de descarte, conservando el recibo operativo |
+| Cancelación coordinada | Resuelve pendientes SLA_WARNING y SLA_BREACH junto a la orden/entrega/ruta |
+
+Ventana predeterminada: cinco minutos; llamadas internas de uno a sesenta. Lote
+máximo: cien entregas por fase. El worker existente ejecuta aviso previo y breach
+con un mismo reloj UTC y filtro opcional por entrega. Cada fase posee su commit:
+si falla la segunda, la primera permanece y el reintento usa su recibo. El campo
+nuevo warning_inbox_created cuenta filas legacy, no aceptación externa.
+
+Gerencia activa y dueño activo del rider reciben los avisos, sin duplicar usuarios.
+Se conservan límites de destinatarios, pausa global y preferencia IN_APP de
+sla_warning. Suprimir la bandeja no elimina el recibo de alerta. Se mantienen los
+flags deshabilitados por defecto y la agenda existente de cinco minutos; no se
+activan en el entorno del usuario. Carga, disponibilidad y omisión de filas
+ocupadas pueden hacer que no se observe cada ventana previa: no se garantiza un
+aviso previo para toda entrega ni una ejecución exactamente a la hora límite.
+
+### Integridad de notificaciones legacy y lectura
+
+Se corrigen constructores que usaban channel/status inexistentes, enums ingleses
+inexistentes y una simulación de SENT después de transportes vacíos. El adaptador
+legacy registra channels como solicitud y conserva is_sent=false, sent_at y
+sent_channels sin aceptación ficticia. Usa los enums reales y resuelve Rider.user_id;
+el UUID del rider no se usa como UUID de usuario. El helper de aviso de pago es
+informativo y deja de inventar R$ como moneda; no ejecuta ni certifica un pago.
+
+Los datos se guardan como objeto JSON, sin doble codificación. Se validan títulos,
+mensajes, IDs, canales y payloads acotados; se rechazan objetos arbitrarios,
+números no finitos, ciclos, sustitutos aislados y listas/booleanos usados como IDs.
+Las listas explícitas tienen uno a doscientos usuarios, se deduplican y todos
+deben estar disponibles. Sin lista, la alerta genérica usa gerencia activa; no
+crea una fila huérfana cuando no hay destinatario válido.
+
+NotificationService.create_notification permite commit=False para una unidad del
+llamador. Su default True posee commit/rollback; AlertService.create_alert también
+posee su transacción y requiere una unidad apropiada. La asignación ya confirmada
+usa el user_id persistido, sin depender de la relación lazy, para registrar el aviso
+posterior. Un fallo de ese registro no revierte la asignación y continúa siendo
+best effort. Los registros legacy no se convierten automáticamente en logs
+omnicanal ni en reintentos externos: falta el puente/outbox correspondiente.
+
+La API de alertas admite JSON histórico como objeto o texto acotado y degrada
+otros tipos a metadatos neutros. Una fecha desconocida se devuelve como cadena
+vacía conservando el tipo del contrato; no se inventa un epoch. NULL is_read se
+considera no leído en esa API. Marcar leído guarda read_at una vez, y read-all
+respeta usuario y tipo de notificación. JWT real verifica propiedad en las pruebas.
+
+### Interfaz y contratos conservados
+
+Las fechas ausentes o inválidas muestran «Fecha no disponible». Las cadenas ISO
+sin zona de esta API se interpretan como UTC conforme a su almacenamiento, y se
+respetan los offsets explícitos. Se comparte la conversión entre páginas de
+operador/gerencia y componentes, conservando el formato relativo español.
+
+AlertPanel utiliza los campos reales description/isRead y severidades HIGH,
+MEDIUM, LOW y CRITICAL. Sustituye las llamadas a rutas inexistentes resolve/dismiss
+por PATCH /alerts/{id}/read y DELETE /alerts/{id}; marcar leída expresa un acuse
+personal. Un rechazo conserva visible el aviso. Las páginas principales ya usaban
+el servicio correcto y comparten ahora la protección temporal.
+
+Notification se tipa con Mapped/mapped_column sin cambiar su DDL. Un fixture
+capturado del main anterior compara columnas, NULL, defaults, índices, FKs y enums;
+los fixtures previos no se regeneran. Se mantienen **202 rutas, 194 contratos de
+dependencia y hash OpenAPI 84bef605…0172**. No hay columnas, migraciones,
+dependencias, endpoints ni flags nuevos. El requisito de migración CANCELADA de
+la entrega 58 sigue vigente para entornos que aún no la hayan aplicado.
+
+### Validación y trazabilidad
+
+Se añaden **81 casos backend**: 17 de SLA/worker/concurrencia y contrato ORM, 23
+de bandeja PostgreSQL/HTTP y 41 de validación. Incluyen cero IO ante entradas
+inválidas, destinatarios UUID, rollback, lectura ajena, ventanas exactas, dos
+intercalaciones de cancelación, SKIP LOCKED, preferencias, replay y asignación
+sin relación lazy. Las pruebas frontend comprueban fechas desconocidas/UTC,
+acciones de lectura/descarte reales y conservación de la fila ante errores.
+
+| Control | Resultado |
+| --- | --- |
+| Regresión focal previa | 197 aprobados, 223,88 s, una advertencia previa |
+| SLA + runtime tras integración | 62 aprobados, 33,21 s, una advertencia previa |
+| Bandeja legacy + validación | 64 aprobados, 37,48 s, una advertencia previa |
+| Prueba del monitor anterior | Fallo esperado con DeadlockDetectedError; el test corregido pasa |
+| Backend completo | **2251 aprobados, dos SDK opcionales omitidos**, 2253 nodos / 103 archivos; dos advertencias previas (una por grupo). Grupo a: 1127 aprobados, 0 omitidos, 745.30 s; Grupo b: 1124 aprobados, 2 omitidos, 613.90 s |
+| SDK instalados, HTTP sustituido | **Dos aprobados aparte**, 1,00 s, una advertencia previa; SDK instalados con HTTP sustituido |
+| Frontend completo, lint/tipos/build | **771 aprobados / 54 suites**, 34,789 s; prueba focal con TZ America/Caracas: 12 aprobados. Tipos, lint y build aprobados, 48 páginas generadas; advertencias de hooks previas. Cobertura: líneas **30,28 %** (antes 29,54 %), statements 30,06 %, ramas 24,90 %, funciones 25,74 %. El umbral 50 % continúa fallando y no se reduce |
+| Mypy | **99 errores / 25 archivos**, 22 menos que la base y ninguna incidencia nueva por comparación normalizada |
+| Black, flake8 crítico, diff | **Aprobados**: Black (195 archivos), flake8 crítico y diff; contrato físico Notification y rutas/OpenAPI conservados |
+
+Los 22 errores eliminados corresponden a NotificationService (11), AlertService
+(4), API de alertas (6) y asignación de órdenes (1). Se corrigen campos, llamadas
+y nulabilidad reales; no se añaden ignores ni se rebaja el control de tipos.
+El backend se ejecuta en dos particiones exhaustivas de 103 archivos y 2253 nodos,
+con PostgreSQL/PostGIS y Redis separados. Se conservan sus fuentes durante la
+regresión y se cotejan hashes. El ajuste frontend preparado se aplica después y
+se valida sobre su fuente final. Publicación cotejada por blobs/árbol/commit con
+GitHub, PR listo para revisión; el CI nuevo se informa por separado.
+
+### Pendientes que siguen abiertos
+
+La resolución automática de todas las alertas al completar/fallar una entrega o
+al pasar de warning a breach todavía requiere homologar el ciclo operativo.
+Persisten la reparación histórica, unificación de las dos bandejas, outbox y
+reintentos durables de hooks, entrega externa verificada, liderazgo/observabilidad
+de Beat, grandes lotes, compensaciones, unificación de libros/monedas,
+conciliación externa y el resto del roadmap. Marcar leído no resuelve una alerta
+operativa. El adaptador legacy por sí solo no despacha mensajes externos.
+
+Continúan 99 errores previos de tipos y la deuda de cobertura global; no se
+rebaja el umbral 50 %. No se fusiona, despliega, migra producción ni se envían
+pagos, mensajes o facturas reales. No se declara el sistema al cien por ciento.
+
+Guía detallada y diccionario: backend/SLA_AND_LEGACY_INBOX.md.

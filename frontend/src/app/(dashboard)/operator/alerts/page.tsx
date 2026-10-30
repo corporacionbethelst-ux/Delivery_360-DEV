@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { alertDate } from '@/lib/alert-date';
 import { useRouter } from 'next/navigation'; // <--- 1. Importar Router
 import { useAuthStore } from '@/stores/authStore';
 import { Card, CardContent } from '@/components/ui/card';
@@ -61,7 +62,8 @@ const getBorderClass = (severity: AlertSeverity, isRead: boolean) => {
 };
 
 const formatTimeAgo = (dateString: string) => {
-  const date = new Date(dateString);
+  const date = alertDate(dateString);
+  if (!date) return 'Fecha no disponible';
   const now = new Date();
   const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
   if (diffInSeconds < 60) return 'Justo ahora';
