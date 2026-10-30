@@ -1,8 +1,7 @@
 import type { Alert, AlertSeverity, AlertType } from '@/types/alerts';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { formatDistanceToNow } from 'date-fns';
-import { es } from 'date-fns/locale';
+import { formatAlertDate } from '@/lib/alert-date';
 import { AlertTriangle, AlertCircle, Info, X, Check, DollarSign, Cloud, MapPin } from 'lucide-react';
 
 interface AlertItemProps {
@@ -82,7 +81,7 @@ export function AlertItem({ alert, onMarkAsRead, onDismiss }: AlertItemProps) {
             <p className="text-sm text-muted-foreground mb-2">{alert.message}</p>
             
             <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-              <span>{formatDistanceToNow(new Date(alert.createdAt), { addSuffix: true, locale: es })}</span>
+              <span>{formatAlertDate(alert.createdAt, true)}</span>
               
               <Badge className={severityColors[severityKey]} variant="outline">
                 {severityLabels[alert.severity]}

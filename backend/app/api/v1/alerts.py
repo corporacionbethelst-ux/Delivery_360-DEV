@@ -5,10 +5,12 @@ Basado en el modelo Notification existente.
 
 from typing import Optional, List, Any, Dict
 from uuid import UUID
+import json
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, or_
 from pydantic import BaseModel, ConfigDict
 
 from app.core.database import get_db
@@ -55,18 +57,24 @@ class DismissResponse(BaseModel):
 # --- Helpers ---
 
 
-def _map_priority_to_severity(priority: NotificationPriority) -> str:
+def _map_priority_to_severity(priority: NotificationPriority | None) -> str:
     mapping = {
         NotificationPriority.CRITICA: "CRITICAL",
         NotificationPriority.ALTA: "HIGH",
         NotificationPriority.NORMAL: "MEDIUM",
         NotificationPriority.BAJA: "LOW",
     }
-    return mapping.get(priority, "MEDIUM")
+    return mapping.get(priority, "MEDIUM") if priority is not None else "MEDIUM"
 
 
 def _extract_alert_data(notification: Notification) -> Dict[str, Any]:
-    data = notification.data or {}
+    raw = notification.data
+    if isinstance(raw, str) and len(raw) <= 16384:
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError, RecursionError):
+            raw = None
+    data: Dict[str, Any] = raw if isinstance(raw, dict) else {}
     alert_type = data.get("alert_type", "SYSTEM")
     if not isinstance(alert_type, str):
         alert_type = "SYSTEM"
@@ -90,6 +98,10 @@ def _extract_alert_data(notification: Notification) -> Dict[str, Any]:
 
     order_id = data.get("related_order_id")
     rider_id = data.get("related_rider_id")
+    if notification.related_type == "order" and not order_id:
+        order_id = notification.related_id
+    elif notification.related_type == "rider" and not rider_id:
+        rider_id = notification.related_id
 
     return {
         "type": alert_type,
@@ -116,7 +128,9 @@ async def list_alerts(
     )
 
     if status == "UNREAD":
-        stmt = stmt.where(Notification.is_read == False)
+        stmt = stmt.where(
+            or_(Notification.is_read.is_(False), Notification.is_read.is_(None))
+        )
     elif status == "READ":
         stmt = stmt.where(Notification.is_read == True)
 
@@ -134,10 +148,10 @@ async def list_alerts(
                 severity=extra["severity"],
                 title=n.title,
                 description=n.message,
-                createdAt=n.created_at.isoformat(),
+                createdAt=n.created_at.isoformat() if n.created_at is not None else "",
                 orderId=extra["orderId"],
                 riderId=extra["riderId"],
-                isRead=n.is_read,
+                isRead=bool(n.is_read),
                 isDismissed=getattr(n, "is_deleted", False) or False,
                 status="UNREAD" if not n.is_read else "READ",
             )
@@ -167,6 +181,8 @@ async def mark_as_read(
         raise HTTPException(status_code=404, detail="Alerta no encontrada")
 
     notification.is_read = True
+    if notification.read_at is None:
+        notification.read_at = datetime.utcnow()
     await db.commit()
     return MarkReadResponse(
         message="Alerta marcada como leída", id=str(notification.id)
@@ -181,7 +197,7 @@ async def mark_all_as_read(
     stmt = select(Notification).where(
         Notification.user_id == current_user.id,
         Notification.notification_type == NotificationType.ALERTA_OPERACIONAL,
-        Notification.is_read == False,
+        or_(Notification.is_read.is_(False), Notification.is_read.is_(None)),
     )
     result = await db.execute(stmt)
     notifications = result.scalars().all()
@@ -189,6 +205,8 @@ async def mark_all_as_read(
     count = 0
     for n in notifications:
         n.is_read = True
+        if n.read_at is None:
+            n.read_at = datetime.utcnow()
         count += 1
 
     if count > 0:

@@ -5,14 +5,19 @@ from uuid import UUID
 from celery import shared_task
 from app.core.config import settings
 from app.services.worker_jobs import WorkerJobs
+from app.services.alert_service import AlertService
 from app.workers.runtime import worker_session, execute_task, disabled
 
 
 async def run_monitor(delivery_id: UUID | None = None):
     async with worker_session() as db:
-        return await WorkerJobs(db).monitor_sla(
-            datetime.now(timezone.utc).replace(tzinfo=None), delivery_id=delivery_id
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        warnings = await AlertService().check_sla_alerts(
+            db, now=now, delivery_id=delivery_id
         )
+        result = await WorkerJobs(db).monitor_sla(now, delivery_id=delivery_id)
+        result["warning_inbox_created"] = len(warnings)
+        return result
 
 
 @shared_task(

@@ -38,6 +38,7 @@ from app.services.order_cancellation import (
 )
 from app.api.v1.auth import get_current_user, require_role
 from app.services.notification_service import NotificationService
+from app.models.notification import NotificationType
 from app.services.audit_service import AuditService, get_audit_service
 from app.services.redis_audit_service import get_redis_audit_logger
 from app.models.audit_log import ActionType
@@ -776,18 +777,19 @@ async def assign_rider(
 
     # NOTIFICATION: Enviar notificación al rider sobre la nueva asignación
     try:
-        rider_user = rider.__dict__.get("user")
-        if rider_user and hasattr(rider_user, "id"):
+        if rider.user_id:
             notification_service = NotificationService(db)
             await notification_service.create_notification(
-                user_id=rider_user.id,
-                notification_type="ASIGNACION_PEDIDO",
+                user_id=rider.user_id,
+                notification_type=NotificationType.ASIGNACION_PEDIDO,
                 title="📦 Nuevo Pedido Asignado",
                 message=f"Se te ha asignado el pedido #{order.external_id or str(order.id)[:8]}",
                 data={"order_id": str(order.id), "external_id": order.external_id},
                 channel="push",
             )
-            logger.info(f"Notificación de asignación enviada al rider {rider.id}")
+            logger.info(
+                f"Notificación de asignación registrada para el rider {rider.id}"
+            )
     except Exception as e:
         logger.warning(f"No se pudo enviar notificación de asignación: {e}")
 

@@ -1,143 +1,184 @@
-"""Servicio para notificaciones multi-canal del sistema Delivery360."""
+"""Persist legacy inbox records. External delivery belongs to the omnichannel service.
 
-from typing import List, Optional, Dict, Any, TypedDict
+`channels` records a request, never proof of provider acceptance. This adapter
+neither sends nor marks an unimplemented transport as successfully sent.
+"""
+
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from typing import Any
+from uuid import UUID
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
-from app.models.notification import Notification, NotificationType, NotificationStatus
-import logging
-import json
-
-logger = logging.getLogger(__name__)
-
-
-class NotificationResult(TypedDict):
-    """Tipo de retorno para creación de notificación"""
-
-    id: int
-    user_id: int
-    notification_type: str
-    title: str
-    message: str
-    channel: str
-    status: str
-    created_at: datetime
+from app.core.exceptions import NotFoundError, ValidationError
+from app.models.notification import Notification, NotificationType
+from app.models.rider import Rider
+from app.models.user import User
+from app.services.notification_values import (
+    notification_uuid,
+    notification_text,
+    notification_payload,
+)
 
 
 class NotificationService:
-    """Servicio para gestión de notificaciones push, email y SMS"""
+    """Compatibility inbox API; commit=False keeps the caller's unit of work."""
 
     def __init__(self, db: AsyncSession):
         self.db = db
 
     async def create_notification(
         self,
-        user_id: int,
-        notification_type: NotificationType,
+        user_id: UUID | str,
+        notification_type: NotificationType | str,
         title: str,
         message: str,
-        data: Optional[Dict[str, Any]] = None,
+        data: dict[str, Any] | None = None,
         channel: str = "push",
+        *,
+        commit: bool = True,
     ) -> Notification:
-        """Crear una nueva notificación"""
-        notification = Notification(
-            user_id=user_id,
-            notification_type=notification_type,
-            title=title,
-            message=message,
-            channel=channel,
-            status=NotificationStatus.PENDING,
-            data=json.dumps(data) if data else None,
-        )
-        self.db.add(notification)
-        await self.db.commit()
-        await self.db.refresh(notification)
-        await self._send_notification(notification)
-        return notification
-
-    async def _send_notification(self, notification: Notification):
-        """Enviar notificación al canal correspondiente"""
+        uid = notification_uuid(user_id, "Destinatario")
         try:
-            if notification.channel == "push":
-                await self._send_push_notification(notification)
-            elif notification.channel == "email":
-                await self._send_email_notification(notification)
-            elif notification.channel == "sms":
-                await self._send_sms_notification(notification)
+            kind = NotificationType(notification_type)
+        except (ValueError, TypeError) as exc:
+            raise ValidationError("Tipo de notificación inválido") from exc
+        title = notification_text(title, "Título", 255)
+        message = notification_text(message, "Mensaje", 4000)
+        payload = notification_payload(data)
+        if not isinstance(channel, str) or channel.strip().lower() not in (
+            "in_app",
+            "push",
+            "email",
+            "sms",
+        ):
+            raise ValidationError("Canal de notificación inválido")
+        if type(commit) is not bool:
+            raise ValidationError("Opción transaccional inválida")
+        try:
+            recipient = await self.db.scalar(
+                select(User.id).where(User.id == uid, User.is_active.is_(True))
+            )
+            if recipient is None:
+                raise NotFoundError("Destinatario no disponible")
+            notification = Notification(
+                user_id=uid,
+                notification_type=kind,
+                title=title,
+                message=message,
+                channels=channel.strip().lower(),
+                data=payload,
+                is_sent=False,
+            )
+            self.db.add(notification)
+            await self.db.flush()
+            if commit:
+                await self.db.commit()
+            return notification
+        except BaseException:
+            if commit:
+                await self.db.rollback()
+            raise
 
-            notification.status = NotificationStatus.SENT
-            notification.sent_at = datetime.utcnow()
-            await self.db.commit()
-            logger.info(f"Notificación {notification.id} enviada exitosamente")
-        except Exception as e:
-            logger.error(f"Error enviando notificación {notification.id}: {str(e)}")
-            notification.status = NotificationStatus.FAILED
-            notification.error_message = str(e)
-            await self.db.commit()
+    async def _rider_user(self, rider_id: UUID | str) -> UUID:
+        rid = notification_uuid(rider_id, "Repartidor")
+        uid = await self.db.scalar(
+            select(Rider.user_id)
+            .join(User, User.id == Rider.user_id)
+            .where(Rider.id == rid, User.is_active.is_(True))
+        )
+        if uid is None:
+            raise NotFoundError("Destinatario del repartidor no disponible")
+        return uid
 
-    async def _send_push_notification(self, notification: Notification):
-        logger.debug(f"Push notification: {notification.title}")
-        pass
-
-    async def _send_email_notification(self, notification: Notification):
-        logger.debug(f"Email notification: {notification.title}")
-        pass
-
-    async def _send_sms_notification(self, notification: Notification):
-        logger.debug(f"SMS notification: {notification.message}")
-        pass
-
-    async def notify_order_assigned(self, rider_id: int, order_id: int):
-        await self.create_notification(
-            user_id=rider_id,
-            notification_type=NotificationType.ORDER_ASSIGNED,
+    async def notify_order_assigned(self, rider_id: UUID | str, order_id: UUID | str):
+        oid = notification_uuid(order_id, "Orden")
+        return await self.create_notification(
+            user_id=await self._rider_user(rider_id),
+            notification_type=NotificationType.ASIGNACION_PEDIDO,
             title="Nuevo Pedido Asignado",
-            message=f"Se te ha asignado el pedido #{order_id}",
-            data={"order_id": order_id},
+            message=f"Se te ha asignado el pedido #{oid}",
+            data={"order_id": str(oid)},
             channel="push",
         )
 
     async def notify_sla_warning(
-        self, rider_id: int, delivery_id: int, minutes_remaining: int
+        self, rider_id: UUID | str, delivery_id: UUID | str, minutes_remaining: int
     ):
-        await self.create_notification(
-            user_id=rider_id,
+        did = notification_uuid(delivery_id, "Entrega")
+        if type(minutes_remaining) is not int or not 0 <= minutes_remaining <= 1440:
+            raise ValidationError("Minutos restantes inválidos")
+        return await self.create_notification(
+            user_id=await self._rider_user(rider_id),
             notification_type=NotificationType.SLA_WARNING,
             title="⚠️ Riesgo de SLA",
-            message=f"Te quedan {minutes_remaining} minutos para completar la entrega #{delivery_id}",
+            message=f"Te quedan {minutes_remaining} minutos para completar la entrega #{did}",
+            data={"delivery_id": str(did)},
             channel="push",
         )
 
-    async def notify_payment_received(self, rider_id: int, amount: float):
-        await self.create_notification(
-            user_id=rider_id,
-            notification_type=NotificationType.PAYMENT_RECEIVED,
+    async def notify_payment_received(self, rider_id: UUID | str, amount: float):
+        try:
+            if isinstance(amount, bool):
+                raise InvalidOperation
+            value = Decimal(str(amount))
+            if (
+                not value.is_finite()
+                or value <= 0
+                or value > Decimal("99999999.99")
+                or value != value.quantize(Decimal("0.01"))
+            ):
+                raise InvalidOperation
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            raise ValidationError("Importe de aviso de pago inválido") from exc
+        return await self.create_notification(
+            user_id=await self._rider_user(rider_id),
+            notification_type=NotificationType.PAGO_RECIBIDO,
             title="💰 Pago Recibido",
-            message=f"Has recibido un pago de R$ {amount:.2f}",
+            message=f"Se registró un pago por {value:.2f}",
+            data={"amount": str(value)},
             channel="push",
         )
 
     async def get_user_notifications(
-        self, user_id: int, limit: int = 50, unread_only: bool = False
-    ) -> List[Notification]:
-        query = select(Notification).where(Notification.user_id == user_id)
+        self, user_id: UUID | str, limit: int = 50, unread_only: bool = False
+    ) -> list[Notification]:
+        uid = notification_uuid(user_id, "Destinatario")
+        if (
+            type(limit) is not int
+            or not 1 <= limit <= 200
+            or type(unread_only) is not bool
+        ):
+            raise ValidationError("Filtro de notificaciones inválido")
+        query = select(Notification).where(Notification.user_id == uid)
         if unread_only:
             query = query.where(Notification.is_read.is_(False))
-        query = query.order_by(Notification.created_at.desc()).limit(limit)
-        result = await self.db.execute(query)
-        return list(result.scalars().all())
-
-    async def mark_as_read(self, notification_id: int, user_id: int):
-        result = await self.db.execute(
-            select(Notification).where(
-                and_(
-                    Notification.id == notification_id, Notification.user_id == user_id
+        return list(
+            (
+                await self.db.scalars(
+                    query.order_by(
+                        Notification.created_at.desc(), Notification.id
+                    ).limit(limit)
                 )
-            )
+            ).all()
         )
-        notification = result.scalar_one_or_none()
-        if not notification:
-            raise ValueError("Notificación no encontrada")
-        notification.is_read = True
-        notification.read_at = datetime.utcnow()
-        await self.db.commit()
+
+    async def mark_as_read(self, notification_id: UUID | str, user_id: UUID | str):
+        nid = notification_uuid(notification_id, "Notificación")
+        uid = notification_uuid(user_id, "Destinatario")
+        try:
+            notification = await self.db.scalar(
+                select(Notification)
+                .where(Notification.id == nid, Notification.user_id == uid)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if notification is None:
+                raise NotFoundError("Notificación no encontrada")
+            notification.is_read = True
+            if notification.read_at is None:
+                notification.read_at = datetime.utcnow()
+            await self.db.commit()
+        except BaseException:
+            await self.db.rollback()
+            raise

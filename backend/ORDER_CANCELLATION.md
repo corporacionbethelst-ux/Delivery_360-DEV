@@ -60,7 +60,7 @@ rutas, estados cancelados y recibo exitoso. Un motivo o actor diferente devuelve
 Es necesario revisarla y definir un procedimiento de reparación explícito.
 
 Se conservan asignaciones, instrucciones, OTP, pruebas y coordenadas. No se
-inventa `completed_at`. Solo alertas SLA_BREACH OPEN/ACKNOWLEDGED pasan a RESOLVED
+inventa `completed_at`. Solo alertas SLA_BREACH/SLA_WARNING OPEN/ACKNOWLEDGED pasan a RESOLVED
 con actor, fecha y motivo; incidentes y notificaciones ya registradas se conservan.
 El monitor SLA omite también órdenes históricas canceladas con entrega activa.
 
@@ -134,3 +134,7 @@ en esta entrega un KPI independiente de cancelaciones. Sigue pendiente homologar
 todo el grafo de estados, reparación histórica, compensaciones/reembolsos,
 outbox/reintentos durables, políticas de bonos, monedas/libros y los demás hitos
 del roadmap. Tampoco elimina por sí sola la deuda global de tipos/cobertura.
+
+La entrega 59 hace que el monitor SLA coopere con los bloqueos Order → Delivery,
+incorpora avisos previos SLA_WARNING y los incluye en la resolución por cancelación.
+Consulte [protocolo, bandejas, ejecución y límites](SLA_AND_LEGACY_INBOX.md).

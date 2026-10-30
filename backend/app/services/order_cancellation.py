@@ -267,7 +267,7 @@ async def cancel_order(
                         select(Alert)
                         .where(
                             Alert.delivery_id == delivery.id,
-                            Alert.alert_type == "SLA_BREACH",
+                            Alert.alert_type.in_(("SLA_BREACH", "SLA_WARNING")),
                             Alert.status.in_(("OPEN", "ACKNOWLEDGED")),
                         )
                         .order_by(Alert.id)
