@@ -1,44 +1,25 @@
-"""
-Worker Celery para generación de alertas
-"""
+"""Re-evaluate a persisted SLA instead of inventing an unaddressed alert."""
 
+from uuid import UUID
 from celery import shared_task
-from datetime import datetime
-from app.core.database import get_db_session
+from app.core.config import settings
+from app.workers.sla_monitor_worker import run_monitor
+from app.workers.runtime import execute_task, disabled
 
 
 @shared_task(bind=True, max_retries=3)
 def generate_operational_alert(self, alert_type: str, severity: str, details: dict):
-    """Generar alerta operacional"""
+    if not settings.WORKER_SLA_MONITOR_ENABLED:
+        return disabled()
+    if (
+        not isinstance(severity, str)
+        or alert_type not in ("sla_warning", "SLA_BREACH")
+        or severity.lower() != "high"
+        or not isinstance(details, dict)
+    ):
+        return {"success": False, "reason": "unsupported_alert_request"}
     try:
-        db_session = next(get_db_session())
-
-        from app.models.notification import Notification, NotificationType
-
-        type_mapping = {
-            "rider_inactive": NotificationType.RIDER_INACTIVE,
-            "order_delayed": NotificationType.ORDER_DELAYED,
-            "sla_warning": NotificationType.SLA_WARNING,
-            "system_error": NotificationType.SYSTEM_ERROR,
-        }
-
-        notification = Notification(
-            title=f"Alerta {severity.upper()}: {alert_type}",
-            message=details.get("message", "Se detectó una incidencia operacional"),
-            notification_type=type_mapping.get(
-                alert_type, NotificationType.SYSTEM_ALERT
-            ),
-            priority=severity,
-            data=details,
-            created_at=datetime.utcnow(),
-        )
-
-        db_session.add(notification)
-        db_session.commit()
-
-        return {"success": True, "alert_id": notification.id}
-
-    except Exception as e:
-        raise self.retry(exc=e, countdown=30)
-    finally:
-        db_session.close()
+        identifier = UUID(str(details.get("delivery_id")))
+    except (ValueError, TypeError, AttributeError):
+        return {"success": False, "reason": "invalid_delivery_uuid"}
+    return execute_task(self, lambda: run_monitor(identifier))

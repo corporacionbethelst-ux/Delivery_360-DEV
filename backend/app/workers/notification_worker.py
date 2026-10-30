@@ -1,61 +1,42 @@
-"""
-Worker Celery para envío de notificaciones
-"""
+"""Persisted retry dispatch only; legacy untracked sends never report success."""
 
 from celery import shared_task
-from datetime import datetime
-from typing import Dict, Any
+from app.core.config import settings
+from app.services.omnichannel_service import OmnichannelNotificationService
+from app.workers.runtime import worker_session, execute_task, disabled
+
+
+async def run_retries(batch_size: int = 50):
+    if type(batch_size) is not int or not 1 <= batch_size <= 100:
+        raise ValueError("Invalid batch size")
+    async with worker_session() as db:
+        count = await OmnichannelNotificationService(db).process_retry_queue(batch_size)
+        return {
+            "success": True,
+            "processed_logs": count,
+            "provider_acceptance_not_delivery": True,
+        }
 
 
 @shared_task(bind=True, max_retries=3)
+def process_notification_retries(self, batch_size: int = 50):
+    if not settings.WORKER_NOTIFICATION_RETRY_ENABLED:
+        return disabled()
+    return execute_task(self, lambda: run_retries(batch_size))
+
+
+@shared_task
 def send_push_notification(
-    self, user_id: int, title: str, message: str, data: Dict[str, Any] = None
+    user_id: str, title: str, message: str, data: dict | None = None
 ):
-    """Enviar notificación push a usuario"""
-    try:
-        # Aquí iría la integración con Firebase Cloud Messaging o APNS
-        print(f"Sending push to user {user_id}: {title} - {message}")
-
-        # Simulación de envío
-        return {
-            "success": True,
-            "user_id": user_id,
-            "sent_at": datetime.utcnow().isoformat(),
-        }
-
-    except Exception as e:
-        raise self.retry(exc=e, countdown=30)
+    return {"success": False, "reason": "persisted_notification_required"}
 
 
-@shared_task(bind=True, max_retries=3)
-def send_email_notification(self, email: str, subject: str, body: str):
-    """Enviar notificación por email"""
-    try:
-        # Aquí iría la integración con SendGrid, SES, etc.
-        print(f"Sending email to {email}: {subject}")
-
-        return {
-            "success": True,
-            "email": email,
-            "sent_at": datetime.utcnow().isoformat(),
-        }
-
-    except Exception as e:
-        raise self.retry(exc=e, countdown=60)
+@shared_task
+def send_email_notification(email: str, subject: str, body: str):
+    return {"success": False, "reason": "persisted_notification_required"}
 
 
-@shared_task(bind=True, max_retries=3)
-def send_sms_notification(self, phone: str, message: str):
-    """Enviar notificación por SMS"""
-    try:
-        # Aquí iría la integración con Twilio, etc.
-        print(f"Sending SMS to {phone}: {message[:50]}...")
-
-        return {
-            "success": True,
-            "phone": phone,
-            "sent_at": datetime.utcnow().isoformat(),
-        }
-
-    except Exception as e:
-        raise self.retry(exc=e, countdown=60)
+@shared_task
+def send_sms_notification(phone: str, message: str):
+    return {"success": False, "reason": "persisted_notification_required"}

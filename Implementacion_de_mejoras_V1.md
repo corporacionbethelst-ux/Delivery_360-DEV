@@ -4308,3 +4308,239 @@ uso, coordinación entre pestañas, comunicaciones/outbox, conciliación externa
 Mypy global/cobertura y certificación de producción. El transporte fiscal real
 permanece bloqueado hasta integración/homologación verificable; el bloque de rutas
 no cambia esa protección. No se declara terminada la fase 8 ni producción al 100 %.
+
+## Entrega ampliada 52 — Workers canónicos, calendario cerrado y ejecución verificable
+
+Fecha de usuario: **29 de octubre de 2026, America/Caracas**; el entorno de
+ejecución ya está en 30 de octubre UTC. Base verificada: main
+00eac3663060d0a81abf9e1c16d5bdf0350b4085, fusión del PR #292, con el mismo árbol
+que el bloque de rutas validado en local. Se continúa el endurecimiento operativo
+de las fases 7–10, con foco en trabajadores, evidencia y programación.
+
+### Estado contrastado en GitHub antes del cambio
+
+El PR #292 fue fusionado. Seguridad, Black, lint crítico, TypeScript/lint/build
+frontend aprobaron. El CI backend tuvo **un fallo y 1513 casos aprobados, dos SDK
+opcionales omitidos**, en 737,67 s: la prueba de dos conexiones de notificaciones
+agotó su espera de diez segundos y canceló operaciones SQLite. La ejecución local
+anterior había aprobado los 1514 casos; se investiga y corrige esta diferencia,
+sin declarar que el CI anterior estuviera en verde.
+
+Mypy seguía en 193 errores/38 archivos. Frontend: **678 casos/48 suites aprobados**,
+pero cobertura de líneas **27,70 %**, inferior al 50 % (statements 27,64 %,
+ramas 22,03 %, funciones 23,04 %). No había hilos de revisión pendientes al iniciar.
+
+### Hallazgos críticos abordados
+
+1. Los workers SLA/liquidación/limpieza usaban imports por backend.app.workers
+   incompatibles con el arranque desde backend. Productividad y alertas importaban
+   get_db_session inexistente y mezclaban sesiones síncronas/asíncronas. Un error
+   de inicialización podía llegar a un finally sobre una variable no definida.
+2. La productividad refería columnas/aliases inexistentes y construía métricas
+   con campos incorrectos. La tarea diaria estaba definida en otro módulo; su
+   consulta mezclaba cohortes de pedidos/entregas y omitía riders inactivos.
+3. El monitor SLA restaba fechas aware/naive, convertía UUID en int, repetía avisos
+   y podía actualizar datos mientras los errores de alertas quedaban atrapados.
+4. La liquidación pretendía marcar registros como liquidados sin campos válidos
+   ni evidencia de un pago. La limpieza borraba auditoría y notificaciones por una
+   sola antigüedad, sin distinguir retención legal o política por tabla.
+5. Workers de PUSH/EMAIL/SMS imprimían contenido/destinatarios y declaraban envío
+   exitoso sin transporte. El reporte construía ceros ficticios, usaba un exportador
+   inexistente y una ruta de archivo derivada de parámetros no validados.
+6. El modelo de compatibilidad app.models.alert declaraba otra tabla alerts y
+   usaba el nombre reservado metadata. Ahora reexporta el mapeo realmente utilizado.
+7. La prueba WebSocket concurrente usaba TestClient 0.37.2, cuyo receive ejecuta
+   sondeo con sleep(0); varias conexiones compartiendo loop pueden competir con
+   los hilos SQLite. El nuevo conductor ASGI espera en colas, sin ampliar timeout,
+   reintentar a ciegas o relajar las comprobaciones productivas.
+
+### Registro y runtime de tareas
+
+Se normalizan ocho módulos bajo app.workers y se comprueban doce tareas registradas.
+Los entry points públicos anteriores conservan sus nombres. La tarea diaria de
+productividad queda en su módulo canónico; liquidación conserva una reexportación
+de compatibilidad sin declarar otra tarea con el mismo nombre.
+
+El runtime común crea engine async con NullPool por invocación, sesión contextual,
+rollback ante error/cancelación y dispose al salir. No se reutiliza una conexión
+asyncpg entre loops creados por asyncio.run. El análisis de rutas conserva su
+contrato de la entrega 51 y mejora el contexto de sus reintentos.
+
+Los fallos de validación devuelven revisión manual. La infraestructura reintenta
+hasta tres veces con RuntimeError genérico; retry se invoca después de abandonar
+el bloque except, porque Celery.retry lanza internamente. Esto evita adjuntar el
+error original como contexto de la traza de retry/fallo final. No se afirma por
+ello que todos los logs de SQLAlchemy o del sistema estén auditados.
+
+Se ejecuta un **worker Celery real, pool solo**, con Redis temporal/cola exclusiva:
+ping correcto, doce tareas registradas, ejecución por broker y resultado del envío
+legacy rechazado. No se inicia Beat ni se conecta al broker productivo. No se
+certifican con esa prueba todos los pools, despliegue HA o productores externos.
+
+### Programación y habilitación explícita
+
+| Ajuste | Valor inicial | Alcance |
+| --- | --- | --- |
+| CELERY_TIMEZONE | America/Sao_Paulo | Conserva zona anterior; IANA validada y configurable |
+| CELERY_BEAT_ENABLED | false | Permite construir la agenda explícita |
+| WORKER_SLA_MONITOR_ENABLED | false | Monitor manual/tarea de SLA; Beat solo con ambos flags |
+| WORKER_PRODUCTIVITY_ENABLED | false | Cálculo por rider/diario; Beat solo con ambos flags |
+| WORKER_REPORTS_ENABLED | false | Reportes operacionales de lectura, sin programación |
+| WORKER_NOTIFICATION_RETRY_ENABLED | false | Tarea manual de la cola persistida, sin programación |
+
+Con los valores iniciales la agenda está vacía y esos jobs devuelven worker_disabled
+antes de abrir BD/transporte. Si se habilita Beat y la tarea correspondiente, SLA
+corre cada cinco minutos y productividad a la 01:00 local sobre el día anterior.
+La ejecución a las 22:00 del mismo día no se mantiene como cierre parcial disfrazado
+de diario. No se programan liquidación, limpieza, envíos directos, reportes,
+reintentos de mensajes ni análisis de rutas.
+
+Los ajustes son por proceso y la agenda se construye al importar la app; requieren
+reinicio coordinado. No son una pausa distribuida atómica. El código interno y el
+broker son de confianza: no se añade API pública ni autenticación de actor dentro
+de los servicios. Quedan a cargo del despliegue la protección de colas/productores,
+credenciales y liderazgo de Beat. Para calendario venezolano debe configurarse
+America/Caracas expresamente y verificarse en staging; no se infiere de la máquina.
+
+### Productividad persistida y semántica de datos
+
+Las tareas reciben UUID real y fecha YYYY-MM-DD de día cerrado, o seleccionan el
+día anterior local si no se proporciona. Se rechazan fecha actual/futura, rutas,
+formatos libres o identificadores inválidos. El intervalo es [medianoche local,
+medianoche siguiente), convertido a UTC naive: >= inicio y < fin. Los tests cubren
+días de 23, 24 y 25 horas y no se pierden microsegundos al final del período.
+
+Se cuentan exclusivamente entregas COMPLETADA cuyo completed_at está en ese día,
+incluidas las de riders que hoy estén inactivos. FALLIDA no se presenta como entrega
+exitosa. Las métricas se guardan en productivity_metrics, sin inventar columnas de
+agregados en productivity_records.
+
+| Dato | Regla aplicada |
+| --- | --- |
+| total_deliveries | Conteo de completadas del período |
+| on_time_deliveries / late_deliveries | Solo SLA explícitamente true / false |
+| sla_compliance_rate | Porcentaje sobre SLA conocidos; NULL si no se conoce ninguno |
+| avg_delivery_time_minutes | Media de diferencias completed_at-started_at válidas; NULL sin evidencia válida |
+| total_distance_km | Suma solo con todas las distancias conocidas/finitas/no negativas; NULL si falta alguna |
+| total_earnings / rating promedio/conteo | No se calculan: NULL en filas nuevas y valores previos preservados al repetir |
+
+La respuesta identifica SLA/duraciones/distancias faltantes. No transforma datos
+desconocidos en retrasos, salarios o ratings cero. Se bloquea Rider para buscar y
+actualizar su fila sin shift_id del período; replays/concurrencia cooperantes
+conservan el mismo ID. Si ya hay duplicados históricos, se exige revisión, sin
+borrarlos o fusionarlos. El índice existente no es UNIQUE y no sustituye la
+cooperación entre escritores.
+
+Se rechazan más de 10000 completadas por rider/día sin guardar métricas parciales.
+El job diario admite hasta 1000 riders, confirma por rider y puede dejar avances
+previos si otro rider falla; el replay recalcula esos IDs. No hay cursor durable o
+partición automática. Estas métricas no se usan para pagos, sanciones o bonos.
+
+### SLA con evidencia local y avisos dirigidos
+
+Se revisan entregas activas INICIADA/EN_PICKUP/EN_ROUTE/EN_DESTINO con fecha de inicio
+y objetivo positivo. El reloj debe superar el deadline exacto; igualdad no genera
+incumplimiento. Sin objetivo no se inventan sesenta minutos. El monitor toma hasta
+cien entregas y usa FOR UPDATE SKIP LOCKED con verificación del evento bajo el lock.
+
+Se guarda un Alert canónico SLA_BREACH/HIGH/OPEN con UUID de entrega/pedido/rider.
+No se modifican SLA final, minutos finales, estado de entrega, bono o snapshot
+financiero. El evento previo por entrega evita repetirlo; no se añade un UNIQUE
+global a alerts ni se promete exactamente una vez con código ajeno o borrados.
+
+La bandeja IN_APP se dirige a gerentes/superadmins activos y al usuario activo del
+rider. Respeta NOTIFICATIONS_ENABLED y la preferencia desactivada sla_warning/IN_APP.
+La pausa no elimina el Alert ni provoca un envío retrospectivo al reactivarse.
+Se limita el conjunto de supervisores a doscientos antes de exigir revisión.
+
+Alert y logs se confirman juntos o se revierten. El log usa dedupe_key de entrega
+y destinatario con el UNIQUE existente. Queda PENDIENTE y sin next_retry_at como
+contenido local de bandeja, no como entrega a un proveedor. No se publica Redis/WS
+ni se envía EMAIL/PUSH/SMS desde ese productor. Sigue pendiente el outbox para
+actualización inmediata; la bandeja REST permite recuperar el contenido persistido.
+
+generate_operational_alert solo acepta la revisión de SLA con entrega UUID y
+severidad high; consulta hechos persistidos en vez de confiar en un texto arbitrario
+o crear avisos sin destinatario. Otros tipos devuelven rechazo explícito.
+
+### Notificaciones, reportes y acciones sin evidencia
+
+process_notification_retries procesa entre 1 y 100 logs, por defecto 50, mediante
+el servicio omnicanal existente y una sesión dedicada. Conserva los locks,
+preferencias, pausa global y política de proveedores. processed_logs no significa
+mensajes entregados; habilitar el job podría contactar proveedores configurados.
+Aquí no se habilita en el entorno del usuario y los tests sustituyen transportes.
+
+Los antiguos send_push_notification/send_email_notification/send_sms_notification
+devuelven persisted_notification_required, success=false y no imprimen argumentos.
+Sus productores deben migrar al flujo persistido; no se conserva el éxito simulado.
+
+El reporte operations devuelve JSON con conteos SQL de pedidos creados por estado
+y entregas terminales cerradas por estado, fechas UTC y source=database_snapshot.
+Son cohortes distintas y lecturas bajo aislamiento normal, no rentabilidad, SLA ni
+cierre contable verificado. No crea archivos con rutas de usuario. financial y
+otros tipos se rechazan.
+
+La liquidación devuelve verified_settlement_required y paid_records=0, sin tocar
+tablas financieras; la limpieza devuelve reviewed_retention_policy_required y
+deleted_records=0, sin borrar auditoría/notificaciones. No se programan y no hay
+un flag que habilite esas simulaciones. Un estado Celery SUCCESS solo puede
+significar que el handler devolvió un rechazo correctamente, no una operación de
+negocio exitosa. Los pagos/retención verificables siguen siendo trabajo pendiente.
+
+### Esquema, compatibilidad y regresiones
+
+Se tipan **54 columnas existentes**: 16 productivity_metrics, 11 sla_records,
+nueve productivity_records y 18 alerts. El contrato versionado compara DDL de
+PostgreSQL, defaults/onupdate, índices, FK y enums. No cambia SQL ni se añade una
+migración. Las relaciones de Shift/ProductivityRecord usan back_populates en ambas
+direcciones y se elimina esa advertencia de solapamiento sin suprimir reglas.
+
+app.models.alert.Alert reexporta el modelo de app.models.notification. Se conservan
+sus enums legacy como símbolos, sin traducir estados automáticamente o declarar
+otra tabla. No se reescribe el historial de alertas o métricas.
+
+La prueba WebSocket usa la aplicación ASGI real con colas que esperan mensajes,
+en un solo loop. Verifica dos/cuatro sockets propios más uno ajeno, sin duplicados
+ni cruces de datos. Se mantienen autenticación y verificaciones de producción y
+el mismo timeout. Se repite **cinco veces/diez casos locales aprobados**, en vez de
+subir el tiempo de espera. El resultado del nuevo CI se informa por separado;
+Python local es 3.12 y el CI usa 3.11.
+
+### Validación del cierre
+
+Se añaden **68 casos**: 45 de runtime/configuración/compatibilidad/recursos, 22
+PostgreSQL/jobs y un caso adicional del socket concurrente parametrizado. Los casos
+nativos incluyen replay, sesiones competidoras, días cerrados, datos desconocidos,
+deadline exacto, pausa/preferencias, preservación financiera, rollback, datos
+históricos duplicados, límites y loops sucesivos.
+
+| Control | Resultado |
+| --- | --- |
+| Runtime/PostgreSQL tras pausa/preferencias | **67 aprobados**, 28,00 s, una advertencia de configuración previa |
+| Bloque focal ampliado anterior | **105 aprobados**, antes de los dos casos finales de pausa/preferencia |
+| Worker y broker reales de prueba | Ping, doce tareas, cola dedicada y respuesta legacy rechazada; sin envío externo |
+| Regresión de múltiples sockets | **Diez casos aprobados en cinco ejecuciones** |
+| Backend completo final | **1582 aprobados, dos SDK opcionales omitidos**, una advertencia existente; 719.86 s |
+| SDK opcionales instalados, HTTP sustituido | **Dos aprobados aparte**, sin envío externo; 0,81 s |
+| Mypy | **182 errores/33 archivos**, antes 193/38: once menos, sin exclusiones nuevas |
+| Black / flake8 crítico / diff | **Aprobados**: Black app, flake8 crítico y git diff --check |
+| Frontend | Sin cambios ni nueva medición; CI #292: 678 pruebas, líneas 27,70 %, tipos/lint/build aprobados |
+
+La guía backend/WORKER_OPERATIONS.md y el README explican arranque, flags,
+calendarios, diccionario y operación. Se prepara PR sin borrador con árbol/blobs y
+commit cotejados con el local probado. No se fusiona, despliega, ejecuta Beat,
+aplica migración ni modifica información productiva durante esta entrega.
+
+### Pendientes y finalidad del siguiente bloque
+
+Se desbloquean imports/registro y el arranque controlado del conjunto, pero no se
+declara habilitado en producción. Falta validar configuración/históricos en staging,
+coordinación de consumidores y liderazgo Beat, observabilidad, presupuestos de
+tiempo y reclamación durable, grandes lotes, idempotencia global y outbox. Faltan
+liquidación con evidencia/conciliación y retención por tabla con legal hold.
+
+Persisten UI y unificación de trazas/rutas, replanificación, comunicaciones y
+permisos/cachés, sesiones por dispositivo/refresh de un uso, deuda global de tipos
+y cobertura, transporte/homologación fiscal y certificación de producción. Las
+protecciones fiscales previas continúan. No se declara el sistema al 100 %.

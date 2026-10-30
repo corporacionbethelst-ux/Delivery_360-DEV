@@ -107,3 +107,12 @@ Conserva el alias GPS anterior y el esquema SQL; no requiere migración nueva.
 El ETA conserva destinos con coordenadas cero y no usa la posición del rider como
 destino. Consulte [contratos, diccionario, concurrencia y límites](ROUTE_ANALYSIS.md),
 incluidas las tareas pendientes del conjunto de workers y la unificación de trazas.
+
+## Workers y programación operativa
+
+La entrega 52 normaliza ocho módulos y doce tareas Celery, incorpora productividad
+de días cerrados y vigilancia SLA con evidencia/bandeja local. La agenda y los jobs
+nuevos están deshabilitados por defecto y se habilitan explícitamente. Los antiguos
+envíos simulados, la liquidación sin evidencia y el borrado global ya no declaran
+éxito ni se programan. No requiere migración nueva. Consulte
+[configuración, arranque, contratos y límites](WORKER_OPERATIONS.md).

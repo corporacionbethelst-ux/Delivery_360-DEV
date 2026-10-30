@@ -1,62 +1,52 @@
-"""
-Worker Celery para cálculo de productividad
-"""
+"""Closed-day productivity, disabled until explicitly enabled."""
 
+from uuid import UUID
 from celery import shared_task
-from datetime import datetime
-from app.core.database import get_db_session
+from app.core.config import settings
+from app.services.worker_jobs import WorkerJobs
+from app.workers.runtime import closed_day, worker_session, execute_task, disabled
 
 
-@shared_task(bind=True, max_retries=3)
-def calculate_rider_productivity(self, rider_id: int, date: str):
-    """Calcular métricas de productividad para un repartidor en una fecha"""
-    try:
-        db_session = next(get_db_session())
+async def run_rider(rider_id: str, date: str):
+    day = closed_day(date)
+    if not isinstance(rider_id, str):
+        raise ValueError("Invalid rider UUID")
+    identifier = UUID(rider_id)
+    async with worker_session() as db:
+        return await WorkerJobs(db).rider_metrics(identifier, day)
 
-        # Calcular entregas totales, tiempo promedio, SLA
-        from app.models.delivery import Delivery
-        from app.models.productivity import ProductivityMetrics
-        from sqlalchemy import select, func
 
-        query_date = datetime.fromisoformat(date)
+async def run_daily(date: str | None = None):
+    day = closed_day(date)
+    async with worker_session() as db:
+        riders = await WorkerJobs(db).daily_riders(day)
+        results = []
+        for rider in riders:
+            results.append(await WorkerJobs(db).rider_metrics(rider, day))
+        return {
+            "success": True,
+            "date": day.isoformat(),
+            "riders_processed": len(results),
+        }
 
-        # Obtener estadísticas del día
-        start_of_day = query_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_of_day = query_date.replace(
-            hour=23, minute=59, second=59, microsecond=999999
-        )
 
-        query = select(
-            func.count().label("total_deliveries"),
-            func.avg(Delivery.delivery_time).label("avg_delivery_time"),
-        ).where(
-            Delivery.rider_id == rider_id,
-            Delivery.started_at >= start_of_day,
-            Delivery.started_at <= end_of_day,
-        )
+@shared_task(
+    bind=True,
+    max_retries=3,
+    name="app.workers.productivity_worker.calculate_rider_productivity",
+)
+def calculate_rider_productivity(self, rider_id: str, date: str):
+    if not settings.WORKER_PRODUCTIVITY_ENABLED:
+        return disabled()
+    return execute_task(self, lambda: run_rider(rider_id, date))
 
-        result = db_session.execute(query)
-        stats = result.first()
 
-        if stats and stats.total_deliveries > 0:
-            metrics = ProductivityMetrics(
-                rider_id=rider_id,
-                date=query_date,
-                total_deliveries=stats.total_deliveries,
-                avg_delivery_time=(
-                    float(stats.avg_delivery_time) if stats.avg_delivery_time else 0
-                ),
-                calculated_at=datetime.utcnow(),
-            )
-
-            db_session.add(metrics)
-            db_session.commit()
-
-            return {"success": True, "rider_id": rider_id, "date": date}
-
-        return {"success": False, "reason": "No deliveries found"}
-
-    except Exception as e:
-        raise self.retry(exc=e, countdown=60)
-    finally:
-        db_session.close()
+@shared_task(
+    bind=True,
+    max_retries=3,
+    name="app.workers.productivity_worker.calculate_daily_productivity",
+)
+def calculate_daily_productivity(self, date: str | None = None):
+    if not settings.WORKER_PRODUCTIVITY_ENABLED:
+        return disabled()
+    return execute_task(self, lambda: run_daily(date))

@@ -1,0 +1,416 @@
+{
+  "productivity_metrics": {
+    "ddl": "\nCREATE TABLE productivity_metrics (\n\tid UUID NOT NULL, \n\trider_id UUID NOT NULL, \n\tshift_id UUID, \n\ttotal_deliveries INTEGER, \n\ton_time_deliveries INTEGER, \n\tlate_deliveries INTEGER, \n\tavg_delivery_time_minutes FLOAT, \n\ttotal_distance_km FLOAT, \n\ttotal_earnings FLOAT, \n\tcustomer_rating_avg FLOAT, \n\tcustomer_rating_count INTEGER, \n\tsla_compliance_rate FLOAT, \n\tperiod_start TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tperiod_end TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(rider_id) REFERENCES riders (id) ON DELETE CASCADE, \n\tFOREIGN KEY(shift_id) REFERENCES shifts (id) ON DELETE SET NULL\n)\n\n",
+    "indexes": [
+      "CREATE INDEX idx_productivity_metrics_rider_period ON productivity_metrics (rider_id, period_start, period_end)",
+      "CREATE INDEX ix_productivity_metrics_id ON productivity_metrics (id)",
+      "CREATE INDEX ix_productivity_metrics_rider_id ON productivity_metrics (rider_id)",
+      "CREATE INDEX ix_productivity_metrics_shift_id ON productivity_metrics (shift_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "rider_id": [
+        null,
+        null
+      ],
+      "shift_id": [
+        null,
+        null
+      ],
+      "total_deliveries": [
+        "0",
+        null
+      ],
+      "on_time_deliveries": [
+        "0",
+        null
+      ],
+      "late_deliveries": [
+        "0",
+        null
+      ],
+      "avg_delivery_time_minutes": [
+        "0.0",
+        null
+      ],
+      "total_distance_km": [
+        "0.0",
+        null
+      ],
+      "total_earnings": [
+        "0.0",
+        null
+      ],
+      "customer_rating_avg": [
+        "0.0",
+        null
+      ],
+      "customer_rating_count": [
+        "0",
+        null
+      ],
+      "sla_compliance_rate": [
+        "100.0",
+        null
+      ],
+      "period_start": [
+        null,
+        null
+      ],
+      "period_end": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {},
+    "foreign_keys": [
+      {
+        "column": "rider_id",
+        "target": "riders.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "shift_id",
+        "target": "shifts.id",
+        "ondelete": "SET NULL",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {}
+  },
+  "sla_records": {
+    "ddl": "\nCREATE TABLE sla_records (\n\tid UUID NOT NULL, \n\trider_id UUID, \n\tdelivery_id UUID NOT NULL, \n\torder_id UUID, \n\tpromised_delivery_minutes INTEGER NOT NULL, \n\tactual_delivery_minutes INTEGER, \n\tsla_met BOOLEAN, \n\tdelay_minutes INTEGER, \n\tpromised_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tcompleted_at TIMESTAMP WITHOUT TIME ZONE, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(rider_id) REFERENCES riders (id) ON DELETE SET NULL, \n\tFOREIGN KEY(delivery_id) REFERENCES deliveries (id) ON DELETE CASCADE, \n\tFOREIGN KEY(order_id) REFERENCES orders (id) ON DELETE CASCADE\n)\n\n",
+    "indexes": [
+      "CREATE INDEX idx_sla_records_met ON sla_records (sla_met)",
+      "CREATE INDEX idx_sla_records_rider_date ON sla_records (rider_id, created_at)",
+      "CREATE INDEX ix_sla_records_delivery_id ON sla_records (delivery_id)",
+      "CREATE INDEX ix_sla_records_id ON sla_records (id)",
+      "CREATE INDEX ix_sla_records_order_id ON sla_records (order_id)",
+      "CREATE INDEX ix_sla_records_rider_id ON sla_records (rider_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "rider_id": [
+        null,
+        null
+      ],
+      "delivery_id": [
+        null,
+        null
+      ],
+      "order_id": [
+        null,
+        null
+      ],
+      "promised_delivery_minutes": [
+        null,
+        null
+      ],
+      "actual_delivery_minutes": [
+        null,
+        null
+      ],
+      "sla_met": [
+        "True",
+        null
+      ],
+      "delay_minutes": [
+        "0",
+        null
+      ],
+      "promised_at": [
+        null,
+        null
+      ],
+      "completed_at": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ]
+    },
+    "enums": {},
+    "foreign_keys": [
+      {
+        "column": "delivery_id",
+        "target": "deliveries.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "order_id",
+        "target": "orders.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "rider_id",
+        "target": "riders.id",
+        "ondelete": "SET NULL",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {}
+  },
+  "productivity_records": {
+    "ddl": "\nCREATE TABLE productivity_records (\n\tid UUID NOT NULL, \n\trider_id UUID NOT NULL, \n\tshift_id UUID, \n\tmetric_type metrictype NOT NULL, \n\tvalue FLOAT NOT NULL, \n\tunit VARCHAR(50), \n\tdate TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tnotes VARCHAR(500), \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(rider_id) REFERENCES riders (id) ON DELETE SET NULL, \n\tFOREIGN KEY(shift_id) REFERENCES shifts (id) ON DELETE CASCADE\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_productivity_records_id ON productivity_records (id)",
+      "CREATE INDEX ix_productivity_records_rider_id ON productivity_records (rider_id)",
+      "CREATE INDEX ix_productivity_records_shift_id ON productivity_records (shift_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "rider_id": [
+        null,
+        null
+      ],
+      "shift_id": [
+        null,
+        null
+      ],
+      "metric_type": [
+        null,
+        null
+      ],
+      "value": [
+        null,
+        null
+      ],
+      "unit": [
+        null,
+        null
+      ],
+      "date": [
+        null,
+        null
+      ],
+      "notes": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ]
+    },
+    "enums": {
+      "metric_type": [
+        "ENTREGAS_TOTAL",
+        "TIEMPO_PROMEDIO",
+        "CALIFICACION",
+        "DISTANCIA_TOTAL",
+        "INGRESOS_TURNO"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "rider_id",
+        "target": "riders.id",
+        "ondelete": "SET NULL",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "shift_id",
+        "target": "shifts.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "metric_type": {
+        "name": "metrictype",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    }
+  },
+  "alerts": {
+    "ddl": "\nCREATE TABLE alerts (\n\tid UUID DEFAULT gen_random_uuid() NOT NULL, \n\talert_type VARCHAR(50) NOT NULL, \n\tseverity VARCHAR(20), \n\ttitle VARCHAR(255) NOT NULL, \n\tdescription TEXT, \n\torder_id UUID, \n\tdelivery_id UUID, \n\trider_id UUID, \n\tstatus VARCHAR(20), \n\tacknowledged_by UUID, \n\tacknowledged_at TIMESTAMP WITHOUT TIME ZONE, \n\tresolved_by UUID, \n\tresolved_at TIMESTAMP WITHOUT TIME ZONE, \n\tresolution_notes TEXT, \n\tauto_resolve_at TIMESTAMP WITHOUT TIME ZONE, \n\tauto_resolved BOOLEAN, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(order_id) REFERENCES orders (id), \n\tFOREIGN KEY(delivery_id) REFERENCES deliveries (id), \n\tFOREIGN KEY(rider_id) REFERENCES riders (id), \n\tFOREIGN KEY(acknowledged_by) REFERENCES users (id), \n\tFOREIGN KEY(resolved_by) REFERENCES users (id)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_alerts_created_at ON alerts (created_at)",
+      "CREATE INDEX ix_alerts_delivery_id ON alerts (delivery_id)",
+      "CREATE INDEX ix_alerts_id ON alerts (id)",
+      "CREATE INDEX ix_alerts_order_id ON alerts (order_id)",
+      "CREATE INDEX ix_alerts_rider_id ON alerts (rider_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "alert_type": [
+        null,
+        null
+      ],
+      "severity": [
+        null,
+        null
+      ],
+      "title": [
+        null,
+        null
+      ],
+      "description": [
+        null,
+        null
+      ],
+      "order_id": [
+        null,
+        null
+      ],
+      "delivery_id": [
+        null,
+        null
+      ],
+      "rider_id": [
+        null,
+        null
+      ],
+      "status": [
+        "OPEN",
+        null
+      ],
+      "acknowledged_by": [
+        null,
+        null
+      ],
+      "acknowledged_at": [
+        null,
+        null
+      ],
+      "resolved_by": [
+        null,
+        null
+      ],
+      "resolved_at": [
+        null,
+        null
+      ],
+      "resolution_notes": [
+        null,
+        null
+      ],
+      "auto_resolve_at": [
+        null,
+        null
+      ],
+      "auto_resolved": [
+        "False",
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {},
+    "foreign_keys": [
+      {
+        "column": "acknowledged_by",
+        "target": "users.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "delivery_id",
+        "target": "deliveries.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "order_id",
+        "target": "orders.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "resolved_by",
+        "target": "users.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "rider_id",
+        "target": "riders.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {}
+  }
+}

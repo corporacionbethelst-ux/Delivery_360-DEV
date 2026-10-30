@@ -1,7 +1,8 @@
 from pydantic_settings import BaseSettings
 from typing import List, Optional
 import json
-from pydantic import Field
+from pydantic import Field, field_validator
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 class Settings(BaseSettings):
@@ -84,6 +85,21 @@ class Settings(BaseSettings):
     # --- CONFIGURACIÓN DE CELERY ---
     CELERY_BROKER_URL: str = "redis://localhost:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
+    CELERY_TIMEZONE: str = "America/Sao_Paulo"
+    CELERY_BEAT_ENABLED: bool = False
+    WORKER_SLA_MONITOR_ENABLED: bool = False
+    WORKER_PRODUCTIVITY_ENABLED: bool = False
+    WORKER_REPORTS_ENABLED: bool = False
+    WORKER_NOTIFICATION_RETRY_ENABLED: bool = False
+
+    @field_validator("CELERY_TIMEZONE")
+    @classmethod
+    def valid_worker_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ValueError, ZoneInfoNotFoundError):
+            raise ValueError("CELERY_TIMEZONE must be an IANA timezone") from None
+        return value
 
     # --- CONFIGURACIÓN DE PROTECCIÓN DE DATOS (LGPD) ---
     LGPD_RETENTION_DAYS: int = 1825

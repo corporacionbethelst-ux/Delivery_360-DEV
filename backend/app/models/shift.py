@@ -87,7 +87,7 @@ class Shift(Base):
     check_ins = relationship(
         "CheckInOut", back_populates="shift", cascade="all, delete-orphan"
     )
-    productivity_records = relationship("ProductivityRecord")
+    productivity_records = relationship("ProductivityRecord", back_populates="shift")
 
     def __repr__(self):
         return f"<Shift(id={self.id}, rider={self.rider_id}, date={self.shift_date})>"
