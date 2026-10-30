@@ -124,6 +124,13 @@ con permisos y auditoría transaccional. Los diagnósticos son locales y no anun
 una conexión externa verificada. No requiere migración. Consulte
 [contratos, diccionario, conservación y adaptadores pendientes](INTEGRATION_REGISTRY.md).
 
+## Composición de API y arranque
+
+La entrega 55 carga los módulos API canónicos y detiene el arranque si falta un
+componente requerido o su router es inválido. Retira handlers alternativos antiguos
+y conserva las rutas, permisos, alias y OpenAPI mediante un contrato antes/después.
+No requiere migración. Consulte [módulos, compatibilidad, inventario y operación](API_BOOTSTRAP.md).
+
 ## Workers y programación operativa
 
 La entrega 52 normaliza ocho módulos y doce tareas Celery, incorpora productividad

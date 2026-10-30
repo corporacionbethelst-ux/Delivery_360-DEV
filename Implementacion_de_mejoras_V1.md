@@ -4893,3 +4893,154 @@ fallbacks de importación sin degradar la autenticación o los módulos reales.
 Siguen pendientes cobertura/tipado globales, sesiones por dispositivo/refresh de
 un uso, actualización por eventos, unificación de trazas/rutas, móvil/offline,
 pagos/conciliación y homologación fiscal. No se declara producción al cien por ciento.
+
+
+## Entrega ampliada 55 — Carga canónica de API, retiro de endpoints obsoletos y arranque íntegro
+
+Fecha de verificación: **30 de octubre de 2026**. Base main cotejada:
+`81e2f3c143bc0aba2a220ce55c6bfb1feb501556`, después de fusionarse el PR #295.
+El merge conserva el árbol local probado de la entrega 54. Su CI confirmó
+**1700 pruebas backend aprobadas**, dos SDK opcionales omitidos y una advertencia;
+**735 pruebas frontend aprobadas / 51 suites**. Lint, Black, TypeScript, compilación
+y escaneo de seguridad pasaron. Persistieron 146 errores Mypy y cobertura frontend
+de **28,87 % de líneas**, por debajo de 50 %. No había hilos de revisión pendientes.
+
+### Hallazgos confirmados
+
+routers_combined.py aún contenía implementaciones antiguas de entregas, finanzas,
+retiros, alertas, auditoría y usuarios, aunque la aplicación usaba módulos más
+recientes. Sus consultas incluían atributos inexistentes y contratos anteriores.
+La deuda de tipos seguía señalando ese código sin necesidad de ejecutarlo.
+
+El paquete API creaba módulos ficticios con types.ModuleType para algunos routers.
+Esos objetos no tenían identidad/especificación del módulo físico ni ofrecían sus
+helpers reales. Además, si importar payouts fallaba, se podía activar el router
+antiguo, incluso cuando el error provenía de una dependencia interna del módulo.
+
+Tracking, telemetría, notificaciones y fiscal mantenían guards de importación que
+permitían omitir una parte de la API ante un ImportError. La aplicación podía
+arrancar con una superficie reducida, dificultando distinguir un componente
+deliberadamente ausente de un artefacto roto. No se afirma que esos fallos hubiesen
+ocurrido en producción; se elimina la ruta de degradación comprobada en el código.
+
+### Cambios de composición
+
+app/api/v1/__init__.py importa directamente veinticuatro módulos reales, valida
+que cada uno tenga un APIRouter poblado y exporta sus nombres canónicos. Un módulo
+ausente, una dependencia interna rota o un router ausente/null/vacío impiden
+completar el arranque. No se sustituye un componente por otro endpoint alternativo.
+
+main.py mantiene el montaje y su orden, y usa tracking, telemetría, notificaciones
+y fiscal como componentes requeridos. Los WebSockets conservan sus wrappers y
+delegan en los mismos handlers vigentes. No se añaden flags para publicar una API
+parcial. Los SDK opcionales mantienen su inicialización diferida y no se contactan
+proveedores para comprobar los imports.
+
+El archivo routers_combined queda como once reexports del router canónico:
+deliveries, shifts, financial, productivity, routes, dashboard, alerts, audit,
+integrations, users y payouts. No conserva handlers, esquemas de petición,
+workflows, consultas SQL, OTP o cálculos financieros alternativos. La aplicación
+ya no depende de ese archivo para escoger sus módulos vigentes.
+
+Los nombres de compatibilidad apuntan al mismo objeto APIRouter que cada módulo
+real. Los prefijos siguen definidos por los módulos y el montaje de main; la guía
+documenta la combinación correcta. No se montan dos veces los routers ni se
+reintroducen prefijos duplicados. Los alias HTTP históricos ya soportados por GPS,
+dashboard, productividad e integraciones siguen disponibles con sus permisos.
+
+No cambian handlers de negocio, reservas, verificación bancaria, saldos, ledger,
+entregas, auditoría o registros de proveedores. Se retira el camino a sus versiones
+obsoletas. No cambian modelos, DDL, diccionario SQL, migraciones, dependencias,
+configuración o frontend. No se ejecutan cambios sobre datos productivos.
+
+### Inventario verificable de API
+
+Antes de modificar los tres archivos de producción se obtuvo un baseline del main
+verificado, almacenado en tests/fixtures/api_surface_before_bootstrap.json.
+La comparación anterior/posterior conserva íntegramente:
+
+| Contrato | Resultado |
+| --- | --- |
+| Entradas de app.routes, en orden de resolución | **197**, idénticas |
+| Rutas APIRoute HTTP | **190**, incluyendo raíces y alias |
+| WebSockets | **Dos**, tracking y notificaciones |
+| Otras entradas | Cuatro rutas de documentación y el montaje de uploads |
+| Definiciones del grafo de dependencias | **188**, llamadas, nombres, cache, scopes y roles idénticos |
+| OpenAPI completo | SHA-256 idéntico antes/después |
+| Fábricas independientes | Inventario idéntico, sin registro duplicado |
+| IO durante composición | No abre conexión DB ni ejecuta create_all |
+
+El hash OpenAPI es
+`9d63eb9e4c9469b55c51f7adcf99a7df5d472dbdd00333a33b32dcf24b533631`.
+El inventario también registra path, métodos, nombre, clase de ruta, status_code,
+tags e inclusión en OpenAPI. Protege los alias ocultos y las dependencias de
+autorización que un hash exclusivo del esquema público no cubriría.
+
+Los nodos de dependencia compartidos evitan repetir árboles enteros. El helper
+solo inspecciona allowlists de roles enum declarados, sin serializar tokens,
+credenciales, datos de usuarios o estados arbitrarios de closures. El baseline
+no se regenera automáticamente al probar: un cambio contractual futuro requiere
+revisión y actualización intencional.
+
+### Pruebas de fallos reales de inicialización
+
+Se añaden **83 casos**: veinticuatro identidades de módulos, once alias de router,
+cuatro contratos de superficie/fábrica/composición y 44 escenarios en intérpretes
+nuevos. Estos últimos comprueban:
+
+- Ausencia de cada uno de los veinticuatro módulos requeridos.
+- Ocho errores de dependencias/inicialización: ModuleNotFoundError transitivo o
+  ImportError en payouts, tracking, notifications y fiscal.
+- Doce routers inválidos en esos cuatro componentes: ausente, null o vacío.
+
+La prueba confirma que se alcanzó el fallo inyectado y que no se publicó/cacheó
+app.main con una aplicación parcial. Python puede envolver una ausencia en
+ImportError al hacer from-import; se admite esa semántica sin aceptar un arranque
+exitoso ni un error ajeno al escenario. Los subprocesos no recargan los módulos
+de la app normal ni mezclan caches, autenticación o WebSockets entre escenarios.
+
+No se ejecutan lifespan, jobs o llamadas externas en esos escenarios. La
+regresión completa conserva las pruebas nativas PostgreSQL/Redis, HTTP, reservas,
+pagos, permisos, revocación, tracking, notificaciones, fiscal y registro de
+integraciones de entregas anteriores.
+
+### Validación final
+
+| Control | Resultado |
+| --- | --- |
+| Casos nuevos focales | **83 aprobados**, 192,09 s, una advertencia previa |
+| Backend completo final | **1783 aprobados, dos SDK opcionales omitidos**, una advertencia de configuración previa; 1422.26 s |
+| SDK opcionales instalados, HTTP sustituido | **Dos aprobados aparte**, 0,93 s, sin envíos externos |
+| Mypy | **121 errores / 28 archivos**, antes 146/31: 25 eliminados y ninguno nuevo por comparación normalizada |
+| Black / flake8 crítico / diff | **Aprobados**: Black app y pruebas nuevas, flake8 crítico y git diff --check |
+| Frontend | Sin cambios ni nueva medición; CI #295 confirmó **735 aprobados / 51 suites**, TypeScript/lint/build aprobados |
+| Cobertura frontend heredada | CI #295: **28,87 % líneas**, por debajo del umbral de 50 % |
+
+No se silencian errores ni se excluyen archivos para reducir Mypy. La reducción
+procede de retirar definiciones obsoletas y asignaciones opcionales de los
+componentes ahora requeridos. No se baja el umbral de cobertura. Local usa Python
+3.12 y el CI usa Python 3.11; el CI del PR nuevo se informa por separado.
+
+La guía **backend/API_BOOTSTRAP.md** explica módulos, montaje, prefijos, diagrama,
+contrato, fallos y operación; se enlaza desde backend/README.md. Se cotejan hashes
+del código probado y árbol/blobs/commit local-GitHub. El PR queda sin borrador.
+No se fusiona, despliega, aplica migración, activa Beat ni envía pagos o mensajes.
+
+### Límites y siguiente prioridad
+
+El arranque íntegro de módulos no certifica conectividad, workers, proveedores,
+rendimiento o corrección completa del negocio. Debe validarse el artefacto con
+sus dependencias en staging antes de reemplazar instancias. Un artefacto roto debe
+corregirse; no se considera sano por servir una API reducida. El scheduler opcional
+en lifespan conserva su manejo actual de fallos, fuera del alcance de estos imports.
+
+Hallazgo adicional: el módulo independiente reconciliation se importa, pero no
+está montado en main. Aquí se conserva el contrato anterior y no se publica
+/api/v1/reconciliation sin revisar sus permisos, alcance, lotes y pruebas de datos.
+Los endpoints existentes bajo /financial/reconciliation y /fiscal/reconciliation
+son contratos diferentes. Su revisión es una siguiente mejora concreta.
+
+Persisten deuda global de tipos/cobertura, carga y readiness/observabilidad,
+outbox, sesiones por dispositivo/refresh de un uso, adaptadores externos y manejo
+seguro de secretos, trazas/rutas, móvil/offline, pagos/conciliación y homologación
+fiscal. No se declara el proyecto al cien por ciento de producción.
