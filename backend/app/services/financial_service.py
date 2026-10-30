@@ -28,24 +28,18 @@ MONEY_QUANT = Decimal("0.01")
 MAX_LEDGER_CLOCK_SKEW = timedelta(seconds=5)
 BALANCE_IMPACT_STATUSES = {PaymentStatus.PROCESADO, PaymentStatus.PAGADO}
 
-# Tipos de crédito: aumentan el balance del rider (Fase 3 Inmutabilidad Financiera)
-CREDIT_TYPES = {
-    TransactionType.PAGO_ENTREGA,
-    TransactionType.PAGO_INTENTO_FALLIDO,
-    TransactionType.BONO_RENDIMIENTO,
-    TransactionType.INGRESO,
-    # Legacy
-    TransactionType.BONO,
-}
-
-# Tipos de débito: disminuyen el balance del rider (Fase 3 Inmutabilidad Financiera)
-DEBIT_TYPES = {
-    TransactionType.PENALIZACION,
-    TransactionType.RETIRO,
-    TransactionType.AJUSTE_MANUAL,
-    # Legacy
-    TransactionType.DESCUENTO,
-}
+# Re-export the same legacy directions for existing callers.
+from app.services.legacy_ledger import (
+    CREDIT_TYPES,
+    DEBIT_TYPES,
+    LEGACY_LEDGER_TYPES,
+    MAX_LEDGER_ROWS,
+    LedgerEntry,
+    analyze_ledger,
+    exact_money,
+)
+from app.core.exceptions import AppException
+from app.core.reporting_period import utc_naive
 
 
 def processed_ledger_filter() -> ColumnElement[bool]:
@@ -63,7 +57,14 @@ def money(value: Union[Decimal, float, int, str, None]) -> Decimal:
 
 def ledger_delta(amount: Decimal, transaction_type: TransactionType) -> Decimal:
     """Calcular el impacto real de una transacción sobre el balance rider."""
-    normalized = money(amount)
+    if (
+        not isinstance(transaction_type, TransactionType)
+        or transaction_type not in LEGACY_LEDGER_TYPES
+    ):
+        raise ValidationError("Tipo de movimiento no admitido en el ledger legacy")
+    normalized = exact_money(amount)
+    if normalized is None or normalized == 0:
+        raise ValidationError("Monto financiero inválido o fuera de rango")
 
     if transaction_type in CREDIT_TYPES:
         return abs(normalized)
@@ -275,29 +276,42 @@ class FinancialService:
             )
         except (ValueError, TypeError, AttributeError) as exc:
             raise ValidationError("Identificador financiero inválido") from exc
-        if not isinstance(transaction_type, TransactionType) or not isinstance(
-            status, PaymentStatus
+        if (
+            not isinstance(transaction_type, TransactionType)
+            or transaction_type not in LEGACY_LEDGER_TYPES
+            or not isinstance(status, PaymentStatus)
+            or type(commit) is not bool
         ):
-            raise ValidationError("Tipo o estado financiero inválido")
-        try:
-            if isinstance(amount, bool) or not Decimal(str(amount)).is_finite():
-                raise InvalidOperation
-            normalized = money(amount)
-            if transaction_type in CREDIT_TYPES | DEBIT_TYPES:
-                normalized = abs(normalized)
-            if not normalized or abs(normalized) > Decimal("99999999.99"):
-                raise InvalidOperation
-        except (InvalidOperation, ValueError, TypeError) as exc:
-            raise ValidationError("Monto financiero inválido o fuera de rango") from exc
+            raise ValidationError(
+                "Tipo, estado u opción transaccional financiera inválida"
+            )
+        normalized = exact_money(amount)
+        if normalized is None or normalized == 0:
+            raise ValidationError("Monto financiero inválido o fuera de rango")
+        if transaction_type in CREDIT_TYPES | DEBIT_TYPES:
+            normalized = abs(normalized)
         if balance_before is not None:
+            validated_before = exact_money(balance_before)
+            if validated_before is None:
+                raise ValidationError("Saldo inicial inválido")
+            balance_before = validated_before
+        for name, value, maximum in (
+            ("description", description, 500),
+            ("reference_id", reference_id, 100),
+            ("source_type", source_type, 50),
+            ("source_id", source_id, 100),
+            ("idempotency_key", idempotency_key, 100),
+        ):
+            if value is None:
+                continue
+            if not isinstance(value, str) or len(value) > maximum or "\x00" in value:
+                raise ValidationError(f"Campo financiero inválido: {name}")
             try:
-                if isinstance(balance_before, bool) or not balance_before.is_finite():
-                    raise InvalidOperation
-                balance_before = money(balance_before)
-            except (InvalidOperation, ValueError, TypeError, AttributeError) as exc:
-                raise ValidationError("Saldo inicial inválido") from exc
+                value.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise ValidationError(f"Campo financiero inválido: {name}") from exc
         key = idempotency_key.strip() if idempotency_key is not None else None
-        if key is not None and (not key or len(key) > 100):
+        if key is not None and not key:
             raise ValidationError("Clave de idempotencia inválida")
 
         async def existing_entry() -> Financial | None:
@@ -316,6 +330,8 @@ class FinancialService:
                 or existing.source_type != source_type
                 or existing.source_id != source_id
                 or existing.created_by_user_id != actor_uuid
+                or balance_before is not None
+                and existing.balance_before != balance_before
             ):
                 raise DuplicateTransactionError(
                     "La clave de idempotencia identifica otro movimiento"
@@ -332,11 +348,73 @@ class FinancialService:
                         raise NotFoundError("Repartidor no encontrado")
                     transaction = await existing_entry()
                     if transaction is None:
-                        before = await self.get_current_balance(rider_uuid)
-                        if (
-                            balance_before is not None
-                            and money(balance_before) != before
-                        ):
+                        rows = (
+                            await self.db.execute(
+                                select(
+                                    Financial.id,
+                                    Financial.amount,
+                                    Financial.balance_before,
+                                    Financial.balance_after,
+                                    cast(Financial.transaction_type, String).label(
+                                        "kind"
+                                    ),
+                                    cast(Financial.status, String).label(
+                                        "payment_status"
+                                    ),
+                                    Financial.created_at,
+                                )
+                                .where(Financial.rider_id == rider_uuid)
+                                .order_by(
+                                    Financial.created_at.asc().nullsfirst(),
+                                    Financial.id,
+                                )
+                                .limit(MAX_LEDGER_ROWS)
+                                .with_for_update()
+                            )
+                        ).all()
+                        if len(rows) >= MAX_LEDGER_ROWS:
+                            raise AppException(
+                                "El historial alcanzó el límite verificable; requiere revisión antes de escribir",
+                                409,
+                            )
+                        clock = datetime.utcnow()
+                        timestamps = [
+                            utc_naive(row.created_at)
+                            for row in rows
+                            if row.created_at is not None
+                        ]
+                        latest = max(timestamps) if timestamps else None
+                        created_at = clock
+                        if latest is not None and created_at <= latest:
+                            if latest - created_at > MAX_LEDGER_CLOCK_SKEW:
+                                raise ValidationError(
+                                    "La cronología del ledger requiere revisión antes de escribir"
+                                )
+                            created_at = latest + timedelta(microseconds=1)
+                        integrity = analyze_ledger(
+                            rider_uuid,
+                            [
+                                LedgerEntry(
+                                    row.id,
+                                    row.amount,
+                                    row.balance_before,
+                                    row.balance_after,
+                                    row.kind,
+                                    row.payment_status,
+                                    row.created_at,
+                                )
+                                for row in rows
+                            ],
+                            now=clock,
+                        )
+                        if integrity.status == "requires_review":
+                            raise AppException(
+                                "El historial contable requiere revisión; no se registró el movimiento",
+                                409,
+                            )
+                        # A new ledger may start at zero; an existing cache is never evidence.
+                        before = Decimal(integrity.verified_balance or "0.00")
+                        if balance_before is not None and balance_before != before:
                             raise ValidationError(
                                 "El saldo inicial no coincide con el ledger actual"
                             )
@@ -346,22 +424,10 @@ class FinancialService:
                             else Decimal("0.00")
                         )
                         after = before + delta
-                        if abs(after) > Decimal("99999999.99"):
+                        if exact_money(after) is None:
                             raise ValidationError(
                                 "El saldo contable excede el rango permitido"
                             )
-                        latest = await self.db.scalar(
-                            select(func.max(Financial.created_at)).where(
-                                Financial.rider_id == rider_uuid
-                            )
-                        )
-                        created_at = datetime.utcnow()
-                        if latest is not None and created_at <= latest:
-                            if latest - created_at > MAX_LEDGER_CLOCK_SKEW:
-                                raise ValidationError(
-                                    "La cronología del ledger requiere revisión antes de escribir"
-                                )
-                            created_at = latest + timedelta(microseconds=1)
                         transaction = Financial(
                             rider_id=rider_uuid,
                             amount=normalized,

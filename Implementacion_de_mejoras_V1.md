@@ -5250,3 +5250,206 @@ Persisten deuda global de 121 errores Mypy y cobertura frontend de líneas de
 externos homologados, móvil/offline y demás criterios del roadmap. Esta entrega
 robustece el flujo administrativo; no certifica el sistema al cien por ciento
 de producción.
+
+---
+
+## Entrega ampliada 57 — Escritor contable estricto, bonos decimales y cierre transaccional de entregas
+
+**Fecha:** 30 de octubre de 2026, America/Caracas.
+
+### Base verificada y hallazgos
+
+Se continúa desde main `49d537ff43f65b12410e18b631342e221e68f98d`, merge firmado
+del PR #297. Se reconstruyó y verificó su objeto Git y el árbol idéntico al código
+probado de la entrega 56. El CI de ese PR terminó con **1900 pruebas backend
+aprobadas y dos SDK omitidos**, 926,82 s; lint y Black aprobados. Mypy conservó
+121 errores en 28 archivos. Seguridad aprobada. El frontend aprobó 735 pruebas
+en 51 suites, lint, TypeScript y build; su cobertura de líneas de **28,87 %**
+no alcanzó el umbral de 50 %. Esos resultados pertenecen al PR anterior.
+
+La revisión identificó los siguientes problemas relacionados:
+
+- ledger_delta tenía un fallback genérico que asignaba dirección a tipos modernos
+  sin mapeo legacy. Un STRIPE_PAYOUT positivo podía interpretarse como crédito.
+- La escritura normalizaba importes antes de validarlos y podía aceptar fracciones
+  de centavo redondeadas. La apertura explícita tampoco exigía precisión exacta.
+- La apertura de un asiento nuevo procedía de una lectura con fallback histórico;
+  no verificaba la cadena registrada antes de extenderla.
+- Tres puntos de órdenes/entregas construían Financial directamente, omitiendo
+  la serialización y los snapshots del escritor canónico.
+- DeliveryService confirmaba el cambio de entrega antes de registrar el bono y
+  capturaba el error financiero para continuar, permitiendo estados parciales.
+- El cálculo por float podía diferir un centavo del cálculo decimal de la ruta
+  unificada: 5,50 × 1,15 terminaba como 6,324999999999999 y podía redondear a 6,32.
+- Una lectura anterior al bloqueo podía conservar estado, cuenta o asignación
+  obsoletos. Estados históricos incoherentes podían intentar pagar bonos opuestos.
+
+### Un solo escritor y política común de evidencia
+
+Se extrae a app/services/legacy_ledger.py el análisis puro de la entrega 56:
+direcciones, límites, exact_money, LedgerEntry, aritmética, apertura, continuidad,
+estados y timestamps. Los nombres de compatibilidad siguen disponibles desde
+sus módulos anteriores. La política recorded-financials-chain-v1 y las huellas
+administrativas no cambian. Caché y escritor utilizan el mismo criterio sobre
+la cadena existente, sin verificar moneda o liquidación bancaria externa.
+
+| Dirección legacy | Tipos explícitos |
+| --- | --- |
+| Crédito | PAGO_ENTREGA, PAGO_INTENTO_FALLIDO, BONO_RENDIMIENTO, INGRESO, BONO |
+| Débito | PENALIZACION, RETIRO, AJUSTE_MANUAL, DESCUENTO |
+| Signo conservado | AJUSTE |
+
+Los otros ocho tipos del enum compartido se rechazan en financials, también en
+estado pendiente/rechazado. No se cambia su contrato en la wallet moderna.
+ledger_delta deja de inventar una dirección por omisión.
+
+La ingestión exige importe no cero, finito, exacto en centavos y rango de
+±99.999.999,99. Rechaza bool, NaN, infinitos y valores como 10.235 antes de hacer
+IO. La apertura explícita también debe ser exacta y válida. commit exige bool
+real, evitando que strings o enteros confirmen accidentalmente una unidad ajena.
+money conserva su utilidad de redondeo para cálculos deliberados, no para ocultar
+una entrada imprecisa del ledger.
+
+Se validan previamente UUIDs, tipos/estados y metadatos: description hasta 500,
+reference_id/source_id/key hasta 100 y source_type hasta 50 caracteres; texto UTF-8
+válido y sin NUL. La key se recorta y no puede quedar vacía. No cambia el DDL.
+Los reintentos exactos deben coincidir con los campos persistidos; si presentan
+apertura explícita, también debe coincidir con el snapshot de la operación original.
+
+### Verificación antes de añadir movimientos
+
+El escritor bloquea Rider, comprueba idempotencia y, para operaciones nuevas,
+lee/bloquea el historial mínimo de financials en orden de fecha e identificador.
+Verifica la cadena y deriva el saldo anterior de esa prueba. Nunca utiliza la
+caché como apertura ni extiende una cadena con snapshots incompletos, aritmética
+incorrecta, apertura desconocida, empates, tipos o estados no soportados.
+
+La lectura materializa como máximo **10.000 filas**. Si ya hay 10.000, rechaza
+la operación nueva con **409** antes de superar el alcance verificable. También
+rechaza historias corruptas o no verificables. Conserva el rechazo previo de
+cronología futura excesiva. Un nuevo libro sin asientos procesados y sin
+incidencias puede empezar desde cero; esa regla no autoriza poner a cero una
+caché sin evidencia. Pendientes/rechazados no se suman al saldo procesado.
+
+**Límite operativo:** esta barrera puede detener escrituras de repartidores con
+mucho historial. Deben revisarse volúmenes reales y definirse verificación
+escalable/checkpoints confiables antes de desplegarla en producción. No se
+presenta el límite como solución final de rendimiento. Acota memoria/filas, no
+duración máxima de SQL ni esperas de bloqueo. No se sanea historia automáticamente.
+
+Un replay exacto devuelve el recibo ya registrado, sin añadir movimiento, aunque
+otra parte de la historia haya sido dañada después. No certifica la cadena actual;
+una operación nueva sí exige revisión vigente. Se mantiene savepoint para carreras
+de clave global, rollback del servicio cuando posee commit y propiedad externa
+con commit=False. Las pruebas verifican bloqueos de actualizaciones e inserciones
+directas por FK mientras se confirma una escritura.
+
+### Orden, entrega, snapshot y bono como unidad
+
+| Entrada existente | Comportamiento final |
+| --- | --- |
+| PATCH orders/{id}/status → ENTREGADO | Orden, entrega y asiento mediante escritor común |
+| PATCH deliveries/{id}/status → COMPLETADA | Orden, entrega, snapshot/desglose y asiento coherentes |
+| PATCH deliveries/{id}/status → FALLIDA | Orden, entrega, causa y bono compensable con snapshot |
+| POST deliveries/{id}/complete | Servicio con una sola unidad de confirmación |
+| POST deliveries/{id}/fail | Servicio con una sola unidad de confirmación |
+
+Se adopta orden de bloqueo Order → Delivery → Rider → Financial para estos
+flujos. Delivery se refresca después de esperar, se vuelve a verificar estado/OTP
+y se consulta de nuevo actividad/rol/propiedad del actor. Cambiar la asignación,
+desactivar la cuenta o quitarle acceso durante la espera impide el cierre.
+La validación JWT por petición continúa en el guard global; no se incorpora un
+nuevo protocolo de sesiones ni una garantía de privilegios irrevocables hasta commit.
+
+CRUDDelivery.update y CRUDOrder.update incorporan commit=False como opción keyword,
+conservando True por defecto para otros consumidores. Los cierres del servicio
+hacen flush sin confirmar internamente y usan el escritor también con False.
+El commit final confirma orden, entrega, snapshot y asiento juntos. Cualquier
+fallo antes de confirmación revierte la unidad; se elimina la captura que declaraba
+éxito de la entrega tras una falla contable. Las rutas directas mantienen su commit
+final y el rollback de errores de petición a través de get_db.
+
+Las claves por orden se conservan: pago_entrega_{order_id} y pago_fallido_{order_id}.
+El servicio empieza a usarlas también. Un bono previo encontrado por las rutas
+debe coincidir en repartidor, referencia de orden, tipo, estado e importe positivo
+válido; no se recalcula con la configuración actual. Si existe la clave de un
+resultado contrario, cualquier camino financiero rechaza el segundo resultado
+con 409, incluso si el primer registro sigue pendiente. La finalización por orden
+también rechaza una entrega ya terminal con un estado de orden incoherente.
+
+Completar y fallar concurrentemente deja un solo resultado y un solo bono; el otro
+intento ve el estado terminal y se rechaza. Esto protege las entradas soportadas,
+no identifica todos los asientos antiguos sin key ni crea una nueva restricción
+SQL global sobre operaciones históricas.
+
+### Cálculo decimal y cero explícito
+
+Los componentes de base, zona y nivel se validan como decimales antes de multiplicar
+y se redondea una sola vez con ROUND_HALF_UP al congelar el importe. El mismo valor
+se registra en el ledger. **5,50 × 1,15 = 6,325 → 6,33** en ambos caminos, evitando
+la pérdida de un centavo por float. La interfaz histórica del calculador conserva
+su retorno float, pero entrega un importe que ya fue calculado/redondeado en Decimal.
+
+Un bono de cero no crea un asiento cero. La operación puede cerrar con su snapshot,
+y bonus_applied=false en el fallo sin pago. La ruta unificada congela también el
+bono fallido y la advertencia cuando falta configuración.
+
+Se documentan diferencias previas conservadas: el helper de órdenes usa fallback
+2,50 si falta el bono base; la ruta unificada usa cero con advertencia; el servicio
+devuelve cero con advertencia ante configuración ausente/inválida. Las rutas
+directas rechazan configuración inválida como error de dominio. Unificar esta
+política económica requiere una decisión explícita, no una equivalencia fingida.
+
+### Validación final y conservación de contratos
+
+Se añaden **197 casos**: 115 de ingestión/escritura legacy y 82 de bonos/flujo HTTP
+con PostgreSQL. Cubren tipos, precisión, metadatos, ausencia de IO en entradas
+inválidas, historia dañada, límite exacto/excedido, apertura/idempotencia, propiedad
+externa, bloqueos, cinco entradas de cierre, cero, redondeo, conflictos de claves,
+bonos opuestos, estados históricos incoherentes, carreras y autorización obsoleta.
+
+Se conserva el fixture de 202 rutas y su OpenAPI, sin regenerarlo. Los fixtures
+SQL previos permanecen intactos. Se adapta solo el harness de persistencia falsa
+de fase 0 para el nuevo helper de bloqueo; las pruebas HTTP nativas usan JWT real.
+La creación de tablas con FKs circulares utiliza copias descartables del metadata,
+evitando que SQLAlchemy modifique reglas DDL del modelo productivo en memoria.
+Una prueba nueva comprueba expresamente la conservación del contrato SQL anterior.
+
+| Control | Resultado |
+| --- | --- |
+| Backend completo, tres grupos aislados | **2097 aprobados, dos SDK opcionales omitidos**, tres advertencias de configuración previas (una por grupo). Grupo a: 698 aprobados, 2 omitidos, 1020.36 s; Grupo b: 700 aprobados, 0 omitidos, 639.85 s; Grupo c: 699 aprobados, 0 omitidos, 1036.87 s |
+| SDK opcionales instalados y HTTP sustituido | **Dos aprobados aparte**, 2.42 s, una advertencia previa; sin transporte externo real |
+| Mypy | **121 errores / 28 archivos**, comparación normalizada sin nuevos errores |
+| Black / flake8 crítico / diff | **Aprobados**: Black app y dos archivos nuevos de pruebas, flake8 crítico y git diff --check |
+| Rutas/OpenAPI/DDL | Se conservan los baselines previos, sin actualizar fixtures para ocultar cambios |
+| Frontend | Sin cambios ni ejecución local nueva; CI anterior #297: 735 aprobados, líneas 28,87 % |
+
+La colección completa verifica **2099 casos**, repartidos exhaustivamente por
+archivos en tres grupos disjuntos, con PostgreSQL/PostGIS y Redis independientes.
+No se excluyen casos ni se alteran thresholds. Se cotejan hashes del código probado
+y el árbol/blobs/commit local-GitHub. El CI del PR nuevo se consulta por separado.
+
+La guía backend/LEGACY_LEDGER_WRITES.md documenta procedimiento, diccionario
+funcional, límites, transacciones y responsabilidades; README y guía de conciliación
+se actualizan. No cambian modelos, columnas, diccionario SQL físico, migraciones,
+dependencias, configuración, frontend o rutas. No se fusiona, despliega, ejecuta
+DDL sobre datos productivos ni envían pagos, mensajes o facturas reales.
+
+### Pendientes para producción
+
+Revisar datos históricos bloqueados, recibos y estados incoherentes, diferencias
+de política de configuración, rendimiento/índices/esperas y el límite de historial.
+Hallazgo adicional pendiente: el cambio legacy de orden permite CANCELADO desde
+EN_RUTA sin cerrar la entrega activa. Los cierres de entrega verifican su estado
+y los bonos opuestos, pero no incorporan una política completa frente a una orden
+cancelada. Debe homologarse cancelación/compensación de orden, entrega y reservas
+para impedir sobrescribir una cancelación con un cierre posterior. Esta entrega
+no modifica esa política y no debe considerarse su resolución.
+Quedan pendientes checkpoints confiables, inmutabilidad/exhaustividad efectiva,
+unificación de libros y moneda, conciliación bancaria externa, outbox/reintentos
+durables de hooks, sesiones por dispositivo y demás criterios del roadmap.
+
+Persisten 121 errores de tipos y la cobertura frontend insuficiente del CI anterior.
+No se declara el sistema al cien por ciento de producción: esta entrega elimina
+vías concretas de escritura inconsistente y confirmación parcial, con sus límites
+operativos expresamente documentados.

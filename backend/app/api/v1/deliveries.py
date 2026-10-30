@@ -37,7 +37,14 @@ from app.models.order import Order, OrderStatus
 from app.models.rider import Rider, RiderStatus
 from app.models.user import User, UserRole
 from app.models.financial import Financial, TransactionType, PaymentStatus
-from app.services.financial_service import money
+from app.services.financial_service import FinancialService, money
+from app.services.delivery_ledger import (
+    bonus_component,
+    calculated_bonus,
+    validate_bonus_receipt,
+    lock_delivery_transition,
+    ensure_bonus_outcome,
+)
 from app.models.platform_setting import PlatformSetting
 from app.models.zone import Zone  # Importado para Fase 3
 from app.services.notification_service import NotificationService
@@ -861,12 +868,9 @@ async def update_delivery_status(
     """
     # 1. Obtener la entrega
     ensure_operation_role(current_user, write=True)
-    result = await db.execute(
-        select(Delivery).where(Delivery.id == _parse_uuid(delivery_id, "delivery_id"))
+    delivery = await lock_delivery_transition(
+        db, _parse_uuid(delivery_id, "delivery_id"), actor_id=current_user.id
     )
-    delivery = result.scalar_one_or_none()
-    if not delivery:
-        raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
     # 2. Validar permisos
     await ensure_rider_resource_access(db, current_user, delivery.rider_id, write=True)
@@ -951,6 +955,7 @@ async def update_delivery_status(
     elif new_status == DeliveryStatus.COMPLETADA:
         # Validación OTP
         validate_delivery_otp(delivery, body.otp_code)
+        await ensure_bonus_outcome(db, delivery.order_id, success=True)
 
         delivery.status = DeliveryStatus.COMPLETADA
         delivery.completed_at = now
@@ -988,6 +993,14 @@ async def update_delivery_status(
         )
         existing_financial = financial_result.scalar_one_or_none()
 
+        if existing_financial is not None:
+            validate_bonus_receipt(
+                existing_financial,
+                delivery.rider_id,
+                delivery.order_id,
+                TransactionType.PAGO_ENTREGA,
+            )
+
         if not existing_financial and delivery.rider_id:
             # 1. Obtener bono base de configuración
             settings_result = await db.execute(
@@ -997,19 +1010,14 @@ async def update_delivery_status(
             )
             bonus_value = settings_result.scalar_one_or_none()
 
-            if bonus_value is None:
-                logger.warning(
-                    f"[VALIDACIÓN ESTRICTA] rider_delivery_bonus no configurado. Pago $0."
-                )
-                base_payment = Decimal("0")
-            else:
-                try:
-                    base_payment = Decimal(str(bonus_value))
-                except (ValueError, TypeError):
-                    logger.error(
-                        f"[ERROR] Valor inválido en rider_delivery_bonus: {bonus_value}. Usando $0."
-                    )
-                    base_payment = Decimal("0")
+            base_payment = bonus_component(
+                bonus_value if bonus_value is not None else 0
+            )
+            delivery.bonus_config_warning_snapshot = (
+                "rider_delivery_bonus no configurado; bono congelado en cero"
+                if bonus_value is None
+                else None
+            )
 
             # 2. ⚠️ CORRECCIÓN CRÍTICA: Obtener Rider directamente por su ID (no por user_id)
             # Antes usábamos _get_rider_for_user(db, delivery.rider_id) lo cual fallaba porque
@@ -1027,7 +1035,7 @@ async def update_delivery_status(
                 )
                 zone_val = zone_result.scalar_one_or_none()
                 if zone_val is not None:
-                    zone_multiplier = Decimal(str(zone_val))
+                    zone_multiplier = bonus_component(zone_val)
 
             # 4. Calcular Multiplicador de Tier (NIVEL)
             from app.models.rider import RiderTier
@@ -1046,7 +1054,9 @@ async def update_delivery_status(
             tier_multiplier = TIER_MULTIPLIERS.get(rider_tier, Decimal("1.00"))
 
             # 5. APLICAR FÓRMULA COMPLETA
-            final_payment = base_payment * zone_multiplier * tier_multiplier
+            final_payment = calculated_bonus(
+                base_payment * zone_multiplier * tier_multiplier
+            )
 
             # 6. PERSISTIR EN LOCKED_BONUS_AMOUNT Y CAMPOS DE DESGLOSE (FASE 5)
             delivery.locked_bonus_amount = money(final_payment)
@@ -1063,18 +1073,19 @@ async def update_delivery_status(
             )
 
             # 7. Crear registro financiero
-            financial = Financial(
-                rider_id=delivery.rider_id,
-                amount=final_payment,
-                transaction_type=TransactionType.PAGO_ENTREGA,
-                description=f"Pago por entrega (Orden {order.external_id if order else delivery.order_id}) - Zona: {zone_multiplier}x, Tier: {tier_multiplier}x",
-                reference_id=str(order.id) if order else str(delivery.order_id),
-                source_type="delivery",
-                source_id=str(delivery.id),
-                idempotency_key=idempotency_key,
-                status=PaymentStatus.PROCESADO,
-            )
-            db.add(financial)
+            if final_payment > 0:
+                await FinancialService(db).create_ledger_entry(
+                    rider_id=delivery.rider_id,
+                    amount=final_payment,
+                    transaction_type=TransactionType.PAGO_ENTREGA,
+                    description=f"Pago por entrega (Orden {order.external_id if order else delivery.order_id}) - Zona: {zone_multiplier}x, Tier: {tier_multiplier}x",
+                    reference_id=str(order.id) if order else str(delivery.order_id),
+                    source_type="delivery",
+                    source_id=str(delivery.id),
+                    idempotency_key=idempotency_key,
+                    status=PaymentStatus.PROCESADO,
+                    commit=False,
+                )
 
             # LOG DE DEPURACIÓN CRÍTICO
             logger.info(
@@ -1086,6 +1097,7 @@ async def update_delivery_status(
             )
 
     elif new_status == DeliveryStatus.FALLIDA:
+        await ensure_bonus_outcome(db, delivery.order_id, success=False)
         # Validar causa de fallo
         failure_cause = None
         is_bonificable = False
@@ -1131,6 +1143,16 @@ async def update_delivery_status(
             )
             existing_financial = financial_result.scalar_one_or_none()
 
+            if existing_financial is not None:
+                validate_bonus_receipt(
+                    existing_financial,
+                    delivery.rider_id,
+                    delivery.order_id,
+                    TransactionType.PAGO_INTENTO_FALLIDO,
+                )
+                bonus_applied = True
+                bonus_amount = existing_financial.amount
+
             if not existing_financial:
                 settings_result = await db.execute(
                     select(PlatformSetting.value).where(
@@ -1139,37 +1161,36 @@ async def update_delivery_status(
                 )
                 bonus_value = settings_result.scalar_one_or_none()
 
-                if bonus_value is None:
-                    logger.warning(
-                        f"[VALIDACIÓN ESTRICTA] rider_failed_attempt_bonus no configurado. Bono $0."
+                failed_payment = calculated_bonus(
+                    bonus_value if bonus_value is not None else 0
+                )
+                delivery.locked_bonus_amount = failed_payment
+                delivery.locked_bonus_type = LockedBonusType.FAILED_ATTEMPT
+                delivery.bonus_snapshot_date = now
+                delivery.bonus_config_warning_snapshot = (
+                    "rider_failed_attempt_bonus no configurado; bono congelado en cero"
+                    if bonus_value is None
+                    else None
+                )
+                if failed_payment > 0:
+                    await FinancialService(db).create_ledger_entry(
+                        rider_id=delivery.rider_id,
+                        amount=failed_payment,
+                        transaction_type=TransactionType.PAGO_INTENTO_FALLIDO,
+                        description=f"Pago por intento fallido (orden {order.external_id if order else delivery.order_id}) - Motivo: {failure_cause.value if failure_cause else body.issue_type}",
+                        reference_id=str(delivery.order_id),
+                        source_type="delivery_failed",
+                        source_id=str(delivery.id),
+                        idempotency_key=idempotency_key,
+                        status=PaymentStatus.PROCESADO,
+                        commit=False,
                     )
-                    failed_payment = Decimal("0")
-                else:
-                    try:
-                        failed_payment = Decimal(str(bonus_value))
-                    except (ValueError, TypeError):
-                        logger.error(
-                            f"[ERROR] Valor inválido en rider_failed_attempt_bonus: {bonus_value}. Usando $0."
-                        )
-                        failed_payment = Decimal("0")
-
-                financial = Financial(
-                    rider_id=delivery.rider_id,
-                    amount=failed_payment,
-                    transaction_type=TransactionType.PAGO_INTENTO_FALLIDO,
-                    description=f"Pago por intento fallido (orden {order.external_id if order else delivery.order_id}) - Motivo: {failure_cause.value if failure_cause else body.issue_type}",
-                    reference_id=str(order.id) if order else str(delivery.order_id),
-                    source_type="delivery_failed",
-                    source_id=str(delivery.id),
-                    idempotency_key=idempotency_key,
-                    status=PaymentStatus.PROCESADO,
-                )
-                db.add(financial)
-                bonus_applied = True
-                bonus_amount = failed_payment
-                logger.info(
-                    f"Registro financiero creado para entrega fallida {delivery.id} - Bono: {failed_payment}"
-                )
+                    bonus_applied = True
+                    bonus_amount = failed_payment
+                if failed_payment > 0:
+                    logger.info(
+                        f"Registro financiero creado para entrega fallida {delivery.id} - Bono: {failed_payment}"
+                    )
 
     # Commit final
     await db.flush()
