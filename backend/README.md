@@ -147,6 +147,10 @@ la orden, el snapshot del bono y su asiento se confirman o revierten juntos. Los
 bonos usan cálculo decimal y el cero no inventa un movimiento. No requiere
 migración. Consulte [contratos, barreras, concurrencia y límites de volumen](LEGACY_LEDGER_WRITES.md).
 
+Cancelación coordinada de orden, entrega y ruta: [contratos, auditoría, dinero y
+requisito de migración PostgreSQL](ORDER_CANCELLATION.md). El nuevo estado de
+entrega CANCELADA requiere despliegue coordinado de lectores y escritores.
+
 ## Workers y programación operativa
 
 La entrega 52 normaliza ocho módulos y doce tareas Celery, incorpora productividad

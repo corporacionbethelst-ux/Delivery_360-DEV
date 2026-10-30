@@ -100,6 +100,8 @@ export interface Order {
   createdBy: string;
   updatedBy?: string;
   cancelledBy?: string;
+  cancellation_reason?: string | null;
+  cancelled_by?: string | null;
   cancelReason?: string;
   
   // Campos adicionales para compatibilidad con la UI del repartidor

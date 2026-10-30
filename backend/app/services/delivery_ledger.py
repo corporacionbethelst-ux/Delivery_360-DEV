@@ -17,6 +17,7 @@ from app.core.operation_permissions import ensure_rider_resource_access
 from app.models.financial import Financial, PaymentStatus, TransactionType
 from app.services.financial_service import money
 from app.services.legacy_ledger import MAX_BALANCE, exact_money
+from app.services.order_cancellation import ensure_order_not_cancelled
 
 
 def bonus_component(value: object) -> Decimal:
@@ -66,6 +67,7 @@ async def lock_delivery_transition(
     )
     if parent is None:
         raise AppException("La orden de la entrega requiere revisión", 409)
+    await ensure_order_not_cancelled(db, order_id)
     delivery = await db.scalar(
         select(Delivery)
         .where(Delivery.id == delivery_id)

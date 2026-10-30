@@ -506,14 +506,9 @@ async def assign_delivery(
     ),
 ):
     """Asigna un repartidor a una entrega pendiente."""
-    stmt = select(Delivery).where(
-        Delivery.id == _parse_uuid(delivery_id, "delivery_id")
+    delivery = await lock_delivery_transition(
+        db, _parse_uuid(delivery_id, "delivery_id"), actor_id=current_user.id
     )
-    result = await db.execute(stmt)
-    delivery = result.scalar_one_or_none()
-
-    if not delivery:
-        raise HTTPException(status_code=404, detail="Entrega no encontrada")
     if delivery.status != DeliveryStatus.PENDIENTE:
         raise HTTPException(
             status_code=400,
@@ -598,12 +593,9 @@ async def start_delivery(
 ):
     """Inicia el proceso de entrega (camino a pickup)."""
     ensure_operation_role(current_user, write=True)
-    result = await db.execute(
-        select(Delivery).where(Delivery.id == _parse_uuid(delivery_id, "delivery_id"))
+    delivery = await lock_delivery_transition(
+        db, _parse_uuid(delivery_id, "delivery_id"), actor_id=current_user.id
     )
-    delivery = result.scalar_one_or_none()
-    if not delivery:
-        raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
     await ensure_rider_resource_access(db, current_user, delivery.rider_id, write=True)
 
@@ -790,14 +782,9 @@ async def update_location(
 ):
     """Actualiza la ubicación GPS de una entrega en curso."""
     ensure_operation_role(current_user, write=True)
-    stmt = select(Delivery).where(
-        Delivery.id == _parse_uuid(delivery_id, "delivery_id")
+    delivery = await lock_delivery_transition(
+        db, _parse_uuid(delivery_id, "delivery_id"), actor_id=current_user.id
     )
-    result = await db.execute(stmt)
-    delivery = result.scalar_one_or_none()
-
-    if not delivery:
-        raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
     await ensure_rider_resource_access(db, current_user, delivery.rider_id, write=True)
 

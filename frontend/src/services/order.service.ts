@@ -1,4 +1,5 @@
 import { api } from '@/lib/api';
+import { isCancellationReasonValid } from '@/lib/delivery-status';
 import { User } from '@/types/user';
 import type { AxiosError } from 'axios';
 
@@ -357,9 +358,12 @@ export const orderService = {
    */
   cancel: async (id: string, reason?: string): Promise<Order> => {
     if (!id) throw new Error('[OrderService] ID requerido para cancelar');
+    if (typeof reason !== 'string' || !isCancellationReasonValid(reason)) {
+      throw new Error('El motivo debe tener entre ocho y 500 caracteres sin controles');
+    }
     
     try {
-      const response = await api.patch<Order>(`/orders/${id}/cancel`, { reason: reason || 'Sin motivo especificado' });
+      const response = await api.patch<Order>(`/orders/${encodeURIComponent(id)}/cancel`, { reason: reason.trim() });
       return extractData<Order>(response);
     } catch (error) {
       console.error(`[OrderService] Error cancelling order ${id}:`, error);

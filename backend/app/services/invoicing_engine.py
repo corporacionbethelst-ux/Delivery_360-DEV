@@ -32,6 +32,7 @@ from app.models.fiscal import (
     InvoiceType,
 )
 from app.models.order import Order
+from app.services.order_cancellation import ensure_order_not_cancelled
 from app.services.tax_engine import TaxCalculator, get_tax_calculator
 from app.services.fiscal_integrity import (
     sandbox_allowed,
@@ -416,6 +417,7 @@ class InvoicingEngine:
 
         if await self.db.scalar(select(Order.id).where(Order.id == order_id)) is None:
             raise InvoiceOrderNotFound("Pedido no encontrado")
+        await ensure_order_not_cancelled(self.db, order_id, lock=True)
         calc: TaxCalculator = await get_tax_calculator(country, self.db)
         line_results = calc.apply_taxes_to_items(items)
 

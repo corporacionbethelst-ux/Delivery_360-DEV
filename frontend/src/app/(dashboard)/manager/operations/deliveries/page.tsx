@@ -284,6 +284,8 @@ export default function ManagerDeliveriesPage() {
     switch (status) {
       case 'COMPLETADA': return { color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: CheckCircle, label: 'Completada' };
       case 'EN_RUTA': return { color: 'bg-blue-100 text-blue-700 border-blue-200', icon: MapPin, label: 'En Ruta' };
+      case 'CANCELADO':
+      case 'CANCELADA': return { color: 'bg-gray-100 text-gray-700 border-gray-200', icon: AlertCircle, label: 'Cancelada' };
       case 'FALLIDA': return { color: 'bg-red-100 text-red-700 border-red-200', icon: AlertCircle, label: 'Fallida' };
       case 'INICIADA': return { color: 'bg-yellow-100 text-yellow-700 border-yellow-200', icon: Truck, label: 'Iniciada' };
       case 'PENDIENTE': return { color: 'bg-slate-100 text-slate-600 border-slate-200', icon: Clock, label: 'Pendiente' };
@@ -363,6 +365,7 @@ export default function ManagerDeliveriesPage() {
                     <SelectItem value="EN_ROUTE">En Ruta</SelectItem>
                     <SelectItem value="COMPLETADA">Completada</SelectItem>
                     <SelectItem value="FALLIDA">Fallida</SelectItem>
+                    <SelectItem value="CANCELADA">Cancelada</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -23,5 +23,9 @@ def validate_delivery_otp(delivery: Delivery, supplied_otp: str | None) -> None:
 
 
 def ensure_delivery_not_terminal(delivery: Delivery) -> None:
-    if delivery.status in (DeliveryStatus.COMPLETADA, DeliveryStatus.FALLIDA):
+    if delivery.status in (
+        DeliveryStatus.COMPLETADA,
+        DeliveryStatus.FALLIDA,
+        DeliveryStatus.CANCELADA,
+    ):
         raise HTTPException(status_code=400, detail="La entrega ya está finalizada")

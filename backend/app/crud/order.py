@@ -10,6 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.order import Order, OrderStatus
+from app.core.exceptions import AppException
+from app.services.order_cancellation import cancel_order as coordinated_cancel
 
 
 class CRUDOrder:
@@ -50,6 +52,15 @@ class CRUDOrder:
         *,
         commit: bool = True,
     ) -> Order:
+        target = obj_in.get("status")
+        if target is not None:
+            current = await db.scalar(
+                select(Order.status).where(Order.id == db_obj.id).with_for_update()
+            )
+            if target == OrderStatus.CANCELADO or current == OrderStatus.CANCELADO:
+                raise AppException(
+                    "La cancelación debe gestionarse desde su operación explícita", 409
+                )
         for field, value in obj_in.items():
             setattr(db_obj, field, value)
         db.add(db_obj)
@@ -63,6 +74,11 @@ class CRUDOrder:
     async def assign_rider(
         self, db: AsyncSession, order: Order, rider_id: uuid.UUID
     ) -> Order:
+        current = await db.scalar(
+            select(Order.status).where(Order.id == order.id).with_for_update()
+        )
+        if current not in (OrderStatus.PENDIENTE, OrderStatus.ASIGNADO):
+            raise AppException("La orden no admite asignación de repartidor", 409)
         order.assigned_rider_id = rider_id  # type: ignore[assignment]
         order.status = OrderStatus.ASIGNADO
         order.accepted_at = datetime.utcnow()  # type: ignore[assignment]
@@ -94,13 +110,9 @@ class CRUDOrder:
         cancellation_reason: str,
         cancelled_by: int,
     ) -> Order:
-        order.status = OrderStatus.CANCELADO
-        order.cancellation_reason = cancellation_reason  # type: ignore[assignment]
-        order.cancelled_by = str(cancelled_by)  # type: ignore[assignment]
-        db.add(order)
-        await db.commit()
-        await db.refresh(order)
-        return order
+        return await coordinated_cancel(
+            db, order.id, str(cancelled_by), cancellation_reason, commit=True
+        )
 
 
 order = CRUDOrder()

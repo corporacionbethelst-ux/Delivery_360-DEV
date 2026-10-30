@@ -45,7 +45,11 @@ async def fiscal_db(pg_wallets, monkeypatch, rsa_key):
     monkeypatch.setattr(settings, "INVOICE_DAILY_LIMIT", 500)
     monkeypatch.setattr(settings, "FISCAL_DEFAULT_COUNTRY", "CO")
     async with sessions() as db:
-        await db.execute(text("CREATE TABLE orders (id UUID PRIMARY KEY)"))
+        await db.execute(
+            text(
+                "CREATE TABLE orders (id UUID PRIMARY KEY, status VARCHAR(30) DEFAULT 'ENTREGADO')"
+            )
+        )
         await db.execute(text("CREATE TABLE zones (id UUID PRIMARY KEY)"))
         conn = await db.connection()
         await conn.run_sync(
@@ -107,6 +111,46 @@ async def create(sessions, oid, **options):
             [{"name": "Delivery", "unit_price_cents": 116001, "quantity": 1}],
             preview=options.pop("preview", True),
             **options,
+        )
+
+
+@pytest.mark.asyncio
+async def test_cancelled_order_cannot_reserve_fiscal_number_or_create_evidence(
+    fiscal_db,
+):
+    from app.core.exceptions import AppException
+
+    sessions, _, oid, _ = fiscal_db
+    async with sessions() as db:
+        await db.execute(
+            text("UPDATE orders SET status='CANCELADO' WHERE id=:id"), {"id": oid}
+        )
+        await db.commit()
+        counters = list(
+            (
+                await db.scalars(
+                    select(InvoiceResolution.current_counter).order_by(
+                        InvoiceResolution.id
+                    )
+                )
+            ).all()
+        )
+    with pytest.raises(AppException) as error:
+        await create(sessions, oid)
+    assert error.value.status_code == 409
+    async with sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(ElectronicInvoice)) == 0
+        assert (
+            list(
+                (
+                    await db.scalars(
+                        select(InvoiceResolution.current_counter).order_by(
+                            InvoiceResolution.id
+                        )
+                    )
+                ).all()
+            )
+            == counters
         )
 
 

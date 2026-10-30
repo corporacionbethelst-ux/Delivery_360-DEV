@@ -77,3 +77,23 @@ def detailed_mapping_contract(tables):
             if hasattr(column.type, "enums")
         }
     return contract
+
+
+def cancellation_contract(expected):
+    """Allow only the intentional additive DeliveryStatus enum migration."""
+    from copy import deepcopy
+
+    result = deepcopy(expected)
+    if "deliveries" in result:
+        labels = result["deliveries"]["enums"]["status"]
+        assert labels == [
+            "PENDIENTE",
+            "INICIADA",
+            "EN_PICKUP",
+            "EN_ROUTE",
+            "EN_DESTINO",
+            "COMPLETADA",
+            "FALLIDA",
+        ]
+        labels.append("CANCELADA")
+    return result

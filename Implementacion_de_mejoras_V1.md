@@ -5453,3 +5453,152 @@ Persisten 121 errores de tipos y la cobertura frontend insuficiente del CI anter
 No se declara el sistema al cien por ciento de producción: esta entrega elimina
 vías concretas de escritura inconsistente y confirmación parcial, con sus límites
 operativos expresamente documentados.
+
+
+---
+
+## Entrega 58 — Cancelación coordinada de órdenes, rutas y entregas
+
+**Fecha: 30 de octubre de 2026, America/Caracas.** Base verificada: main
+`dbb5d9967e6cc9b7222f05c07cdda1fbfacc4537`, merge del PR #298. Su árbol coincide
+con el código probado de la entrega 57. El CI de #298 confirmó 2097 pruebas backend
+aprobadas y dos SDK omitidos; el job backend falló por los 121 errores de tipos
+previos. Frontend: 735 pruebas aprobadas, lint/tipos/build correctos; cobertura de
+líneas 28,88 %, inferior al umbral 50 %. Seguridad aprobada. No se presenta ese CI
+como completamente verde.
+
+### Hallazgo resuelto y comportamiento final
+
+Cancelar mediante el cambio genérico de estado podía dejar la entrega activa.
+Un cierre posterior podía sobrescribir el resultado de la orden y remunerarla.
+La cancelación directa tampoco coordinaba necesariamente ruta, entrega y alertas.
+La entrega 58 centraliza la operación en un servicio transaccional y agrega un
+resultado de entrega explícito: **CANCELADA**. No atribuye un fallo al repartidor.
+
+| Componente | Resultado |
+| --- | --- |
+| Orden | CANCELADO, actor y motivo en los campos existentes |
+| Entrega asociada | CANCELADA, con asignación y evidencia conservadas |
+| Ruta asociada activa | CANCELADA sin inventar fecha de completado |
+| Alertas SLA pendientes | RESOLVED con actor, momento y motivo; incidentes conservados |
+| Auditoría | Un STATUS_CHANGE de recurso order_cancellation con identidades, estados y money_changed=false |
+| Ledger, cache, wallet y reservas | Sin movimientos ni liberaciones automáticas |
+| Reintento idéntico | Éxito solo con recibo y estado coherentes, sin duplicar auditoría |
+| Caso histórico parcial o evidencia económica | 409 y revisión explícita, sin reparación automática |
+
+### Seguridad, validación y transacciones
+
+Ambos endpoints de cancelación exigen SUPERADMIN/GERENTE. El cambio genérico
+conserva sus parámetros y usa un motivo fijo; ya no constituye un bypass para
+otros roles. El endpoint específico conserva su default histórico si se omite
+la propiedad, pero rechaza null y motivos inválidos. La interfaz exige escribir
+un motivo de 8 a 500 puntos de código Unicode, recortado, sin controles/formato
+invisible/sustitutos. Servicio y cliente validan el mismo límite Unicode.
+
+Se admite cancelar una orden pendiente sin entrega; para una orden con entrega
+se requiere estado activo y asignación concordante. Se rechazan estados
+terminales, entregas/rutas ambiguas, rutas cerradas, bonos congelados incluso de
+cero, evidencia financiera conocida por clave/referencia/source_id, cualquier
+factura y cualquier distribución previa. No se comprueba solo el importe: un
+recibo de pago previo impide continuar aunque los campos operativos sean antiguos.
+
+Bloqueos cooperativos: orden → entrega → rider → ruta → alertas. Los endpoints
+confirman juntos estados, alertas y auditoría; un fallo de flush/commit revierte
+la operación. El servicio permite al llamador conservar propiedad transaccional.
+Reconsulta actividad, rol y versión de credenciales antes de escribir después
+de los bloqueos. No mantiene un bloqueo del usuario hasta commit: una revocación
+posterior a esa comprobación no queda serializada durante el resto del commit.
+
+Los reintentos contrastan actor, motivo, campos canónicos, recibo, ID de entrega,
+asignaciones y rutas. Un actor o motivo diferente, un hijo reaparecido o una ruta
+reactivada no sobrescribe la cancelación. Se preservan instrucciones originales,
+OTP, coordenadas, pruebas y responsables de asignación.
+
+### Cierre de caminos secundarios y experiencia de uso
+
+Inicio, GPS, asignación y cierres de entrega verifican la orden padre. CRUD y
+servicios cierran la edición que intentase reabrir una cancelación. La reasignación
+no reinicia entregas terminales, incluso con una orden histórica incoherente.
+La persistencia de rutas y el tracking de orden cancelada quedan cerrados. El
+tracking general del rider conserva su acceso porque sirve a otras órdenes.
+El monitor SLA ignora cancelaciones históricas con entrega activa.
+
+Emisión fiscal y distribución bloquean la orden y no crean documentos/snapshots
+nuevos para una cancelada. Se preservan los documentos existentes y la numeración
+fiscal; esta cancelación no los anula ni crea notas de crédito. Tampoco genera
+reembolsos de clientes o compensaciones al rider. Las reservas de retiro siguen
+perteneciendo al retiro y no se liberan por cancelar una orden.
+
+Frontend incorpora CANCELADA, filtros y distintivos neutrales; reconoce además el
+alias histórico CANCELADO. La ficha del repartidor queda sin acciones si la orden
+o la entrega está cancelada, muestra el motivo recibido y no proyecta un bono de
+entrega. La pantalla de gerencia exige motivo válido; un rechazo del servidor no
+se reintenta por el cambio genérico de estado.
+
+### Diccionario y condición de despliegue
+
+**Único cambio físico nuevo:** añadir CANCELADA al enum deliverystatus de
+`deliveries.status`. No hay nuevas columnas ni borrado/reclasificación de filas.
+Se reutilizan orders.cancelled_by, orders.cancellation_reason, routes.status,
+campos de resolución de alerts y auditoría existentes. El contrato ORM permite
+solo esta adición exacta al enum sobre el fixture anterior, conservado sin regenerar.
+Las estructuras mínimas de pruebas incorporan orders.status para ejercer las
+nuevas comprobaciones reales. Rutas y OpenAPI mantienen sus baselines.
+
+Migración `20261030_delivery_cancel`, padre `20261029_fiscal_integrity`. Inspecciona
+el destino real en PostgreSQL y rechaza etiquetas/tipos inesperados. Requiere
+confirmar su transacción antes de usar CANCELADA. Si la base no está migrada,
+una cancelación con entrega falla cerrada con 503. Lectores antiguos no reconocen
+el nuevo valor: programar mantenimiento o despliegue coordinado de API/workers/UI,
+sin procesos antiguos leyendo filas CANCELADA. No mezclar esta DDL con la primera
+cancelación dentro de una misma transacción. No se ejecuta sobre producción.
+
+Downgrade protegido con bloqueo exclusivo: se niega si existen entregas CANCELADA,
+consumidores adicionales, etiquetas inesperadas o un tipo temporal conflictivo.
+Sin conflictos reconstruye el enum anterior preservando filas y default. Otras
+dependencias pueden impedirlo mediante RESTRICT y rollback. No convierte una
+cancelación en un fallo para hacer posible el rollback.
+
+### Validación y trazabilidad
+
+| Control | Resultado |
+| --- | --- |
+| Regresión inicial sobre contratos/entregas/rutas/tracking/fiscal | 317 aprobados, una advertencia previa |
+| Pruebas nativas específicas y fiscalidad | **119 aprobados**, 214,60 s, una advertencia previa; migración ampliada: **siete aprobados**, 11,65 s, una advertencia previa. Regresión general posterior valida el código final completo |
+| Backend completo en dos particiones exhaustivas aisladas | **2170 casos únicos aprobados y dos SDK opcionales omitidos**, colección de 2172 / 100 archivos. Primera ejecución: a, 1062 aprobados + dos omitidos + 22 errores de montaje, 764,83 s; b, 1086 aprobados, 591,20 s. Los 22 errores procedían de duplicar orders.status en la fixture compartida de workers: se corrige su DDL reutilizando/convirtiendo la columna existente y se repiten los **22, todos aprobados**, 32.74 s. El código productivo y los otros archivos probados permanecen idénticos; tres advertencias de configuración previas, una por ejecución |
+| SDK opcionales con transporte HTTP sustituido | **Dos aprobados aparte**, 1,08 s, una advertencia previa; SDK instalados con HTTP sustituido, sin transporte externo real |
+| Frontend completo con cobertura | 759 aprobados / 53 suites; líneas 29,54 %, statements 29,35 %, ramas 24,06 %, funciones 24,93 %. El umbral 50 % sigue fallando y no se reduce |
+| Frontend tipos/lint/build | **Tipos, lint y build aprobados**, 48 páginas generadas; lint conserva advertencias de hooks previas |
+| Mypy | 121 errores / 28 archivos; comparación normalizada idéntica a la entrega 57, sin nuevos errores |
+| Black, flake8 crítico, diff, contratos | **Aprobados**: Black (195 archivos), flake8 crítico, diff y contratos; 202 rutas, 194 dependencias y hash OpenAPI 84bef605…0172 conservados |
+
+Las pruebas nuevas ejercitan HTTP con JWT real y PostgreSQL nativo, no únicamente
+mocks: autorización de ambos endpoints, entradas, estados y evidencia conflictiva,
+auditoría/idempotencia, saldos y reservas conservados, fallos tardíos y rollback,
+concurrencia, revocación tras las lecturas iniciales, barreras operativas, tracking,
+reparto, no consumo fiscal de numeración y migración/rollback. La interfaz tiene
+pruebas de estados parciales históricos, alias y motivos Unicode.
+
+La colección completa y sus particiones se verifican por manifiesto de nodos,
+archivos disjuntos y hashes antes/después. Las dependencias opcionales se prueban
+aparte con HTTP sustituido. Se cotejan blobs y árbol Git local con GitHub antes
+de abrir un PR listo para revisión. El estado del CI nuevo se informa aparte.
+No se fusiona, despliega ni envían pagos, mensajes o facturas reales.
+
+### Qué sigue pendiente
+
+Esta entrega resuelve la cancelación operativa señalada en la entrega 57 dentro
+del alcance descrito. Sigue pendiente el procedimiento de saneamiento de órdenes
+históricas parcialmente canceladas y de evidencia incoherente; compensaciones,
+reembolsos, reversos y notas fiscales deben tener política y auditoría propias.
+No se resuelve aquí todo el grafo de estados ni se añade un KPI independiente de
+cancelaciones. Los reportes de completadas/fallidas no cuentan una cancelación
+como fallo ni reciben fechas ficticias.
+
+Persisten homologación de políticas de bonos, outbox y reintentos durables de
+hooks, unificación de monedas/libros, conciliación externa, checkpoints confiables,
+rendimiento/índices/esperas y demás criterios del roadmap. Los 121 errores de tipos
+y la cobertura global inferior a 50 % continúan siendo deuda verificable. No se
+declara el proyecto al cien por ciento para producción.
+
+Guía operativa y diccionario detallado: backend/ORDER_CANCELLATION.md.

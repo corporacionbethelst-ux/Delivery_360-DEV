@@ -198,3 +198,8 @@ unificación de libros/moneda y recibos externos. Los jobs y hooks post-commit
 necesitan outbox/reintentos durables; esta entrega no garantiza entrega externa
 exactamente una vez. Persisten la deuda global de tipado/cobertura y los demás
 criterios del roadmap. No se fusiona ni despliega automáticamente esta entrega.
+
+La entrega 58 aborda la cancelación de la orden padre y el cierre coherente de
+entrega/ruta. Consulte [cancelación coordinada](ORDER_CANCELLATION.md): requiere
+una migración de enum, limita cancelación a gerencia/superadministración y rechaza
+evidencia económica previa; no implementa compensaciones ni reembolsos.

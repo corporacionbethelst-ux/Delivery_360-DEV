@@ -15,6 +15,7 @@ export enum DeliveryStatus {
   EN_DESTINO = 'EN_DESTINO',
   COMPLETADA = 'COMPLETADA',
   FALLIDA = 'FALLIDA',
+  CANCELADA = 'CANCELADA',
 }
 
 /**

@@ -13,14 +13,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.serialization import optional_enum_value
 from app.core.json_types import json_value
 from app.models.order import Order, OrderStatus, OrderPriority
+from app.core.exceptions import AppException, ValidationError
+from app.services.order_cancellation import (
+    cancel_order as coordinated_cancel,
+    LEGACY_REASON,
+)
 from app.schemas.order import OrderCreate, OrderUpdate
 
 
 class OrderService:
     """Servicio para gestión de pedidos"""
 
-    async def get_order(self, db: AsyncSession, order_id: uuid.UUID) -> Order:
-        result = await db.execute(select(Order).where(Order.id == order_id))
+    async def get_order(
+        self, db: AsyncSession, order_id: uuid.UUID, *, lock: bool = False
+    ) -> Order:
+        query = select(Order).where(Order.id == order_id)
+        if lock:
+            query = query.with_for_update().execution_options(populate_existing=True)
+        result = await db.execute(query)
         order = result.scalar_one_or_none()
         if not order:
             raise HTTPException(
@@ -63,7 +73,7 @@ class OrderService:
         order_data: OrderUpdate,
         updated_by: int,
     ) -> Order:
-        order = await self.get_order(db, order_id)
+        order = await self.get_order(db, order_id, lock=True)
         update_data = order_data.model_dump(exclude_unset=True)
         if "items" in update_data:
             update_data["items"] = json_value(update_data["items"])
@@ -71,6 +81,24 @@ class OrderService:
             update_data["priority"] = OrderPriority(order_data.priority.value)
         if order_data.status is not None:
             update_data["status"] = OrderStatus(order_data.status.value)
+        target = update_data.get("status")
+        if target == OrderStatus.CANCELADO:
+            if set(update_data) != {"status"}:
+                raise ValidationError(
+                    "Cancele la orden sin combinar cambios adicionales"
+                )
+            return await coordinated_cancel(
+                db, order_id, str(updated_by), LEGACY_REASON, commit=True
+            )
+        if (
+            target is not None
+            and target != order.status
+            and order.status
+            in (OrderStatus.CANCELADO, OrderStatus.ENTREGADO, OrderStatus.FALLIDO)
+        ):
+            raise AppException(
+                "Una orden terminal no puede reabrirse mediante edición", 409
+            )
         for key, value in update_data.items():
             setattr(order, key, value)
 
@@ -86,7 +114,7 @@ class OrderService:
         rider_id: uuid.UUID,
         assigned_by: int,
     ) -> Order:
-        order = await self.get_order(db, order_id)
+        order = await self.get_order(db, order_id, lock=True)
         if order.status not in [OrderStatus.PENDIENTE, OrderStatus.ASIGNADO]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -108,7 +136,11 @@ class OrderService:
         new_status: OrderStatus,
         updated_by: int,
     ) -> Order:
-        order = await self.get_order(db, order_id)
+        if new_status == OrderStatus.CANCELADO:
+            return await coordinated_cancel(
+                db, order_id, str(updated_by), LEGACY_REASON, commit=True
+            )
+        order = await self.get_order(db, order_id, lock=True)
         valid_transitions = {
             OrderStatus.PENDIENTE: [OrderStatus.ASIGNADO, OrderStatus.CANCELADO],
             OrderStatus.ASIGNADO: [OrderStatus.RECOLECTADO, OrderStatus.CANCELADO],
@@ -151,22 +183,9 @@ class OrderService:
         cancellation_reason: str,
         cancelled_by: int,
     ) -> Order:
-        order = await self.get_order(db, order_id)
-        if order.status in [
-            OrderStatus.ENTREGADO,
-            OrderStatus.FALLIDO,
-            OrderStatus.CANCELADO,
-        ]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"No se puede cancelar pedido en estado {optional_enum_value(order.status)}",
-            )
-        order.status = OrderStatus.CANCELADO
-        order.cancellation_reason = cancellation_reason
-        db.add(order)
-        await db.commit()
-        await db.refresh(order)
-        return order
+        return await coordinated_cancel(
+            db, order_id, str(cancelled_by), cancellation_reason, commit=True
+        )
 
     async def list_orders(
         self,

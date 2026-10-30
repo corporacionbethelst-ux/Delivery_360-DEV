@@ -3,7 +3,7 @@
 import math
 from datetime import date, datetime
 from uuid import UUID, uuid4
-from sqlalchemy import exists, func, insert, select, text
+from sqlalchemy import exists, func, insert, select, text, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.delivery import Delivery, DeliveryStatus
@@ -169,6 +169,12 @@ class WorkerJobs:
             )
         )
         query = select(Delivery).where(
+            ~exists(
+                select(Order.id).where(
+                    Order.id == Delivery.order_id,
+                    cast(Order.status, String) == "CANCELADO",
+                )
+            ),
             Delivery.status.in_(
                 (
                     DeliveryStatus.INICIADA,
