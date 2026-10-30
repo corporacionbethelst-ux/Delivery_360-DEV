@@ -4544,3 +4544,182 @@ Persisten UI y unificación de trazas/rutas, replanificación, comunicaciones y
 permisos/cachés, sesiones por dispositivo/refresh de un uso, deuda global de tipos
 y cobertura, transporte/homologación fiscal y certificación de producción. Las
 protecciones fiscales previas continúan. No se declara el sistema al 100 %.
+
+
+## Entrega ampliada 53 — Paneles operativos con datos reales y lectura de productividad
+
+Fecha de verificación: **30 de octubre de 2026**. Base cotejada: main
+`e3f4a76fc978fb039c52dedba81a1309ef66aa55`, después de la fusión del PR #293.
+El CI anterior confirmó 1582 pruebas backend aprobadas y 678 frontend aprobadas;
+seguía fallando por 182 errores Mypy y cobertura global frontend inferior al 50 %.
+La entrega actual continúa el endurecimiento con un bloque funcional de backend,
+frontend, autenticación, pruebas y documentación. No declara completadas las fases
+del roadmap ni certifica producción.
+
+### Hallazgos verificados y corrección
+
+| Hallazgo | Consecuencia | Cambio |
+| --- | --- | --- |
+| Prefijos repetidos en dashboard/productividad | La URL que esperaban los clientes no correspondía al montaje efectivo | Rutas canónicas operativas; alias antiguos conservados con el mismo permiso |
+| Productividad consultaba ProductivityRecord como si fuera consolidado | Acceso a atributos inexistentes y resultados inutilizables | Lectura real de ProductivityMetrics y ranking por entregas COMPLETADA |
+| DashboardService usaba OrderStatus.EN_ENTREGA | Enum inexistente y error al ejecutar el helper | Estados reales de pedidos/entregas y consultas separadas |
+| Campo deliveries_per_hour inexistente y agrupación por created_at | Comparación inválida o asignada al día de inserción | Uso del período consolidado, sin inventar velocidad |
+| Gerente mostraba crecimiento fijo y distribución sintética de ingresos | Apariencia de resultados financieros sin evidencia | Actividad diaria SQL real, sin ingreso o crecimiento fabricado |
+| Operador derivaba totales de listas de cinco/diez elementos | Totales subestimados por el límite de vista previa | Agregados completos y listas acotadas con truncamiento explícito |
+| Componentes reutilizables conservaban estadísticas de demostración | Pantallas diferentes podían mostrar realidades incompatibles | Las dos páginas activas y ambos componentes usan el mismo panel |
+| SLA nulo se confundía con incumplimiento y horarios planificados con asistencia | Porcentajes y disponibilidad engañosos | Nulos explícitos, denominador conocido y turnos con entrada real |
+
+### Backend: cohortes, calendario y contrato de datos
+
+Los endpoints `/api/v1/dashboard/manager` y `/api/v1/dashboard/operator` devuelven
+`summary`, `series`, período UTC, calendario IANA, reloj de consulta,
+`source=database_snapshot` y `financials_available=false`. Se pueden consultar
+entre uno y treinta y un días. Los alias de prefijo duplicado siguen disponibles
+fuera de OpenAPI; no duplican lógica ni abren permisos adicionales.
+
+El calendario usa CELERY_TIMEZONE y medianoches locales, incluso con días de 23/25
+horas por DST. Un período incluye el día actual parcial y se consulta `[inicio,
+fin)`, sin incorporar el instante final. Las columnas UTC sin zona horaria se
+convierten explícitamente al día local en PostgreSQL. Se rellenan días sin actividad.
+
+Pedidos se cuentan por creación y entregas COMPLETADA por finalización. Un pedido
+antiguo entregado hoy pertenece al conjunto de entregas de hoy. No se divide ese
+conjunto entre pedidos creados hoy para anunciar una tasa que mezcla cohortes.
+Cancelados son pedidos creados en el período cuyo estado actual es CANCELADO.
+
+Pendientes, pedidos en proceso, entregas activas, riders conectados/disponibles,
+turnos, alertas abiertas y usuarios activos representan el estado actual completo.
+No son estados históricos al cambiar el selector. Un rider conectado requiere
+is_online=true, estado ACTIVO/OCUPADO y usuario activo; disponible requiere ACTIVO.
+Turno activo exige EN_CURSO, entrada registrada y salida ausente. Las alertas usan
+el modelo canónico y estados OPEN/ACKNOWLEDGED.
+
+SLA se calcula con resultados verdaderos/falsos conocidos y publica el número de
+desconocidos aparte. Sin denominador se devuelve null; cero por ciento medido
+sigue siendo cero. La duración usa timestamps inicio/final válidos y no negativos,
+informa cuántas entregas contribuyeron y queda null sin evidencia. No usa horas
+programadas como tiempo trabajado ni anuncia costos o ingresos cero sin soporte.
+
+Se conservan nombres de respuesta legacy de hoy para consultas de un día;
+en períodos mayores esos nombres temporales son null. delivered_today mantiene
+su cohorte histórica de pedidos creados hoy actualmente ENTREGADO; el nuevo
+summary.completed_deliveries documenta la finalización real de entregas.
+
+### Operador y productividad consolidada
+
+La cola del operador muestra hasta veinte pedidos PENDIENTE/ASIGNADO, de cualquier
+antigüedad, ordenados por creación e ID. queue_truncated anuncia más resultados.
+El total de pendientes no se calcula con esa longitud. Las ubicaciones muestran
+hasta cincuenta riders elegibles, con coordenadas válidas y timestamp de los
+últimos cinco minutos, sin futuro. Cero latitud/longitud es válido; NaN y valores
+fuera de rango se descartan. positions_truncated distingue el límite del conjunto.
+Conectividad declarada y cantidad de posiciones recientes son indicadores distintos.
+
+El historial `/api/v1/productivity/rider/{riders.id}` consulta consolidaciones
+sin shift_id para no mezclar el día con sus turnos. Limita uno a cien registros,
+ordena por período descendente e ID y preserva desconocidos. No usa el users.id
+como riders.id. Resultados históricos duplicados dan HTTP 409 incluso con limit=1:
+la detección con ventana SQL ocurre antes del límite. Períodos vacíos/invertidos,
+conteos negativos o SLA conocido superior al total también se rechazan con 409.
+No se reparan históricos automáticamente ni se borran registros.
+
+El SLA histórico se calcula sobre on_time + late; duración/distancia/importe
+nulos, negativos o no finitos quedan null. Ese importe es el valor almacenado,
+no un ingreso certificado ni conciliado. El ranking consulta entregas terminadas,
+ordena por cantidad descendente y UUID para desempates estables, e informa
+ranking_basis=completed_deliveries. performance_score permanece null: no existe
+un score integral demostrado con estos datos.
+
+Los helpers existentes mantienen sus nombres; el operador usa estados válidos y
+objetivos SLA positivos para riesgo a quince minutos, y el comparativo agrupa por
+period_start, rechaza duplicados y limita diez mil registros. La métrica inexistente
+de entregas por hora no se sustituye por una puntuación sintética.
+
+### Seguridad y frontend operativo
+
+Gerente solo permite SUPERADMIN/GERENTE; operador añade OPERADOR. Historial admite
+operaciones, AUDITOR y repartidor propietario; ranking es para operaciones sin
+AUDITOR. CLIENTE queda excluido. Se reutilizan JWT, versión de credenciales,
+rol y estado vigentes en base de datos y política de habilitación del rider.
+Las pruebas comprueban revocación y cambio de rol conservando el token anterior.
+
+El nuevo servicio valida estructura, enteros seguros, finitud, nulos, límites,
+fechas, coordenadas y coherencia de conteos SLA. Una respuesta incorrecta no se
+normaliza a ceros. El hook identifica usuario, rol, revisión de sesión, generación
+de credenciales, panel y período; aborta solicitudes retiradas y descarta resultados
+tardíos. Tiene límite de quince segundos aunque el adaptador ignore la cancelación.
+La rotación normal de tokens de la misma sesión conserva la respuesta legítima.
+
+Logout, pérdida de rol y cambio de identidad retiran datos visibles. Errores muestran
+mensajes genéricos sin diagnósticos sensibles; Actualizar permite recuperarse.
+Cambiar el período retira el resultado anterior. No se añade polling ni se promete
+actualización por WebSocket. El usuario ve el reloj/calendario de la consulta.
+
+Las tarjetas muestran datos reales de pedidos, entregas, SLA conocido, conectados,
+pendientes, alertas, entregas en curso, disponibles y turnos con entrada. La tabla
+y barras diarias usan conteos registrados y ofrecen lectura accesible. Se conserva
+acceso a páginas existentes de pedidos, entregas, mapa, repartidores, reportes,
+alertas y finanzas según rol. No se presentan ganancias o porcentajes fabricados.
+
+### Diccionario y esquema
+
+La guía **backend/OPERATIONAL_DASHBOARDS.md** contiene el diccionario completo de
+los campos HTTP, fuentes SQL, ventanas, fórmulas, límites y compatibilidad. Se
+enlaza desde backend/README.md. El DTO nuevo vive en
+app/schemas/operational_dashboard.py; los DTO legacy de schemas/dashboard.py se
+conservan sin cambios. No se modifica tabla, columna, enum, índice, default, FK,
+dependencia ni migración. No requiere DDL propio de esta entrega.
+
+### Validación final
+
+Se añaden **108 casos**: 51 backend —nueve de calendario/validación y 42 con
+PostgreSQL y aplicación HTTP real— y 57 frontend en tres suites. Los esquemas
+son privados en una base explícita test_*; JWT, middleware, permisos y revocación
+no se sustituyen. Se prueban cohortes, DST, nulos/ceros, límites 20/50, coordenadas,
+historial duplicado, ranking y contratos legacy. Frontend prueba parser, timeouts,
+respuestas tardías, cambio de período/identidad/rol, logout, StrictMode y render.
+
+| Control | Resultado |
+| --- | --- |
+| Backend focal | **51 aprobados**: 48 iniciales y tres casos finales; una advertencia previa |
+| Backend completo final | **1633 aprobados, dos SDK opcionales omitidos**, una advertencia de configuración previa; 1057.02 s |
+| SDK opcionales, transportes HTTP sustituidos | **Dos aprobados aparte**, sin envío externo; 1,87 s |
+| Frontend completo final | **735 aprobados / 51 suites**, cero casos fallidos; 45,5 s |
+| Frontend nuevo | **57 aprobados / tres suites**, incluidos en la ejecución final |
+| TypeScript / lint / build | **Aprobados**: TypeScript, lint sin errores y compilación Next.js de producción; se conservan advertencias previas |
+| Cobertura frontend | **28,88 % líneas**, 28,75 % statements, 23,31 % branches, 24,55 % funciones; el umbral global de 50 % sigue fallando |
+| Mypy | **154 errores / 32 archivos**, antes 182/33: 28 eliminados, ninguno nuevo al comparar mensajes normalizados |
+| Black / flake8 crítico / diff | **Aprobados**: Black app, flake8 crítico y git diff --check |
+
+No se rebajan umbrales, añaden exclusiones o silencian errores para anunciar un
+CI verde. Local usa Python 3.12 y CI Python 3.11; el nuevo CI de GitHub se verifica
+y comunica por separado. Se cotejan hashes del código probado y árbol/blobs/commit
+publicado. El PR se prepara listo para revisión, sin borrador. No se fusiona,
+despliega, ejecuta migración productiva, activa Beat ni envía dinero/mensajes reales.
+
+### Límites y siguiente prioridad
+
+Estos son agregados operativos de varias lecturas con aislamiento normal; bajo
+escrituras concurrentes puede haber diferencias entre resumen y series. No son un
+cierre financiero ni una fotografía transaccional garantizada. Faltan medición de
+carga, planes SQL/índices basados en esa medición, agregados para gran volumen,
+estrategia de consistencia, observabilidad y actualización mediante outbox.
+
+El antiguo hooks/useProductivity.ts solicita endpoints más amplios (/metrics,
+/riders, /time-metrics, /sla) que no se completan aquí ni alimentan el nuevo panel.
+El servicio legacy usado por el helper de productividad del rider conserva
+limitaciones históricas; no se certifica toda su UI. Faltan filtros/exportación de
+grandes historiales, KPI con evidencia y actualización coordinada de esos contratos.
+
+La siguiente prioridad técnica es cerrar contratos restantes que todavía consultan
+atributos inexistentes y continuar el aislamiento de datos/permisos en pantallas
+operativas. Después deben completarse tipado/cobertura global, outbox, sesiones
+por dispositivo/refresh de un uso, pruebas de workers en staging y operación
+observable. Siguen pendientes homologación fiscal, pagos con evidencia y
+conciliación, unificación de trazas/rutas, móvil/offline y validación integral de
+producción. No se asigna un porcentaje global de avance sin criterios de aceptación.
+
+Hallazgo concreto para el siguiente bloque: integraciones continúa montado desde
+routers_combined con prefijo duplicado y serializa type/is_active, aunque el
+modelo define integration_type/status. Debe corregirse con su propio contrato y
+pruebas, sin exponer configuración sensible. No se modifica en esta entrega.
