@@ -1,6 +1,8 @@
 """API identity, exact surface preservation and fresh-process startup fault tests."""
 
 import importlib
+import hashlib
+from copy import deepcopy
 import json
 from pathlib import Path
 import subprocess
@@ -52,7 +54,8 @@ ALIASES = (
     "users",
     "payouts",
 )
-EXPECTED = Path(__file__).parent / "fixtures/api_surface_before_bootstrap.json"
+PREVIOUS = Path(__file__).parent / "fixtures/api_surface_before_bootstrap.json"
+EXPECTED = Path(__file__).parent / "fixtures/api_surface_after_reconciliation.json"
 BACKEND = Path(__file__).resolve().parents[1]
 
 
@@ -77,8 +80,51 @@ def test_compatibility_router_is_the_canonical_object(name):
 
 def test_exact_route_order_auth_dependencies_and_openapi_are_preserved():
     expected = json.loads(EXPECTED.read_text())
-    assert len(expected["routes"]) == 197
+    assert len(expected["routes"]) == 202
     assert api_surface(app) == expected
+
+
+def test_reconciliation_addition_preserves_all_preexisting_routes_and_openapi():
+    previous = json.loads(PREVIOUS.read_text())
+    current = api_surface(app)
+    prefix = "/api/v1/reconciliation"
+    assert [
+        row for row in current["routes"] if not row["path"].startswith(prefix)
+    ] == previous["routes"]
+    assert all(
+        current["dependencies"].get(key) == value
+        for key, value in previous["dependencies"].items()
+    )
+    schema = deepcopy(app.openapi())
+    new_paths = {
+        prefix + path
+        for path in (
+            "/wallet/{rider_id}",
+            "/wallet/{rider_id}/sync",
+            "/batch/daily",
+            "/fix-all-discrepancies",
+            "/audit/ledger-integrity",
+        )
+    }
+    assert {path for path in schema["paths"] if path.startswith(prefix)} == new_paths
+    for path in new_paths:
+        del schema["paths"][path]
+    for name in (
+        "IntegrityIssue",
+        "LedgerIntegrity",
+        "CachePreview",
+        "CacheSyncRequest",
+        "CacheSyncResult",
+        "CachePreviewPage",
+        "LedgerAuditItem",
+        "LedgerAuditPage",
+        "RiderStatus",
+    ):
+        del schema["components"]["schemas"][name]
+    canonical = json.dumps(
+        schema, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    assert hashlib.sha256(canonical.encode()).hexdigest() == previous["openapi_sha256"]
 
 
 def test_two_factories_have_identical_surfaces_without_duplicate_registration():

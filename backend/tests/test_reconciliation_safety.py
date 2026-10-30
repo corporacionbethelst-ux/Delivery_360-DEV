@@ -8,12 +8,14 @@ from uuid import uuid4
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import func, select
+from sqlalchemy import func, select, MetaData
 
 from app.api.v1 import reconciliation as api
 from app.api.v1.auth import get_current_user
 from app.core.database import get_db
+from app.core.exception_handlers import register_exception_handlers
 from app.models.financial import Financial, PaymentStatus, TransactionType
+from app.models.audit_log import AuditLog
 from app.models.rider import Rider, RiderStatus
 from app.models.user import UserRole
 from app.services.financial_service import FinancialService
@@ -147,9 +149,24 @@ async def test_daily_liquidation_returns_integer_count_even_when_empty(
 @pytest.mark.asyncio
 async def test_http_previews_roles_explicit_apply_and_historical_date(
     reconciliation_context,
+    test_engine,
 ):
+    # SQLite has no PostgreSQL gen_random_uuid() DDL syntax. Clone the test table
+    # and retain the ORM's Python UUID default, without changing production metadata.
+    from app.models.user import User
+
+    def audit_table(connection):
+        metadata = MetaData()
+        User.__table__.to_metadata(metadata)
+        table = AuditLog.__table__.to_metadata(metadata)
+        table.c.id.server_default = None
+        table.create(connection, checkfirst=True)
+
+    async with test_engine.begin() as connection:
+        await connection.run_sync(audit_table)
     session, rider_id, user = reconciliation_context
     app = FastAPI()
+    register_exception_handlers(app)
     app.include_router(api.router, prefix="/api/v1")
 
     async def database():
@@ -179,12 +196,13 @@ async def test_http_previews_roles_explicit_apply_and_historical_date(
             )
         ).status_code == 403
         user.role = UserRole.SUPERADMIN
+        await session.commit()
         response = await client.post("/api/v1/reconciliation/fix-all-discrepancies")
         assert response.status_code == 200, response.text
         assert response.json()["dry_run"] is True
         assert response.json()["fixed_count"] == 0
         assert response.json()["discrepancy_count"] == 1
-        assert response.json()["total_adjusted_amount"] == 0
+        assert response.json()["total_adjusted_amount"] == "0.00"
         assert await persisted_state(session, rider_id) == before
         response = await client.get(
             "/api/v1/reconciliation/batch/daily?target_date=2020-01-01"
@@ -196,8 +214,19 @@ async def test_http_previews_roles_explicit_apply_and_historical_date(
         response = await client.post(
             "/api/v1/reconciliation/fix-all-discrepancies?dry_run=false"
         )
+        assert response.status_code == 409, response.text
+        assert await persisted_state(session, rider_id) == before
+        preview = (await client.get(f"/api/v1/reconciliation/wallet/{rider_id}")).json()
+        response = await client.post(
+            f"/api/v1/reconciliation/wallet/{rider_id}/sync?dry_run=false",
+            json={
+                "expected_version": preview["version"],
+                "expected_fingerprint": preview["fingerprint"],
+                "reason": "Revisión explícita de la caché",
+            },
+        )
         assert response.status_code == 200, response.text
-        assert response.json()["fixed_count"] == 1
+        assert response.json()["status"] == "reconciled"
         assert await persisted_state(session, rider_id) == (
             Decimal("100.00"),
             1,

@@ -26,6 +26,7 @@ from app.api.v1 import (
     shifts,
     productivity,
     financial,
+    reconciliation,
     dashboard,
     routes,
     alerts,
@@ -160,6 +161,7 @@ def create_app() -> FastAPI:
         productivity.router, prefix="/api/v1/productivity", tags=["Productivity"]
     )
     app.include_router(financial.router, prefix="/api/v1", tags=["Financial"])
+    app.include_router(reconciliation.router, prefix="/api/v1")
     app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"])
     app.include_router(routes.router, prefix="/api/v1/routes", tags=["Routes"])
     app.include_router(alerts.router, prefix="/api/v1", tags=["Alerts"])

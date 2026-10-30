@@ -51,11 +51,12 @@ adaptadores. No se realizan llamadas externas para validar la composición.
 Los errores opcionales del scheduler en lifespan mantienen su tratamiento actual;
 esta entrega no convierte ese job en dependencia obligatoria de arranque.
 
-Reconciliation ya se importaba sin estar montado como router independiente en
-main. Su contrato de carga se conserva, y aquí no se publica
-/api/v1/reconciliation. Los endpoints existentes bajo /financial/reconciliation
-y /fiscal/reconciliation son contratos distintos. Revisar el montaje y las
-pruebas del componente independiente queda pendiente.
+En el baseline de la entrega 55, reconciliation se importaba sin estar montado
+como router independiente en main. La entrega 56 incorpora sus cinco rutas bajo
+/api/v1/reconciliation, con consulta acotada y reparación explícita de caché
+verificada. Consulte [alcance, permisos y límites](CACHE_RECONCILIATION.md).
+Los endpoints existentes bajo /financial/reconciliation y /fiscal/reconciliation
+son contratos distintos y se conservan.
 
 ## Compatibilidad de imports y prefijos
 
@@ -150,8 +151,10 @@ La entrega no aplica migraciones, despliega, activa workers o cambia las barrera
 fiscales y de integraciones. No añade flags que vuelvan opcionales los componentes
 requeridos. No certifica conectividad externa ni disponibilidad operativa global.
 
-Quedan pendientes revisión del componente reconciliation no montado, deuda global
-de tipado/cobertura, pruebas de carga/rolling deployment, readiness y observabilidad,
+La entrega 56 resuelve el montaje y revisión del componente reconciliation;
+conserva este inventario de 197 rutas como baseline histórico y añade un contrato
+posterior de 202 rutas. Quedan pendientes deuda global de tipado/cobertura,
+pruebas de carga/rolling deployment, readiness y observabilidad,
 outbox, sesiones por dispositivo, adaptadores externos homologados y los restantes
 criterios de aceptación del roadmap. Los resultados de regresión y CI se registran
 en el informe raíz de la entrega.
