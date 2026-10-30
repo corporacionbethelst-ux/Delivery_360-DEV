@@ -53,13 +53,21 @@ class CRUDDelivery:
         return db_obj
 
     async def update(
-        self, db: AsyncSession, db_obj: Delivery, obj_in: dict[str, Any]
+        self,
+        db: AsyncSession,
+        db_obj: Delivery,
+        obj_in: dict[str, Any],
+        *,
+        commit: bool = True,
     ) -> Delivery:
         for field, value in obj_in.items():
             setattr(db_obj, field, value)
         db.add(db_obj)
-        await db.commit()
-        await db.refresh(db_obj)
+        if commit:
+            await db.commit()
+            await db.refresh(db_obj)
+        else:
+            await db.flush()
         return db_obj
 
     async def get_by_rider(

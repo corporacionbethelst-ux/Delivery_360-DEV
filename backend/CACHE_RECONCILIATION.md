@@ -187,8 +187,9 @@ Revisar los datos históricos que resulten bloqueados, la moneda y la procedenci
 de saldos antes de cualquier corrección operativa. La continuidad desde cero no
 puede detectar una historia fabricada coherente o eventos nunca registrados.
 Debe evaluarse la inmutabilidad, exhaustividad y unificación de los dos libros.
-El escritor legacy conserva su política interna para tipos no mapeados; este
-análisis los rechaza y no modifica ese escritor compartido en esta entrega.
+La entrega 57 endurece el escritor compartido: rechaza tipos sin dirección,
+importes imprecisos e historial no verificable antes de añadir movimientos.
+Comparte este mismo análisis; consulte [escritura y límites operativos](LEGACY_LEDGER_WRITES.md).
 
 El límite de filas acota materialización, análisis y tamaño de respuesta; no
 garantiza una duración máxima de SQL o espera de bloqueos. Revisar planes,

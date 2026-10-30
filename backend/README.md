@@ -139,6 +139,14 @@ huella, motivo, autorización vigente, bloqueos y auditoría atómica. No modifi
 el ledger ni la wallet moderna; los lotes son solo de consulta. No requiere
 migración. Consulte [permisos, procedimiento, datos y límites](CACHE_RECONCILIATION.md).
 
+## Escritura contable y cierre de entregas
+
+La entrega 57 valida importes exactos y tipos explícitos, revisa el historial bajo
+bloqueo y elimina constructores contables directos en órdenes y entregas. El cierre,
+la orden, el snapshot del bono y su asiento se confirman o revierten juntos. Los
+bonos usan cálculo decimal y el cero no inventa un movimiento. No requiere
+migración. Consulte [contratos, barreras, concurrencia y límites de volumen](LEGACY_LEDGER_WRITES.md).
+
 ## Workers y programación operativa
 
 La entrega 52 normaliza ocho módulos y doce tareas Celery, incorpora productividad

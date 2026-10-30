@@ -57,8 +57,16 @@ def delivery():
 
 
 @pytest.fixture
-def api_app(db, user):
+def api_app(db, user, monkeypatch):
     app = FastAPI()
+    # This suite replaces persistence only; real PostgreSQL transition locks are
+    # exercised by test_delivery_financial_postgresql.py.
+    async def locked_delivery(session, delivery_id, *, actor_id=None):
+        from sqlalchemy import select
+        from app.models.delivery import Delivery
+        result = await session.execute(select(Delivery).where(Delivery.id == delivery_id))
+        return result.scalar_one_or_none()
+    monkeypatch.setattr(deliveries, "lock_delivery_transition", locked_delivery)
     for router in (deliveries.router, orders.router, riders.router):
         app.include_router(router, prefix="/api/v1")
     async def current_user():
@@ -166,10 +174,10 @@ async def test_unified_completion_requires_existing_otp(http, db, user, delivery
 
 
 @pytest.mark.parametrize("otp", [None, "", "654321"])
-async def test_service_rejects_otp_before_bonus_or_writes(db, delivery, otp):
+async def test_service_rejects_otp_before_bonus_or_writes(db, delivery, otp, monkeypatch):
     delivery.proof_otp = "123456"
     svc = DeliveryService()
-    svc.get_delivery = AsyncMock(return_value=delivery)
+    monkeypatch.setattr("app.services.delivery_service.lock_delivery_transition", AsyncMock(return_value=delivery))
     svc._get_bonus_config_and_snapshot = AsyncMock()
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as exc:

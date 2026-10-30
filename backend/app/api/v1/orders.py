@@ -26,6 +26,12 @@ from app.models.user import User, UserRole
 from app.models.delivery import Delivery, DeliveryStatus
 from app.models.financial import Financial, TransactionType, PaymentStatus
 from app.models.platform_setting import PlatformSetting
+from app.services.financial_service import FinancialService
+from app.services.delivery_ledger import (
+    calculated_bonus,
+    validate_bonus_receipt,
+    ensure_bonus_outcome,
+)
 from app.api.v1.auth import get_current_user, require_role
 from app.services.notification_service import NotificationService
 from app.services.audit_service import AuditService, get_audit_service
@@ -832,7 +838,10 @@ async def update_status(
     }
 
     result = await db.execute(
-        select(Order).where(Order.id == _parse_uuid(order_id, "order_id"))
+        select(Order)
+        .where(Order.id == _parse_uuid(order_id, "order_id"))
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     order = result.scalar_one_or_none()
     if not order:
@@ -857,10 +866,18 @@ async def update_status(
 
     if target == OrderStatus.ENTREGADO:
         delivery_result = await db.execute(
-            select(Delivery).where(Delivery.order_id == order.id)
+            select(Delivery)
+            .where(Delivery.order_id == order.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         delivery = delivery_result.scalar_one_or_none()
         if delivery is not None:
+            if delivery.status in (DeliveryStatus.COMPLETADA, DeliveryStatus.FALLIDA):
+                raise HTTPException(
+                    status_code=409,
+                    detail="El estado de orden y entrega requiere revisión",
+                )
             validate_delivery_otp(delivery, otp_code)
 
     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -894,11 +911,13 @@ async def _ensure_delivery_and_financial_records(
         logger.warning(f"Orden {order.id} marcada como entregada sin rider asignado")
         return
 
+    await db.execute(select(Order.id).where(Order.id == order.id).with_for_update())
+    await ensure_bonus_outcome(db, order.id, success=True)
     rider_id = order.assigned_rider_id
 
     # 1. Verificar/Crear registro en deliveries
     delivery_result = await db.execute(
-        select(Delivery).where(Delivery.order_id == order.id)
+        select(Delivery).where(Delivery.order_id == order.id).with_for_update()
     )
     delivery = delivery_result.scalar_one_or_none()
 
@@ -957,6 +976,11 @@ async def _ensure_delivery_and_financial_records(
     )
     existing_financial = financial_result.scalar_one_or_none()
 
+    if existing_financial is not None:
+        validate_bonus_receipt(
+            existing_financial, rider_id, order.id, TransactionType.PAGO_ENTREGA
+        )
+
     if not existing_financial:
         # Obtener el bono base configurable desde platform_settings (FASE 1)
         # Si no existe configuración, usar 2.50 como fallback para retrocompatibilidad
@@ -966,12 +990,14 @@ async def _ensure_delivery_and_financial_records(
             )
         )
         bonus_value = settings_result.scalar_one_or_none()
-        base_payment = (
-            Decimal(str(bonus_value)) if bonus_value is not None else Decimal("2.50")
+        base_payment = calculated_bonus(
+            bonus_value if bonus_value is not None else "2.50"
         )
+        if base_payment == 0:
+            return
 
         # Crear registro financiero
-        financial = Financial(
+        await FinancialService(db).create_ledger_entry(
             rider_id=rider_id,
             amount=base_payment,
             transaction_type=TransactionType.PAGO_ENTREGA,
@@ -981,8 +1007,8 @@ async def _ensure_delivery_and_financial_records(
             source_id=str(order.id),
             idempotency_key=idempotency_key,
             status=PaymentStatus.PROCESADO,
+            commit=False,
         )
-        db.add(financial)
         await db.flush()
         logger.info(
             f"Registro financiero creado automáticamente para orden {order.id} - Rider {rider_id} - Bono: {base_payment}"
