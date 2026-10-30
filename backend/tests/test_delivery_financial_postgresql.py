@@ -624,14 +624,14 @@ async def test_account_and_ownership_are_rechecked_after_the_initial_handler_rea
 async def test_workflow_ddl_fixture_keeps_production_mapping_contract_unchanged(
     payment_db,
 ):
-    from tests.orm_contract import detailed_mapping_contract
+    from tests.orm_contract import detailed_mapping_contract, cancellation_contract
 
     expected = json.loads(
         (
             Path(__file__).parent / "fixtures/orm_financial_dispatch_contract.json"
         ).read_text()
     )
-    assert detailed_mapping_contract(tuple(expected)) == expected
+    assert detailed_mapping_contract(tuple(expected)) == cancellation_contract(expected)
 
 
 @pytest.mark.asyncio

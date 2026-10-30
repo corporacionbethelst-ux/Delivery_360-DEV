@@ -16,7 +16,7 @@ from app.models.vehicle import Vehicle
 from app.api.v1.orders import _serialize_order_rider
 from app.api.v1.riders import _rider_to_dict
 from app.api.v1.payouts import _serialize_payout
-from tests.orm_contract import detailed_mapping_contract
+from tests.orm_contract import detailed_mapping_contract, cancellation_contract
 
 TABLES = (
     "payouts",
@@ -34,7 +34,7 @@ def test_typed_mappings_preserve_postgresql_contract():
             Path(__file__).parent / "fixtures/orm_financial_dispatch_contract.json"
         ).read_text()
     )
-    assert detailed_mapping_contract(TABLES) == expected
+    assert detailed_mapping_contract(TABLES) == cancellation_contract(expected)
 
 
 @pytest.mark.asyncio

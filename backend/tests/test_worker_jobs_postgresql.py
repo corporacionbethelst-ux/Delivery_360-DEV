@@ -36,7 +36,9 @@ async def jobs_db(routes_db, monkeypatch):
         )
         await db.execute(
             text(
-                "ALTER TABLE orders ADD COLUMN status orderstatus, ADD COLUMN created_at TIMESTAMP"
+                "ALTER TABLE orders ALTER COLUMN status DROP DEFAULT, "
+                "ALTER COLUMN status TYPE orderstatus USING status::text::orderstatus, "
+                "ADD COLUMN created_at TIMESTAMP"
             )
         )
         await db.execute(text("CREATE TABLE shifts(id UUID PRIMARY KEY)"))

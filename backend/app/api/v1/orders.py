@@ -32,6 +32,10 @@ from app.services.delivery_ledger import (
     validate_bonus_receipt,
     ensure_bonus_outcome,
 )
+from app.services.order_cancellation import (
+    cancel_order as cancel_order_coordinated,
+    LEGACY_REASON,
+)
 from app.api.v1.auth import get_current_user, require_role
 from app.services.notification_service import NotificationService
 from app.services.audit_service import AuditService, get_audit_service
@@ -261,6 +265,8 @@ def _order_to_dict(o: Order, rider: Optional[Rider] = None) -> dict:
         "id": str(o.id),
         "external_id": o.external_id,
         "status": status_value,
+        "cancellation_reason": o.cancellation_reason,
+        "cancelled_by": o.cancelled_by,
         "priority": priority_value,
         "customer_name": o.customer_name,
         "customer_phone": o.customer_phone,
@@ -630,7 +636,10 @@ async def update_order(
     ),
 ):
     result = await db.execute(
-        select(Order).where(Order.id == _parse_uuid(order_id, "order_id"))
+        select(Order)
+        .where(Order.id == _parse_uuid(order_id, "order_id"))
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     order = result.scalar_one_or_none()
     if not order:
@@ -733,7 +742,10 @@ async def assign_rider(
     ),
 ):
     result = await db.execute(
-        select(Order).where(Order.id == _parse_uuid(order_id, "order_id"))
+        select(Order)
+        .where(Order.id == _parse_uuid(order_id, "order_id"))
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     order = result.scalar_one_or_none()
     if not order:
@@ -837,6 +849,26 @@ async def update_status(
         ],
     }
 
+    ensure_operation_role(current_user, write=True)
+    try:
+        target = OrderStatus(new_status)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Estado inválido: {new_status}")
+    if target == OrderStatus.CANCELADO:
+        if current_user.role not in (UserRole.SUPERADMIN, UserRole.GERENTE):
+            raise HTTPException(
+                status_code=403, detail="La cancelación requiere gerencia"
+            )
+        cancelled_order = await cancel_order_coordinated(
+            db,
+            _parse_uuid(order_id, "order_id"),
+            current_user.id,
+            LEGACY_REASON,
+            expected_token_version=current_user.token_version,
+            commit=True,
+        )
+        return _order_to_dict(cancelled_order)
+
     result = await db.execute(
         select(Order)
         .where(Order.id == _parse_uuid(order_id, "order_id"))
@@ -846,11 +878,6 @@ async def update_status(
     order = result.scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
-
-    try:
-        target = OrderStatus(new_status)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Estado inválido: {new_status}")
 
     await _ensure_rider_order_access(db, current_user, order, write=True)
 
@@ -873,7 +900,11 @@ async def update_status(
         )
         delivery = delivery_result.scalar_one_or_none()
         if delivery is not None:
-            if delivery.status in (DeliveryStatus.COMPLETADA, DeliveryStatus.FALLIDA):
+            if delivery.status in (
+                DeliveryStatus.COMPLETADA,
+                DeliveryStatus.FALLIDA,
+                DeliveryStatus.CANCELADA,
+            ):
                 raise HTTPException(
                     status_code=409,
                     detail="El estado de orden y entrega requiere revisión",
@@ -951,7 +982,11 @@ async def _ensure_delivery_and_financial_records(
         logger.info(f"Registro de entrega creado automáticamente para orden {order.id}")
     else:
         # Actualizar entrega existente si está en estado adecuado
-        if delivery.status not in [DeliveryStatus.COMPLETADA, DeliveryStatus.FALLIDA]:
+        if delivery.status not in [
+            DeliveryStatus.COMPLETADA,
+            DeliveryStatus.FALLIDA,
+            DeliveryStatus.CANCELADA,
+        ]:
             delivery.status = DeliveryStatus.COMPLETADA
             delivery.completed_at = now
 
@@ -1036,6 +1071,15 @@ async def _ensure_delivery_record_on_assignment(
     )
     delivery = delivery_result.scalar_one_or_none()
 
+    if delivery and delivery.status in (
+        DeliveryStatus.COMPLETADA,
+        DeliveryStatus.FALLIDA,
+        DeliveryStatus.CANCELADA,
+    ):
+        raise HTTPException(
+            status_code=409, detail="La entrega ya es terminal; requiere revisión"
+        )
+
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     if not delivery:
@@ -1096,28 +1140,14 @@ async def cancel_order(
     Elimina lógicamente la orden cambiándola a estado CANCELADO.
     No borra el registro de la base de datos.
     """
-    result = await db.execute(
-        select(Order).where(Order.id == _parse_uuid(order_id, "order_id"))
+    order = await cancel_order_coordinated(
+        db,
+        _parse_uuid(order_id, "order_id"),
+        current_user.id,
+        body.reason,
+        expected_token_version=current_user.token_version,
+        commit=True,
     )
-    order = result.scalar_one_or_none()
-
-    if not order:
-        raise HTTPException(status_code=404, detail="Pedido no encontrado")
-
-    # Validar que se pueda cancelar
-    if order.status in [OrderStatus.ENTREGADO, OrderStatus.CANCELADO]:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No se puede cancelar un pedido en estado {optional_enum_value(order.status)}",
-        )
-
-    order.status = OrderStatus.CANCELADO
-    # Guardamos la razón en las instrucciones o campo disponible (ajustar según tu modelo)
-    if hasattr(order, "delivery_instructions"):
-        prev = order.delivery_instructions or ""
-        order.delivery_instructions = f"{prev} [CANCELADO: {body.reason}]"
-
-    await db.commit()
     return _order_to_dict(order)
 
 
@@ -1136,7 +1166,10 @@ async def assign_order_auto(
     """
     # 1. Obtener el pedido
     result = await db.execute(
-        select(Order).where(Order.id == _parse_uuid(order_id, "order_id"))
+        select(Order)
+        .where(Order.id == _parse_uuid(order_id, "order_id"))
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     order = result.scalar_one_or_none()
     if not order:

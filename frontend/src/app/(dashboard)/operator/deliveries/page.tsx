@@ -15,7 +15,7 @@ import { Bike, Search, Filter, Eye, AlertCircle, RefreshCw } from 'lucide-react'
 import { formatCurrency } from '@/lib/formatters';
 
 // Tipos locales para los filtros
-type StatusFilter = 'TODOS' | 'INICIADA' | 'EN_PICKUP' | 'EN_ROUTE' | 'EN_DESTINO' | 'COMPLETADA' | 'FALLIDA';
+type StatusFilter = 'TODOS' | 'INICIADA' | 'EN_PICKUP' | 'EN_ROUTE' | 'EN_DESTINO' | 'COMPLETADA' | 'FALLIDA' | 'CANCELADA';
 
 export default function OperatorDeliveriesPage() {
   const router = useRouter();
@@ -96,6 +96,8 @@ export default function OperatorDeliveriesPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'COMPLETADA': return 'bg-green-100 text-green-800 border-green-200';
+      case 'CANCELADA':
+      case 'CANCELADO': return 'bg-gray-100 text-gray-700 border-gray-200';
       case 'FALLIDA': return 'bg-red-100 text-red-800 border-red-200';
       case 'EN_ROUTE':
       case 'EN_DESTINO': return 'bg-blue-100 text-blue-800 border-blue-200';
@@ -145,6 +147,7 @@ export default function OperatorDeliveriesPage() {
                   <SelectItem value="EN_DESTINO">En Destino</SelectItem>
                   <SelectItem value="COMPLETADA">Completada</SelectItem>
                   <SelectItem value="FALLIDA">Fallida</SelectItem>
+                  <SelectItem value="CANCELADA">Cancelada</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={dateFilter} onValueChange={(v) => setDateFilter(v as any)}>

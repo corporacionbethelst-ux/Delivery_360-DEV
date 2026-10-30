@@ -1,5 +1,6 @@
 'use client';
 
+import { isCancellationReasonValid } from '@/lib/delivery-status';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -97,14 +98,10 @@ export default function OrdersPage() {
   };
 
   const confirmCancel = async () => {
-    if (!orderToCancel) return;
+    if (!orderToCancel || cancelling || !isCancellationReasonValid(cancelReason)) return;
     setCancelling(true);
     try {
-      if (orderService.cancel) {
-        await orderService.cancel(orderToCancel.id, cancelReason || 'Sin especificar');
-      } else {
-        await orderService.updateStatus(orderToCancel.id, 'CANCELADO');
-      }
+      await orderService.cancel(orderToCancel.id, cancelReason.trim());
       
       await fetchInitialData();
       setOrderToCancel(null);
@@ -594,12 +591,12 @@ export default function OrdersPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <label className="text-sm font-medium mb-2 block">Motivo (Opcional)</label>
+            <label className="text-sm font-medium mb-2 block">Motivo obligatorio (8 a 500 caracteres)</label>
             <Textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="..." className="w-full" />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOrderToCancel(null)}>Volver</Button>
-            <Button variant="destructive" onClick={confirmCancel} disabled={cancelling}>
+            <Button variant="destructive" onClick={confirmCancel} disabled={cancelling || !isCancellationReasonValid(cancelReason)}>
               {cancelling ? 'Cancelando...' : 'Confirmar'}
             </Button>
           </DialogFooter>

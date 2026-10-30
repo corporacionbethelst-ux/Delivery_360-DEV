@@ -18,6 +18,7 @@ import {
   MessageSquare
 } from "lucide-react";
 import Link from "next/link";
+import { isDeliveryCancelled, isDeliveryTerminal } from "@/lib/delivery-status";
 
 // Definición completa de causas estandarizadas
 interface FailureOption {
@@ -101,6 +102,12 @@ export default function RiderOrderDetailPage() {
     if (!delivery || !order) {
       setEstimatedEarnings(0);
       setEarningsLabel("Pendiente");
+      return;
+    }
+
+    if (isDeliveryCancelled(delivery.status) || order.status === 'CANCELADO') {
+      setEstimatedEarnings(0);
+      setEarningsLabel("Cancelada: sin bono de entrega");
       return;
     }
 
@@ -244,7 +251,7 @@ export default function RiderOrderDetailPage() {
   };
 
   const canTransitionTo = (target: DeliveryStatus): boolean => {
-    if (!delivery) return false;
+    if (!delivery || isDeliveryTerminal(delivery.status) || order?.status === 'CANCELADO') return false;
 
     switch (delivery.status) {
       case DeliveryStatus.INICIADA:
@@ -261,7 +268,7 @@ export default function RiderOrderDetailPage() {
   };
 
   const handleQuickAction = (newStatus: DeliveryStatus) => {
-    if (!delivery) return;
+    if (!delivery || isDeliveryTerminal(delivery.status) || order?.status === 'CANCELADO') return;
 
     if (newStatus === DeliveryStatus.FALLIDA) {
       setShowFailModal(true);
@@ -428,6 +435,7 @@ export default function RiderOrderDetailPage() {
           <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${
               delivery.status === DeliveryStatus.COMPLETADA ? 'bg-green-50 text-green-700 border-green-200' :
               delivery.status === DeliveryStatus.FALLIDA ? 'bg-red-50 text-red-700 border-red-200' :
+              isDeliveryCancelled(delivery.status) ? 'bg-gray-50 text-gray-700 border-gray-200' :
               'bg-yellow-50 text-yellow-700 border-yellow-200'
             }`}>
             Entrega: {delivery.status.replace('_', ' ')}
@@ -435,11 +443,18 @@ export default function RiderOrderDetailPage() {
         </div>
       </div>
 
+      {(isDeliveryCancelled(delivery.status) || order.status === 'CANCELADO') && (
+        <div role="status" className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-gray-700">
+          <p className="font-semibold">Orden cancelada. Las acciones de entrega están cerradas.</p>
+          {order.cancellation_reason && <p className="mt-1">Motivo: {order.cancellation_reason}</p>}
+        </div>
+      )}
+
       {/* Panel Principal */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
 
         {/* Acciones Rápidas */}
-        {delivery.status !== DeliveryStatus.COMPLETADA && delivery.status !== DeliveryStatus.FALLIDA && (
+        {!isDeliveryTerminal(delivery.status) && order.status !== 'CANCELADO' && (
           <div className="bg-gray-50 border-b border-gray-200 p-6">
             <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
               <Truck className="w-4 h-4" /> Acciones de Entrega

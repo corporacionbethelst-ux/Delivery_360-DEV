@@ -8,6 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.delivery import Delivery, DeliveryStatus
+from app.core.exceptions import AppException
+from app.services.order_cancellation import ensure_order_not_cancelled
 
 
 class CRUDDelivery:
@@ -46,6 +48,9 @@ class CRUDDelivery:
         return list(result.scalars().all())
 
     async def create(self, db: AsyncSession, obj_in: dict[str, Any]) -> Delivery:
+        await ensure_order_not_cancelled(db, obj_in["order_id"], lock=True)
+        if obj_in.get("status") == DeliveryStatus.CANCELADA:
+            raise AppException("Cancele la entrega desde su orden", 409)
         db_obj = Delivery(**obj_in)
         db.add(db_obj)
         await db.commit()
@@ -60,6 +65,17 @@ class CRUDDelivery:
         *,
         commit: bool = True,
     ) -> Delivery:
+        await ensure_order_not_cancelled(db, db_obj.order_id, lock=True)
+        current = await db.scalar(
+            select(Delivery.status).where(Delivery.id == db_obj.id).with_for_update()
+        )
+        if (
+            current == DeliveryStatus.CANCELADA
+            or obj_in.get("status") == DeliveryStatus.CANCELADA
+        ):
+            raise AppException(
+                "La cancelación no puede sobrescribirse mediante edición", 409
+            )
         for field, value in obj_in.items():
             setattr(db_obj, field, value)
         db.add(db_obj)

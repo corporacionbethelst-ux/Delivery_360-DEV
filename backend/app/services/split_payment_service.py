@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -121,7 +121,13 @@ async def process_order_settlement(
     Nunca lanza por fallos de datos: loggea y retorna None. Lanza solo errores
     de DB irrecuperables (el caller-safe los atrapa).
     """
-    order = await db.get(Order, order_id)
+    state = await db.scalar(
+        select(cast(Order.status, String)).where(Order.id == order_id).with_for_update()
+    )
+    if state == "CANCELADO":
+        logger.info("split: orden %s cancelada; no se genera distribución", order_id)
+        return None
+    order = await db.get(Order, order_id, populate_existing=True)
     if order is None:
         logger.warning("split: orden %s inexistente", order_id)
         return None

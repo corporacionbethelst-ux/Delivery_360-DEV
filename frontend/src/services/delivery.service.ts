@@ -3,7 +3,7 @@ import type { Delivery, DeliveryStatus } from '@/types/delivery';
 import { isAxiosError } from 'axios';
 
 // Usamos string union para ser flexibles con el filtro
-export type DeliveryStatusFilter = 'PENDIENTE' | 'INICIADA' | 'EN_ROUTE' | 'EN_RUTA' | 'COMPLETADA' | 'INCIDENCIA' | 'FALLIDA' | 'EN_PICKUP' | 'EN_DESTINO';
+export type DeliveryStatusFilter = 'PENDIENTE' | 'INICIADA' | 'EN_ROUTE' | 'EN_RUTA' | 'COMPLETADA' | 'INCIDENCIA' | 'FALLIDA' | 'EN_PICKUP' | 'EN_DESTINO' | 'CANCELADA';
 
 // Nuevos tipos para las causas de falla estandarizadas
 export type FailureCause = 

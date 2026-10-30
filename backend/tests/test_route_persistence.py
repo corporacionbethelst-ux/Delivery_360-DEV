@@ -37,7 +37,7 @@ async def routes_db(pg_wallets, monkeypatch, tmp_path):
                 "ALTER TABLE riders ADD COLUMN status riderstatus DEFAULT 'ACTIVO', ADD COLUMN is_online BOOLEAN DEFAULT true, ADD COLUMN approved_at TIMESTAMP, ADD COLUMN last_lat FLOAT, ADD COLUMN last_lng FLOAT, ADD COLUMN last_location_at TIMESTAMP, ADD COLUMN updated_at TIMESTAMP"
             )
         )
-        await db.execute(text("CREATE TABLE orders(id UUID PRIMARY KEY)"))
+        await db.execute(text("CREATE TABLE orders(id UUID PRIMARY KEY, status VARCHAR(30) DEFAULT 'EN_RUTA')"))
         for model in (RiderDocument, Delivery, Route, RoutePoint, RouteDeviation):
             await conn.run_sync(model.__table__.create)
         actors = list((await db.scalars(select(User).order_by(User.email))).all())

@@ -2,7 +2,7 @@
 
 from uuid import UUID
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.operation_permissions import ensure_operation_role
 from app.models.user import User, UserRole
@@ -60,11 +60,19 @@ async def resolve_tracking_channel(
         return requested, requested
     order = (
         await db.execute(
-            select(Order.id, Order.assigned_rider_id).where(Order.id == resource_id)
+            select(
+                Order.id,
+                Order.assigned_rider_id,
+                cast(Order.status, String).label("order_status"),
+            ).where(Order.id == resource_id)
         )
     ).first()
     if order is None:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
+    if order.order_status == "CANCELADO":
+        raise HTTPException(
+            status_code=409, detail="La orden está cancelada; el tracking está cerrado"
+        )
     assigned = list(
         (
             await db.scalars(

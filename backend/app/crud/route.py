@@ -2,9 +2,10 @@
 
 from datetime import datetime
 from uuid import UUID
-from sqlalchemy import select
+from sqlalchemy import select, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.delivery import Delivery, DeliveryStatus
+from app.models.order import Order
 from app.models.route import (
     Route,
     RoutePoint,
@@ -38,6 +39,14 @@ class CRUDRoute:
         )
         if obj is None:
             raise ValueError("Ruta no encontrada")
+        if obj.delivery_id is not None:
+            parent = await db.scalar(
+                select(cast(Order.status, String))
+                .join(Delivery, Delivery.order_id == Order.id)
+                .where(Delivery.id == obj.delivery_id)
+            )
+            if parent == "CANCELADO":
+                raise ValueError("La orden está cancelada; la ruta está cerrada")
         return obj
 
     async def create_route(
@@ -59,13 +68,18 @@ class CRUDRoute:
         try:
             delivery = (
                 await db.execute(
-                    select(Delivery.id, Delivery.status)
+                    select(Delivery.id, Delivery.status, Delivery.order_id)
                     .where(Delivery.id == delivery_id)
                     .with_for_update()
                 )
             ).first()
             if delivery is None:
                 raise ValueError("Entrega no encontrada")
+            parent = await db.scalar(
+                select(cast(Order.status, String)).where(Order.id == delivery.order_id)
+            )
+            if parent == "CANCELADO":
+                raise ValueError("La orden está cancelada; no admite rutas")
             if delivery.status not in (
                 DeliveryStatus.PENDIENTE,
                 DeliveryStatus.INICIADA,
