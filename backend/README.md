@@ -116,6 +116,14 @@ de productividad para leer consolidaciones existentes y ofrece ranking de volume
 No requiere migración ni activa tareas. Consulte [contratos, diccionario,
 compatibilidad, sesiones y límites](OPERATIONAL_DASHBOARDS.md).
 
+## Registro de integraciones
+
+La entrega 54 corrige las rutas de integraciones y permite consultar metadatos,
+registrar proveedores inactivos, modificar etiquetas y pausar su programación
+con permisos y auditoría transaccional. Los diagnósticos son locales y no anuncian
+una conexión externa verificada. No requiere migración. Consulte
+[contratos, diccionario, conservación y adaptadores pendientes](INTEGRATION_REGISTRY.md).
+
 ## Workers y programación operativa
 
 La entrega 52 normaliza ocho módulos y doce tareas Celery, incorpora productividad

@@ -35,7 +35,6 @@ from app.models.all_models import (
     Financial,
     Route,
     AuditLog,
-    Integration,
     ProductivityRecord,
 )
 from app.models.order import Order, OrderStatus
@@ -634,27 +633,9 @@ async def get_audit_logs(
 # ─────────────────────────────────────────────────────────────────────────────
 # INTEGRATIONS
 # ─────────────────────────────────────────────────────────────────────────────
-integrations_router = APIRouter(prefix="/integrations")
-
-
-@integrations_router.get("")
-async def list_integrations(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
-):
-    result = await db.execute(select(Integration).order_by(Integration.name))
-    items = result.scalars().all()
-    return [
-        {
-            "id": str(i.id),
-            "name": i.name,
-            "type": i.type,
-            "is_active": i.is_active,
-            "last_sync_at": i.last_sync_at.isoformat() if i.last_sync_at else None,
-        }
-        for i in items
-    ]
-
+from app.api.v1.integrations import (
+    router as integrations_router,
+)  # noqa: F401 (compatibility export)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # USERS
