@@ -36,17 +36,11 @@ from app.api.v1 import (
     vehicles,
     zones,
     wallet,
+    telemetry as telemetry_module,
+    tracking as tracking_module,
+    notifications as notifications_module,
+    fiscal as fiscal_module,
 )
-
-# Fase 8: Mapas & Tracking (telemetría REST + WebSocket handler). Import defensivo.
-try:
-    from app.api.v1 import telemetry as telemetry_module
-except ImportError:
-    telemetry_module = None
-try:
-    from app.api.v1 import tracking as tracking_module
-except ImportError:
-    tracking_module = None
 from app.middleware import RateLimitMiddleware, AuditLogMiddleware
 from app.monitoring.health_check import health_router
 from app.monitoring.metrics import metrics_router
@@ -180,48 +174,32 @@ def create_app() -> FastAPI:
     app.include_router(wallet.router, prefix="/api/v1", tags=["Wallet"])
 
     # --- FASE 8: MAPAS & TRACKING ---
-    if telemetry_module is not None:
-        app.include_router(
-            telemetry_module.router, prefix="/api/v1", tags=["Telemetría (Fase 8)"]
-        )
-    if tracking_module is not None:
-        app.include_router(
-            tracking_module.router, prefix="/api/v1", tags=["Tracking (Fase 8)"]
-        )
+    app.include_router(
+        telemetry_module.router, prefix="/api/v1", tags=["Telemetría (Fase 8)"]
+    )
+    app.include_router(
+        tracking_module.router, prefix="/api/v1", tags=["Tracking (Fase 8)"]
+    )
 
-        # WebSocket de tracking: /api/v1/tracking/ws/{channel}?token=<jwt>
-        @app.websocket("/api/v1/tracking/ws/{channel}")
-        async def tracking_ws(websocket: WebSocket, channel: str):
-            await tracking_module.tracking_websocket(websocket, channel)
+    # WebSocket de tracking: /api/v1/tracking/ws/{channel}?token=<jwt>
+    @app.websocket("/api/v1/tracking/ws/{channel}")
+    async def tracking_ws(websocket: WebSocket, channel: str):
+        await tracking_module.tracking_websocket(websocket, channel)
 
     # --- FASE 9: NOTIFICACIONES OMNICANAL ---
-    notifications = None
-    try:
-        from app.api.v1 import notifications as notifications_module
+    app.include_router(
+        notifications_module.router, prefix="/api/v1", tags=["Notificaciones (Fase 9)"]
+    )
 
-        notifications = notifications_module
-    except ImportError:  # pragma: no cover - entorno sin Fase 9 instalada
-        notifications = None
-    if notifications is not None:
-        app.include_router(
-            notifications.router, prefix="/api/v1", tags=["Notificaciones (Fase 9)"]
-        )
-
-        # WebSocket de notificaciones: /api/v1/notifications/ws?token=<jwt> (JWT manual, close 1008 si inválido)
-        @app.websocket("/api/v1/notifications/ws")
-        async def notifications_ws(websocket: WebSocket):
-            await notifications.notifications_websocket(websocket)
+    # WebSocket de notificaciones: /api/v1/notifications/ws?token=<jwt>
+    @app.websocket("/api/v1/notifications/ws")
+    async def notifications_ws(websocket: WebSocket):
+        await notifications_module.notifications_websocket(websocket)
 
     # --- FASE 10: FACTURACIÓN ELECTRÓNICA & MOTOR FISCAL ---
-    fiscal = None
-    try:
-        from app.api.v1 import fiscal as fiscal_module
-
-        fiscal = fiscal_module
-    except ImportError:  # pragma: no cover - entorno sin Fase 10 instalada
-        fiscal = None
-    if fiscal is not None:
-        app.include_router(fiscal.router, prefix="/api/v1", tags=["Fiscal (Fase 10)"])
+    app.include_router(
+        fiscal_module.router, prefix="/api/v1", tags=["Fiscal (Fase 10)"]
+    )
 
     # --- ARCHIVOS ESTÁTICOS (DOCUMENTOS E IMÁGENES) ---
     uploads_path = Path("uploads")
