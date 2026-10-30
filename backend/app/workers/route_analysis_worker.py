@@ -29,7 +29,8 @@ def analyze_route_deviations(self, delivery_id: str):
     except ValueError:
         return {"success": False, "reason": "Route requires manual review"}
     except Exception:
-        # Avoid putting raw DB/provider errors or coordinates in Celery result/logs.
-        raise self.retry(
-            exc=RuntimeError("Route analysis unavailable"), countdown=60
-        ) from None
+        pass
+    # retry() raises internally: leave the exception handler before invoking it.
+    raise self.retry(
+        exc=RuntimeError("Route analysis unavailable"), countdown=60
+    ) from None

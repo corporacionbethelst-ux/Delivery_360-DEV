@@ -2,9 +2,7 @@
 
 import uuid
 from datetime import datetime, timezone  # CORREGIDO
-from typing import Any
 from sqlalchemy import (
-    Column,
     String,
     Float,
     DateTime,
@@ -15,7 +13,7 @@ from sqlalchemy import (
     Boolean,
     Index,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
 import sqlalchemy as sa
@@ -40,15 +38,21 @@ class ProductivityMetrics(Base):
 
     __tablename__ = "productivity_metrics"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        index=True,
+        default=uuid.uuid4,
+        nullable=False,
+    )
 
-    rider_id = Column(
+    rider_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("riders.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    shift_id = Column(
+    shift_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("shifts.id", ondelete="SET NULL"),
         nullable=True,
@@ -56,25 +60,47 @@ class ProductivityMetrics(Base):
     )
 
     # Métricas principales
-    total_deliveries = Column(Integer, default=0)
-    on_time_deliveries = Column(Integer, default=0)
-    late_deliveries = Column(Integer, default=0)
+    total_deliveries: Mapped[int | None] = mapped_column(
+        Integer, default=0, nullable=True
+    )
+    on_time_deliveries: Mapped[int | None] = mapped_column(
+        Integer, default=0, nullable=True
+    )
+    late_deliveries: Mapped[int | None] = mapped_column(
+        Integer, default=0, nullable=True
+    )
 
-    avg_delivery_time_minutes = Column(Float, default=0.0)
-    total_distance_km = Column(Float, default=0.0)
-    total_earnings = Column(Float, default=0.0)
+    avg_delivery_time_minutes: Mapped[float | None] = mapped_column(
+        Float, default=0.0, nullable=True
+    )
+    total_distance_km: Mapped[float | None] = mapped_column(
+        Float, default=0.0, nullable=True
+    )
+    total_earnings: Mapped[float | None] = mapped_column(
+        Float, default=0.0, nullable=True
+    )
 
-    customer_rating_avg = Column(Float, default=0.0)
-    customer_rating_count = Column(Integer, default=0)
+    customer_rating_avg: Mapped[float | None] = mapped_column(
+        Float, default=0.0, nullable=True
+    )
+    customer_rating_count: Mapped[int | None] = mapped_column(
+        Integer, default=0, nullable=True
+    )
 
-    sla_compliance_rate = Column(Float, default=100.0)  # Porcentaje
+    sla_compliance_rate: Mapped[float | None] = mapped_column(
+        Float, default=100.0, nullable=True
+    )  # Porcentaje
 
     # Período
-    period_start = Column(DateTime, nullable=False)
-    period_end = Column(DateTime, nullable=False)
+    period_start: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
-    created_at = Column(DateTime, default=utc_now_naive)
-    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=True
+    )
 
     # Relaciones - Sin back_populates para evitar conflictos con Rider
     rider = relationship("Rider", foreign_keys=[rider_id])
@@ -98,21 +124,27 @@ class SLARecord(Base):
 
     __tablename__ = "sla_records"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        index=True,
+        default=uuid.uuid4,
+        nullable=False,
+    )
 
-    rider_id = Column(
+    rider_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("riders.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
-    delivery_id = Column(
+    delivery_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("deliveries.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    order_id = Column(
+    order_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("orders.id", ondelete="CASCADE"),
         nullable=True,
@@ -120,18 +152,20 @@ class SLARecord(Base):
     )
 
     # SLA targets
-    promised_delivery_minutes = Column(Integer, nullable=False)
-    actual_delivery_minutes = Column(Integer, nullable=True)
+    promised_delivery_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    actual_delivery_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Resultado
-    sla_met = Column(Boolean, default=True)
-    delay_minutes = Column(Integer, default=0)
+    sla_met: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
+    delay_minutes: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
 
     # Timestamps
-    promised_at = Column(DateTime, nullable=False)
-    completed_at = Column(DateTime, nullable=True)
+    promised_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    created_at = Column(DateTime, default=utc_now_naive)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
 
     # Relaciones
     rider = relationship("Rider")
@@ -150,31 +184,39 @@ class SLARecord(Base):
 class ProductivityRecord(Base):
     __tablename__ = "productivity_records"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid.uuid4)
-    rider_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        index=True,
+        default=uuid.uuid4,
+        nullable=False,
+    )
+    rider_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("riders.id", ondelete="SET NULL"),
         nullable=False,
         index=True,
     )
-    shift_id = Column(
+    shift_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("shifts.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
     )
 
-    metric_type: Any = Column(SQLEnum(MetricType), nullable=False)
-    value = Column(Float, nullable=False)
-    unit = Column(String(50))
+    metric_type: Mapped[MetricType] = mapped_column(SQLEnum(MetricType), nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
-    date = Column(DateTime, nullable=False)
-    notes = Column(String(500))
+    date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
-    created_at = Column(DateTime, default=utc_now_naive)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
 
     rider = relationship("Rider")
-    shift = relationship("Shift")
+    shift = relationship("Shift", back_populates="productivity_records")
 
     def __repr__(self):
         return f"<ProductivityRecord(id={self.id}, rider={self.rider_id}, type={self.metric_type})>"

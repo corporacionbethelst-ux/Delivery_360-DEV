@@ -154,39 +154,60 @@ class Alert(Base):
 
     __tablename__ = "alerts"
 
-    id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
         index=True,
         default=uuid.uuid4,
         server_default=sa.text("gen_random_uuid()"),
+        nullable=False,
     )
 
-    alert_type = Column(String(50), nullable=False)
-    severity = Column(String(20))  # LOW, MEDIUM, HIGH, CRITICAL
-    title = Column(String(255), nullable=False)
-    description = Column(Text)
+    alert_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    severity: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+    )  # LOW, MEDIUM, HIGH, CRITICAL
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Entidades relacionadas
-    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"), index=True)
-    delivery_id = Column(UUID(as_uuid=True), ForeignKey("deliveries.id"), index=True)
-    rider_id = Column(UUID(as_uuid=True), ForeignKey("riders.id"), index=True)
+    order_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orders.id"), index=True, nullable=True
+    )
+    delivery_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("deliveries.id"), index=True, nullable=True
+    )
+    rider_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("riders.id"), index=True, nullable=True
+    )
 
     # Estado de resolución
-    status = Column(String(20), default="OPEN")  # OPEN, ACKNOWLEDGED, RESOLVED
+    status: Mapped[str | None] = mapped_column(
+        String(20), default="OPEN", nullable=True
+    )  # OPEN, ACKNOWLEDGED, RESOLVED
 
-    acknowledged_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    acknowledged_at = Column(DateTime)
+    acknowledged_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    resolved_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    resolved_at = Column(DateTime)
-    resolution_notes = Column(Text)
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    auto_resolve_at = Column(DateTime)
-    auto_resolved = Column(Boolean, default=False)
+    auto_resolve_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    auto_resolved: Mapped[bool | None] = mapped_column(
+        Boolean, default=False, nullable=True
+    )
 
-    created_at = Column(DateTime, default=utc_now_naive, index=True)
-    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, index=True, nullable=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=True
+    )
 
     # Relaciones
     order = relationship("Order")
