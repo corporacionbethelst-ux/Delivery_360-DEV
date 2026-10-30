@@ -1,0 +1,244 @@
+{
+  "integrations": {
+    "ddl": "\nCREATE TABLE integrations (\n\tid UUID DEFAULT gen_random_uuid() NOT NULL, \n\tname VARCHAR(100) NOT NULL, \n\tintegration_type integrationtype NOT NULL, \n\tprovider VARCHAR(50), \n\tapi_url VARCHAR(500), \n\tapi_version VARCHAR(20), \n\tauth_type VARCHAR(20), \n\tcredentials TEXT, \n\ttoken_expires_at TIMESTAMP WITHOUT TIME ZONE, \n\tstatus integrationstatus, \n\tlast_sync_at TIMESTAMP WITHOUT TIME ZONE, \n\tlast_error_at TIMESTAMP WITHOUT TIME ZONE, \n\tlast_error_message TEXT, \n\tconsecutive_failures INTEGER, \n\tconfig TEXT, \n\twebhook_url VARCHAR(500), \n\twebhook_secret VARCHAR(255), \n\tsync_enabled BOOLEAN, \n\tsync_frequency_minutes INTEGER, \n\tsync_last_run TIMESTAMP WITHOUT TIME ZONE, \n\tsync_next_run TIMESTAMP WITHOUT TIME ZONE, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tcreated_by UUID, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(created_by) REFERENCES users (id)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_integrations_created_by ON integrations (created_by)",
+      "CREATE INDEX ix_integrations_id ON integrations (id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "name": [
+        null,
+        null
+      ],
+      "integration_type": [
+        null,
+        null
+      ],
+      "provider": [
+        null,
+        null
+      ],
+      "api_url": [
+        null,
+        null
+      ],
+      "api_version": [
+        null,
+        null
+      ],
+      "auth_type": [
+        null,
+        null
+      ],
+      "credentials": [
+        null,
+        null
+      ],
+      "token_expires_at": [
+        null,
+        null
+      ],
+      "status": [
+        "IntegrationStatus.INACTIVE",
+        null
+      ],
+      "last_sync_at": [
+        null,
+        null
+      ],
+      "last_error_at": [
+        null,
+        null
+      ],
+      "last_error_message": [
+        null,
+        null
+      ],
+      "consecutive_failures": [
+        "0",
+        null
+      ],
+      "config": [
+        null,
+        null
+      ],
+      "webhook_url": [
+        null,
+        null
+      ],
+      "webhook_secret": [
+        null,
+        null
+      ],
+      "sync_enabled": [
+        "False",
+        null
+      ],
+      "sync_frequency_minutes": [
+        "60",
+        null
+      ],
+      "sync_last_run": [
+        null,
+        null
+      ],
+      "sync_next_run": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ],
+      "created_by": [
+        null,
+        null
+      ]
+    },
+    "enums": {
+      "integration_type": [
+        "ERP",
+        "POS",
+        "PAYMENT",
+        "MAPS",
+        "SMS",
+        "EMAIL"
+      ],
+      "status": [
+        "ACTIVE",
+        "INACTIVE",
+        "ERROR"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "created_by",
+        "target": "users.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "integration_type": {
+        "name": "integrationtype",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "status": {
+        "name": "integrationstatus",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    }
+  },
+  "webhook_events": {
+    "ddl": "\nCREATE TABLE webhook_events (\n\tid UUID DEFAULT gen_random_uuid() NOT NULL, \n\tintegration_id UUID NOT NULL, \n\tevent_type webhookeventtype NOT NULL, \n\tpayload JSON, \n\theaders JSON, \n\tsuccess BOOLEAN, \n\tresponse_code INTEGER, \n\tresponse_body TEXT, \n\terror_message TEXT, \n\ttriggered_at TIMESTAMP WITHOUT TIME ZONE, \n\tretry_count INTEGER, \n\tnext_retry_at TIMESTAMP WITHOUT TIME ZONE, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(integration_id) REFERENCES integrations (id)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX idx_webhook_events_integration_date ON webhook_events (integration_id, triggered_at)",
+      "CREATE INDEX idx_webhook_events_type ON webhook_events (event_type)",
+      "CREATE INDEX ix_webhook_events_id ON webhook_events (id)",
+      "CREATE INDEX ix_webhook_events_integration_id ON webhook_events (integration_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "integration_id": [
+        null,
+        null
+      ],
+      "event_type": [
+        null,
+        null
+      ],
+      "payload": [
+        null,
+        null
+      ],
+      "headers": [
+        null,
+        null
+      ],
+      "success": [
+        "False",
+        null
+      ],
+      "response_code": [
+        null,
+        null
+      ],
+      "response_body": [
+        null,
+        null
+      ],
+      "error_message": [
+        null,
+        null
+      ],
+      "triggered_at": [
+        "utc_now_naive",
+        null
+      ],
+      "retry_count": [
+        "0",
+        null
+      ],
+      "next_retry_at": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ]
+    },
+    "enums": {
+      "event_type": [
+        "ORDER_CREATED",
+        "ORDER_UPDATED",
+        "DELIVERY_COMPLETED",
+        "RIDER_ASSIGNED",
+        "PAYMENT_RECEIVED",
+        "ALERT_TRIGGERED"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "integration_id",
+        "target": "integrations.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "event_type": {
+        "name": "webhookeventtype",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    }
+  }
+}

@@ -2,9 +2,8 @@
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from app.core.json_types import JsonValue
 from sqlalchemy import (
-    Column,
     String,
     Boolean,
     DateTime,
@@ -15,7 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
 import sqlalchemy as sa
@@ -58,48 +57,65 @@ class Integration(Base):
     __tablename__ = "integrations"
 
     # ID como UUID
-    id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
         index=True,
         default=uuid.uuid4,
-        server_default=text("gen_random_uuid()"),  # <-- Clave para que PG genere el ID
+        server_default=text("gen_random_uuid()"),
+        nullable=False,
     )
-    name = Column(String(100), nullable=False)
-    integration_type: Any = Column(SQLEnum(IntegrationType), nullable=False)
-    provider = Column(String(50))
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    integration_type: Mapped[IntegrationType] = mapped_column(
+        SQLEnum(IntegrationType), nullable=False
+    )
+    provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Connection
-    api_url = Column(String(500))
-    api_version = Column(String(20))
-    auth_type = Column(String(20))
-    credentials = Column(Text)  # JSON string or encrypted
-    token_expires_at = Column(DateTime)
+    api_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    api_version: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    auth_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    credentials: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Status
-    status: Any = Column(SQLEnum(IntegrationStatus), default=IntegrationStatus.INACTIVE)
-    last_sync_at = Column(DateTime)
-    last_error_at = Column(DateTime)
-    last_error_message = Column(Text)
-    consecutive_failures = Column(Integer, default=0)
+    status: Mapped[IntegrationStatus | None] = mapped_column(
+        SQLEnum(IntegrationStatus), default=IntegrationStatus.INACTIVE, nullable=True
+    )
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consecutive_failures: Mapped[int | None] = mapped_column(
+        Integer, default=0, nullable=True
+    )
 
     # Config
-    config = Column(Text)  # JSON string
-    webhook_url = Column(String(500))
-    webhook_secret = Column(String(255))
+    config: Mapped[str | None] = mapped_column(Text, nullable=True)
+    webhook_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    webhook_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Sync
-    sync_enabled = Column(Boolean, default=False)
-    sync_frequency_minutes = Column(Integer, default=60)
-    sync_last_run = Column(DateTime)
-    sync_next_run = Column(DateTime)
+    sync_enabled: Mapped[bool | None] = mapped_column(
+        Boolean, default=False, nullable=True
+    )
+    sync_frequency_minutes: Mapped[int | None] = mapped_column(
+        Integer, default=60, nullable=True
+    )
+    sync_last_run: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    sync_next_run: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Timestamps - CORREGIDOS PARA USAR TIMEZONE AWARE
-    created_at = Column(DateTime, default=utc_now_naive)
-    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=True
+    )
 
     # created_by como UUID para coincidir con User.id
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), index=True, nullable=True
+    )
 
     # Relationships
     creator = relationship("User")
@@ -116,32 +132,39 @@ class WebhookEvent(Base):
 
     __tablename__ = "webhook_events"
 
-    id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
         index=True,
         default=uuid.uuid4,
         server_default=text("gen_random_uuid()"),
+        nullable=False,
     )
 
-    integration_id = Column(
+    integration_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("integrations.id"), nullable=False, index=True
     )
-    event_type: Any = Column(SQLEnum(WebhookEventType), nullable=False)
+    event_type: Mapped[WebhookEventType] = mapped_column(
+        SQLEnum(WebhookEventType), nullable=False
+    )
 
-    payload = Column(sa.JSON)
-    headers = Column(sa.JSON)
+    payload: Mapped[JsonValue] = mapped_column(sa.JSON, nullable=True)
+    headers: Mapped[JsonValue] = mapped_column(sa.JSON, nullable=True)
 
-    success = Column(Boolean, default=False)
-    response_code = Column(Integer)
-    response_body = Column(Text)
-    error_message = Column(Text)
+    success: Mapped[bool | None] = mapped_column(Boolean, default=False, nullable=True)
+    response_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    triggered_at = Column(DateTime, default=utc_now_naive)
-    retry_count = Column(Integer, default=0)
-    next_retry_at = Column(DateTime)
+    triggered_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
+    retry_count: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    created_at = Column(DateTime, default=utc_now_naive)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=True
+    )
 
     # Relationships
     integration = relationship("Integration", back_populates="webhook_events")

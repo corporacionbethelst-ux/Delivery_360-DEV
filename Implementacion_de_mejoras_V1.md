@@ -4723,3 +4723,173 @@ Hallazgo concreto para el siguiente bloque: integraciones continúa montado desd
 routers_combined con prefijo duplicado y serializa type/is_active, aunque el
 modelo define integration_type/status. Debe corregirse con su propio contrato y
 pruebas, sin exponer configuración sensible. No se modifica en esta entrega.
+
+
+## Entrega ampliada 54 — Registro de integraciones, metadatos privados y diagnóstico sin éxito simulado
+
+Fecha de verificación: **30 de octubre de 2026**. Base de main cotejada:
+`55fb6a7a0fc712b6a52ececa53e84551e702e259`, después de fusionarse el PR #294.
+Su árbol coincide con el código local probado de la entrega 53. El CI #294
+confirmó **1633 pruebas backend aprobadas**, dos SDK opcionales omitidos, y
+**735 pruebas frontend aprobadas**. Lint, Black, TypeScript, compilación y escaneo
+de seguridad pasaron; persistieron 154 errores Mypy y cobertura frontend del
+28,88 % de líneas, inferior al umbral de 50 %. No había hilos de revisión pendientes.
+
+### Hallazgos y corrección
+
+| Hallazgo comprobado | Efecto anterior | Corrección |
+| --- | --- | --- |
+| Prefijo /integrations repetido | Ruta canónica ausente y URL duplicada | Router real sin prefijo interno y alias de listado conservado |
+| Serialización de type/is_active inexistentes | Error al listar registros existentes | integration_type/status reales y aliases públicos explícitos |
+| IDs int en servicio con PK/FK UUID | Búsquedas/escrituras incompatibles con PostgreSQL | UUID en rutas, servicio, eventos y referencias |
+| config dict enviado a TEXT y last_sync inexistente | Constructor/escritura de integración inválidos | JSON interno validado y serializado; uso de columnas reales |
+| test_connection con éxito para tipos no implementados | Mensaje de conexión sin verificación | Resultado not_checked/performed=false y rechazo honesto |
+| Conectores del servicio creados con dominios de ejemplo | Datos de pedidos/finanzas podían dirigirse a plantillas, sin elegir registro | Delegaciones de envío bloqueadas hasta un adaptador verificado |
+| Selección completa de Integration para listado | Credenciales/configuración innecesarias cargadas al construir respuestas | Proyección explícita de metadatos e indicadores calculados en SQL |
+| Falta de transacción administrativa con auditoría | Cambios de registro sin trazabilidad consistente | Cambio y AuditLog se confirman o revierten juntos |
+
+### Funcionalidad disponible y permisos
+
+La API `/api/v1/integrations` permite listado, detalle UUID, creación inactiva,
+PATCH de metadatos, pausa y diagnóstico local. Se conservan GET con barra final y
+el alias histórico `/api/v1/integrations/integrations`, con el mismo handler y
+permisos; ambos quedan fuera de OpenAPI. Se sustituyen los CRUD de demostración
+del módulo antes no montado por operaciones reales y acotadas.
+
+SUPERADMIN/GERENTE pueden consultar; solo SUPERADMIN puede crear, modificar o
+pausar. OPERADOR/AUDITOR/CLIENTE/REPARTIDOR no acceden al registro. Autenticación,
+versión de credenciales y rol/estado actuales de base de datos siguen siendo
+obligatorios. Se prueban cambios de rol y revocación con el token anterior.
+
+Listado devuelve un array, con filtros integration_type/status, límite entre uno
+y cien —por defecto cincuenta— y desplazamiento entre cero y diez mil. Ordena
+por nombre e ID para resolver etiquetas duplicadas. No se añade total global ni
+se promete paginación consistente frente a inserciones concurrentes.
+
+Crear acepta nombre, tipo, proveedor opcional y frecuencia registrada. Siempre
+guarda INACTIVE, sync_enabled=false y created_by del usuario real. No recibe URLs,
+credenciales, config o secretos por HTTP ni activa una cuenta de proveedor.
+Nombre/proveedor se recortan y validan; no se guardan controles incrustados. La
+frecuencia es un entero estricto entre uno y 1440, por defecto sesenta.
+
+PATCH solo admite nombre, proveedor y frecuencia. Omitir proveedor lo conserva;
+enviar null lo limpia. Nombre/frecuencia null, objetos vacíos y campos extra se
+rechazan. Cambiar frecuencia requiere INACTIVE y sync_enabled=false; en otro
+caso devuelve 409 y exige pausar primero. Guardar frecuencia no programa un job.
+
+Pausar guarda INACTIVE/sync_enabled=false y retira sync_next_run. Conserva
+credenciales, config, errores, última sincronización, último run y eventos. No
+hay endpoint para borrar historial, activar, enviar o consultar payloads privados.
+La pausa registrada no cancela un proceso externo que ya estuviera ejecutándose.
+
+### Diccionario público y protección de datos
+
+El DTO publica id, nombre, integration_type y su alias type, proveedor, estado,
+is_active derivado del estado, flags/frecuencia de sync, contador de fallos,
+último sync/error, último/próximo run, fechas y creador. Los timestamps UTC
+sin zona horaria se devuelven con offset UTC. Nulos históricos se conservan;
+contadores negativos y frecuencias no positivas se exponen null.
+
+has_endpoint/has_credentials/has_config/has_webhook/has_signing_secret/
+has_last_error solo indican presencia de texto calculada en SQL. No prueban
+validez, autenticación, cifrado, vigencia o conexión. connection_verified=false
+es explícito, incluso para un registro histórico ACTIVE con last_sync_at.
+
+La proyección y los DTO excluyen credentials, config, api_url, webhook_url,
+webhook_secret, auth_type, token_expires_at y last_error_message. Tampoco devuelven
+payloads, headers, errores o respuestas de WebhookEvent. Se comprueba que una
+consulta pública no introduce entidades Integration con secretos en el identity map.
+Los valores privados existentes no se leen para serializarlos ni se borran.
+
+### Diagnóstico y delegaciones sin falsos recibos
+
+GET /{id}/diagnostics retorna outcome=not_checked, performed=false,
+connection_verified=false y synchronization_available=false. Informa motivos
+locales: adaptador verificado requerido, registro inactivo, flag legacy de sync
+pendiente de revisión y ausencia de endpoint/credenciales almacenados.
+
+No abre HTTP, resuelve DNS, consulta /health ni modifica contadores, estado o
+fecha de sync. No se anuncia conexión válida por tener una configuración.
+El helper test_connection también rechaza honestamente todos los tipos sin
+verificación y devuelve un resultado completo con éxito falso.
+
+sync_with_pos/sync_with_erp devuelven verified_adapter_required y performed=false.
+trigger_webhook devuelve false sin transmitir el payload. No se delega en los
+dominios de ejemplo ni se imprimen diagnósticos privados. No se habilitan canales
+reales, pagos o procesos contables durante esta entrega.
+
+register_webhook_event conserva internamente eventos no confirmados con UUID,
+enum válido, código HTTP opcional válido y JSON finito/acotado. success=true
+se rechaza al faltar evidencia verificable del proveedor. Un evento registrado
+no implica envío ni recibo; no programa reintentos. Las clases standalone de
+app/integrations siguen siendo prototipos pendientes y no se conectan a esta API.
+
+### Auditoría, concurrencia y esquema
+
+Crear, PATCH y pausa escriben AuditLog con CREATE/CONFIG_CHANGE/STATUS_CHANGE,
+recurso integration, identificador, actor y metadatos afectados. No copian
+configuración privada, secretos, URLs o datos de webhooks. La auditoría comparte
+la transacción del cambio; un fallo revierte ambos.
+
+PATCH y pausa usan FOR UPDATE y vuelven a evaluar el estado bajo el lock. Las
+pausas simultáneas producen un solo cambio auditado; cambios concurrentes de
+campos diferentes conservan ambos. Repetir el mismo PATCH sin cambios no genera
+otro evento ni actualiza updated_at. POST sigue siendo creación no idempotente y
+permite etiquetas duplicadas, como el esquema anterior; no se promete exactly-once.
+
+Se tipan **37 columnas** con Mapped/mapped_column: 24 de integrations y trece de
+webhook_events. El contrato versionado compara PostgreSQL DDL, nulabilidad,
+UUID, enums, defaults, onupdate, FK e índices contra el baseline anterior.
+No se cambia SQL ni se requiere una migración.
+
+La creación interna compatible serializa un objeto JSON en TEXT, hasta 64 KiB
+UTF-8, sin claves no textuales, NaN/infinito, ciclos u objetos arbitrarios.
+No añade cifrado al almacenamiento heredado ni publica provisión de secretos.
+enabled=true y cambios a ACTIVE/ERROR sin verificación se rechazan; INACTIVE usa
+la pausa segura. El listado del servicio devuelve DTO públicos con límites.
+
+La guía **backend/INTEGRATION_REGISTRY.md** documenta contratos, diccionario,
+fuentes, comportamiento transaccional, compatibilidad y pendientes; se enlaza
+desde backend/README.md. No hay cambios de frontend, dependencias o configuración.
+
+### Validación final
+
+Se añaden **67 casos**: treinta de contrato/proyección/validación pura y 37 con
+PostgreSQL/aplicación HTTP real. Los esquemas son privados en una base explícita
+test_*. Se mantienen JWT, middleware, permisos y revocación; se prohíbe construir
+HTTPX AsyncClient durante las pruebas de registro para detectar contactos externos.
+
+Los casos cubren filtros, paginación/desempate, alias, UUID, fechas/nulos,
+exclusión de secretos, creación y JSON TEXT, inactividad, frecuencia, pausa,
+historial intacto, fallos honestos de conexión/envío, eventos no confirmados,
+rollback cuando falla la auditoría y sesiones competidoras.
+
+| Control | Resultado |
+| --- | --- |
+| Casos nuevos focales | **67 aprobados**, 40,27 s, una advertencia previa |
+| Backend completo final | **1700 aprobados, dos SDK opcionales omitidos**, una advertencia de configuración previa; 843.94 s |
+| SDK opcionales instalados, HTTP sustituido | **Dos aprobados aparte**, 0,57 s; sin envío externo |
+| Mypy | **146 errores / 31 archivos**, antes 154/32: ocho eliminados y ninguno nuevo por comparación normalizada |
+| Black / flake8 crítico / diff | **Aprobados**: Black app y prueba nueva, flake8 crítico y git diff --check |
+| Frontend | Sin cambios ni nueva medición; CI #294 confirmó **735 aprobados / 51 suites**, TypeScript/lint/build aprobados |
+| Cobertura frontend heredada | CI #294: **28,88 % líneas**, por debajo del umbral de 50 %; no se rebaja |
+
+El código y las pruebas quedan congelados durante la regresión y sus hashes se
+cotejan antes de publicar. Árbol/blobs y commit local/GitHub se comparan. El nuevo
+PR queda sin borrador y su CI se comunica por separado. No se fusiona, despliega,
+aplica migración, activa Beat ni contacta proveedores reales durante este bloque.
+
+### Pendientes y siguiente prioridad
+
+El registro administrativo no completa las integraciones externas. Faltan
+adaptadores homologados, configuración/cifrado/rotación de secretos, políticas de
+destino y DNS/SSRF, autenticación/firma por proveedor, outbox e identidad durable,
+recibos verificables, reintentos/idempotencia y coordinación de pausa/cancelación.
+Faltan interfaz de administración, pruebas de carga/staging y métricas de operación.
+
+Las definiciones legacy restantes en routers_combined aún conservan atributos
+inexistentes y contribuyen a la deuda de tipos; debe revisarse su retiro y los
+fallbacks de importación sin degradar la autenticación o los módulos reales.
+Siguen pendientes cobertura/tipado globales, sesiones por dispositivo/refresh de
+un uso, actualización por eventos, unificación de trazas/rutas, móvil/offline,
+pagos/conciliación y homologación fiscal. No se declara producción al cien por ciento.
