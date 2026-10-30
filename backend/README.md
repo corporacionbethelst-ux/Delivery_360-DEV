@@ -131,6 +131,14 @@ componente requerido o su router es inválido. Retira handlers alternativos anti
 y conserva las rutas, permisos, alias y OpenAPI mediante un contrato antes/después.
 No requiere migración. Consulte [módulos, compatibilidad, inventario y operación](API_BOOTSTRAP.md).
 
+## Conciliación verificable de caché legacy
+
+La entrega 56 monta cinco rutas de consulta acotada y reparación explícita de
+`riders.wallet_balance` contra una cadena `financials` verificada. Usa versión,
+huella, motivo, autorización vigente, bloqueos y auditoría atómica. No modifica
+el ledger ni la wallet moderna; los lotes son solo de consulta. No requiere
+migración. Consulte [permisos, procedimiento, datos y límites](CACHE_RECONCILIATION.md).
+
 ## Workers y programación operativa
 
 La entrega 52 normaliza ocho módulos y doce tareas Celery, incorpora productividad

@@ -1,0 +1,4807 @@
+{
+  "routes": [
+    {
+      "path": "/openapi.json",
+      "name": "openapi",
+      "route_class": "Route",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "path": "/docs",
+      "name": "swagger_ui_html",
+      "route_class": "Route",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "path": "/docs/oauth2-redirect",
+      "name": "swagger_ui_redirect",
+      "route_class": "Route",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "path": "/redoc",
+      "name": "redoc_html",
+      "route_class": "Route",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "path": "/api/v1/auth/login",
+      "name": "login",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "f1825d38d5008af764fdd203127f9cee7f605456e79a6e6e0fb50217b76df434",
+      "status_code": null,
+      "tags": [
+        "Auth"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/auth/refresh",
+      "name": "refresh_token",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "e74b7b6db65cfceb2cea346760674a4bcf8522d52e2d9eb7fc8f744cc7413419",
+      "status_code": null,
+      "tags": [
+        "Auth"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/auth/register-rider",
+      "name": "register_rider",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "1d8ac47c06f610957ee0ba195bd0cbe79277c077fee57d48da581e6410b7a780",
+      "status_code": 201,
+      "tags": [
+        "Auth"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/auth/logout",
+      "name": "logout",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "a0cffa0dd48327fef094bedc66c94190421c5353ff1e3ea27b60b541cb9b3034",
+      "status_code": null,
+      "tags": [
+        "Auth"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/auth/me",
+      "name": "get_current_user_info",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "3530fb63e90ede4fcf278bfe38db8b9c99820830da413c0e835dc424a702e357",
+      "status_code": null,
+      "tags": [
+        "Auth"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/auth/forgot-password",
+      "name": "forgot_password",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "55d0d1e2c6e57911dfe9886b65c76953d35c50472f2043ad21700dc866123cd2",
+      "status_code": null,
+      "tags": [
+        "Auth"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/auth/reset-password",
+      "name": "reset_password",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "d77fd7c747d9aca1cd80a92db5ba8a821bdb70b72984eae31e818139bd8234c1",
+      "status_code": null,
+      "tags": [
+        "Auth"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/users/me",
+      "name": "get_me",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "f69c43f3347d4d42f12d3743d0f6f05dd1d26a27ecd58915c1b6009dd4228460",
+      "status_code": null,
+      "tags": [
+        "Users"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/users/me",
+      "name": "update_me",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "606964312ce9c4d794bb44c0b1286eeb78d8fea3ce8421aff7ffc385f8c2e1f2",
+      "status_code": null,
+      "tags": [
+        "Users"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/users/me",
+      "name": "update_me",
+      "route_class": "APIRoute",
+      "methods": [
+        "PUT"
+      ],
+      "dependency_contract": "606964312ce9c4d794bb44c0b1286eeb78d8fea3ce8421aff7ffc385f8c2e1f2",
+      "status_code": null,
+      "tags": [
+        "Users"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/users/",
+      "name": "list_users",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "52891b72f6f768d3c58c00f5626ab55b4a62fb49285da67d8c1eadc4ad1917ec",
+      "status_code": null,
+      "tags": [
+        "Users"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/users",
+      "name": "list_users",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "52891b72f6f768d3c58c00f5626ab55b4a62fb49285da67d8c1eadc4ad1917ec",
+      "status_code": null,
+      "tags": [
+        "Users"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/users/",
+      "name": "create_user",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "3d2ea6f15c0f656fcae95f078bdb1aefe18c623ccefad84c832030542532b568",
+      "status_code": 201,
+      "tags": [
+        "Users"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/users",
+      "name": "create_user",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "3d2ea6f15c0f656fcae95f078bdb1aefe18c623ccefad84c832030542532b568",
+      "status_code": 201,
+      "tags": [
+        "Users"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/users/{user_id}",
+      "name": "get_user",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "ea653df166163ef947aef11c2b8de33abc86ead72c820479fdc69dc67e788bf1",
+      "status_code": null,
+      "tags": [
+        "Users"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/users/{user_id}",
+      "name": "update_user",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "1c5340471a4dc6dcc0191311f3b959499b4fc037a3f22f162954f173db20ba0f",
+      "status_code": null,
+      "tags": [
+        "Users"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/users/{user_id}/password",
+      "name": "update_user_password",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "ad6ea8aef5efef9bb1b42d45653af54d7f645f3a28c03bf8cddb6af75009278e",
+      "status_code": null,
+      "tags": [
+        "Users"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/users/{user_id}",
+      "name": "delete_user",
+      "route_class": "APIRoute",
+      "methods": [
+        "DELETE"
+      ],
+      "dependency_contract": "cfdae3082562b5e55c54f3d7b71dc42f70b336cc275c7ca0c6b77baa0662c1ac",
+      "status_code": 204,
+      "tags": [
+        "Users"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/roles/permissions",
+      "name": "list_permissions",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "3b2a649e410743d335376a52b309ba781754ee9c6605ae160ca3d473a339fc21",
+      "status_code": null,
+      "tags": [
+        "Roles",
+        "Roles"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/roles/",
+      "name": "list_roles",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "f090c397d1f30ba960ef87aa5369cc07c29ca2c6a619a54fa96f2999edb58cea",
+      "status_code": null,
+      "tags": [
+        "Roles",
+        "Roles"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/roles",
+      "name": "list_roles",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "f090c397d1f30ba960ef87aa5369cc07c29ca2c6a619a54fa96f2999edb58cea",
+      "status_code": null,
+      "tags": [
+        "Roles",
+        "Roles"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/roles/{role_id}",
+      "name": "get_role",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "8bb8cc3ee96157ad6442fa6f27541c4482a586203ef04ce05bf59ee64637e08c",
+      "status_code": null,
+      "tags": [
+        "Roles",
+        "Roles"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/roles/",
+      "name": "create_role",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "97ebdfb27bf723c6f7057ecaf74bdccd874d0a124480c26fd1e45af81af5448f",
+      "status_code": null,
+      "tags": [
+        "Roles",
+        "Roles"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/roles",
+      "name": "create_role",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "97ebdfb27bf723c6f7057ecaf74bdccd874d0a124480c26fd1e45af81af5448f",
+      "status_code": null,
+      "tags": [
+        "Roles",
+        "Roles"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/roles/{role_id}",
+      "name": "update_role",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "d9533cc0e4ddd7480ee074f9b5b0920ae955811186f317b55c86d5b911ec0835",
+      "status_code": null,
+      "tags": [
+        "Roles",
+        "Roles"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/roles/{role_id}",
+      "name": "delete_role",
+      "route_class": "APIRoute",
+      "methods": [
+        "DELETE"
+      ],
+      "dependency_contract": "b08da64b088dd541643fe9e6c37c66f1a6a3810120b082a7125d4306e201cc0d",
+      "status_code": 204,
+      "tags": [
+        "Roles",
+        "Roles"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/me/documents",
+      "name": "get_my_documents",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "7faf2340a4809709eac1178793e268a3c2ad688bb26e1326eff80d75926035ac",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/me/documents/upload",
+      "name": "upload_my_document",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "8a8556d8bd242805a370ac4846bf2f88605b8e4a9774c3e416a915abb4ae9e53",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/documents/{doc_id}/download",
+      "name": "download_document",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "3f483e5ec4d79c7d176058bb23592c231e370d962e602e80d9b28024e6f96352",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/documents/{doc_id}/status",
+      "name": "update_document_status",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "07e297962a25ebd1a7f07c4ab885d4a1195dbd0f8f2ccc02bab86b8169c1157b",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/{rider_id}/documents/upload",
+      "name": "upload_document_for_rider",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "034f5529e29f44672ec941db7355375746b7392cb7f3a6de91f323cc86e5cf68",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/documents/{doc_id}",
+      "name": "delete_document",
+      "route_class": "APIRoute",
+      "methods": [
+        "DELETE"
+      ],
+      "dependency_contract": "ab9037b194f08e08df67483cf78d0fee5509703ec29eb2e4d1e2a0c629acab34",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders",
+      "name": "create_rider",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "d31ddade2c4db9762eea7916039ca4c61b07a145c7494db6b5e681fc8b3cc0a7",
+      "status_code": 201,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders",
+      "name": "list_riders",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "f44fdc46ecd13f0e3f2a3e3a466071b9ff98f33f8c92e10273edaa8ebcacc1fa",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/me",
+      "name": "get_my_rider_profile",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "6b76930f60e0ba6aa9aaa31d432fbe936b3f3f3f3e156cf10d67d873ad59d34e",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/me",
+      "name": "update_my_rider_profile",
+      "route_class": "APIRoute",
+      "methods": [
+        "PUT"
+      ],
+      "dependency_contract": "7e264d24be5c0678087d65977251c64bf7bba07b4ac1b33279b0845a74b3a6fb",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/documents/pending",
+      "name": "get_pending_documents",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "8ec25b0e6b987aab74a66b008986b3b4e746bf5bd6077106d980ecf0047924a5",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/audit/summary",
+      "name": "get_riders_audit_summary",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "d3c6e837dfb6f8af70cbffd8d1822145261ee96032ec4f4d1f8e01c621c10e80",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/{rider_id}",
+      "name": "get_rider",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "15e7b7c758dbe3384fd129ec5519a565958bac4900019cb20d75a820fa15e676",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/{rider_id}",
+      "name": "update_rider",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "a5796aedf6c48bba277f260d8b9513af9d7614d7f1c46d56fa9f7f8bec1bff96",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/{rider_id}/approve",
+      "name": "approve_rider",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "163063d9bbffe12c26a9b148a046c06c432ce10335b73fc7b7283496c0a3256a",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/{rider_id}/reject",
+      "name": "reject_rider",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "9d5c765444e03cb91c57d9f32a969d359ce18843697784379a9289162a91cf84",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/{rider_id}",
+      "name": "delete_rider",
+      "route_class": "APIRoute",
+      "methods": [
+        "DELETE"
+      ],
+      "dependency_contract": "da9e7c0391d25d3f5b09b9b883a0dd8c42d34c0cb4a4fa27feba8565d05e95c7",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/{rider_id}/heartbeat",
+      "name": "update_heartbeat",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "65cdc9460a8ff9c254ea545f366e66ac019945639c2dce0a737d75e6074f8fbf",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/{rider_id}/location",
+      "name": "update_location",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "429bd52395b4963a4c3796cc8985aa8e074da37ffb8de98f8354d63da02e43fa",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/{rider_id}/online",
+      "name": "toggle_online",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "a652bed5e8c53c49ba25572f524d36a566ed8d3cc250d784120044668d76c366",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/{rider_id}/status",
+      "name": "update_rider_status",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "678b098c7cd2d6b2e87ff42111acb5a5a23856c431374af32983de7b67b5d67b",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/nearby",
+      "name": "get_nearby_riders",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "58aca6f8d1ef428763e0e18de6e231024dfc9ff6854484ae3c8edad1b304e7e8",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/riders/{rider_id}/documents",
+      "name": "get_rider_documents",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "d722180af3e10d572efb0b4e20573865eda980b6f26122c4c832da1cfb53c41a",
+      "status_code": null,
+      "tags": [
+        "Riders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/orders",
+      "name": "list_orders",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "349775069f3a5f5a5199fe1ef9e5996aeb8c9de0a7abb7ae780f38234b007f66",
+      "status_code": null,
+      "tags": [
+        "Orders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/orders",
+      "name": "create_order",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "99b4a2461be5b99264d9e3aaaaa2753356d30cdb69ca6c835226a44489bb2b9e",
+      "status_code": 201,
+      "tags": [
+        "Orders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/orders/stats/summary",
+      "name": "orders_summary",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "c17a0722f8a4319128ea1b58339ebda22b405dcdf658ce120e69cf7f5306ba38",
+      "status_code": null,
+      "tags": [
+        "Orders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/orders/{order_id}",
+      "name": "get_order",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "28ca0cb79439bde3dac2f6605c08ee1b58beca10a1d281067d3f3fc1822063ea",
+      "status_code": null,
+      "tags": [
+        "Orders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/orders/{order_id}",
+      "name": "update_order",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "153a6e6e84ad96b9d5ab5de523c048214bca48d2874d9eeec40302386bbc40f9",
+      "status_code": null,
+      "tags": [
+        "Orders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/orders/{order_id}/assign",
+      "name": "assign_rider",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "5fb33c73ab1648c16f114f1dc411169d015dfdbdeb1e51eaa68a6d4047932c92",
+      "status_code": null,
+      "tags": [
+        "Orders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/orders/{order_id}/status",
+      "name": "update_status",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "875fb22d1afa15a98ad15f3ab67fbf36b5678dff593863cd61fa7af8bf8149a5",
+      "status_code": null,
+      "tags": [
+        "Orders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/orders/{order_id}/cancel",
+      "name": "cancel_order",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "1dd1442879eace9d3b1b1aec2743f6a3bf697eadba2edf20915996da6a325cce",
+      "status_code": null,
+      "tags": [
+        "Orders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/orders/{order_id}/assign-auto",
+      "name": "assign_order_auto",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "f4919fd8c8de11aec3d026b3ef46ffb7d2c34678327d2f3e3988baa7a29e0bb7",
+      "status_code": 200,
+      "tags": [
+        "Orders"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/deliveries",
+      "name": "list_deliveries",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "8b3fdcbf4b647b294f088bf38136d7d5df30000c5eee3ea81af1a9dfba707154",
+      "status_code": null,
+      "tags": [
+        "Deliveries"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/deliveries/{delivery_id}",
+      "name": "get_delivery",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "e1e631c191f396ea4e8cb16f437209b1cd0ddaa94e405f7d74c28ad06c50d89d",
+      "status_code": null,
+      "tags": [
+        "Deliveries"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/deliveries/{delivery_id}/assign",
+      "name": "assign_delivery",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "59c48f4ea62c684f39698f0d1ec3a80b0f6d68ad696e85c275d29ad4cae3546d",
+      "status_code": null,
+      "tags": [
+        "Deliveries"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/deliveries/{delivery_id}/start",
+      "name": "start_delivery",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "79bfd06b701454fe1e67c1b9ee65aa23b6571144068939471336b1220a68fa48",
+      "status_code": null,
+      "tags": [
+        "Deliveries"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/deliveries/{delivery_id}/complete",
+      "name": "complete_delivery",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "91bf87ffe470094a3ac95ddfee21c038e39d2e1248dea6182ae3d4d66cfc8fb3",
+      "status_code": null,
+      "tags": [
+        "Deliveries"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/deliveries/{delivery_id}/fail",
+      "name": "fail_delivery",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "9f227d0cf76ab31f8e381dd0391362d81c4b6a70c14bdb9d5042774aba0b7747",
+      "status_code": null,
+      "tags": [
+        "Deliveries"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/deliveries/{delivery_id}/location",
+      "name": "update_location",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "e0f461bdc6de5498331b9942717c1baa8c3d75bf10eb89785ed0c9351a2b644f",
+      "status_code": null,
+      "tags": [
+        "Deliveries"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/deliveries/navigation/previous",
+      "name": "get_previous_view",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "1cf7b0bddde9251b3f7a12e9b3b26e7f7d30724ccda047d0dda1b4bb42a33a9f",
+      "status_code": null,
+      "tags": [
+        "Deliveries"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/deliveries/{delivery_id}/status",
+      "name": "update_delivery_status",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "75e7ced8ea28aea60798d53118c58aeb1ede07568ce3c926b45a1d678225ae6d",
+      "status_code": null,
+      "tags": [
+        "Deliveries"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/vehicles/available",
+      "name": "get_available_vehicles",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "2d609747ceb305f1a396dbb17da709941b42b45c5e2d133be47aaf48263a4826",
+      "status_code": null,
+      "tags": [
+        "Vehicles",
+        "Vehicles"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/vehicles",
+      "name": "list_vehicles",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "fbd79d2838c987403bb6a409b802cd8df249c7f90b2d9261460ae9634cdf055b",
+      "status_code": null,
+      "tags": [
+        "Vehicles",
+        "Vehicles"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/vehicles/reconciliation",
+      "name": "fleet_reconciliation_report",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "d4a8e6c50db7c34cee4153909704f902338b430e45c724178ade76f56119b8ef",
+      "status_code": null,
+      "tags": [
+        "Vehicles",
+        "Vehicles"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/vehicles/{vehicle_id}",
+      "name": "get_vehicle",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "bbaca0b1b626d18c5ca87db719c057847eb1fe9dd527f1aec0695f29aaf5b1d5",
+      "status_code": null,
+      "tags": [
+        "Vehicles",
+        "Vehicles"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/vehicles",
+      "name": "create_vehicle",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "c4f49c0a676dad3cd901586804b404b3499882591db390fefe5cc103b95097d5",
+      "status_code": 201,
+      "tags": [
+        "Vehicles",
+        "Vehicles"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/vehicles/{vehicle_id}",
+      "name": "update_vehicle",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "8085d11ab1d992099c7e3121d62abd2f39a0716897d9e1e9baf991c0c70cbcb1",
+      "status_code": null,
+      "tags": [
+        "Vehicles",
+        "Vehicles"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/vehicles/{vehicle_id}",
+      "name": "delete_vehicle",
+      "route_class": "APIRoute",
+      "methods": [
+        "DELETE"
+      ],
+      "dependency_contract": "fde87803c269aed0cbc7fa1fe4dbd17c6a265ff1566849a17ee9c9bbed31b774",
+      "status_code": null,
+      "tags": [
+        "Vehicles",
+        "Vehicles"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/zones",
+      "name": "list_zones",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "9a10aaeb936fe16633035a0d0b8f8603b74bae69a344707673daef132c169118",
+      "status_code": null,
+      "tags": [
+        "Zones",
+        "Zones"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/zones/{zone_id}",
+      "name": "get_zone",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "1d1278737e68469f4731b6bb5c8fc1c7453e20f4ff1bfae227212546f2d0d233",
+      "status_code": null,
+      "tags": [
+        "Zones",
+        "Zones"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/zones",
+      "name": "create_zone",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "c52fb1aaecb22ffc71be2174137efac4201a800dc8c0fb5697c824b9664e4414",
+      "status_code": 201,
+      "tags": [
+        "Zones",
+        "Zones"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/zones/{zone_id}",
+      "name": "update_zone",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "420cbfbc60b779770a07026de812f4eb8c9adadff76badc611b8a9ac6e4cfec0",
+      "status_code": null,
+      "tags": [
+        "Zones",
+        "Zones"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/zones/{zone_id}",
+      "name": "delete_zone",
+      "route_class": "APIRoute",
+      "methods": [
+        "DELETE"
+      ],
+      "dependency_contract": "6c0fd8107c92cc20af881a87ee19f334f8d51c89bde55b3b889a801eeeb28ccb",
+      "status_code": null,
+      "tags": [
+        "Zones",
+        "Zones"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/shifts",
+      "name": "list_shifts",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "583e022a176de172bc14f6348d0af10874190f07927cf7c9335e14578e0f2880",
+      "status_code": null,
+      "tags": [
+        "Shifts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/shifts",
+      "name": "create_shift",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "ff633758de451e10286b6608c0fdf6d25ec71ea6206a566556bf955b595ddb0f",
+      "status_code": 201,
+      "tags": [
+        "Shifts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/shifts/{shift_id}",
+      "name": "get_shift",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "89e1fc943044f4b588deb9e07380ad512bef613ccd81a76a8f8f0fa6729ca2be",
+      "status_code": null,
+      "tags": [
+        "Shifts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/shifts/{shift_id}/start",
+      "name": "start_shift",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "d9eeae86d466f7d033c78638b535db8a00d0563897bb393c4ca8c936f69fdfc9",
+      "status_code": null,
+      "tags": [
+        "Shifts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/shifts/{shift_id}/end",
+      "name": "end_shift",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "a22a3f05ae467f051530231372d3d2494d8267c537d64751b5a778c1a86fe659",
+      "status_code": null,
+      "tags": [
+        "Shifts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/shifts/{shift_id}/cancel",
+      "name": "cancel_shift",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "716f552c66049c0cc8972be6cca04becb9babe188700e47615bf9f62677e3043",
+      "status_code": null,
+      "tags": [
+        "Shifts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/productivity/productivity/rider/{rider_id}",
+      "name": "rider_productivity",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "6239bbf20a5cba5a9e153fc50925460a85eb654b3068ef9ff35a407612b230a9",
+      "status_code": null,
+      "tags": [
+        "Productivity"
+      ],
+      "include_in_schema": false
+    },
+    {
+      "path": "/api/v1/productivity/rider/{rider_id}",
+      "name": "rider_productivity",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "6239bbf20a5cba5a9e153fc50925460a85eb654b3068ef9ff35a407612b230a9",
+      "status_code": null,
+      "tags": [
+        "Productivity"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/productivity/productivity/ranking",
+      "name": "performance_ranking",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "8b50f6472e6a66a7a5f919b2f379845edca9c6ca0247d89c9595c2ff5fb2d589",
+      "status_code": null,
+      "tags": [
+        "Productivity"
+      ],
+      "include_in_schema": false
+    },
+    {
+      "path": "/api/v1/productivity/ranking",
+      "name": "performance_ranking",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "8b50f6472e6a66a7a5f919b2f379845edca9c6ca0247d89c9595c2ff5fb2d589",
+      "status_code": null,
+      "tags": [
+        "Productivity"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/financial/riders/me",
+      "name": "get_my_earnings",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "5b31781e453fb1cfbb8a047a16542522061b6eae37fcdd7dface6aacaa8743d2",
+      "status_code": null,
+      "tags": [
+        "Financial",
+        "Financial"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/financial/riders/me/earnings",
+      "name": "get_my_earnings_breakdown",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "ad947c6c1e9895136b9665399297d7609c25d3370bd609f2555d9ca652bf18d6",
+      "status_code": null,
+      "tags": [
+        "Financial",
+        "Financial"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/financial/summary",
+      "name": "get_financial_summary",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "53c8f82b46d095e2acba2d1916d3835630009dd3647fab7fe473cd3220547176",
+      "status_code": null,
+      "tags": [
+        "Financial",
+        "Financial"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/financial/reports/orders",
+      "name": "get_orders_financial_report",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "022a59c012c8328354bba1700575355348851aecf085c1e116b6ec1c88bbff64",
+      "status_code": null,
+      "tags": [
+        "Financial",
+        "Financial"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/financial/reconciliation",
+      "name": "get_financial_reconciliation",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "efd606a4b9b8684145726b472067a02efb6041b1519a71264d21a89b9a5ab30e",
+      "status_code": null,
+      "tags": [
+        "Financial",
+        "Financial"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/financial/transactions",
+      "name": "get_transactions",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "433d99081f0893b00ce16dc3e3bb0eeed600e1ead97cf6d0793eb4cdc5ac50ef",
+      "status_code": null,
+      "tags": [
+        "Financial",
+        "Financial"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/financial/transactions/{transaction_id}",
+      "name": "get_transaction_detail",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "64c97f92aacc46bfc6e1e0b53bcbae46870c801e3b6961a04ae9d8e4f7dbd742",
+      "status_code": null,
+      "tags": [
+        "Financial",
+        "Financial"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/reconciliation/wallet/{rider_id}",
+      "name": "reconcile_rider_wallet",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "2ba9b3d9a7386371ea39d41c329d3458d25d829366672f7088833735dae2fdce",
+      "status_code": null,
+      "tags": [
+        "Reconciliation"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/reconciliation/wallet/{rider_id}/sync",
+      "name": "synchronize_rider_wallet",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "356c07d366e452373f8d49154e0b08c25b480d6e834b1a23bf0da369b2e2b069",
+      "status_code": null,
+      "tags": [
+        "Reconciliation"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/reconciliation/batch/daily",
+      "name": "daily_reconciliation_report",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "66f6bb3bbaf708eeb4decf5e2e79f3a4f86787d3a55aaef3a034cbe88f1deb1e",
+      "status_code": null,
+      "tags": [
+        "Reconciliation"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/reconciliation/fix-all-discrepancies",
+      "name": "fix_all_discrepancies",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "5d7f9035aec2dc7edb139b034e64061ad0132515b674ebbab45ecb009cf14b0f",
+      "status_code": null,
+      "tags": [
+        "Reconciliation"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/reconciliation/audit/ledger-integrity",
+      "name": "audit_ledger_integrity",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "f3e20a6f2ae9b98cedaa9f938217551c23fbfb4b9498f567b60352323f344e96",
+      "status_code": null,
+      "tags": [
+        "Reconciliation"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/dashboard/dashboard/manager",
+      "name": "manager_dashboard",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "18fd3da34e7863a03d40eb19f0d2e295c22e8a79d1f475ff7230a9b713a6acdc",
+      "status_code": null,
+      "tags": [
+        "Dashboard"
+      ],
+      "include_in_schema": false
+    },
+    {
+      "path": "/api/v1/dashboard/manager",
+      "name": "manager_dashboard",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "18fd3da34e7863a03d40eb19f0d2e295c22e8a79d1f475ff7230a9b713a6acdc",
+      "status_code": null,
+      "tags": [
+        "Dashboard"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/dashboard/dashboard/operator",
+      "name": "operator_dashboard",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "123b2c4deac716f938a0b6193bbc3415ccc0337dece836dacf1aff6cc77509ea",
+      "status_code": null,
+      "tags": [
+        "Dashboard"
+      ],
+      "include_in_schema": false
+    },
+    {
+      "path": "/api/v1/dashboard/operator",
+      "name": "operator_dashboard",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "123b2c4deac716f938a0b6193bbc3415ccc0337dece836dacf1aff6cc77509ea",
+      "status_code": null,
+      "tags": [
+        "Dashboard"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/routes/",
+      "name": "list_routes",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "827b3c25af1dad7b3724b21bed511c2f6c802dd54f14041743aa882caffb422c",
+      "status_code": null,
+      "tags": [
+        "Routes"
+      ],
+      "include_in_schema": false
+    },
+    {
+      "path": "/api/v1/routes",
+      "name": "list_routes",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "827b3c25af1dad7b3724b21bed511c2f6c802dd54f14041743aa882caffb422c",
+      "status_code": null,
+      "tags": [
+        "Routes"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/routes/",
+      "name": "create_route",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "d2b2d86c7593e8eb9f923b3c50ebc0b7eb5732b555ac2c98188f78b6919a9475",
+      "status_code": 201,
+      "tags": [
+        "Routes"
+      ],
+      "include_in_schema": false
+    },
+    {
+      "path": "/api/v1/routes",
+      "name": "create_route",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "d2b2d86c7593e8eb9f923b3c50ebc0b7eb5732b555ac2c98188f78b6919a9475",
+      "status_code": 201,
+      "tags": [
+        "Routes"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/routes/routes/{rider_id}/track",
+      "name": "add_gps_point",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "a1cea8afa157cbeab28708157a73214c0a7666cbfa13fe15a87eda62752d9323",
+      "status_code": null,
+      "tags": [
+        "Routes"
+      ],
+      "include_in_schema": false
+    },
+    {
+      "path": "/api/v1/routes/{rider_id}/track",
+      "name": "add_gps_point",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "a1cea8afa157cbeab28708157a73214c0a7666cbfa13fe15a87eda62752d9323",
+      "status_code": null,
+      "tags": [
+        "Routes"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/routes/{route_id}",
+      "name": "get_route",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "8bdec1d600ca2328e5ff1a940cf4e5d2f0d0521f1aa1ee0e83a0674080fc6b65",
+      "status_code": null,
+      "tags": [
+        "Routes"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/routes/{route_id}/points",
+      "name": "get_route_points",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "fd853afa45a862af2dbbacbece3e7a615b5e8366e878be40b4736158a475a473",
+      "status_code": null,
+      "tags": [
+        "Routes"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/routes/{route_id}/metrics",
+      "name": "get_metrics",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "501f1a292df833ad08b783dd7d7b29e4c6326bed534e94c03bf754ef4448fc74",
+      "status_code": null,
+      "tags": [
+        "Routes"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/routes/{route_id}/deviations",
+      "name": "get_deviations",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "7c4fd058b3ee4971829d3d45cf416a25d3e91aae0f5c34af7ec480eba6b830af",
+      "status_code": null,
+      "tags": [
+        "Routes"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/routes/{route_id}/analyze",
+      "name": "analyze_route",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "dc97a6074731e3e7a11b896cadb09b48741405a70bf834c0eee9f80037584f11",
+      "status_code": null,
+      "tags": [
+        "Routes"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/routes/{route_id}/deviations/{deviation_id}/resolve",
+      "name": "resolve_deviation",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "ec10c4c5273c5808e790dd58829a1cb36a21ca7df2a8d34716e1cbfd48ee0745",
+      "status_code": null,
+      "tags": [
+        "Routes"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/alerts",
+      "name": "list_alerts",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "c857e322aff691a86bdd1c9b20f8ca80d97c114db29e29b03868f9f827033103",
+      "status_code": null,
+      "tags": [
+        "Alerts",
+        "Alertas"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/alerts/{alert_id}/read",
+      "name": "mark_as_read",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "07b34e64e729f4c25a5a84529ca88bc0d3d0bdec57091e81b2c81a152ff61507",
+      "status_code": null,
+      "tags": [
+        "Alerts",
+        "Alertas"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/alerts/read-all",
+      "name": "mark_all_as_read",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "a7ee9441bf6a1e9a03b8a04c7e6ce7958d113045bafce8e01848bee6e99ce44b",
+      "status_code": null,
+      "tags": [
+        "Alerts",
+        "Alertas"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/alerts/{alert_id}",
+      "name": "dismiss_alert",
+      "route_class": "APIRoute",
+      "methods": [
+        "DELETE"
+      ],
+      "dependency_contract": "14af322d271d08254a8a8490d91d2620e57f2aac106d42e91dc988872ba5a274",
+      "status_code": null,
+      "tags": [
+        "Alerts",
+        "Alertas"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/integrations/integrations",
+      "name": "list_integrations",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "977988c57a8c79a413ee4700c54c6cc2899506b63aef4cb1b2a5846d084f6a56",
+      "status_code": null,
+      "tags": [
+        "Integrations"
+      ],
+      "include_in_schema": false
+    },
+    {
+      "path": "/api/v1/integrations/",
+      "name": "list_integrations",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "977988c57a8c79a413ee4700c54c6cc2899506b63aef4cb1b2a5846d084f6a56",
+      "status_code": null,
+      "tags": [
+        "Integrations"
+      ],
+      "include_in_schema": false
+    },
+    {
+      "path": "/api/v1/integrations",
+      "name": "list_integrations",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "977988c57a8c79a413ee4700c54c6cc2899506b63aef4cb1b2a5846d084f6a56",
+      "status_code": null,
+      "tags": [
+        "Integrations"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/integrations",
+      "name": "create_integration",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "7dcc37ff36330bb39f655233fb34be6e4ccd522152b60eb599d8c3d335643645",
+      "status_code": 201,
+      "tags": [
+        "Integrations"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/integrations/{integration_id}",
+      "name": "get_integration",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "dac2fb1f64e09b664b5545547a6a1b128fee717acd8fa97fd75eac695ccc3a19",
+      "status_code": null,
+      "tags": [
+        "Integrations"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/integrations/{integration_id}",
+      "name": "patch_integration",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "75a30d9050df97001b0ceb211d559e8529d3fcb3b3f1c5f4907691929b8f89e7",
+      "status_code": null,
+      "tags": [
+        "Integrations"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/integrations/{integration_id}/pause",
+      "name": "pause_integration",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "38f0e8063de6bac1f921009d86aafa98592dc6dee3ad0b4a8409ed2239074643",
+      "status_code": null,
+      "tags": [
+        "Integrations"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/integrations/{integration_id}/diagnostics",
+      "name": "integration_diagnostics",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "882c757e5f9698689a00dd0c2e9a34074766e321f771b1011d72a9f05b4a0b9a",
+      "status_code": null,
+      "tags": [
+        "Integrations"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/audit/",
+      "name": "list_audit_logs",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "ef1ad40597d1350b4e224997a450b144781d385c8efd05aaa09809591d08305f",
+      "status_code": null,
+      "tags": [
+        "Audit"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/audit",
+      "name": "list_audit_logs",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "ef1ad40597d1350b4e224997a450b144781d385c8efd05aaa09809591d08305f",
+      "status_code": null,
+      "tags": [
+        "Audit"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/audit/summary",
+      "name": "get_audit_summary",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "8f65073042779db498875315b6d02a8abc099a3ba6354a632406093a9ed990cd",
+      "status_code": null,
+      "tags": [
+        "Audit"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/audit/export",
+      "name": "export_audit_logs",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "035e3ac399a764f5a12920e320cc99d73bb3a94a3bdf518caf9791be5f4cd91c",
+      "status_code": null,
+      "tags": [
+        "Audit"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/audit/{audit_id}",
+      "name": "get_audit_log",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "e950c53da89ec2efd19f2a17083d3388f1f93673d14ac47609714ccbf2cbecbb",
+      "status_code": null,
+      "tags": [
+        "Audit"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/settings/simulate-bonus",
+      "name": "simulate_bonus_impact",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "7e09bfe677ad5a4eac7784d750f686ee3ad1826dcdd7ce1400591dd6d6918383",
+      "status_code": null,
+      "tags": [
+        "Settings",
+        "Settings"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/settings/",
+      "name": "get_platform_settings",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "1f9b7836f5e0c4b8f5add7766e6858b3029da2f2d7fb6dc31fde96fb2fdd3604",
+      "status_code": null,
+      "tags": [
+        "Settings",
+        "Settings"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/settings",
+      "name": "get_platform_settings",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "1f9b7836f5e0c4b8f5add7766e6858b3029da2f2d7fb6dc31fde96fb2fdd3604",
+      "status_code": null,
+      "tags": [
+        "Settings",
+        "Settings"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/settings/",
+      "name": "update_platform_settings",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "f664979240a16cd4454a51c9ff45216a5e3f34f23492d9014fcc0df7136a5dcd",
+      "status_code": null,
+      "tags": [
+        "Settings",
+        "Settings"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/settings",
+      "name": "update_platform_settings",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "f664979240a16cd4454a51c9ff45216a5e3f34f23492d9014fcc0df7136a5dcd",
+      "status_code": null,
+      "tags": [
+        "Settings",
+        "Settings"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/settings/",
+      "name": "replace_platform_settings",
+      "route_class": "APIRoute",
+      "methods": [
+        "PUT"
+      ],
+      "dependency_contract": "27c4697388e4c4649d1fa27b0689169de76ccc5758416ae44d0d382f6db0a3c8",
+      "status_code": null,
+      "tags": [
+        "Settings",
+        "Settings"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/settings",
+      "name": "replace_platform_settings",
+      "route_class": "APIRoute",
+      "methods": [
+        "PUT"
+      ],
+      "dependency_contract": "27c4697388e4c4649d1fa27b0689169de76ccc5758416ae44d0d382f6db0a3c8",
+      "status_code": null,
+      "tags": [
+        "Settings",
+        "Settings"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/health/check",
+      "name": "health_check",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "8763459c20516773470f25749cdcb3642b4e1d93dac3a9c2813734972b2e6061",
+      "status_code": null,
+      "tags": [
+        "Health",
+        "Health"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/health/ready",
+      "name": "readiness_check",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "5c735ff9dc241063e3f2c4ac96991c9d1af8f55221db7da510f48e5dd9bbf9f7",
+      "status_code": null,
+      "tags": [
+        "Health",
+        "Health"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/health/live",
+      "name": "liveness_check",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "24a1f80257f39523ff636bcdeff02431699e52fbcd8eea44819c6a7320ebbd93",
+      "status_code": null,
+      "tags": [
+        "Health",
+        "Health"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/metrics",
+      "name": "metrics",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "b9e71e14e1235246665d3467521ce538b064a512c7aa277fbed10e950491c36e",
+      "status_code": null,
+      "tags": [
+        "Metrics",
+        "Metrics"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/payouts/",
+      "name": "list_payouts",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "7ee2b54e9eef9fd488607d68cb929fa8591be03ec816d45f9354f24ba7148de1",
+      "status_code": null,
+      "tags": [
+        "Payouts",
+        "Payouts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/payouts",
+      "name": "list_payouts",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "7ee2b54e9eef9fd488607d68cb929fa8591be03ec816d45f9354f24ba7148de1",
+      "status_code": null,
+      "tags": [
+        "Payouts",
+        "Payouts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/payouts/balance",
+      "name": "get_available_balance",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "8ce3ac4010c08788ee7b322b088b37857eea7bc9bd6833b13268b265bcfd683b",
+      "status_code": null,
+      "tags": [
+        "Payouts",
+        "Payouts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/payouts/request-status",
+      "name": "get_request_status",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "098b6f054706650268f961ddd17a501c99a3a05cc67f97260adfc0efe9553f4e",
+      "status_code": null,
+      "tags": [
+        "Payouts",
+        "Payouts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/payouts/request",
+      "name": "request_payout",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "ca8e9ee5472b5614deb8193de675a0634ef6f033fdbf60d81f9efbd339dc88cf",
+      "status_code": 201,
+      "tags": [
+        "Payouts",
+        "Payouts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/payouts/{payout_id}",
+      "name": "get_payout",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "5505d5bcdd162c64c1cf8ffc166b2ce60db78707b166e9541a9726e51c5fab8e",
+      "status_code": null,
+      "tags": [
+        "Payouts",
+        "Payouts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/payouts/{payout_id}/history",
+      "name": "get_payout_history",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "39ae9917248b10a99bebbee92fd9047f2a91a86990e9f033befe251b34e757a6",
+      "status_code": null,
+      "tags": [
+        "Payouts",
+        "Payouts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/payouts/{payout_id}/approve",
+      "name": "approve_payout",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "e6b81c5685ae7bc2ec41d3109d6dcbcf789618471ffc6b367d86306120f568bf",
+      "status_code": null,
+      "tags": [
+        "Payouts",
+        "Payouts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/payouts/{payout_id}/reject",
+      "name": "reject_payout",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "366c93674244956661b53f6c661ba5c45ba4d2254542f8bfdc4322241769f08b",
+      "status_code": null,
+      "tags": [
+        "Payouts",
+        "Payouts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/wallet",
+      "name": "get_my_wallet",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "c39ff0bb5fc77f7f9b960eff28bc838574cfd678903643d4748d35aed71f7b54",
+      "status_code": null,
+      "tags": [
+        "Wallet",
+        "Wallet"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/wallet/transactions",
+      "name": "get_wallet_transactions",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "8f61a550737072ec6cf38cf8c4ca46812f6d7ce58f0f4dd7a3f286a94f7ba817",
+      "status_code": null,
+      "tags": [
+        "Wallet",
+        "Wallet"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/wallet/payout-requests",
+      "name": "create_payout_request",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "668d296b6944f05d9ebd8b605266adc3d1ba77a2ad2bbe054e4320f41176151e",
+      "status_code": null,
+      "tags": [
+        "Wallet",
+        "Wallet"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/wallet/payout-requests",
+      "name": "get_my_payout_requests",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "bd2ffa7b959d0c64b76ea7c8470238dc3e52dc1a9e7d2f1e9173658ef4929fd8",
+      "status_code": null,
+      "tags": [
+        "Wallet",
+        "Wallet"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/admin/payout-requests/pending",
+      "name": "get_pending_payout_requests",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "8f608dec283e3df7bbb876616661cb79d154ccacd2036bc2dcfd739046bc5bc5",
+      "status_code": null,
+      "tags": [
+        "Wallet",
+        "Admin - Payouts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/admin/payout-requests/{payout_id}/approve",
+      "name": "approve_payout_request",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "9142c15275679cdd1e5975ad6b00c21ff5027e69071b4683c267e31dc1740717",
+      "status_code": null,
+      "tags": [
+        "Wallet",
+        "Admin - Payouts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/admin/payout-requests/{payout_id}/complete",
+      "name": "complete_payout_request",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "70d60a5179cd3927ddf5aa0dc31598887036112ab0a2fc335a5d3a8845896281",
+      "status_code": null,
+      "tags": [
+        "Wallet",
+        "Admin - Payouts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/admin/payout-requests/{payout_id}/reject",
+      "name": "reject_payout_request",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "29077932d09d537cbcdb4212ec727f0affa9c0d074c9cc03731ee2a4ce2a2c7e",
+      "status_code": null,
+      "tags": [
+        "Wallet",
+        "Admin - Payouts"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/telemetry/riders/{rider_id}/heartbeat",
+      "name": "rider_heartbeat",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "81d9e6ea62eb32fe215c9419c116334c997c1e6b022f3a38d258ff667ec7bd8f",
+      "status_code": null,
+      "tags": [
+        "Telemetría (Fase 8)",
+        "Telemetría"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/tracking/update-location",
+      "name": "update_location",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "e62b5d4e160d878b13ccbe6fe17a1713086458d62a57ded738eba41817737849",
+      "status_code": null,
+      "tags": [
+        "Tracking (Fase 8)",
+        "Tracking (Fase 8)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/tracking/live/{order_id}",
+      "name": "get_live_tracking",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "8a1d1ab25941ea1ee34ffa3f2c39f97a895ef7a9c0242127139e2a2264ff1958",
+      "status_code": null,
+      "tags": [
+        "Tracking (Fase 8)",
+        "Tracking (Fase 8)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/tracking/dashboard/active-riders",
+      "name": "get_dashboard_data",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "022b98eade52f7ab15e931c50b90c28a3a4d8325e5cd2643751202cf82c52f55",
+      "status_code": null,
+      "tags": [
+        "Tracking (Fase 8)",
+        "Tracking (Fase 8)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/tracking/routes/optimize",
+      "name": "optimize_routes_batch",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "3a8c3744e667a23a015ca40b69defe20fe3eba8caa0161da5996882f9a032d64",
+      "status_code": null,
+      "tags": [
+        "Tracking (Fase 8)",
+        "Tracking (Fase 8)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/tracking/history/{rider_id}",
+      "name": "get_rider_history",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "29377089e142b03ce8a4c8066d8c1c5dc7a0c75faa57a9cb76f96038fb651aa2",
+      "status_code": null,
+      "tags": [
+        "Tracking (Fase 8)",
+        "Tracking (Fase 8)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/tracking/ws/{channel}",
+      "name": "tracking_ws",
+      "route_class": "APIWebSocketRoute",
+      "methods": [],
+      "dependency_contract": "a2699973ffdc6b09cbbb97ff99f17b990fed6e4088b55a24916a8f7ee06f6d98"
+    },
+    {
+      "path": "/api/v1/notifications/register-device",
+      "name": "register_device",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "424643693a3bd350505e2044d7b9d224a1cd9f0a382d4de91ab6863a2335f6d4",
+      "status_code": null,
+      "tags": [
+        "Notificaciones (Fase 9)",
+        "Notificaciones (Fase 9)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/notifications/unregister-device",
+      "name": "unregister_device",
+      "route_class": "APIRoute",
+      "methods": [
+        "DELETE"
+      ],
+      "dependency_contract": "38020b53396ab71f01e00adac36142c5c96db4740c665dd0439d017b5ea94717",
+      "status_code": null,
+      "tags": [
+        "Notificaciones (Fase 9)",
+        "Notificaciones (Fase 9)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/notifications/inbox",
+      "name": "get_inbox",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "f6903eb90acbc3ae61ba57a5c1f40f43152b18078a94aec3237ecc9617125c89",
+      "status_code": null,
+      "tags": [
+        "Notificaciones (Fase 9)",
+        "Notificaciones (Fase 9)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/notifications/unread-count",
+      "name": "get_unread_count",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "d05a0834e881194e47425dc55df2ee9ed539fa985f1a35dfc556c385efa88a66",
+      "status_code": null,
+      "tags": [
+        "Notificaciones (Fase 9)",
+        "Notificaciones (Fase 9)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/notifications/{notification_id}/read",
+      "name": "mark_read",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "32e35db7923d8b98e618a7b4d03d8d7772d7a886dff4c577fe4a841dd8304370",
+      "status_code": null,
+      "tags": [
+        "Notificaciones (Fase 9)",
+        "Notificaciones (Fase 9)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/notifications/{notification_id}",
+      "name": "delete_notification",
+      "route_class": "APIRoute",
+      "methods": [
+        "DELETE"
+      ],
+      "dependency_contract": "d274d53afc7530f751994c6ab01a5d88c2688451ecec30448b7e0551081b1810",
+      "status_code": null,
+      "tags": [
+        "Notificaciones (Fase 9)",
+        "Notificaciones (Fase 9)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/notifications/preferences",
+      "name": "list_preferences",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "e35d5e3c4fe49b9879a71a3cf14d6f8a938f1d788e4bd5c3e33dd13e4741fd6e",
+      "status_code": null,
+      "tags": [
+        "Notificaciones (Fase 9)",
+        "Notificaciones (Fase 9)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/notifications/preferences",
+      "name": "update_preferences",
+      "route_class": "APIRoute",
+      "methods": [
+        "PUT"
+      ],
+      "dependency_contract": "a9e183d6a354262f7a4a41ad78bafc30265d2031e95f96be71a54097ad9c6cf3",
+      "status_code": null,
+      "tags": [
+        "Notificaciones (Fase 9)",
+        "Notificaciones (Fase 9)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/notifications/test-send",
+      "name": "test_send",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "1a715c057bb5fa5ef84e99fcacf79e56ed84c882224b874d22973111197b918c",
+      "status_code": null,
+      "tags": [
+        "Notificaciones (Fase 9)",
+        "Notificaciones (Fase 9)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/notifications/templates",
+      "name": "list_templates",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "091757c38178c827a4386422a53c2930b5df60f7e4d1612d23d0ac08a58edaac",
+      "status_code": null,
+      "tags": [
+        "Notificaciones (Fase 9)",
+        "Notificaciones (Fase 9)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/notifications/templates/{code}",
+      "name": "toggle_template",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "4bc4e08d6dd4d4b3ea6c25aee45b2daf7fb421485c81bc10927020813e68e7b5",
+      "status_code": null,
+      "tags": [
+        "Notificaciones (Fase 9)",
+        "Notificaciones (Fase 9)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/notifications/ws",
+      "name": "notifications_ws",
+      "route_class": "APIWebSocketRoute",
+      "methods": [],
+      "dependency_contract": "2deaa70e296e3176237e5fcc0672a320b0561a65da57d8a92e1a3728c636a6f2"
+    },
+    {
+      "path": "/api/v1/fiscal/invoices",
+      "name": "emit_invoice",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "bab5b21527cbb8621be867ece814556b6eef1c2cea8d9c8072ff273ee0d74687",
+      "status_code": 201,
+      "tags": [
+        "Fiscal (Fase 10)",
+        "Fiscal (Fase 10)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/fiscal/invoices",
+      "name": "list_invoices",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "dbed61ead44e2f7f6edbdac432683a0fd1e9ae18cb11e50f4d63ccaed39d57c4",
+      "status_code": null,
+      "tags": [
+        "Fiscal (Fase 10)",
+        "Fiscal (Fase 10)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/fiscal/invoices/{invoice_id}",
+      "name": "get_invoice",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "6ea5aef35ba53f752c58f181efc53bc93fd49049b692fd45d606350adaf49229",
+      "status_code": null,
+      "tags": [
+        "Fiscal (Fase 10)",
+        "Fiscal (Fase 10)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/fiscal/invoices/{invoice_id}/status",
+      "name": "invoice_status_check",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "6f8805f0b5308d0561d35f4d111703f1af40dc9a14768777c04acf6ea2224e21",
+      "status_code": null,
+      "tags": [
+        "Fiscal (Fase 10)",
+        "Fiscal (Fase 10)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/fiscal/invoices/{invoice_id}/credit-note",
+      "name": "create_credit_note",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "8f1436f85a832a97fdd47887708a9457e8c856ceb2d3a1de92dc176380ff67ac",
+      "status_code": 201,
+      "tags": [
+        "Fiscal (Fase 10)",
+        "Fiscal (Fase 10)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/fiscal/invoices/{invoice_id}/cancel",
+      "name": "cancel_invoice",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "728dbef0cd1ed29aec5269c5a27921b6dcf9c3faba291185d95c6319f16a6c99",
+      "status_code": null,
+      "tags": [
+        "Fiscal (Fase 10)",
+        "Fiscal (Fase 10)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/fiscal/orders/{order_id}/settle",
+      "name": "settle_order",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "c1ff60f6640ecc99416c7554326fa5a066d1892e1baa1c6075a01b30c29e4dce",
+      "status_code": 201,
+      "tags": [
+        "Fiscal (Fase 10)",
+        "Fiscal (Fase 10)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/fiscal/split-rules/current",
+      "name": "current_split_rule",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "d3697de44ed295fffc4e12e8a220b6aa9f19f7b630b754014ba549d3e2c4b431",
+      "status_code": null,
+      "tags": [
+        "Fiscal (Fase 10)",
+        "Fiscal (Fase 10)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/fiscal/config",
+      "name": "get_fiscal_config",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "e96931f259743de87ecea4b987117805affaf6c8154780879911cbb6a315663f",
+      "status_code": null,
+      "tags": [
+        "Fiscal (Fase 10)",
+        "Fiscal (Fase 10)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/fiscal/config/{config_id}",
+      "name": "patch_fiscal_config",
+      "route_class": "APIRoute",
+      "methods": [
+        "PATCH"
+      ],
+      "dependency_contract": "674d42945f8df7caaa06911ef6868a3fbaee42ce2736cf21fc7b80a6f5abbafe",
+      "status_code": null,
+      "tags": [
+        "Fiscal (Fase 10)",
+        "Fiscal (Fase 10)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/fiscal/resolutions",
+      "name": "list_resolutions",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "d6d5152b6e34151f4958612ea98b03108dfc33b444bde758438bb34039473c42",
+      "status_code": null,
+      "tags": [
+        "Fiscal (Fase 10)",
+        "Fiscal (Fase 10)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/fiscal/reconciliation/records",
+      "name": "reconciliation_records",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "b1e8393eb7d82b1ba0b783b10a52ede83b3d6fa66b390152a34f224fd961253a",
+      "status_code": null,
+      "tags": [
+        "Fiscal (Fase 10)",
+        "Fiscal (Fase 10)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/fiscal/reconciliation/run",
+      "name": "run_reconciliation_endpoint",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "20ad76c660dd2cc957986ebed3587e50adb869b8f24593fcb0409b896f4ace72",
+      "status_code": null,
+      "tags": [
+        "Fiscal (Fase 10)",
+        "Fiscal (Fase 10)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/api/v1/fiscal/reconciliation/records/{record_id}/resolve",
+      "name": "resolve_record",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "d9ad1de87311d3152dd27bc75ec82250a4d1307a581e9171d543d75904a7ca98",
+      "status_code": null,
+      "tags": [
+        "Fiscal (Fase 10)",
+        "Fiscal (Fase 10)"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/uploads",
+      "name": "uploads",
+      "route_class": "Mount",
+      "methods": []
+    },
+    {
+      "path": "/",
+      "name": "root",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "2daf5100d78ed919d56e169de0fb35f13eb7267c5e8ea795fad84acde1b929b7",
+      "status_code": null,
+      "tags": [
+        "Root"
+      ],
+      "include_in_schema": true
+    },
+    {
+      "path": "/ping",
+      "name": "ping",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "67c6530e1caf526e7fc545337fcf887908c66028f70c194decf44e6e6f212d9e",
+      "status_code": null,
+      "tags": [
+        "Root"
+      ],
+      "include_in_schema": true
+    }
+  ],
+  "dependencies": {
+    "42183be156b966f1f50a02e00e85e55172e7d7491b82d8c923f3640cc3f80af7": {
+      "call": "builtins.type",
+      "name": "form_data",
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": []
+    },
+    "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9": {
+      "call": "app.core.database.get_db",
+      "name": "db",
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": []
+    },
+    "f1825d38d5008af764fdd203127f9cee7f605456e79a6e6e0fb50217b76df434": {
+      "call": "app.api.v1.auth.login",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "42183be156b966f1f50a02e00e85e55172e7d7491b82d8c923f3640cc3f80af7",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "e74b7b6db65cfceb2cea346760674a4bcf8522d52e2d9eb7fc8f744cc7413419": {
+      "call": "app.api.v1.auth.refresh_token",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "1d8ac47c06f610957ee0ba195bd0cbe79277c077fee57d48da581e6410b7a780": {
+      "call": "app.api.v1.auth.register_rider",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "93796a5e46bf721166f05fa7f2563f90b4f32857519296226b905a31d7f78f4e": {
+      "call": "fastapi.security.oauth2.OAuth2PasswordBearer",
+      "name": "token",
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": []
+    },
+    "a0cffa0dd48327fef094bedc66c94190421c5353ff1e3ea27b60b541cb9b3034": {
+      "call": "app.api.v1.auth.logout",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "93796a5e46bf721166f05fa7f2563f90b4f32857519296226b905a31d7f78f4e",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66": {
+      "call": "app.api.v1.auth.get_current_user",
+      "name": "current_user",
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "93796a5e46bf721166f05fa7f2563f90b4f32857519296226b905a31d7f78f4e",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "3530fb63e90ede4fcf278bfe38db8b9c99820830da413c0e835dc424a702e357": {
+      "call": "app.api.v1.auth.get_current_user_info",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "55d0d1e2c6e57911dfe9886b65c76953d35c50472f2043ad21700dc866123cd2": {
+      "call": "app.api.v1.auth.forgot_password",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "d77fd7c747d9aca1cd80a92db5ba8a821bdb70b72984eae31e818139bd8234c1": {
+      "call": "app.api.v1.auth.reset_password",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "f69c43f3347d4d42f12d3743d0f6f05dd1d26a27ecd58915c1b6009dd4228460": {
+      "call": "app.api.v1.users.get_me",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "606964312ce9c4d794bb44c0b1286eeb78d8fea3ce8421aff7ffc385f8c2e1f2": {
+      "call": "app.api.v1.users.update_me",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "52891b72f6f768d3c58c00f5626ab55b4a62fb49285da67d8c1eadc4ad1917ec": {
+      "call": "app.api.v1.users.list_users",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "3d2ea6f15c0f656fcae95f078bdb1aefe18c623ccefad84c832030542532b568": {
+      "call": "app.api.v1.users.create_user",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "ea653df166163ef947aef11c2b8de33abc86ead72c820479fdc69dc67e788bf1": {
+      "call": "app.api.v1.users.get_user",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "1c5340471a4dc6dcc0191311f3b959499b4fc037a3f22f162954f173db20ba0f": {
+      "call": "app.api.v1.users.update_user",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "ad6ea8aef5efef9bb1b42d45653af54d7f645f3a28c03bf8cddb6af75009278e": {
+      "call": "app.api.v1.users.update_user_password",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "cfdae3082562b5e55c54f3d7b71dc42f70b336cc275c7ca0c6b77baa0662c1ac": {
+      "call": "app.api.v1.users.delete_user",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81": {
+      "call": "app.api.v1.auth.require_role.<locals>.checker",
+      "name": "current_user",
+      "use_cache": true,
+      "security_scopes": [],
+      "roles": [
+        "SUPERADMIN",
+        "GERENTE"
+      ],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "3b2a649e410743d335376a52b309ba781754ee9c6605ae160ca3d473a339fc21": {
+      "call": "app.api.v1.roles.list_permissions",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "f090c397d1f30ba960ef87aa5369cc07c29ca2c6a619a54fa96f2999edb58cea": {
+      "call": "app.api.v1.roles.list_roles",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "8bb8cc3ee96157ad6442fa6f27541c4482a586203ef04ce05bf59ee64637e08c": {
+      "call": "app.api.v1.roles.get_role",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "5907e04b81ca4248ff11d2351b7e0f6f6f45cc9e57c00a26838d5888bf75f0a4": {
+      "call": "app.api.v1.auth.require_role.<locals>.checker",
+      "name": "current_user",
+      "use_cache": true,
+      "security_scopes": [],
+      "roles": [
+        "SUPERADMIN"
+      ],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "97ebdfb27bf723c6f7057ecaf74bdccd874d0a124480c26fd1e45af81af5448f": {
+      "call": "app.api.v1.roles.create_role",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "5907e04b81ca4248ff11d2351b7e0f6f6f45cc9e57c00a26838d5888bf75f0a4"
+      ]
+    },
+    "d9533cc0e4ddd7480ee074f9b5b0920ae955811186f317b55c86d5b911ec0835": {
+      "call": "app.api.v1.roles.update_role",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "5907e04b81ca4248ff11d2351b7e0f6f6f45cc9e57c00a26838d5888bf75f0a4"
+      ]
+    },
+    "b08da64b088dd541643fe9e6c37c66f1a6a3810120b082a7125d4306e201cc0d": {
+      "call": "app.api.v1.roles.delete_role",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "5907e04b81ca4248ff11d2351b7e0f6f6f45cc9e57c00a26838d5888bf75f0a4"
+      ]
+    },
+    "7faf2340a4809709eac1178793e268a3c2ad688bb26e1326eff80d75926035ac": {
+      "call": "app.api.v1.riders.get_my_documents",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "8a8556d8bd242805a370ac4846bf2f88605b8e4a9774c3e416a915abb4ae9e53": {
+      "call": "app.api.v1.riders.upload_my_document",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "3f483e5ec4d79c7d176058bb23592c231e370d962e602e80d9b28024e6f96352": {
+      "call": "app.api.v1.riders.download_document",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "dc78b4e8f65b967392d6a85dcce2c9094d1ed81a5f4cf40552a2233ad998daff": {
+      "call": "app.api.v1.auth.require_role.<locals>.checker",
+      "name": "current_user",
+      "use_cache": true,
+      "security_scopes": [],
+      "roles": [
+        "GERENTE",
+        "SUPERADMIN"
+      ],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "07e297962a25ebd1a7f07c4ab885d4a1195dbd0f8f2ccc02bab86b8169c1157b": {
+      "call": "app.api.v1.riders.update_document_status",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "dc78b4e8f65b967392d6a85dcce2c9094d1ed81a5f4cf40552a2233ad998daff",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "034f5529e29f44672ec941db7355375746b7392cb7f3a6de91f323cc86e5cf68": {
+      "call": "app.api.v1.riders.upload_document_for_rider",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "dc78b4e8f65b967392d6a85dcce2c9094d1ed81a5f4cf40552a2233ad998daff"
+      ]
+    },
+    "ab9037b194f08e08df67483cf78d0fee5509703ec29eb2e4d1e2a0c629acab34": {
+      "call": "app.api.v1.riders.delete_document",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "dc78b4e8f65b967392d6a85dcce2c9094d1ed81a5f4cf40552a2233ad998daff"
+      ]
+    },
+    "d31ddade2c4db9762eea7916039ca4c61b07a145c7494db6b5e681fc8b3cc0a7": {
+      "call": "app.api.v1.riders.create_rider",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "117721aeae3503d7d79aa0fba62d9a78a00fe5ada27199b64b8a5cfbdce4a2be": {
+      "call": "app.api.v1.auth.require_role.<locals>.checker",
+      "name": "current_user",
+      "use_cache": true,
+      "security_scopes": [],
+      "roles": [
+        "SUPERADMIN",
+        "GERENTE",
+        "OPERADOR"
+      ],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "f44fdc46ecd13f0e3f2a3e3a466071b9ff98f33f8c92e10273edaa8ebcacc1fa": {
+      "call": "app.api.v1.riders.list_riders",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "117721aeae3503d7d79aa0fba62d9a78a00fe5ada27199b64b8a5cfbdce4a2be"
+      ]
+    },
+    "6b76930f60e0ba6aa9aaa31d432fbe936b3f3f3f3e156cf10d67d873ad59d34e": {
+      "call": "app.api.v1.riders.get_my_rider_profile",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "7e264d24be5c0678087d65977251c64bf7bba07b4ac1b33279b0845a74b3a6fb": {
+      "call": "app.api.v1.riders.update_my_rider_profile",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "8ec25b0e6b987aab74a66b008986b3b4e746bf5bd6077106d980ecf0047924a5": {
+      "call": "app.api.v1.riders.get_pending_documents",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "d3c6e837dfb6f8af70cbffd8d1822145261ee96032ec4f4d1f8e01c621c10e80": {
+      "call": "app.api.v1.riders.get_riders_audit_summary",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "15e7b7c758dbe3384fd129ec5519a565958bac4900019cb20d75a820fa15e676": {
+      "call": "app.api.v1.riders.get_rider",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "a5796aedf6c48bba277f260d8b9513af9d7614d7f1c46d56fa9f7f8bec1bff96": {
+      "call": "app.api.v1.riders.update_rider",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "163063d9bbffe12c26a9b148a046c06c432ce10335b73fc7b7283496c0a3256a": {
+      "call": "app.api.v1.riders.approve_rider",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "9d5c765444e03cb91c57d9f32a969d359ce18843697784379a9289162a91cf84": {
+      "call": "app.api.v1.riders.reject_rider",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "da9e7c0391d25d3f5b09b9b883a0dd8c42d34c0cb4a4fa27feba8565d05e95c7": {
+      "call": "app.api.v1.riders.delete_rider",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "65cdc9460a8ff9c254ea545f366e66ac019945639c2dce0a737d75e6074f8fbf": {
+      "call": "app.api.v1.riders.update_heartbeat",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "429bd52395b4963a4c3796cc8985aa8e074da37ffb8de98f8354d63da02e43fa": {
+      "call": "app.api.v1.riders.update_location",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "a652bed5e8c53c49ba25572f524d36a566ed8d3cc250d784120044668d76c366": {
+      "call": "app.api.v1.riders.toggle_online",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "678b098c7cd2d6b2e87ff42111acb5a5a23856c431374af32983de7b67b5d67b": {
+      "call": "app.api.v1.riders.update_rider_status",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "58aca6f8d1ef428763e0e18de6e231024dfc9ff6854484ae3c8edad1b304e7e8": {
+      "call": "app.api.v1.riders.get_nearby_riders",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "117721aeae3503d7d79aa0fba62d9a78a00fe5ada27199b64b8a5cfbdce4a2be"
+      ]
+    },
+    "71ee255c6109dce4d6c04d9787bb4888bd5fcdf4800363d9bb2c8153869ec12d": {
+      "call": "app.api.v1.auth.require_role.<locals>.checker",
+      "name": "current_user",
+      "use_cache": true,
+      "security_scopes": [],
+      "roles": [
+        "GERENTE",
+        "SUPERADMIN",
+        "OPERADOR"
+      ],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "d722180af3e10d572efb0b4e20573865eda980b6f26122c4c832da1cfb53c41a": {
+      "call": "app.api.v1.riders.get_rider_documents",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "71ee255c6109dce4d6c04d9787bb4888bd5fcdf4800363d9bb2c8153869ec12d",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "349775069f3a5f5a5199fe1ef9e5996aeb8c9de0a7abb7ae780f38234b007f66": {
+      "call": "app.api.v1.orders.list_orders",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "99b4a2461be5b99264d9e3aaaaa2753356d30cdb69ca6c835226a44489bb2b9e": {
+      "call": "app.api.v1.orders.create_order",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "117721aeae3503d7d79aa0fba62d9a78a00fe5ada27199b64b8a5cfbdce4a2be"
+      ]
+    },
+    "c17a0722f8a4319128ea1b58339ebda22b405dcdf658ce120e69cf7f5306ba38": {
+      "call": "app.api.v1.orders.orders_summary",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "28ca0cb79439bde3dac2f6605c08ee1b58beca10a1d281067d3f3fc1822063ea": {
+      "call": "app.api.v1.orders.get_order",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "153a6e6e84ad96b9d5ab5de523c048214bca48d2874d9eeec40302386bbc40f9": {
+      "call": "app.api.v1.orders.update_order",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "117721aeae3503d7d79aa0fba62d9a78a00fe5ada27199b64b8a5cfbdce4a2be"
+      ]
+    },
+    "5fb33c73ab1648c16f114f1dc411169d015dfdbdeb1e51eaa68a6d4047932c92": {
+      "call": "app.api.v1.orders.assign_rider",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "117721aeae3503d7d79aa0fba62d9a78a00fe5ada27199b64b8a5cfbdce4a2be"
+      ]
+    },
+    "875fb22d1afa15a98ad15f3ab67fbf36b5678dff593863cd61fa7af8bf8149a5": {
+      "call": "app.api.v1.orders.update_status",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "1dd1442879eace9d3b1b1aec2743f6a3bf697eadba2edf20915996da6a325cce": {
+      "call": "app.api.v1.orders.cancel_order",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "f4919fd8c8de11aec3d026b3ef46ffb7d2c34678327d2f3e3988baa7a29e0bb7": {
+      "call": "app.api.v1.orders.assign_order_auto",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "71ee255c6109dce4d6c04d9787bb4888bd5fcdf4800363d9bb2c8153869ec12d"
+      ]
+    },
+    "8b3fdcbf4b647b294f088bf38136d7d5df30000c5eee3ea81af1a9dfba707154": {
+      "call": "app.api.v1.deliveries.list_deliveries",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "e1e631c191f396ea4e8cb16f437209b1cd0ddaa94e405f7d74c28ad06c50d89d": {
+      "call": "app.api.v1.deliveries.get_delivery",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "59c48f4ea62c684f39698f0d1ec3a80b0f6d68ad696e85c275d29ad4cae3546d": {
+      "call": "app.api.v1.deliveries.assign_delivery",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "117721aeae3503d7d79aa0fba62d9a78a00fe5ada27199b64b8a5cfbdce4a2be"
+      ]
+    },
+    "79bfd06b701454fe1e67c1b9ee65aa23b6571144068939471336b1220a68fa48": {
+      "call": "app.api.v1.deliveries.start_delivery",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "91bf87ffe470094a3ac95ddfee21c038e39d2e1248dea6182ae3d4d66cfc8fb3": {
+      "call": "app.api.v1.deliveries.complete_delivery",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "9f227d0cf76ab31f8e381dd0391362d81c4b6a70c14bdb9d5042774aba0b7747": {
+      "call": "app.api.v1.deliveries.fail_delivery",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "e0f461bdc6de5498331b9942717c1baa8c3d75bf10eb89785ed0c9351a2b644f": {
+      "call": "app.api.v1.deliveries.update_location",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "1cf7b0bddde9251b3f7a12e9b3b26e7f7d30724ccda047d0dda1b4bb42a33a9f": {
+      "call": "app.api.v1.deliveries.get_previous_view",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "75e7ced8ea28aea60798d53118c58aeb1ede07568ce3c926b45a1d678225ae6d": {
+      "call": "app.api.v1.deliveries.update_delivery_status",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "2d609747ceb305f1a396dbb17da709941b42b45c5e2d133be47aaf48263a4826": {
+      "call": "app.api.v1.vehicles.get_available_vehicles",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "117721aeae3503d7d79aa0fba62d9a78a00fe5ada27199b64b8a5cfbdce4a2be"
+      ]
+    },
+    "fbd79d2838c987403bb6a409b802cd8df249c7f90b2d9261460ae9634cdf055b": {
+      "call": "app.api.v1.vehicles.list_vehicles",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "117721aeae3503d7d79aa0fba62d9a78a00fe5ada27199b64b8a5cfbdce4a2be"
+      ]
+    },
+    "d4a8e6c50db7c34cee4153909704f902338b430e45c724178ade76f56119b8ef": {
+      "call": "app.api.v1.vehicles.fleet_reconciliation_report",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "bbaca0b1b626d18c5ca87db719c057847eb1fe9dd527f1aec0695f29aaf5b1d5": {
+      "call": "app.api.v1.vehicles.get_vehicle",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "c4f49c0a676dad3cd901586804b404b3499882591db390fefe5cc103b95097d5": {
+      "call": "app.api.v1.vehicles.create_vehicle",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "8085d11ab1d992099c7e3121d62abd2f39a0716897d9e1e9baf991c0c70cbcb1": {
+      "call": "app.api.v1.vehicles.update_vehicle",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "fde87803c269aed0cbc7fa1fe4dbd17c6a265ff1566849a17ee9c9bbed31b774": {
+      "call": "app.api.v1.vehicles.delete_vehicle",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "9a10aaeb936fe16633035a0d0b8f8603b74bae69a344707673daef132c169118": {
+      "call": "app.api.v1.zones.list_zones",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "117721aeae3503d7d79aa0fba62d9a78a00fe5ada27199b64b8a5cfbdce4a2be"
+      ]
+    },
+    "1d1278737e68469f4731b6bb5c8fc1c7453e20f4ff1bfae227212546f2d0d233": {
+      "call": "app.api.v1.zones.get_zone",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "c52fb1aaecb22ffc71be2174137efac4201a800dc8c0fb5697c824b9664e4414": {
+      "call": "app.api.v1.zones.create_zone",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "420cbfbc60b779770a07026de812f4eb8c9adadff76badc611b8a9ac6e4cfec0": {
+      "call": "app.api.v1.zones.update_zone",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "6c0fd8107c92cc20af881a87ee19f334f8d51c89bde55b3b889a801eeeb28ccb": {
+      "call": "app.api.v1.zones.delete_zone",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "c9e417ae4b7b4dc36432da7f61804a127f764c9fa8737e8fab938167e1247975": {
+      "call": "app.core.security.get_current_active_user",
+      "name": "current_user",
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "93796a5e46bf721166f05fa7f2563f90b4f32857519296226b905a31d7f78f4e",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "583e022a176de172bc14f6348d0af10874190f07927cf7c9335e14578e0f2880": {
+      "call": "app.api.v1.shifts.list_shifts",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "c9e417ae4b7b4dc36432da7f61804a127f764c9fa8737e8fab938167e1247975"
+      ]
+    },
+    "ff633758de451e10286b6608c0fdf6d25ec71ea6206a566556bf955b595ddb0f": {
+      "call": "app.api.v1.shifts.create_shift",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "c9e417ae4b7b4dc36432da7f61804a127f764c9fa8737e8fab938167e1247975"
+      ]
+    },
+    "89e1fc943044f4b588deb9e07380ad512bef613ccd81a76a8f8f0fa6729ca2be": {
+      "call": "app.api.v1.shifts.get_shift",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "c9e417ae4b7b4dc36432da7f61804a127f764c9fa8737e8fab938167e1247975"
+      ]
+    },
+    "d9eeae86d466f7d033c78638b535db8a00d0563897bb393c4ca8c936f69fdfc9": {
+      "call": "app.api.v1.shifts.start_shift",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "c9e417ae4b7b4dc36432da7f61804a127f764c9fa8737e8fab938167e1247975"
+      ]
+    },
+    "a22a3f05ae467f051530231372d3d2494d8267c537d64751b5a778c1a86fe659": {
+      "call": "app.api.v1.shifts.end_shift",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "c9e417ae4b7b4dc36432da7f61804a127f764c9fa8737e8fab938167e1247975"
+      ]
+    },
+    "716f552c66049c0cc8972be6cca04becb9babe188700e47615bf9f62677e3043": {
+      "call": "app.api.v1.shifts.cancel_shift",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "c9e417ae4b7b4dc36432da7f61804a127f764c9fa8737e8fab938167e1247975"
+      ]
+    },
+    "6239bbf20a5cba5a9e153fc50925460a85eb654b3068ef9ff35a407612b230a9": {
+      "call": "app.api.v1.productivity.rider_productivity",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "8b50f6472e6a66a7a5f919b2f379845edca9c6ca0247d89c9595c2ff5fb2d589": {
+      "call": "app.api.v1.productivity.performance_ranking",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "117721aeae3503d7d79aa0fba62d9a78a00fe5ada27199b64b8a5cfbdce4a2be"
+      ]
+    },
+    "5b31781e453fb1cfbb8a047a16542522061b6eae37fcdd7dface6aacaa8743d2": {
+      "call": "app.api.v1.financial.get_my_earnings",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "ad947c6c1e9895136b9665399297d7609c25d3370bd609f2555d9ca652bf18d6": {
+      "call": "app.api.v1.financial.get_my_earnings_breakdown",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "53c8f82b46d095e2acba2d1916d3835630009dd3647fab7fe473cd3220547176": {
+      "call": "app.api.v1.financial.get_financial_summary",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "dc78b4e8f65b967392d6a85dcce2c9094d1ed81a5f4cf40552a2233ad998daff"
+      ]
+    },
+    "022a59c012c8328354bba1700575355348851aecf085c1e116b6ec1c88bbff64": {
+      "call": "app.api.v1.financial.get_orders_financial_report",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "dc78b4e8f65b967392d6a85dcce2c9094d1ed81a5f4cf40552a2233ad998daff"
+      ]
+    },
+    "efd606a4b9b8684145726b472067a02efb6041b1519a71264d21a89b9a5ab30e": {
+      "call": "app.api.v1.financial.get_financial_reconciliation",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "dc78b4e8f65b967392d6a85dcce2c9094d1ed81a5f4cf40552a2233ad998daff"
+      ]
+    },
+    "433d99081f0893b00ce16dc3e3bb0eeed600e1ead97cf6d0793eb4cdc5ac50ef": {
+      "call": "app.api.v1.financial.get_transactions",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "64c97f92aacc46bfc6e1e0b53bcbae46870c801e3b6961a04ae9d8e4f7dbd742": {
+      "call": "app.api.v1.financial.get_transaction_detail",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "2ba9b3d9a7386371ea39d41c329d3458d25d829366672f7088833735dae2fdce": {
+      "call": "app.api.v1.reconciliation.reconcile_rider_wallet",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "356c07d366e452373f8d49154e0b08c25b480d6e834b1a23bf0da369b2e2b069": {
+      "call": "app.api.v1.reconciliation.synchronize_rider_wallet",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "5907e04b81ca4248ff11d2351b7e0f6f6f45cc9e57c00a26838d5888bf75f0a4"
+      ]
+    },
+    "66f6bb3bbaf708eeb4decf5e2e79f3a4f86787d3a55aaef3a034cbe88f1deb1e": {
+      "call": "app.api.v1.reconciliation.daily_reconciliation_report",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "5d7f9035aec2dc7edb139b034e64061ad0132515b674ebbab45ecb009cf14b0f": {
+      "call": "app.api.v1.reconciliation.fix_all_discrepancies",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "5907e04b81ca4248ff11d2351b7e0f6f6f45cc9e57c00a26838d5888bf75f0a4"
+      ]
+    },
+    "dc2a539f508bb495386364d85b6ace071fd402dfbb62847558ca61d754f0381c": {
+      "call": "app.api.v1.auth.require_role.<locals>.checker",
+      "name": "current_user",
+      "use_cache": true,
+      "security_scopes": [],
+      "roles": [
+        "SUPERADMIN",
+        "AUDITOR"
+      ],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "f3e20a6f2ae9b98cedaa9f938217551c23fbfb4b9498f567b60352323f344e96": {
+      "call": "app.api.v1.reconciliation.audit_ledger_integrity",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "dc2a539f508bb495386364d85b6ace071fd402dfbb62847558ca61d754f0381c"
+      ]
+    },
+    "18fd3da34e7863a03d40eb19f0d2e295c22e8a79d1f475ff7230a9b713a6acdc": {
+      "call": "app.api.v1.dashboard.manager_dashboard",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "123b2c4deac716f938a0b6193bbc3415ccc0337dece836dacf1aff6cc77509ea": {
+      "call": "app.api.v1.dashboard.operator_dashboard",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "117721aeae3503d7d79aa0fba62d9a78a00fe5ada27199b64b8a5cfbdce4a2be"
+      ]
+    },
+    "827b3c25af1dad7b3724b21bed511c2f6c802dd54f14041743aa882caffb422c": {
+      "call": "app.api.v1.routes.list_routes",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "d2b2d86c7593e8eb9f923b3c50ebc0b7eb5732b555ac2c98188f78b6919a9475": {
+      "call": "app.api.v1.routes.create_route",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "a1cea8afa157cbeab28708157a73214c0a7666cbfa13fe15a87eda62752d9323": {
+      "call": "app.api.v1.routes.add_gps_point",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "8bdec1d600ca2328e5ff1a940cf4e5d2f0d0521f1aa1ee0e83a0674080fc6b65": {
+      "call": "app.api.v1.routes.get_route",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "fd853afa45a862af2dbbacbece3e7a615b5e8366e878be40b4736158a475a473": {
+      "call": "app.api.v1.routes.get_route_points",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "501f1a292df833ad08b783dd7d7b29e4c6326bed534e94c03bf754ef4448fc74": {
+      "call": "app.api.v1.routes.get_metrics",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "7c4fd058b3ee4971829d3d45cf416a25d3e91aae0f5c34af7ec480eba6b830af": {
+      "call": "app.api.v1.routes.get_deviations",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "dc97a6074731e3e7a11b896cadb09b48741405a70bf834c0eee9f80037584f11": {
+      "call": "app.api.v1.routes.analyze_route",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "ec10c4c5273c5808e790dd58829a1cb36a21ca7df2a8d34716e1cbfd48ee0745": {
+      "call": "app.api.v1.routes.resolve_deviation",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "c857e322aff691a86bdd1c9b20f8ca80d97c114db29e29b03868f9f827033103": {
+      "call": "app.api.v1.alerts.list_alerts",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "c9e417ae4b7b4dc36432da7f61804a127f764c9fa8737e8fab938167e1247975"
+      ]
+    },
+    "07b34e64e729f4c25a5a84529ca88bc0d3d0bdec57091e81b2c81a152ff61507": {
+      "call": "app.api.v1.alerts.mark_as_read",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "c9e417ae4b7b4dc36432da7f61804a127f764c9fa8737e8fab938167e1247975"
+      ]
+    },
+    "a7ee9441bf6a1e9a03b8a04c7e6ce7958d113045bafce8e01848bee6e99ce44b": {
+      "call": "app.api.v1.alerts.mark_all_as_read",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "c9e417ae4b7b4dc36432da7f61804a127f764c9fa8737e8fab938167e1247975"
+      ]
+    },
+    "14af322d271d08254a8a8490d91d2620e57f2aac106d42e91dc988872ba5a274": {
+      "call": "app.api.v1.alerts.dismiss_alert",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "c9e417ae4b7b4dc36432da7f61804a127f764c9fa8737e8fab938167e1247975"
+      ]
+    },
+    "977988c57a8c79a413ee4700c54c6cc2899506b63aef4cb1b2a5846d084f6a56": {
+      "call": "app.api.v1.integrations.list_integrations",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "7dcc37ff36330bb39f655233fb34be6e4ccd522152b60eb599d8c3d335643645": {
+      "call": "app.api.v1.integrations.create_integration",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "5907e04b81ca4248ff11d2351b7e0f6f6f45cc9e57c00a26838d5888bf75f0a4"
+      ]
+    },
+    "dac2fb1f64e09b664b5545547a6a1b128fee717acd8fa97fd75eac695ccc3a19": {
+      "call": "app.api.v1.integrations.get_integration",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "75a30d9050df97001b0ceb211d559e8529d3fcb3b3f1c5f4907691929b8f89e7": {
+      "call": "app.api.v1.integrations.patch_integration",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "5907e04b81ca4248ff11d2351b7e0f6f6f45cc9e57c00a26838d5888bf75f0a4"
+      ]
+    },
+    "38f0e8063de6bac1f921009d86aafa98592dc6dee3ad0b4a8409ed2239074643": {
+      "call": "app.api.v1.integrations.pause_integration",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "5907e04b81ca4248ff11d2351b7e0f6f6f45cc9e57c00a26838d5888bf75f0a4"
+      ]
+    },
+    "882c757e5f9698689a00dd0c2e9a34074766e321f771b1011d72a9f05b4a0b9a": {
+      "call": "app.api.v1.integrations.integration_diagnostics",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "ef1ad40597d1350b4e224997a450b144781d385c8efd05aaa09809591d08305f": {
+      "call": "app.api.v1.audit.list_audit_logs",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "8f65073042779db498875315b6d02a8abc099a3ba6354a632406093a9ed990cd": {
+      "call": "app.api.v1.audit.get_audit_summary",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "035e3ac399a764f5a12920e320cc99d73bb3a94a3bdf518caf9791be5f4cd91c": {
+      "call": "app.api.v1.audit.export_audit_logs",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "e950c53da89ec2efd19f2a17083d3388f1f93673d14ac47609714ccbf2cbecbb": {
+      "call": "app.api.v1.audit.get_audit_log",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "7e09bfe677ad5a4eac7784d750f686ee3ad1826dcdd7ce1400591dd6d6918383": {
+      "call": "app.api.v1.settings.simulate_bonus_impact",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "1f9b7836f5e0c4b8f5add7766e6858b3029da2f2d7fb6dc31fde96fb2fdd3604": {
+      "call": "app.api.v1.settings.get_platform_settings",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "f664979240a16cd4454a51c9ff45216a5e3f34f23492d9014fcc0df7136a5dcd": {
+      "call": "app.api.v1.settings.update_platform_settings",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "5907e04b81ca4248ff11d2351b7e0f6f6f45cc9e57c00a26838d5888bf75f0a4"
+      ]
+    },
+    "27c4697388e4c4649d1fa27b0689169de76ccc5758416ae44d0d382f6db0a3c8": {
+      "call": "app.api.v1.settings.replace_platform_settings",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "5907e04b81ca4248ff11d2351b7e0f6f6f45cc9e57c00a26838d5888bf75f0a4"
+      ]
+    },
+    "8763459c20516773470f25749cdcb3642b4e1d93dac3a9c2813734972b2e6061": {
+      "call": "app.monitoring.health_check.health_check",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": []
+    },
+    "5c735ff9dc241063e3f2c4ac96991c9d1af8f55221db7da510f48e5dd9bbf9f7": {
+      "call": "app.monitoring.health_check.readiness_check",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": []
+    },
+    "24a1f80257f39523ff636bcdeff02431699e52fbcd8eea44819c6a7320ebbd93": {
+      "call": "app.monitoring.health_check.liveness_check",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": []
+    },
+    "b9e71e14e1235246665d3467521ce538b064a512c7aa277fbed10e950491c36e": {
+      "call": "app.monitoring.metrics.metrics",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": []
+    },
+    "7ee2b54e9eef9fd488607d68cb929fa8591be03ec816d45f9354f24ba7148de1": {
+      "call": "app.api.v1.payouts.list_payouts",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "8ce3ac4010c08788ee7b322b088b37857eea7bc9bd6833b13268b265bcfd683b": {
+      "call": "app.api.v1.payouts.get_available_balance",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "098b6f054706650268f961ddd17a501c99a3a05cc67f97260adfc0efe9553f4e": {
+      "call": "app.api.v1.payouts.get_request_status",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "ca8e9ee5472b5614deb8193de675a0634ef6f033fdbf60d81f9efbd339dc88cf": {
+      "call": "app.api.v1.payouts.request_payout",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "5505d5bcdd162c64c1cf8ffc166b2ce60db78707b166e9541a9726e51c5fab8e": {
+      "call": "app.api.v1.payouts.get_payout",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "39ae9917248b10a99bebbee92fd9047f2a91a86990e9f033befe251b34e757a6": {
+      "call": "app.api.v1.payouts.get_payout_history",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "e6b81c5685ae7bc2ec41d3109d6dcbcf789618471ffc6b367d86306120f568bf": {
+      "call": "app.api.v1.payouts.approve_payout",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "dc78b4e8f65b967392d6a85dcce2c9094d1ed81a5f4cf40552a2233ad998daff"
+      ]
+    },
+    "366c93674244956661b53f6c661ba5c45ba4d2254542f8bfdc4322241769f08b": {
+      "call": "app.api.v1.payouts.reject_payout",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "dc78b4e8f65b967392d6a85dcce2c9094d1ed81a5f4cf40552a2233ad998daff"
+      ]
+    },
+    "5ce0ff60e7010bf207384477e5b40ec549f618d2a4f8013b233c7ecd50b6d77b": {
+      "call": "app.api.v1.wallet.get_wallet_service",
+      "name": "wallet_service",
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "c39ff0bb5fc77f7f9b960eff28bc838574cfd678903643d4748d35aed71f7b54": {
+      "call": "app.api.v1.wallet.get_my_wallet",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66",
+        "5ce0ff60e7010bf207384477e5b40ec549f618d2a4f8013b233c7ecd50b6d77b"
+      ]
+    },
+    "8f61a550737072ec6cf38cf8c4ca46812f6d7ce58f0f4dd7a3f286a94f7ba817": {
+      "call": "app.api.v1.wallet.get_wallet_transactions",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66",
+        "5ce0ff60e7010bf207384477e5b40ec549f618d2a4f8013b233c7ecd50b6d77b"
+      ]
+    },
+    "668d296b6944f05d9ebd8b605266adc3d1ba77a2ad2bbe054e4320f41176151e": {
+      "call": "app.api.v1.wallet.create_payout_request",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66",
+        "5ce0ff60e7010bf207384477e5b40ec549f618d2a4f8013b233c7ecd50b6d77b"
+      ]
+    },
+    "bd2ffa7b959d0c64b76ea7c8470238dc3e52dc1a9e7d2f1e9173658ef4929fd8": {
+      "call": "app.api.v1.wallet.get_my_payout_requests",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66",
+        "5ce0ff60e7010bf207384477e5b40ec549f618d2a4f8013b233c7ecd50b6d77b"
+      ]
+    },
+    "8f608dec283e3df7bbb876616661cb79d154ccacd2036bc2dcfd739046bc5bc5": {
+      "call": "app.api.v1.wallet.get_pending_payout_requests",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81",
+        "5ce0ff60e7010bf207384477e5b40ec549f618d2a4f8013b233c7ecd50b6d77b"
+      ]
+    },
+    "9142c15275679cdd1e5975ad6b00c21ff5027e69071b4683c267e31dc1740717": {
+      "call": "app.api.v1.wallet.approve_payout_request",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81",
+        "5ce0ff60e7010bf207384477e5b40ec549f618d2a4f8013b233c7ecd50b6d77b"
+      ]
+    },
+    "70d60a5179cd3927ddf5aa0dc31598887036112ab0a2fc335a5d3a8845896281": {
+      "call": "app.api.v1.wallet.complete_payout_request",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81",
+        "5ce0ff60e7010bf207384477e5b40ec549f618d2a4f8013b233c7ecd50b6d77b"
+      ]
+    },
+    "29077932d09d537cbcdb4212ec727f0affa9c0d074c9cc03731ee2a4ce2a2c7e": {
+      "call": "app.api.v1.wallet.reject_payout_request",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81",
+        "5ce0ff60e7010bf207384477e5b40ec549f618d2a4f8013b233c7ecd50b6d77b"
+      ]
+    },
+    "81d9e6ea62eb32fe215c9419c116334c997c1e6b022f3a38d258ff667ec7bd8f": {
+      "call": "app.api.v1.telemetry.rider_heartbeat",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "9694edeec60b988c3bb7eff95b5dc8095ed06bf66e0f8aa33f512d7140f2988a": {
+      "call": "app.api.v1.tracking._get_tracking_service",
+      "name": "service",
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "e62b5d4e160d878b13ccbe6fe17a1713086458d62a57ded738eba41817737849": {
+      "call": "app.api.v1.tracking.update_location",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "9694edeec60b988c3bb7eff95b5dc8095ed06bf66e0f8aa33f512d7140f2988a",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "8a1d1ab25941ea1ee34ffa3f2c39f97a895ef7a9c0242127139e2a2264ff1958": {
+      "call": "app.api.v1.tracking.get_live_tracking",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "9694edeec60b988c3bb7eff95b5dc8095ed06bf66e0f8aa33f512d7140f2988a",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "022b98eade52f7ab15e931c50b90c28a3a4d8325e5cd2643751202cf82c52f55": {
+      "call": "app.api.v1.tracking.get_dashboard_data",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "3a8c3744e667a23a015ca40b69defe20fe3eba8caa0161da5996882f9a032d64": {
+      "call": "app.api.v1.tracking.optimize_routes_batch",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "29377089e142b03ce8a4c8066d8c1c5dc7a0c75faa57a9cb76f96038fb651aa2": {
+      "call": "app.api.v1.tracking.get_rider_history",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "a2699973ffdc6b09cbbb97ff99f17b990fed6e4088b55a24916a8f7ee06f6d98": {
+      "call": "app.main.create_app.<locals>.tracking_ws",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": []
+    },
+    "424643693a3bd350505e2044d7b9d224a1cd9f0a382d4de91ab6863a2335f6d4": {
+      "call": "app.api.v1.notifications.register_device",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "38020b53396ab71f01e00adac36142c5c96db4740c665dd0439d017b5ea94717": {
+      "call": "app.api.v1.notifications.unregister_device",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "f6903eb90acbc3ae61ba57a5c1f40f43152b18078a94aec3237ecc9617125c89": {
+      "call": "app.api.v1.notifications.get_inbox",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "d05a0834e881194e47425dc55df2ee9ed539fa985f1a35dfc556c385efa88a66": {
+      "call": "app.api.v1.notifications.get_unread_count",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "32e35db7923d8b98e618a7b4d03d8d7772d7a886dff4c577fe4a841dd8304370": {
+      "call": "app.api.v1.notifications.mark_read",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "d274d53afc7530f751994c6ab01a5d88c2688451ecec30448b7e0551081b1810": {
+      "call": "app.api.v1.notifications.delete_notification",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "e35d5e3c4fe49b9879a71a3cf14d6f8a938f1d788e4bd5c3e33dd13e4741fd6e": {
+      "call": "app.api.v1.notifications.list_preferences",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "a9e183d6a354262f7a4a41ad78bafc30265d2031e95f96be71a54097ad9c6cf3": {
+      "call": "app.api.v1.notifications.update_preferences",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "0d2e8b0ef87873d126b5257d9037f7f1442b322cb3e49228633d9773ae2231d9": {
+      "call": "app.api.v1.notifications._get_service",
+      "name": "service",
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "1a715c057bb5fa5ef84e99fcacf79e56ed84c882224b874d22973111197b918c": {
+      "call": "app.api.v1.notifications.test_send",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "0d2e8b0ef87873d126b5257d9037f7f1442b322cb3e49228633d9773ae2231d9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "091757c38178c827a4386422a53c2930b5df60f7e4d1612d23d0ac08a58edaac": {
+      "call": "app.api.v1.notifications.list_templates",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "4bc4e08d6dd4d4b3ea6c25aee45b2daf7fb421485c81bc10927020813e68e7b5": {
+      "call": "app.api.v1.notifications.toggle_template",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "0d2e8b0ef87873d126b5257d9037f7f1442b322cb3e49228633d9773ae2231d9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "2deaa70e296e3176237e5fcc0672a320b0561a65da57d8a92e1a3728c636a6f2": {
+      "call": "app.main.create_app.<locals>.notifications_ws",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": []
+    },
+    "46bcea17e7108f7156cddcae4ae11b44c56c53792950c18b9d9a7cd5b62d693e": {
+      "call": "app.api.v1.auth.require_role.<locals>.checker",
+      "name": "user",
+      "use_cache": true,
+      "security_scopes": [],
+      "roles": [
+        "SUPERADMIN",
+        "GERENTE"
+      ],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "bab5b21527cbb8621be867ece814556b6eef1c2cea8d9c8072ff273ee0d74687": {
+      "call": "app.api.v1.fiscal.emit_invoice",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "46bcea17e7108f7156cddcae4ae11b44c56c53792950c18b9d9a7cd5b62d693e"
+      ]
+    },
+    "3a34613962609bd6e78ccb3cdf5eeb023c417a870fdae8aa0f94360b9b428107": {
+      "call": "app.api.v1.auth.require_role.<locals>.checker",
+      "name": "user",
+      "use_cache": true,
+      "security_scopes": [],
+      "roles": [
+        "SUPERADMIN",
+        "GERENTE",
+        "OPERADOR",
+        "AUDITOR"
+      ],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    },
+    "dbed61ead44e2f7f6edbdac432683a0fd1e9ae18cb11e50f4d63ccaed39d57c4": {
+      "call": "app.api.v1.fiscal.list_invoices",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "3a34613962609bd6e78ccb3cdf5eeb023c417a870fdae8aa0f94360b9b428107"
+      ]
+    },
+    "6ea5aef35ba53f752c58f181efc53bc93fd49049b692fd45d606350adaf49229": {
+      "call": "app.api.v1.fiscal.get_invoice",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "3a34613962609bd6e78ccb3cdf5eeb023c417a870fdae8aa0f94360b9b428107"
+      ]
+    },
+    "6f8805f0b5308d0561d35f4d111703f1af40dc9a14768777c04acf6ea2224e21": {
+      "call": "app.api.v1.fiscal.invoice_status_check",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "3a34613962609bd6e78ccb3cdf5eeb023c417a870fdae8aa0f94360b9b428107"
+      ]
+    },
+    "8f1436f85a832a97fdd47887708a9457e8c856ceb2d3a1de92dc176380ff67ac": {
+      "call": "app.api.v1.fiscal.create_credit_note",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "46bcea17e7108f7156cddcae4ae11b44c56c53792950c18b9d9a7cd5b62d693e"
+      ]
+    },
+    "728dbef0cd1ed29aec5269c5a27921b6dcf9c3faba291185d95c6319f16a6c99": {
+      "call": "app.api.v1.fiscal.cancel_invoice",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "46bcea17e7108f7156cddcae4ae11b44c56c53792950c18b9d9a7cd5b62d693e"
+      ]
+    },
+    "c1ff60f6640ecc99416c7554326fa5a066d1892e1baa1c6075a01b30c29e4dce": {
+      "call": "app.api.v1.fiscal.settle_order",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "46bcea17e7108f7156cddcae4ae11b44c56c53792950c18b9d9a7cd5b62d693e"
+      ]
+    },
+    "d3697de44ed295fffc4e12e8a220b6aa9f19f7b630b754014ba549d3e2c4b431": {
+      "call": "app.api.v1.fiscal.current_split_rule",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "3a34613962609bd6e78ccb3cdf5eeb023c417a870fdae8aa0f94360b9b428107"
+      ]
+    },
+    "e96931f259743de87ecea4b987117805affaf6c8154780879911cbb6a315663f": {
+      "call": "app.api.v1.fiscal.get_fiscal_config",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "3a34613962609bd6e78ccb3cdf5eeb023c417a870fdae8aa0f94360b9b428107"
+      ]
+    },
+    "674d42945f8df7caaa06911ef6868a3fbaee42ce2736cf21fc7b80a6f5abbafe": {
+      "call": "app.api.v1.fiscal.patch_fiscal_config",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "46bcea17e7108f7156cddcae4ae11b44c56c53792950c18b9d9a7cd5b62d693e"
+      ]
+    },
+    "d6d5152b6e34151f4958612ea98b03108dfc33b444bde758438bb34039473c42": {
+      "call": "app.api.v1.fiscal.list_resolutions",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "3a34613962609bd6e78ccb3cdf5eeb023c417a870fdae8aa0f94360b9b428107"
+      ]
+    },
+    "b1e8393eb7d82b1ba0b783b10a52ede83b3d6fa66b390152a34f224fd961253a": {
+      "call": "app.api.v1.fiscal.reconciliation_records",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "3a34613962609bd6e78ccb3cdf5eeb023c417a870fdae8aa0f94360b9b428107"
+      ]
+    },
+    "20ad76c660dd2cc957986ebed3587e50adb869b8f24593fcb0409b896f4ace72": {
+      "call": "app.api.v1.fiscal.run_reconciliation_endpoint",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "46bcea17e7108f7156cddcae4ae11b44c56c53792950c18b9d9a7cd5b62d693e"
+      ]
+    },
+    "d9ad1de87311d3152dd27bc75ec82250a4d1307a581e9171d543d75904a7ca98": {
+      "call": "app.api.v1.fiscal.resolve_record",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "46bcea17e7108f7156cddcae4ae11b44c56c53792950c18b9d9a7cd5b62d693e"
+      ]
+    },
+    "2daf5100d78ed919d56e169de0fb35f13eb7267c5e8ea795fad84acde1b929b7": {
+      "call": "app.main.create_app.<locals>.root",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": []
+    },
+    "67c6530e1caf526e7fc545337fcf887908c66028f70c194decf44e6e6f212d9e": {
+      "call": "app.main.create_app.<locals>.ping",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": []
+    }
+  },
+  "openapi_sha256": "84bef605f22c31d4e8b3d9279e812d05c3cc8d3d303f73c441248f307dba0172"
+}

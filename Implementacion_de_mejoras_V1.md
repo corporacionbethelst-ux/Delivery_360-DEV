@@ -5044,3 +5044,209 @@ Persisten deuda global de tipos/cobertura, carga y readiness/observabilidad,
 outbox, sesiones por dispositivo/refresh de un uso, adaptadores externos y manejo
 seguro de secretos, trazas/rutas, móvil/offline, pagos/conciliación y homologación
 fiscal. No se declara el proyecto al cien por ciento de producción.
+
+---
+
+## Entrega ampliada 56 — Conciliación verificable de caché, revisión explícita y auditorías acotadas
+
+**Fecha:** 30 de octubre de 2026, America/Caracas.
+
+### Base y problema comprobado
+
+Se continúa desde main verificado
+`74748178fe00a7188eaaa5bd4bc31595ad23b378`, merge del PR #296. Su árbol coincide
+con el código probado de la entrega 55. El CI anterior confirmó 1783 casos backend
+aprobados y dos SDK opcionales omitidos, con deuda global de 121 errores Mypy en
+28 archivos. El frontend anterior aprobó 735 casos en 51 suites, lint, TypeScript
+y build; la cobertura de líneas de 28,88 % sigue por debajo del umbral de 50 %.
+Esos resultados pertenecen al PR anterior, no al commit de esta entrega.
+
+El módulo independiente reconciliation estaba importado, pero no montado en main.
+Sus handlers antiguos permitían correcciones masivas y el informe de integridad
+se limitaba a contar snapshots ausentes. Eso no verificaba aritmética, apertura,
+continuidad, dirección de importes ni cambios entre consulta y corrección.
+Publicarlo directamente habría expuesto esas limitaciones a la API real.
+
+Además, existen dos almacenes distintos: financials y la caché decimal
+Rider.wallet_balance, por un lado, y RiderWallet.balance_cents y
+FinancialTransaction, por otro. financials no registra moneda. Sumar importes de
+todos los repartidores o convertir un historial vacío en saldo cero produciría
+conclusiones no sustentadas.
+
+### Resultado desarrollado
+
+Se montan cinco rutas bajo /api/v1/reconciliation, con esquemas explícitos y un
+servicio independiente de verificación. Las consultas son de solo lectura; la
+reconstrucción exige revisión individual y un comando de superadministración con
+versión, huella y motivo. El objetivo se calcula en el servidor; no se acepta un
+importe propuesto por el cliente.
+
+| Ruta relativa | Roles | Resultado |
+| --- | --- | --- |
+| GET /wallet/{rider_id} | SUPERADMIN, GERENTE | Previsualización de caché e integridad registrada |
+| POST /wallet/{rider_id}/sync | SUPERADMIN | Consulta por defecto; aplicación solo con dry_run=false y cuerpo de revisión |
+| GET /batch/daily | SUPERADMIN, GERENTE | Página de consultas actuales UTC |
+| POST /fix-all-discrepancies | SUPERADMIN | Consulta paginada; dry_run=false se rechaza con 409 |
+| GET /audit/ledger-integrity | SUPERADMIN, AUDITOR | Integridad por página, sin importes de caché |
+
+Los permisos se prueban con la aplicación montada, JWT reales y lecturas de
+actividad/rol/versión del usuario: superadministrador, gerente, auditor, operador,
+cliente, repartidor propietario, inactivo y sin rol. Antes de aplicar se vuelve
+a consultar la autorización vigente dentro de la transacción para no utilizar
+privilegios revocados después de cargar el actor.
+
+### Evidencia financiera y estados honestos
+
+Cada previsualización lee repartidor, caché, versión y columnas mínimas del ledger
+en una sola sentencia SQL. No devuelve descripciones libres ni referencias
+bancarias. Analiza como máximo 10.000 filas y lee una adicional para detectar
+truncamiento; un historial mayor siempre bloquea la reparación.
+
+- PROCESADO y PAGADO tienen impacto. PENDIENTE y RECHAZADO se cuentan como
+  ignorados; no se certifica su aritmética. Estados nulos/desconocidos bloquean.
+- Los tipos legacy de crédito/débito tienen dirección explícita; AJUSTE conserva
+  el signo. Los tipos modernos no mapeados no se presumen créditos.
+- Importes finitos, no nulos, no cero, con centavos exactos y rango permitido
+  de ±99.999.999,99; snapshots completos, finitos y dentro de rango.
+- Apertura procesada desde cero, continuidad de snapshots y resultado exacto por
+  movimiento. Otra apertura exige revisión documental, sin inventar antecedentes.
+- Timestamps procesados presentes, estrictamente crecientes y sin fechas futuras
+  superiores a cinco segundos respecto de la evaluación UTC. Los empates requieren
+  revisión porque el UUID no demuestra el orden contable.
+- Si hay inconsistencias o truncamiento, no se publica un saldo verificado.
+
+La salida distingue verified, requires_review y no_evidence. Un ledger vacío o
+solo pendiente/rechazado conserva saldo desconocido; no autoriza a poner la caché
+a cero. Se cuentan todas las incidencias y se devuelven hasta las primeras 50,
+con indicador de recorte.
+
+Los importes individuales se serializan como strings de dos decimales. Moneda
+null, currency_verified=false y external_settlement_verified=false hacen
+explícitos los límites. No se suman discrepancias entre repartidores:
+total_discrepancy_amount=null. total_adjusted_amount="0.00" y fixed_count=0
+indican que el lote de consulta no ajustó nada, no el saldo total de la flota.
+
+La caché tiene estados ok, within_tolerance, discrepancy, requires_review y
+no_ledger_evidence. La tolerancia de un centavo no produce escritura. Una caché
+NULL puede reconstruirse desde evidencia verificada; una caché inválida o versión
+negativa/no válida exige revisión. Una versión int32 agotada bloquea reparaciones
+para evitar desbordamiento.
+
+### Aplicación con concurrencia, autorización y auditoría atómicas
+
+El flujo es GET de previsualización, revisión de evidencia y POST explícito con
+expected_version, expected_fingerprint y reason. El cuerpo rechaza campos extra,
+versiones booleanas/fuera de rango, huellas no hexadecimales de 64 posiciones y
+motivos demasiado cortos/largos o con controles Unicode. Aplicar sin cuerpo
+devuelve 428; evidencia obsoleta o no verificable devuelve 409.
+
+La huella enlaza repartidor, caché, versión, filas y resultado de evaluación.
+Si una fecha futura deja de serlo, el cambio de evaluación también invalida la
+huella anterior. SHA-256 es evidencia de estado para concurrencia optimista;
+no es firma, credencial ni recibo bancario.
+
+La aplicación ejecuta en una sola transacción:
+
+1. Bloqueo compartido del usuario y nueva lectura de actividad, rol y versión de
+   token. Un actor cargado antes de una revocación ya no puede aplicar.
+2. Bloqueo FOR UPDATE del repartidor, seguido de las filas existentes del ledger.
+   Serializa escritores canónicos; el bloqueo del padre también impide nuevas
+   inserciones concurrentes que respeten la FK hasta finalizar la operación.
+3. Nueva previsualización bajo bloqueo y cotejo de versión/huella. Si cambian,
+   no se actualiza la caché.
+4. Actualización condicional exclusiva de wallet_balance y version del repartidor
+   con objetivo verificado. No se crean asientos de ajuste.
+5. Inserción de AuditLog CONFIG_CHANGE con actor, motivo, huellas, versiones y
+   balances anteriores/posteriores. Un fallo de flush/commit revierte ambos.
+
+Una repetición exacta solo devuelve already_applied si el audit log exitoso es
+del mismo actor, motivo y revisión, y el estado resultante y ledger siguen
+intactos. Devuelve el mismo audit id, sin segundo ajuste. Cambios posteriores
+invalidan el recibo para repetir la petición. Dos aplicaciones concurrentes
+producen una reparación y una auditoría. Si está correcto/dentro de tolerancia,
+devuelve no_change, sin incremento de versión ni auditoría de reparación.
+
+No se modifican financials, RiderWallet, FinancialTransaction, reservas, payouts,
+pagos externos o documentos fiscales. El updated_at automático del repartidor
+puede actualizarse con su caché según el modelo. No cambian modelos, DDL,
+migraciones, dependencias, configuración o frontend.
+
+### Lotes, fechas y contrato de API
+
+Las páginas admiten uno a 25 repartidores, cursor UUID ascendente, has_more y
+next_after_id. Incluyen todos los estados por defecto, con rider_status opcional.
+Cada repartidor usa una lectura SQL única; la página no es un snapshot global.
+batch/daily solo informa estado actual UTC y rechaza target_date de otro día.
+Los contadores son de la página. verified_page no certifica la flota completa o
+liquidación bancaria. fix-all no aplica correcciones masivas: exige revisiones
+individuales para cada reparación.
+
+La aplicación pasa de **197 a 202 entradas de rutas**, con **194 definiciones de
+dependencia**. El nuevo inventario vive en
+backend/tests/fixtures/api_surface_after_reconciliation.json. Se conserva el
+baseline anterior y una prueba retira únicamente cinco rutas y nueve componentes
+OpenAPI nuevos para reconstruir el hash previo. Las rutas/dependencias anteriores
+también se comparan en orden, protegiendo alias ocultos, permisos y resolución.
+
+Hash OpenAPI nuevo:
+`84bef605f22c31d4e8b3d9279e812d05c3cc8d3d303f73c441248f307dba0172`.
+Hash previo preservado al retirar exclusivamente las adiciones:
+`9d63eb9e4c9469b55c51f7adcf99a7df5d472dbdd00333a33b32dcf24b533631`.
+
+### Pruebas y validación final
+
+Se añaden **116 casos** en test_cache_reconciliation.py y un caso de preservación
+en test_api_bootstrap.py. Se actualiza el caso HTTP legacy para reparación
+explícita y se conservan las pruebas privadas anteriores. La tabla de auditoría
+SQLite de ese test usa una copia local del metadata; no se altera DDL productivo.
+
+Las pruebas cubren reglas monetarias, tipos legacy y modernos no mapeados,
+snapshots incompletos/NaN, apertura/continuidad, fechas ambiguas, falta de
+evidencia, límites, moneda desconocida, permisos/revocación reales, consultas sin
+efectos, reparación exclusiva de caché, replay, estado obsoleto, rollback y
+actualizaciones/inserciones concurrentes bloqueadas en PostgreSQL.
+
+| Control | Resultado |
+| --- | --- |
+| Backend completo final | **1900 aprobados, dos SDK opcionales omitidos**, una advertencia de configuración previa; 1590.05 s |
+| SDK opcionales instalados y HTTP sustituido | **Dos aprobados aparte**, 1.82 s, una advertencia previa; sin envíos externos |
+| Mypy | **121 errores / 28 archivos**, sin errores nuevos frente al main verificado |
+| Black / flake8 crítico / diff | **Aprobados**: Black app y tres archivos de pruebas, flake8 crítico y git diff --check |
+| Contrato de rutas/OpenAPI | 202 entradas; las 197 anteriores preservadas y cinco adiciones |
+| Frontend | Sin cambios; no se atribuye una nueva ejecución a esta entrega |
+
+Los tests usan PostgreSQL/PostGIS y Redis descartables y no conectan proveedores
+reales. Se consulta el CI del nuevo PR por separado. No se silencian errores
+Mypy, excluyen archivos o rebajan umbrales para aparentar aprobación global.
+
+La guía backend/CACHE_RECONCILIATION.md documenta permisos, procedimiento, datos,
+contratos, límites y respuestas; se enlaza desde backend/README.md. Se actualiza
+API_BOOTSTRAP.md para conservar el baseline histórico y registrar el montaje.
+Se cotejan hashes del código probado y blobs/árbol/commit local-GitHub. Se publica
+un PR listo para revisión, sin borrador. No se fusiona, despliega o aplica migración.
+
+### Hallazgos conservados y próximos criterios de producción
+
+La comprobación solo verifica la cadena existente: no demuestra operaciones
+faltantes, moneda, recibos bancarios, origen veraz o ausencia de historia fabricada
+aritméticamente consistente. Aperturas no cero, fechas iguales, datos incompletos
+o más de 10.000 filas requieren investigación y política histórica explícita.
+
+FinancialService.reconcile_wallet_with_ledger conserva su semántica interna por
+compatibilidad; el router nuevo no lo utiliza. El escritor legacy conserva su
+fallback para tipos modernos sin dirección mapeada: el nuevo análisis los rechaza,
+pero queda pendiente endurecer ese escritor compartido y revisar sus consumidores.
+Los contratos /financial/reconciliation y /fiscal/reconciliation son diferentes
+y permanecen intactos.
+
+Quedan pendientes UI de revisión, exhaustividad/inmutabilidad de registros,
+unificación y moneda de libros, investigación de datos bloqueados, conciliación
+externa y planes/índices/tiempos bajo carga en staging. El límite de filas acota
+materialización/análisis, pero no garantiza duración máxima de SQL o esperas de
+bloqueo. No se ejecutan jobs o migraciones históricas en esta entrega.
+
+Persisten deuda global de 121 errores Mypy y cobertura frontend de líneas de
+28,88 %, observabilidad/readiness, outbox, sesiones por dispositivo, adaptadores
+externos homologados, móvil/offline y demás criterios del roadmap. Esta entrega
+robustece el flujo administrativo; no certifica el sistema al cien por ciento
+de producción.
