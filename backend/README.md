@@ -108,6 +108,14 @@ El ETA conserva destinos con coordenadas cero y no usa la posición del rider co
 destino. Consulte [contratos, diccionario, concurrencia y límites](ROUTE_ANALYSIS.md),
 incluidas las tareas pendientes del conjunto de workers y la unificación de trazas.
 
+## Paneles operativos y productividad
+
+La entrega 53 conecta los paneles de gerente y operador con agregados SQL reales,
+calendarios locales, permisos y estados de datos desconocidos. Corrige las rutas
+de productividad para leer consolidaciones existentes y ofrece ranking de volumen.
+No requiere migración ni activa tareas. Consulte [contratos, diccionario,
+compatibilidad, sesiones y límites](OPERATIONAL_DASHBOARDS.md).
+
 ## Workers y programación operativa
 
 La entrega 52 normaliza ocho módulos y doce tareas Celery, incorpora productividad

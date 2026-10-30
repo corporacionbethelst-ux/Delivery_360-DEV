@@ -1,393 +1,415 @@
-"""Servicio para dashboards y reportes del sistema Delivery360."""
+"""Read-only operational metrics with explicit cohorts and truthful missing data."""
 
-from typing import List, Dict, Optional, TypedDict, Union
-from datetime import datetime, timedelta, date
-from decimal import Decimal
+from datetime import datetime, timedelta, date as CalendarDate, timezone
+from uuid import UUID
+from zoneinfo import ZoneInfo
+from sqlalchemy import select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, distinct
+from app.core.reporting_period import (
+    ReportingWindow,
+    calendar_window,
+    explicit_window,
+    aware_utc,
+    utc_naive,
+)
+from app.core.config import settings
 from app.models.order import Order, OrderStatus
 from app.models.delivery import Delivery, DeliveryStatus
 from app.models.rider import Rider, RiderStatus
+from app.models.user import User
 from app.models.shift import Shift, ShiftStatus
-from app.models.financial import (
-    Financial as FinancialTransaction,
-    TransactionType,
-    PaymentStatus,
+from app.models.notification import Alert
+from app.models.productivity import ProductivityMetrics
+from app.schemas.operational_dashboard import (
+    DashboardSnapshot,
+    DashboardSummary,
+    DailyActivity,
+    PendingOrderPreview,
+    RiderPositionPreview,
 )
-from app.models.productivity import ProductivityMetrics, SLARecord
-from app.services.financial_service import CREDIT_TYPES
-import logging
 
-logger = logging.getLogger(__name__)
-
-
-class ManagerDashboardData(TypedDict):
-    """Tipo de retorno para dashboard de gerente"""
-
-    total_orders: int
-    delivered_orders: int
-    delivery_rate: float
-    avg_delivery_time_minutes: float
-    sla_percentage: float
-    avg_cost_per_order: float
-    active_riders: int
-    period_start: datetime
-    period_end: datetime
+ACTIVE_DELIVERIES = (
+    DeliveryStatus.INICIADA,
+    DeliveryStatus.EN_PICKUP,
+    DeliveryStatus.EN_ROUTE,
+    DeliveryStatus.EN_DESTINO,
+)
+ACTIVE_ORDERS = (
+    OrderStatus.ASIGNADO,
+    OrderStatus.EN_RECOLECCION,
+    OrderStatus.RECOLECTADO,
+    OrderStatus.EN_RUTA,
+)
 
 
-class OperatorDashboardData(TypedDict):
-    """Tipo de retorno para dashboard de operador"""
-
-    pending_orders: int
-    in_progress_orders: int
-    available_riders: int
-    active_shifts: int
-    at_risk_deliveries: int
-    timestamp: datetime
-
-
-class RiderDashboardData(TypedDict):
-    """Tipo de retorno para dashboard de repartidor"""
-
-    completed_deliveries: int
-    daily_earnings: float
-    total_hours_worked: float
-    personal_sla_percentage: float
-    date: date
-    timestamp: datetime
-
-
-class ProductivityComparisonItem(TypedDict):
-    """Tipo para items de comparación de productividad"""
-
-    date: date
-    avg_deliveries_per_hour: float
-    avg_sla_compliance: float
-    total_deliveries: int
+def local_date(column, zone: str):
+    # Columns persist UTC WITHOUT TIME ZONE. Convert UTC->timestamptz->local.
+    return func.date(func.timezone(zone, func.timezone("UTC", column)))
 
 
 class DashboardService:
-    """Servicio para obtención de datos de dashboards"""
-
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    async def snapshot(
+        self, days: int = 7, *, operator: bool = False, now: datetime | None = None
+    ) -> DashboardSnapshot:
+        return await self._snapshot(calendar_window(days, now), operator=operator)
+
+    async def _snapshot(
+        self, window: ReportingWindow, *, operator: bool = False
+    ) -> DashboardSnapshot:
+        start, end = window.start, window.end
+        orders = (
+            await self.db.execute(
+                select(
+                    func.count(Order.id).label("total"),
+                    func.sum(
+                        case((Order.status == OrderStatus.ENTREGADO, 1), else_=0)
+                    ).label("legacy_delivered"),
+                    func.sum(
+                        case((Order.status == OrderStatus.CANCELADO, 1), else_=0)
+                    ).label("cancelled"),
+                ).where(Order.created_at >= start, Order.created_at < end)
+            )
+        ).one()
+        valid_duration = (Delivery.started_at.is_not(None)) & (
+            Delivery.completed_at >= Delivery.started_at
+        )
+        duration = (
+            func.extract("epoch", Delivery.completed_at - Delivery.started_at) / 60
+        )
+        deliveries = (
+            await self.db.execute(
+                select(
+                    func.count(Delivery.id).label("total"),
+                    func.sum(
+                        case((Delivery.sla_compliant.is_(True), 1), else_=0)
+                    ).label("on_time"),
+                    func.sum(
+                        case((Delivery.sla_compliant.is_not(None), 1), else_=0)
+                    ).label("known"),
+                    func.sum(case((valid_duration, 1), else_=0)).label(
+                        "valid_durations"
+                    ),
+                    func.avg(case((valid_duration, duration), else_=None)).label(
+                        "average"
+                    ),
+                ).where(
+                    Delivery.status == DeliveryStatus.COMPLETADA,
+                    Delivery.completed_at >= start,
+                    Delivery.completed_at < end,
+                )
+            )
+        ).one()
+        online = (
+            (Rider.is_online.is_(True))
+            & (Rider.status.in_((RiderStatus.ACTIVO, RiderStatus.OCUPADO)))
+            & (User.is_active.is_(True))
+        )
+
+        def count_query(model, *conditions):
+            return (
+                select(func.count())
+                .select_from(model)
+                .where(*conditions)
+                .scalar_subquery()
+            )
+
+        globals_ = (
+            await self.db.execute(
+                select(
+                    count_query(Order, Order.status == OrderStatus.PENDIENTE).label(
+                        "pending"
+                    ),
+                    count_query(Order, Order.status.in_(ACTIVE_ORDERS)).label(
+                        "in_progress"
+                    ),
+                    count_query(Delivery, Delivery.status.in_(ACTIVE_DELIVERIES)).label(
+                        "active_deliveries"
+                    ),
+                    select(func.count(Rider.id))
+                    .join(User, User.id == Rider.user_id)
+                    .where(online)
+                    .scalar_subquery()
+                    .label("online"),
+                    select(func.count(Rider.id))
+                    .join(User, User.id == Rider.user_id)
+                    .where(online, Rider.status == RiderStatus.ACTIVO)
+                    .scalar_subquery()
+                    .label("available"),
+                    count_query(
+                        Shift,
+                        Shift.status == ShiftStatus.EN_CURSO,
+                        Shift.check_in_at.is_not(None),
+                        Shift.check_out_at.is_(None),
+                    ).label("shifts"),
+                    count_query(
+                        Alert, Alert.status.in_(("OPEN", "ACKNOWLEDGED"))
+                    ).label("alerts"),
+                    count_query(User, User.is_active.is_(True)).label("users"),
+                )
+            )
+        ).one()
+        complete = int(deliveries.total)
+        known = int(deliveries.known or 0)
+        summary = DashboardSummary(
+            orders_created=orders.total,
+            cancelled_orders=orders.cancelled or 0,
+            completed_deliveries=complete,
+            pending_orders=globals_.pending,
+            in_progress_orders=globals_.in_progress,
+            active_deliveries=globals_.active_deliveries,
+            riders_online=globals_.online,
+            available_riders=globals_.available,
+            active_shifts=globals_.shifts,
+            open_alerts=globals_.alerts,
+            active_users=globals_.users,
+            avg_delivery_minutes=(
+                float(deliveries.average) if deliveries.average is not None else None
+            ),
+            valid_duration_count=int(deliveries.valid_durations or 0),
+            sla_percent=(
+                round(int(deliveries.on_time or 0) / known * 100, 2) if known else None
+            ),
+            sla_known_count=known,
+            sla_unknown_count=complete - known,
+        )
+        grouped_orders = (
+            await self.db.execute(
+                select(
+                    local_date(Order.created_at, window.zone).label("day"),
+                    func.count(Order.id),
+                )
+                .where(Order.created_at >= start, Order.created_at < end)
+                .group_by("day")
+            )
+        ).all()
+        grouped_deliveries = (
+            await self.db.execute(
+                select(
+                    local_date(Delivery.completed_at, window.zone).label("day"),
+                    func.count(Delivery.id),
+                )
+                .where(
+                    Delivery.status == DeliveryStatus.COMPLETADA,
+                    Delivery.completed_at >= start,
+                    Delivery.completed_at < end,
+                )
+                .group_by("day")
+            )
+        ).all()
+        by_orders = {row[0]: row[1] for row in grouped_orders}
+        by_deliveries = {row[0]: row[1] for row in grouped_deliveries}
+        snapshot = DashboardSnapshot(
+            summary=summary,
+            series=[
+                DailyActivity(
+                    date=day,
+                    orders_created=by_orders.get(day, 0),
+                    completed_deliveries=by_deliveries.get(day, 0),
+                )
+                for day in window.dates
+            ],
+            period_start=aware_utc(start),
+            period_end=aware_utc(end),
+            timezone=window.zone,
+            generated_at=aware_utc(end),
+            orders_today=summary.orders_created if len(window.dates) == 1 else None,
+            delivered_today=(
+                int(orders.legacy_delivered or 0) if len(window.dates) == 1 else None
+            ),
+            sla_compliance_pct=summary.sla_percent if len(window.dates) == 1 else None,
+            sla_breached=(
+                (known - int(deliveries.on_time or 0))
+                if len(window.dates) == 1
+                else None
+            ),
+            active_riders=summary.riders_online,
+            avg_delivery_time_min=summary.avg_delivery_minutes,
+        )
+        if operator:
+            queue = (
+                await self.db.execute(
+                    select(
+                        Order.id,
+                        Order.external_id,
+                        Order.status,
+                        Order.delivery_address,
+                        Order.priority,
+                    )
+                    .where(
+                        Order.status.in_((OrderStatus.PENDIENTE, OrderStatus.ASIGNADO))
+                    )
+                    .order_by(Order.created_at, Order.id)
+                    .limit(21)
+                )
+            ).all()
+            snapshot.pending_orders = [
+                PendingOrderPreview(
+                    id=r.id,
+                    number=r.external_id,
+                    status=r.status.value if r.status else None,
+                    address=r.delivery_address,
+                    priority=r.priority.value if r.priority else None,
+                )
+                for r in queue[:20]
+            ]
+            snapshot.queue_truncated = len(queue) > 20
+            positions = (
+                await self.db.execute(
+                    select(
+                        Rider.id, Rider.last_lat, Rider.last_lng, Rider.last_location_at
+                    )
+                    .join(User, User.id == Rider.user_id)
+                    .where(
+                        online,
+                        Rider.last_lat >= -90,
+                        Rider.last_lat <= 90,
+                        Rider.last_lng >= -180,
+                        Rider.last_lng <= 180,
+                        Rider.last_location_at >= end - timedelta(minutes=5),
+                        Rider.last_location_at <= end,
+                    )
+                    .order_by(Rider.last_location_at.desc(), Rider.id)
+                    .limit(51)
+                )
+            ).all()
+            snapshot.riders_online = [
+                RiderPositionPreview(
+                    id=r.id,
+                    lat=r.last_lat,
+                    lng=r.last_lng,
+                    recorded_at=aware_utc(r.last_location_at),
+                )
+                for r in positions[:50]
+            ]
+            snapshot.positions_truncated = len(positions) > 50
+        return snapshot
+
     async def get_manager_dashboard(
         self, start_date: datetime, end_date: datetime
-    ) -> ManagerDashboardData:
-        """Obtener datos para dashboard de gerente"""
-        # Total de pedidos
-        result = await self.db.execute(
-            select(func.count(Order.id)).where(
-                and_(Order.created_at >= start_date, Order.created_at <= end_date)
-            )
-        )
-        total_orders = result.scalar() or 0
-
-        # Pedidos entregados
-        result = await self.db.execute(
-            select(func.count(Order.id)).where(
-                and_(
-                    Order.status == OrderStatus.ENTREGADO,
-                    Order.updated_at >= start_date,
-                    Order.updated_at <= end_date,
-                )
-            )
-        )
-        delivered_orders = result.scalar() or 0
-
-        # Tiempo promedio de entrega (en minutos)
-        result = await self.db.execute(
-            select(func.avg(Delivery.sla_actual_minutes))
-            .join(Order, Delivery.order_id == Order.id)
-            .where(
-                and_(
-                    Delivery.status == DeliveryStatus.COMPLETADA,
-                    Delivery.completed_at >= start_date,
-                    Delivery.completed_at <= end_date,
-                )
-            )
-        )
-        avg_delivery_time = float(result.scalar() or 0)
-
-        # % Entregas a tiempo (SLA)
-        result = await self.db.execute(
-            select(func.count(SLARecord.id)).where(
-                and_(
-                    SLARecord.sla_met.is_(True),
-                    SLARecord.created_at >= start_date,
-                    SLARecord.created_at <= end_date,
-                )
-            )
-        )
-        sla_met_count = result.scalar() or 0
-
-        result = await self.db.execute(
-            select(func.count(SLARecord.id)).where(
-                and_(
-                    SLARecord.created_at >= start_date, SLARecord.created_at <= end_date
-                )
-            )
-        )
-        total_sla_records = result.scalar() or 1
-
-        sla_percentage = (
-            (sla_met_count / total_sla_records * 100) if total_sla_records > 0 else 0
-        )
-
-        # Costo promedio por pedido
-        result = await self.db.execute(
-            select(func.sum(FinancialTransaction.amount)).where(
-                and_(
-                    FinancialTransaction.transaction_type.in_(list(CREDIT_TYPES)),
-                    FinancialTransaction.status.in_(
-                        [PaymentStatus.PROCESADO, PaymentStatus.PAGADO]
-                    ),
-                    FinancialTransaction.created_at >= start_date,
-                    FinancialTransaction.created_at <= end_date,
-                )
-            )
-        )
-        total_costs = result.scalar() or Decimal("0")
-
-        avg_cost_per_order = (
-            total_costs / total_orders if total_orders > 0 else Decimal("0")
-        )
-
-        # Repartidores activos
-        result = await self.db.execute(
-            select(func.count(distinct(Rider.id))).where(
-                Rider.status == RiderStatus.ACTIVO
-            )
-        )
-        active_riders = result.scalar() or 0
-
+    ) -> dict[str, object]:
+        data = await self._snapshot(explicit_window(start_date, end_date))
         return {
-            "total_orders": total_orders,
-            "delivered_orders": delivered_orders,
-            "delivery_rate": (
-                round(delivered_orders / total_orders * 100, 2)
-                if total_orders > 0
-                else 0
-            ),
-            "avg_delivery_time_minutes": round(avg_delivery_time, 2),
-            "sla_percentage": round(sla_percentage, 2),
-            "avg_cost_per_order": float(avg_cost_per_order),
-            "active_riders": active_riders,
-            "period_start": start_date,
-            "period_end": end_date,
+            "total_orders": data.summary.orders_created,
+            "delivered_orders": data.summary.completed_deliveries,
+            "delivery_rate": None,
+            "avg_delivery_time_minutes": data.summary.avg_delivery_minutes,
+            "sla_percentage": data.summary.sla_percent,
+            "avg_cost_per_order": None,
+            "active_riders": data.summary.riders_online,
+            "period_start": data.period_start,
+            "period_end": data.period_end,
         }
 
     async def get_operator_dashboard(
-        self, shift_id: Optional[int] = None
-    ) -> OperatorDashboardData:
-        """Obtener datos para dashboard de operador"""
-        # Pedidos pendientes
-        result = await self.db.execute(
-            select(func.count(Order.id)).where(Order.status == OrderStatus.PENDIENTE)
+        self, shift_id: UUID | None = None
+    ) -> dict[str, object]:
+        data = await self.snapshot(1, operator=True)
+        now = utc_naive(data.generated_at)
+        at_risk = await self.db.scalar(
+            select(func.count(Delivery.id)).where(
+                Delivery.status.in_(ACTIVE_DELIVERIES),
+                Delivery.started_at.is_not(None),
+                Delivery.started_at <= now,
+                Delivery.sla_expected_minutes > 0,
+                func.extract("epoch", now - Delivery.started_at) / 60
+                >= Delivery.sla_expected_minutes - 15,
+            )
         )
-        pending_orders = result.scalar() or 0
-
-        # Pedidos en curso
-        result = await self.db.execute(
-            select(func.count(Order.id)).where(
-                Order.status.in_(
-                    [
-                        OrderStatus.ASIGNADO,
-                        OrderStatus.EN_RECOLECCION,
-                        OrderStatus.RECOLECTADO,
-                        OrderStatus.EN_RUTA,
-                        OrderStatus.EN_ENTREGA,
-                    ]
+        count = data.summary.active_shifts
+        if shift_id is not None:
+            count = (
+                await self.db.scalar(
+                    select(func.count(Shift.id)).where(
+                        Shift.id == shift_id,
+                        Shift.status == ShiftStatus.EN_CURSO,
+                        Shift.check_in_at.is_not(None),
+                        Shift.check_out_at.is_(None),
+                    )
                 )
+                or 0
             )
-        )
-        in_progress_orders = result.scalar() or 0
-
-        # Repartidores disponibles
-        result = await self.db.execute(
-            select(func.count(Rider.id)).where(
-                and_(Rider.status == RiderStatus.ACTIVO, Rider.is_online.is_(True))
-            )
-        )
-        available_riders = result.scalar() or 0
-
-        # Turnos activos
-        query = select(func.count(Shift.id)).where(Shift.status == ShiftStatus.EN_CURSO)
-        if shift_id:
-            query = query.where(Shift.id == shift_id)
-
-        result = await self.db.execute(query)
-        active_shifts = result.scalar() or 0
-
-        # Alertas activas (entregas con riesgo de SLA)
-        result = await self.db.execute(
-            select(Delivery).where(
-                and_(
-                    Delivery.status.in_(
-                        [
-                            DeliveryStatus.INICIADA,
-                            DeliveryStatus.EN_ROUTE,
-                            DeliveryStatus.EN_DESTINO,
-                        ]
-                    ),
-                    Delivery.started_at.is_not(None),
-                    Delivery.sla_expected_minutes.is_not(None),
-                )
-            )
-        )
-        in_progress_deliveries = result.scalars().all()
-        risk_threshold = datetime.utcnow() + timedelta(minutes=15)
-        at_risk_deliveries = sum(
-            1
-            for delivery in in_progress_deliveries
-            if delivery.started_at
-            and delivery.sla_expected_minutes
-            and (delivery.started_at + timedelta(minutes=delivery.sla_expected_minutes))
-            < risk_threshold
-        )
-
         return {
-            "pending_orders": pending_orders,
-            "in_progress_orders": in_progress_orders,
-            "available_riders": available_riders,
-            "active_shifts": active_shifts,
-            "at_risk_deliveries": at_risk_deliveries,
-            "timestamp": datetime.utcnow(),
+            "pending_orders": data.summary.pending_orders,
+            "in_progress_orders": data.summary.in_progress_orders,
+            "available_riders": data.summary.available_riders,
+            "active_shifts": count,
+            "at_risk_deliveries": at_risk or 0,
+            "timestamp": data.generated_at,
         }
 
     async def get_rider_dashboard(
-        self, rider_id: int, date: Optional[datetime] = None
-    ) -> RiderDashboardData:
-        """Obtener datos para dashboard de repartidor"""
-        if not date:
-            date = datetime.utcnow().date()
-        if isinstance(date, datetime):
-            date_value = date.date()
-        else:
-            date_value = date
+        self, rider_id: UUID, date: CalendarDate | datetime | None = None
+    ) -> dict[str, object]:
+        from app.services.productivity_service import ProductivityService
+        from app.workers.runtime import period
 
-        start_of_day = datetime.combine(date_value, datetime.min.time())
-        end_of_day = datetime.combine(date_value, datetime.max.time())
-
-        # Entregas completadas hoy
-        result = await self.db.execute(
-            select(func.count(Delivery.id)).where(
-                and_(
-                    Delivery.rider_id == rider_id,
-                    Delivery.status == DeliveryStatus.COMPLETADA,
-                    Delivery.completed_at >= start_of_day,
-                    Delivery.completed_at <= end_of_day,
-                )
-            )
+        day = (
+            date.date()
+            if isinstance(date, datetime)
+            else date or datetime.now(ZoneInfo(settings.CELERY_TIMEZONE)).date()
         )
-        completed_deliveries = result.scalar() or 0
-
-        # Ganancias del día
-        result = await self.db.execute(
-            select(func.sum(FinancialTransaction.amount)).where(
-                and_(
-                    FinancialTransaction.rider_id == rider_id,
-                    FinancialTransaction.transaction_type.in_(list(CREDIT_TYPES)),
-                    FinancialTransaction.status.in_(
-                        [PaymentStatus.PROCESADO, PaymentStatus.PAGADO]
-                    ),
-                    FinancialTransaction.created_at >= start_of_day,
-                    FinancialTransaction.created_at <= end_of_day,
-                )
-            )
+        start, end = period(day)
+        # Legacy helper uses inclusive endpoints; retain its contract without including next midnight.
+        result = await ProductivityService(self.db).calculate_rider_productivity(
+            rider_id, start, end - timedelta(microseconds=1)
         )
-        daily_earnings = float(result.scalar() or Decimal("0"))
-
-        # Tiempo trabajado hoy
-        result = await self.db.execute(
-            select(Shift).where(
-                and_(
-                    Shift.rider_id == rider_id,
-                    Shift.shift_date >= start_of_day,
-                    Shift.shift_date <= end_of_day,
-                    Shift.status == ShiftStatus.COMPLETADO,
-                )
-            )
-        )
-        shifts = result.scalars().all()
-        total_hours = 0.0
-        for shift in shifts:
-            if shift.start_time and shift.end_time:
-                dt_start = datetime.combine(date_value, shift.start_time)
-                dt_end = datetime.combine(date_value, shift.end_time)
-                total_hours += max(0.0, (dt_end - dt_start).total_seconds() / 3600)
-
-        # SLA personal
-        result = await self.db.execute(
-            select(func.count(SLARecord.id)).where(
-                and_(
-                    SLARecord.rider_id == rider_id,
-                    SLARecord.sla_met.is_(True),
-                    SLARecord.created_at >= start_of_day,
-                    SLARecord.created_at <= end_of_day,
-                )
-            )
-        )
-        sla_met = result.scalar() or 0
-
-        result = await self.db.execute(
-            select(func.count(SLARecord.id)).where(
-                and_(
-                    SLARecord.rider_id == rider_id,
-                    SLARecord.created_at >= start_of_day,
-                    SLARecord.created_at <= end_of_day,
-                )
-            )
-        )
-        total_sla = result.scalar() or 1
-
-        personal_sla = (sla_met / total_sla * 100) if total_sla > 0 else 0
-
         return {
-            "completed_deliveries": completed_deliveries,
-            "daily_earnings": round(daily_earnings, 2),
-            "total_hours_worked": round(total_hours, 2),
-            "personal_sla_percentage": round(personal_sla, 2),
-            "date": date_value,
-            "timestamp": datetime.utcnow(),
+            "completed_deliveries": result["total_deliveries"],
+            "daily_earnings": None,
+            "total_hours_worked": result["total_hours_worked"],
+            "personal_sla_percentage": result["sla_percentage"],
+            "date": day,
+            "timestamp": aware_utc(datetime.now(timezone.utc)),
         }
 
     async def get_productivity_comparison(
         self, start_date: datetime, end_date: datetime, group_by: str = "day"
-    ) -> List[ProductivityComparisonItem]:
-        """Obtener comparación de productividad por período"""
-        # Implementación básica agrupando por día
-        result = await self.db.execute(
-            select(
-                func.date(ProductivityMetrics.created_at).label("date"),
-                func.avg(ProductivityMetrics.deliveries_per_hour).label(
-                    "avg_deliveries_per_hour"
-                ),
-                func.avg(ProductivityMetrics.sla_compliance_rate).label(
-                    "avg_sla_compliance"
-                ),
-                func.sum(ProductivityMetrics.total_deliveries).label(
-                    "total_deliveries"
-                ),
-            )
-            .where(
-                and_(
-                    ProductivityMetrics.created_at >= start_date,
-                    ProductivityMetrics.created_at <= end_date,
+    ) -> list[dict[str, object]]:
+        if group_by != "day":
+            raise ValueError("Solo se admite agrupación por día")
+        window = explicit_window(start_date, end_date)
+        rows = list(
+            (
+                await self.db.scalars(
+                    select(ProductivityMetrics)
+                    .where(
+                        ProductivityMetrics.shift_id.is_(None),
+                        ProductivityMetrics.period_start >= window.start,
+                        ProductivityMetrics.period_end <= window.end,
+                    )
+                    .limit(10001)
                 )
-            )
-            .group_by(func.date(ProductivityMetrics.created_at))
-            .order_by(func.date(ProductivityMetrics.created_at))
+            ).all()
         )
-
-        rows = result.all()
-        return [
-            {
-                "date": row[0],
-                "avg_deliveries_per_hour": float(row[1]) if row[1] else 0,
-                "avg_sla_compliance": float(row[2]) if row[2] else 0,
-                "total_deliveries": row[3] or 0,
-            }
-            for row in rows
-        ]
+        if len(rows) > 10000:
+            raise ValueError("El período requiere consulta por lotes")
+        groups: dict[CalendarDate, list[ProductivityMetrics]] = {}
+        seen = set()
+        for row in rows:
+            key = (row.rider_id, row.period_start, row.period_end)
+            if key in seen:
+                raise ValueError("Métricas históricas duplicadas requieren revisión")
+            seen.add(key)
+            day = aware_utc(row.period_start).astimezone(ZoneInfo(window.zone)).date()
+            groups.setdefault(day, []).append(row)
+        result: list[dict[str, object]] = []
+        for day, items in sorted(groups.items()):
+            total = sum(r.total_deliveries or 0 for r in items)
+            on_time = sum(r.on_time_deliveries or 0 for r in items)
+            known = sum(
+                (r.on_time_deliveries or 0) + (r.late_deliveries or 0) for r in items
+            )
+            if not 0 <= on_time <= known <= total:
+                raise ValueError("Conteos históricos incoherentes")
+            result.append(
+                {
+                    "date": day,
+                    "avg_deliveries_per_hour": None,
+                    "avg_sla_compliance": on_time / known * 100 if known else None,
+                    "total_deliveries": total,
+                }
+            )
+        return result

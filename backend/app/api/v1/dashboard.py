@@ -1,57 +1,37 @@
-"""
-Delivery360 - API Endpoints
-"""
+"""Canonical operational dashboard URLs; legacy double-prefix aliases retained."""
 
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.api.v1.auth import require_role
 from app.core.database import get_db
-from app.core.security import get_current_active_user
-from app.models.user import User
+from app.models.user import User, UserRole
+from app.schemas.operational_dashboard import DashboardSnapshot
+from app.services.dashboard_service import DashboardService
 
 router = APIRouter()
 
 
-@router.get("/")
-async def list_items(
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+@router.get("/manager", response_model=DashboardSnapshot)
+@router.get(
+    "/dashboard/manager", response_model=DashboardSnapshot, include_in_schema=False
+)
+async def manager_dashboard(
+    days: int = Query(1, ge=1, le=31),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ):
-    return {"message": "Endpoint en desarrollo", "data": []}
+    return await DashboardService(db).snapshot(days)
 
 
-@router.post("/", status_code=201)
-async def create_item(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+@router.get("/operator", response_model=DashboardSnapshot)
+@router.get(
+    "/dashboard/operator", response_model=DashboardSnapshot, include_in_schema=False
+)
+async def operator_dashboard(
+    days: int = Query(1, ge=1, le=31),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)
+    ),
 ):
-    return {"message": "Creación en desarrollo"}
-
-
-@router.get("/{item_id}")
-async def get_item(
-    item_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-):
-    return {"message": f"Item {item_id} en desarrollo"}
-
-
-@router.put("/{item_id}")
-async def update_item(
-    item_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-):
-    return {"message": "Actualización en desarrollo"}
-
-
-@router.delete("/{item_id}", status_code=204)
-async def delete_item(
-    item_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-):
-    return None
+    return await DashboardService(db).snapshot(days, operator=True)
