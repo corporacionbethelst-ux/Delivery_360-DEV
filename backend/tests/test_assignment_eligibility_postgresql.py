@@ -42,7 +42,9 @@ async def assignment_db(runtime_db, monkeypatch):
         await db.execute(
             update(Order).values(pickup_latitude=0.0, pickup_longitude=0.0)
         )
-        await db.execute(update(Delivery).values(status=DeliveryStatus.PENDIENTE))
+        await db.execute(
+            update(Delivery).values(status=DeliveryStatus.PENDIENTE, started_at=None)
+        )
         await db.execute(
             update(Rider).values(is_online=True, last_lat=0.0, last_lng=0.0)
         )

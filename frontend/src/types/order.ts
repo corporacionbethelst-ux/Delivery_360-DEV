@@ -1,5 +1,5 @@
 // Tipos TypeScript para Orders - Delivery360
-import { User, Rider } from './user';
+import { User } from './user';
 import type { Delivery } from './delivery';
 
 export type OrderStatus =
@@ -39,6 +39,15 @@ export interface OrderItem {
   observations?: string;
 }
 
+/** Assignment responses contain a display summary, not a complete User account. */
+export interface OrderAssignedRider {
+  id: string;
+  full_name?: string;
+  first_name?: string;
+  last_name?: string;
+  phone?: string | null;
+}
+
 /**
  * Interfaz principal de Order.
  * Incluye la propiedad opcional delivery para el flujo del repartidor.
@@ -71,7 +80,7 @@ export interface Order {
 
   // Asignación
   assignedRiderId?: string;
-  assignedRider?: Rider;
+  assignedRider?: OrderAssignedRider;
 
   // Entrega asociada (para el flujo del repartidor)
   delivery?: Delivery | null;

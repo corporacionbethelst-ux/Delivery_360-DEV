@@ -6,7 +6,7 @@ Document writers use the same Rider parent lock. No eligibility denial
 commits safety changes or the caller's payload.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -28,6 +28,7 @@ class AssignmentCandidate:
     rider: Rider
     owner: User
     actor: User
+    changed: bool = False
 
 
 async def lock_assignment_delivery(db: AsyncSession, order: Order) -> Delivery | None:
@@ -176,8 +177,20 @@ async def apply_order_assignment(
     candidate: AssignmentCandidate,
     *,
     source: str,
-) -> Delivery:
+) -> bool:
     old_rider = order.assigned_rider_id
+    same_order_assignment = (
+        order.status == OrderStatus.ASIGNADO and old_rider == candidate.rider.id
+    )
+    if (
+        same_order_assignment
+        and delivery is not None
+        and delivery.rider_id == candidate.rider.id
+        and delivery.status == DeliveryStatus.INICIADA
+    ):
+        # An eligible replay acknowledges the persisted assignment. Unknown
+        # timestamps stay unknown; a retry must not invent a fresh SLA clock.
+        return False
     old = {
         "rider_id": str(old_rider) if old_rider else None,
         "order_status": order.status.value if order.status else None,
@@ -185,11 +198,18 @@ async def apply_order_assignment(
         "delivery_rider_id": (
             str(delivery.rider_id) if delivery and delivery.rider_id else None
         ),
+        "accepted_at": order.accepted_at.isoformat() if order.accepted_at else None,
+        "started_at": (
+            delivery.started_at.isoformat()
+            if delivery and delivery.started_at
+            else None
+        ),
     }
     now = utc_now_naive()
     order.assigned_rider_id = candidate.rider.id
     order.status = OrderStatus.ASIGNADO
-    order.accepted_at = now
+    if not same_order_assignment:
+        order.accepted_at = now
     if delivery is None:
         delivery = Delivery(
             order_id=order.id,
@@ -200,16 +220,24 @@ async def apply_order_assignment(
         )
         db.add(delivery)
     else:
+        if (
+            delivery.rider_id != candidate.rider.id
+            or delivery.status == DeliveryStatus.PENDIENTE
+        ):
+            delivery.started_at = now
         delivery.rider_id = candidate.rider.id
         delivery.status = DeliveryStatus.INICIADA
-        delivery.started_at = now
     await db.flush()
     db.add(
         AuditLog(
             user_id=candidate.actor.id,
             user_email=candidate.actor.email,
             user_role=candidate.actor.role.value if candidate.actor.role else None,
-            action_type=ActionType.REASSIGN if old_rider else ActionType.ASSIGN,
+            action_type=(
+                ActionType.REASSIGN
+                if old_rider and old_rider != candidate.rider.id
+                else ActionType.ASSIGN
+            ),
             resource_type="ORDER",
             resource_id=str(order.id),
             description=f"Pedido asignado al rider {candidate.rider.id}",
@@ -219,11 +247,17 @@ async def apply_order_assignment(
                 "delivery_id": str(delivery.id),
                 "order_status": "ASIGNADO",
                 "source": source,
+                "accepted_at": (
+                    order.accepted_at.isoformat() if order.accepted_at else None
+                ),
+                "started_at": (
+                    delivery.started_at.isoformat() if delivery.started_at else None
+                ),
             },
             success=True,
         )
     )
-    return delivery
+    return True
 
 
 async def assign_order_manually(
@@ -243,5 +277,7 @@ async def assign_order_manually(
         raise HTTPException(
             status_code=400, detail="Repartidor no disponible o documentación pendiente"
         )
-    await apply_order_assignment(db, order, delivery, candidate, source=source)
-    return candidate
+    changed = await apply_order_assignment(
+        db, order, delivery, candidate, source=source
+    )
+    return replace(candidate, changed=changed)

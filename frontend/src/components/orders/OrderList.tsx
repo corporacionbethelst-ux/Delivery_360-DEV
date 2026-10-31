@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Search, Filter, ListFilter, X } from 'lucide-react';
 import { useOrdersStore } from '@/stores/ordersStore';
 import { Badge } from '@/components/ui/badge';
+import type { OrderAssignmentPatch } from '@/lib/order-assignment';
+import { capturePrivateTask } from '@/lib/private-task';
 
 interface OrderListProps {
   orders?: Order[];
@@ -31,11 +33,15 @@ export default function OrderList({
   const [priorityFilter, setPriorityFilter] = useState<string>('ALL');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showAssignModal, setShowAssignModal] = useState(false);
+  const [confirmation, setConfirmation] = useState<{ original: Order; patch: OrderAssignmentPatch } | null>(null);
   
-  const { fetchOrders, orders: storeOrders } = useOrdersStore();
+  const { assignRider, orders: storeOrders } = useOrdersStore();
   
   // Si no se proporcionan órdenes, usar las del store
-  const orderList = orders || storeOrders;
+  // A caller-owned array may remain unchanged until its next refresh. Preserve
+  // the confirmed result only for that exact input object; a new object wins.
+  const orderList = (orders || storeOrders).map(order =>
+    confirmation?.original === order ? { ...order, ...confirmation.patch } : order);
 
   // Filtrar órdenes
   const filteredOrders = orderList.filter(order => {
@@ -212,9 +218,12 @@ export default function OrderList({
             setShowAssignModal(false);
             setSelectedOrder(null);
           }}
-          onAssign={(riderId) => {
-            console.log(`Asignando rider ${riderId} a la orden ${selectedOrder.id}`);
-            // Aquí deberías llamar a la acción del store o API
+          onAssign={async (riderId) => {
+            const task = capturePrivateTask();
+            const original = selectedOrder;
+            const patch = await assignRider(original.id, riderId);
+            task.assertCurrent();
+            setConfirmation({ original, patch });
             setShowAssignModal(false);
             setSelectedOrder(null);
           }}

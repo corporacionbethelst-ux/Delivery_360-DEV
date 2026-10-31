@@ -508,10 +508,14 @@ async def assign_delivery(
 ):
     """Asigna un repartidor a una entrega pendiente."""
     actor_id, expected_version = current_user.id, current_user.token_version
+    requested_rider = _parse_uuid(body.rider_id, "rider_id")
     delivery = await lock_delivery_transition(
         db, _parse_uuid(delivery_id, "delivery_id"), actor_id=current_user.id
     )
-    if delivery.status != DeliveryStatus.PENDIENTE:
+    if delivery.status != DeliveryStatus.PENDIENTE and not (
+        delivery.status == DeliveryStatus.INICIADA
+        and delivery.rider_id == requested_rider
+    ):
         raise HTTPException(
             status_code=400,
             detail=f"No se puede asignar en estado {optional_enum_value(delivery.status)}",
@@ -529,7 +533,7 @@ async def assign_delivery(
     candidate = await assign_order_manually(
         db,
         order,
-        _parse_uuid(body.rider_id, "rider_id"),
+        requested_rider,
         actor_id,
         expected_version,
         source="delivery_manual",
@@ -549,28 +553,29 @@ async def assign_delivery(
     # FASE 9 (hook omnicanal): rider asignado -> 'nuevo_pedido_asignado'.
     # Destinatario: user del rider. Dispatch post-commit con sesion efimera;
     # notify_event nunca propaga excepciones al flujo de negocio.
-    try:
-        _notif_ctx = {
-            "delivery_code": str(delivery.id)[:8].upper(),
-            "customer_name": order.customer_name if order else "",
-            "payment_cents": (
-                int(round(float(order.total) * 100))
-                if (order and order.total is not None)
-                else 0
-            ),
-            "pickup_address": order.pickup_address if order else "",
-            "delivery_address": order.delivery_address if order else "",
-        }
-        asyncio.create_task(
-            notify_event(
-                "nuevo_pedido_asignado",
-                rider.user_id,
-                _notif_ctx,
-                delivery_id=delivery.id,
+    if candidate.changed:
+        try:
+            _notif_ctx = {
+                "delivery_code": str(delivery.id)[:8].upper(),
+                "customer_name": order.customer_name if order else "",
+                "payment_cents": (
+                    int(round(float(order.total) * 100))
+                    if (order and order.total is not None)
+                    else 0
+                ),
+                "pickup_address": order.pickup_address if order else "",
+                "delivery_address": order.delivery_address if order else "",
+            }
+            asyncio.create_task(
+                notify_event(
+                    "nuevo_pedido_asignado",
+                    rider.user_id,
+                    _notif_ctx,
+                    delivery_id=delivery.id,
+                )
             )
-        )
-    except Exception as e:
-        logger.warning(f"Hook Fase 9 nuevo_pedido_asignado omitido: {e}")
+        except Exception as e:
+            logger.warning(f"Hook Fase 9 nuevo_pedido_asignado omitido: {e}")
 
     final_stmt = (
         select(Delivery, r_alias, u_alias, o_alias)

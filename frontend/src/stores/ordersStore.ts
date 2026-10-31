@@ -2,6 +2,7 @@ import { capturePrivateTask, resetOnSessionChange } from '@/lib/private-task';
 // Store de Orders con Zustand - Delivery360
 import { create } from 'zustand';
 import { api } from '@/lib/api'; // ✅ Usar el wrapper correcto
+import { orderAssignmentPatch, type OrderAssignmentPatch } from '@/lib/order-assignment';
 import type { Order, OrderFilters, OrderStats, OrderCreateInput, OrderStatus } from '../types/order';
 
 interface OrdersState {
@@ -39,7 +40,7 @@ interface OrdersState {
   fetchOrderById: (id: string) => Promise<void>;
   createOrder: (input: OrderCreateInput) => Promise<Order>;
   updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
-  assignRider: (orderId: string, riderId: string) => Promise<void>;
+  assignRider: (orderId: string, riderId: string) => Promise<OrderAssignmentPatch>;
   deleteOrder: (id: string) => Promise<void>;
   
   reset: () => void;
@@ -220,13 +221,18 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
   
   assignRider: async (orderId, riderId) => {
     const task = capturePrivateTask();
+    if (typeof orderId !== 'string' || !orderId.trim() || typeof riderId !== 'string' || !riderId.trim()) {
+      throw new Error('Indica el pedido y el repartidor antes de asignar');
+    }
     set({ isUpdating: true, error: null });
     try {
       // ✅ Sin .data
-      const updatedOrder = await api.patch<Order>(`/orders/${orderId}/assign`, { rider_id: riderId });
+      const updatedOrder = await api.patch<unknown>(`/orders/${encodeURIComponent(orderId)}/assign`, { rider_id: riderId });
       task.assertCurrent();
-      get().updateOrderLocal(orderId, updatedOrder);
+      const confirmed = orderAssignmentPatch(updatedOrder, orderId, riderId);
+      get().updateOrderLocal(orderId, confirmed);
       set({ isUpdating: false });
+      return confirmed;
     } catch (error: any) {
       task.assertCurrent();
       set({ 

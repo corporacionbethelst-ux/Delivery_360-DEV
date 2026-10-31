@@ -50,6 +50,8 @@ class OrderService:
             now = datetime.utcnow()
             estimated_delivery = now.replace(microsecond=0) + timedelta(minutes=60)
             data = order_data.model_dump()
+            # Only the coordinator may set the first persisted assignment.
+            data.pop("assigned_rider_id", None)
             data["items"] = json_value(order_data.items)
             data["priority"] = (
                 OrderPriority(order_data.priority.value)

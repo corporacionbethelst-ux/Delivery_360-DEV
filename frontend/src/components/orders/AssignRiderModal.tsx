@@ -1,6 +1,6 @@
 'use client'; 
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Order } from '@/types/order';
 import type { Rider } from '@/types/user';
 import { Button } from '@/components/ui/button';
@@ -15,20 +15,33 @@ import { formatCurrency } from '@/lib/formatters';
 interface AssignRiderModalProps {
   order: Order;
   onClose: () => void;
-  onAssign: (riderId: string) => void;
+  onAssign: (riderId: string) => void | Promise<unknown>;
 }
 
 export default function AssignRiderModal({ order, onClose, onAssign }: AssignRiderModalProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRiderId, setSelectedRiderId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadAttempt, setReloadAttempt] = useState(0);
+  const submitting = useRef(false), mounted = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   
   const { riders, fetchRiders, isLoading } = useRidersStore();
 
   useEffect(() => {
-    // Filtramos solo activos y online
-    // Nota: Ajusta los filtros según lo que acepte tu store real
-    fetchRiders({ status: ['ACTIVO'] }); 
-  }, [fetchRiders]);
+    let current = true;
+    setLoadError(null);
+    void (async () => {
+      try {
+        await fetchRiders({ status: ['ACTIVO'] });
+      } catch {
+        if (current) setLoadError('No se pudieron cargar los repartidores. Vuelve a cargar la lista.');
+      }
+    })();
+    return () => { current = false; };
+  }, [fetchRiders, reloadAttempt]);
 
   const availableRiders = riders.filter((rider: Rider) => {
     // Construir nombre completo de forma segura
@@ -47,10 +60,21 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
   // Asumiendo que Order tiene assignedRider o similar, si no, ajustar según tu tipo Order
   const assignedRider = (order as any).assigned_rider || order.assignedRider;
   const isAssigned = !!(order as any).assigned_rider_id || !!order.assignedRiderId || !!assignedRider;
-  const canAssign = !isLoading && !isAssigned && order.status === 'PENDIENTE' &&
+  const canAssign = !isLoading && !loadError && !isSubmitting && !isAssigned && order.status === 'PENDIENTE' &&
     availableRiders.some(rider => rider.id === selectedRiderId);
-  const handleAssign = () => {
-    if (canAssign && selectedRiderId) onAssign(selectedRiderId);
+  const handleAssign = async () => {
+    if (!canAssign || !selectedRiderId || submitting.current) return;
+    submitting.current = true;
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      await onAssign(selectedRiderId);
+    } catch {
+      if (mounted.current) setSubmitError('No se pudo confirmar la asignación. Revisa el pedido antes de volver a intentar.');
+    } finally {
+      submitting.current = false;
+      if (mounted.current) setIsSubmitting(false);
+    }
   };
   const assignedRiderName = assignedRider?.full_name || 
                             `${(assignedRider as any)?.first_name || ''} ${(assignedRider as any)?.last_name || ''}`.trim() || 
@@ -68,7 +92,7 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
               - {order.customerName || (order as any).customer_name} 
             </p>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Cerrar asignación">
+          <Button variant="ghost" size="icon" onClick={onClose} disabled={isSubmitting} aria-label="Cerrar asignación">
             <X className="w-5 h-5" />
           </Button>
         </div>
@@ -129,12 +153,18 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10"
-              disabled={isLoading}
+              disabled={isLoading || isSubmitting}
             />
           </div>
           <p className="text-xs text-gray-500 mt-1">
             {availableRiders.length} repartidores disponibles
           </p>
+          {loadError && <div className="mt-2">
+            <p role="status" className="text-sm text-red-700">{loadError}</p>
+            <Button variant="outline" onClick={() => setReloadAttempt(attempt => attempt + 1)} disabled={isLoading || isSubmitting}>
+              Volver a cargar repartidores
+            </Button>
+          </div>}
         </div>
 
         {/* Riders List */}
@@ -169,11 +199,12 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
                 <Card
                   key={rider.id}
                   role="button"
-                  tabIndex={0}
+                  tabIndex={isSubmitting ? -1 : 0}
+                  aria-disabled={isSubmitting}
                   aria-label={`Seleccionar a ${fullName}`}
                   aria-pressed={selectedRiderId === rider.id}
                   onKeyDown={event => {
-                    if (event.key === 'Enter' || event.key === ' ') {
+                    if (!submitting.current && (event.key === 'Enter' || event.key === ' ')) {
                       event.preventDefault();
                       setSelectedRiderId(rider.id);
                     }
@@ -183,7 +214,7 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
                       ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' 
                       : 'hover:border-blue-300'
                   }`}
-                  onClick={() => setSelectedRiderId(rider.id)}
+                  onClick={() => { if (!submitting.current) setSelectedRiderId(rider.id); }}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-3 flex-1">
@@ -243,7 +274,8 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
 
         {/* Footer Actions */}
         <div className="p-4 border-t bg-gray-50 flex justify-end gap-3">
-          <Button variant="outline" onClick={onClose}>
+          {submitError && <p role="alert" className="text-sm text-red-700 mr-auto">{submitError}</p>}
+          <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
             Cancelar
           </Button>
           <Button 
@@ -252,7 +284,7 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
             className="gap-2"
           >
             <User className="w-4 h-4" />
-            {isAssigned ? 'Ya Asignado' : order.status !== 'PENDIENTE' ? 'Pedido no asignable' : 'Asignar Orden'}
+            {isSubmitting ? 'Asignando...' : isAssigned ? 'Ya Asignado' : order.status !== 'PENDIENTE' ? 'Pedido no asignable' : 'Asignar Orden'}
           </Button>
         </div>
       </Card>

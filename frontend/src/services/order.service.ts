@@ -345,8 +345,7 @@ export const orderService = {
     if (!id) throw new Error('[OrderService] ID requerido para eliminar');
     
     try {
-      const response = await api.delete<void>(`/orders/${id}`);
-      return extractData<void>(response);
+      await api.delete<void>(`/orders/${id}`);
     } catch (error) {
       console.error(`[OrderService] Error deleting order ${id}:`, error);
       throw error;
@@ -380,33 +379,18 @@ export const orderService = {
       const response = await api.get<OrderStats>(`/orders/stats?range=${range}`);
       const data = extractData<OrderStats>(response);
       
-      // CORRECCIÓN: Sanitizar daily_revenue para evitar NaN
-      if (data.daily_revenue) {
-        data.daily_revenue = data.daily_revenue.map(item => ({
-          label: item.label,
-          value: typeof item.value === 'number' && !isNaN(item.value) ? item.value : 0
-        }));
+      // Unknown or malformed metrics are not measured zeroes.
+      if (!data || ![data.total_orders, data.total_revenue, data.pending_count, data.completed_count]
+          .every(value => typeof value === 'number' && Number.isFinite(value)) ||
+          !Array.isArray(data.daily_revenue) || !data.daily_revenue.every(item =>
+            item && typeof item.label === 'string' && typeof item.value === 'number' && Number.isFinite(item.value))) {
+        throw new Error('El resumen de pedidos contiene métricas desconocidas o inválidas');
       }
       
       return data;
     } catch (error) {
-      // Fallback a mock si falla el endpoint (útil para desarrollo)
-      console.warn('[OrderService] Stats endpoint failed, using mock data:', error);
-      return {
-        total_orders: 450,
-        total_revenue: 12500000,
-        pending_count: 12,
-        completed_count: 438,
-        daily_revenue: [
-          { label: 'Lun', value: 1200000 },
-          { label: 'Mar', value: 1800000 },
-          { label: 'Mié', value: 1500000 },
-          { label: 'Jue', value: 2200000 },
-          { label: 'Vie', value: 2800000 },
-          { label: 'Sáb', value: 3500000 },
-          { label: 'Dom', value: 2100000 },
-        ]
-      };
+      // A failed legacy read must not become fabricated business metrics.
+      throw error;
     }
   }
 };
