@@ -168,3 +168,14 @@ añaden ignores ni se reduce el umbral de cobertura. Persisten reparación hist�
 cierre completo del ciclo de alertas, unificación de bandejas, outbox para hooks,
 entrega externa homologada, liderazgo/observabilidad de Beat, límites de grandes
 lotes y el resto del roadmap. No se declara producción completa.
+
+## Actualización de la entrega 60
+
+La asignación manual guarda ahora su auditoría junto con Order/Delivery antes del
+commit. El aviso posterior usa una sesión independiente: un rollback del servicio
+legacy no expira objetos de la sesión HTTP ni provoca un error después de haber
+confirmado la asignación. Continúa siendo un registro local best effort, sin
+outbox ni envío externo. La asignación automática identifica User y Rider y
+declara in_app. Los 99 errores de Mypy mencionados en la entrega 59 se eliminan
+en esta entrega con las mismas opciones de CI. Detalles, contratos internos y
+límites: [RUNTIME_CONTRACTS.md](RUNTIME_CONTRACTS.md).

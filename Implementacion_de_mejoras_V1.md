@@ -5761,3 +5761,184 @@ rebaja el umbral 50 %. No se fusiona, despliega, migra producción ni se envían
 pagos, mensajes o facturas reales. No se declara el sistema al cien por ciento.
 
 Guía detallada y diccionario: backend/SLA_AND_LEGACY_INBOX.md.
+
+---
+
+## Entrega 60 — Contratos reales, asignación aislada y eliminación de errores de tipos
+
+**Fecha:** 30 de octubre de 2026, America/Caracas. **Base contrastada:** main
+179728f8a7c00c49bece9bc80525e2bfd36a96d8, con el PR #300 ya fusionado. Esta entrega
+agrupa correcciones relacionadas de ejecución, autenticación, perfiles, API y
+utilidades. La referencia a 99 errores al final de la entrega 59 describe aquel
+estado histórico; esta entrega los elimina con las mismas opciones de CI.
+
+### Estado recibido y alcance
+
+Se coteja el main remoto y su árbol con el cambio anterior, se trabaja en una
+rama nueva y se inspecciona el CI del PR #300. En aquel CI, backend tuvo 2251
+tests aprobados, dos SDK omitidos y falló el control de tipos con 99 errores en
+25 archivos. Frontend tuvo 771 tests aprobados / 54 suites y lint, tipos y build
+aprobados; falló cobertura de líneas con 30,28 % frente al 50 % exigido. Seguridad
+aprobó. Esos son resultados anteriores, no ejecuciones nuevas de esta entrega.
+
+El objetivo del bloque es hacer coherentes las llamadas con los modelos,
+transacciones, tipos y políticas existentes. No se rebajan controles ni se
+convierte una ausencia de implementación en éxito ficticio. Cero errores de
+Mypy no equivale a producción completa ni a ausencia demostrada de fallos.
+
+### 1. Asignación manual y avisos: corrección del hallazgo de revisión #300
+
+La asignación confirmaba Order/Delivery y después llamaba NotificationService con
+la sesión HTTP. Ante destinatario inactivo o fallo de persistencia, ese servicio
+podía ejecutar rollback y expirar las entidades cargadas. Leer después order.id
+podía disparar IO fuera del contexto async esperado, producir HTTP 500 pese a
+haber guardado la asignación y omitir la auditoría posterior.
+
+Ahora AuditLog se agrega antes del commit junto con Order/Delivery. Se conservan
+ASSIGN/REASSIGN, el responsable y los valores de rider anterior/nuevo. Un fallo
+al confirmar la auditoría revierte toda la asignación. Tras el commit,
+record_legacy_notice crea una sesión independiente del mismo AsyncEngine: el
+rollback del aviso no afecta la sesión HTTP. Solo se registra éxito de bandeja
+cuando el helper devuelve True. No depende de una relación lazy del destinatario.
+
+El helper no toca una transacción activa del llamador ni una sesión ligada a
+conexión: devuelve False. El aviso continúa siendo best effort y local; puede
+perderse entre el commit y su registro. No se implementa outbox ni entrega externa.
+
+Las pruebas PostgreSQL/HTTP fuerzan destinatario inactivo y fallos de flush/commit
+del aviso: conservan HTTP 200, asignación y auditoría, sin aviso inventado. Otra
+prueba provoca fallo al confirmar AuditLog y verifica rollback de la asignación.
+El control negativo restaura solo la llamada con sesión compartida y reproduce
+el HTTP 500 esperado; el escenario pasa con el código corregido.
+
+### 2. Asignación automática, coordenadas y destinatario
+
+La latitud/longitud cero deja de confundirse con ausencia. El origen se valida
+como finito y dentro de rango antes de la consulta espacial; las posiciones de
+candidatos se filtran por NULL y rangos válidos antes de calcular distancias.
+Se distingue el resultado SQL del candidato del resultado de la orden y se
+protege la nulabilidad antes de construir la ubicación.
+
+La notificación automática guarda user_id y rider_id correctos, con canal in_app.
+No afirma un envío a proveedor. Se prueba origen cero y cuatro entradas fuera
+de contrato. No se rediseña la selección: falta unificar la actividad de User y
+el resto de elegibilidad en todas las vías de asignación. Un Rider ACTIVO con
+User inactivo sigue siendo un caso heredado que la prueba usa para verificar
+el aislamiento del fallo de notificación, no una política nueva aprobada.
+
+### 3. Adaptadores internos de autenticación y usuarios
+
+AuthService reutiliza el emisor/decoder JWT y la política de sesión canónicos,
+la búsqueda/reserva de email y la revocación por época. Rechaza access como
+refresh, credenciales revocadas y cuentas no habilitadas; no confía en el rol de
+un claim como autorización. Un hash malformado devuelve False en la verificación.
+Las rutas públicas ya aplicaban la política canónica y mantienen su contrato.
+
+UserService usa first_name/last_name y los campos físicos existentes. Elimina
+referencias a full_name/is_deleted inexistentes. Cambiar contraseña, rol o
+actividad revoca las sesiones en la misma transacción: si falla la revocación,
+se revierte el cambio. La reserva de email precede al bloqueo de User conforme
+al orden canónico. Los listados internos tienen paginación acotada.
+
+delete_user significa desactivar reversiblemente y conservar la reserva del
+email, no borrado físico ni anonimización. Reactivar una cuenta no resucita JWT
+anteriores. Son adaptadores internos de confianza; las rutas públicas conservan
+sus dependencias de autorización y revisiones concurrentes. Las pruebas cubren
+nombres, emails, sesiones, rollback y la secuencia desactivar/reactivar.
+
+### 4. Adaptadores de repartidores y aprobación documental
+
+RiderService y CRUD dejan de depender de columnas, enums y contadores ausentes.
+Crear exige UUID de propietario coincidente, usuario REPARTIDOR existente y
+ausencia de otro perfil; se bloquea al propietario. El nuevo perfil es PENDIENTE,
+BRONCE y offline. No puede autoasignarse estado privilegiado, puntos, badges,
+nivel o vehículo de empresa. commit=False permite que el llamador posea la
+unidad; el CRUD que crea confirma explícitamente.
+
+La actualización genérica interna solo admite operating_zone. Los cambios de
+perfil regulado/documentos, flota, estado, tier y conexión deben usar sus flujos
+canónicos; este adaptador devuelve 409 para impedir eludir permisos y revisiones.
+No cambia una ruta pública. Aprobar/rechazar exige SUPERADMIN/GERENTE activo,
+bloqueo de Rider y una segunda comprobación del actor después de las esperas.
+La aprobación exige documentación válida, aprobada y con archivos presentes.
+Decisión, estado y AuditLog con motivo se confirman juntos; se deja offline y
+no se activa User automáticamente. update_status admite solo estados restrictivos.
+
+Los documentos se consultan explícitamente evitando cargas lazy asíncronas.
+El filtro interno is_approved comprueba approved_at histórico: no certifica la
+habilitación actual. Los contadores operativos siguen derivándose de Delivery.
+increment_delivery_count/update_rating devuelven 501 sin IO porque no existe
+almacenamiento verificable para esos contratos; antes fallaban con atributos
+inexistentes. Implementar valoración verificable continúa pendiente.
+
+### 5. API, ORM, CRUD y utilidades coherentes
+
+- Entregas valida filas compuestas ausentes antes de desestructurar y admite
+  apellido ausente. Telemetría, ajustes, auditoría y radios protegen los tipos
+  opcionales. Vehículos declara Body(...) obligatorio conservando su OpenAPI.
+- El CRUD genérico descubre la clave primaria simple real, admite UUID/cadenas
+  y devuelve None si no hay fila. No presupone que toda clave se llame id ni
+  interpreta silenciosamente claves compuestas. Los contratos de listas
+  devuelven listas reales.
+- PlatformSetting, Zone y last_location de Rider se anotan con Mapped sin DDL
+  nuevo; la geometría admite WKBElement y expresiones SQL de escritura.
+  PlatformSetting.value conserva su JSON heterogéneo. El fixture nuevo
+  runtime_models_contract.json, capturado antes desde main, comprueba los tres
+  mapeos físicos. Los fixtures existentes no se regeneran.
+- Los wrappers de costes respetan sus argumentos, tarifas y resultados reales;
+  escenarios no duplican kwargs. Los resúmenes requieren pagos y costes explícitos
+  y las entradas numéricas rechazan bool/no finitos. Continúan siendo cálculos
+  informativos float con el redondeo previo, sin cambio de libro/moneda/bonos.
+- El helper SLA valida las fechas estimadas/reales y normaliza UTC. Conserva
+  la convención de lista vacía=100 y conformidad provisional dentro del plazo;
+  no representa por sí solo un KPI operativo verificado. Exportación, fechas,
+  rutas, LGPD y logs ajustan sus contratos y valores opcionales.
+
+### 6. Contratos y validación
+
+Se conservan **202 rutas, 194 contratos de dependencia y hash OpenAPI
+84bef605f22c31d4e8b3d9279e812d05c3cc8d3d303f73c441248f307dba0172**.
+No hay migraciones, dependencias, umbrales, workflows ni fuentes frontend nuevos.
+Se añaden **64 casos backend**: 35 de utilidades/contratos y 29 de integración
+PostgreSQL/HTTP. El primer ensayo nativo señaló tres fallos de datos de prueba
+por EmailStr y dominios .test; se corrigieron esos datos y los 29 casos pasaron.
+
+| Control | Resultado |
+| --- | --- |
+| Regresión focal previa | 186 aprobados, 51,97 s; una advertencia previa |
+| Contratos/utilidades nuevos | 35 aprobados, 0,51 s; una advertencia previa |
+| Integración nueva PostgreSQL/HTTP | 29 aprobados, 65,61 s; una advertencia previa |
+| Control negativo: sesión compartida anterior | Un fallo esperado, HTTP 500 reproducido; no es una regresión de la fuente final |
+| Backend completo | **2315 aprobados, dos SDK opcionales omitidos**, 2317 nodos / 105 archivos; dos advertencias previas (una por grupo). Grupo a: 1159 aprobados, 0 omitidos, 983.26 s; Grupo b: 1156 aprobados, 2 omitidos, 785.19 s |
+| SDK opcionales instalados, HTTP sustituido | Dos aprobados aparte, 1,23 s; una advertencia previa |
+| Mypy, opciones CI existentes | Cero errores en 192 archivos, frente a 99 errores / 25 archivos de la base |
+| Black, flake8 crítico, diff | **Aprobados**: Black (194 archivos), flake8 crítico (cero incidencias) y diff; 632 hashes de fuentes/fixtures conservados durante la regresión |
+| Rutas, dependencias, OpenAPI y mapeo físico | Conservados; fixture nuevo capturado desde la base, sin regenerar los anteriores |
+| Frontend | Sin cambios ni nueva ejecución local en esta entrega. CI anterior #300: 771 tests / 54 suites aprobados, cobertura de líneas 30,28 %, gate 50 % pendiente |
+
+La batería completa cubre 2317 nodos en 105 archivos, repartidos sin solapamiento
+entre dos PostgreSQL/PostGIS y Redis independientes. Los hashes de 632 fuentes y
+fixtures se comprueban antes y después; no se modifica código durante la corrida.
+Los dos SDK omitidos por su disponibilidad opcional se ejecutan también aparte
+con SDK instalados y HTTP sustituido, sin contactar proveedores.
+
+Se eliminan los 99 errores de Mypy con las mismas opciones que usa CI, sin
+ignores nuevos. Persisten notas previas sobre cuerpos de función sin anotaciones;
+no se afirma tipado exhaustivo o verificación formal. Black comprueba los 192
+archivos app y los dos archivos nuevos de pruebas. La publicación coteja blobs,
+árbol y commit con el local validado; el PR se crea listo para revisión. El
+resultado del CI nuevo se consulta y comunica por separado.
+
+### Pendientes y siguiente bloque
+
+Siguen abiertos el umbral de cobertura frontend, elegibilidad uniforme para
+asignación, valoración verificable, reparación histórica, ciclo completo de
+alertas y unificación de bandejas, outbox/reintentos durables, proveedores
+homologados, liderazgo/observabilidad de workers, conciliación y libros/monedas,
+y las pruebas operativas del roadmap. La prioridad siguiente debe basarse en
+esa evidencia y en el CI nuevo, no en contar errores de tipos como porcentaje
+de preparación para producción.
+
+No se fusiona ni despliega, no se migra producción ni se ejecutan pagos, mensajes
+o facturas reales. La entrega robustece el sistema sin declararlo al cien por
+ciento. Guía de contratos y límites: backend/RUNTIME_CONTRACTS.md.

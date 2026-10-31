@@ -9,7 +9,7 @@ import uuid
 from app.core.database import get_db
 from app.models.rider import Rider, utc_now_naive
 from app.api.v1.auth import get_current_user
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.rider_location import HeartbeatRequest
 from app.services.document_review import ensure_rider_can_report_online
 
@@ -53,7 +53,7 @@ async def rider_heartbeat(
         raise HTTPException(status_code=404, detail="Repartidor no encontrado")
 
     # Validar propiedad (solo el propio rider o admin pueden enviar datos)
-    if current_user.role.value != "SUPERADMIN" and current_user.role.value != "GERENTE":
+    if current_user.role not in (UserRole.SUPERADMIN, UserRole.GERENTE):
         if rider.user_id != current_user.id:
             raise HTTPException(
                 status_code=403, detail="No autorizado para actualizar este repartidor"

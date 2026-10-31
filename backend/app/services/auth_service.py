@@ -1,165 +1,92 @@
-"""
-Servicio de Autenticación y Gestión de Usuarios
-"""
+"""Compatibility authentication facade using canonical JWT epochs and live policy."""
 
-from datetime import datetime, timedelta
-import uuid
-from typing import Optional, Tuple
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from fastapi import HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import timedelta
+from uuid import UUID
 from sqlalchemy import select
-
-from app.core.config import settings
+from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import HTTPException
+from passlib.context import CryptContext
+from app.core.security import create_access_token, create_refresh_token, decode_token
+from app.core.token_version import token_version_matches
 from app.models.user import User
 from app.schemas.auth import TokenData, LoginRequest
+from app.services.user_emails import find_email_account
+from app.services.session_policy import ensure_session_allowed
 
 
 class AuthService:
-    """Servicio para autenticación y autorización"""
-
     def __init__(self):
         self.pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
     def verify_password(self, plain_password: str, hashed_password: str) -> bool:
-        """Verifica si una contraseña coincide con el hash"""
-        return self.pwd_context.verify(plain_password, hashed_password)
+        try:
+            return self.pwd_context.verify(plain_password, hashed_password)
+        except (ValueError, TypeError):
+            return False
 
     def get_password_hash(self, password: str) -> str:
-        """Genera hash de contraseña"""
         return self.pwd_context.hash(password)
 
     def create_access_token(
-        self, data: dict, expires_delta: Optional[timedelta] = None
+        self, data: dict, expires_delta: timedelta | None = None
     ) -> str:
-        """Crea token de acceso JWT"""
-        to_encode = data.copy()
-        if expires_delta:
-            expire = datetime.utcnow() + expires_delta
-        else:
-            expire = datetime.utcnow() + timedelta(
-                minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
-            )
-
-        to_encode.update({"exp": expire})
-        encoded_jwt = jwt.encode(
-            to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM
+        return create_access_token(
+            data["sub"], expires_delta, token_version=data.get("ver", 0)
         )
-        return encoded_jwt
 
     def create_refresh_token(self, data: dict) -> str:
-        """Crea token de refresco JWT"""
-        to_encode = data.copy()
-        expire = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-        to_encode.update({"exp": expire})
-        encoded_jwt = jwt.encode(
-            to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM
-        )
-        return encoded_jwt
+        return create_refresh_token(data["sub"], token_version=data.get("ver", 0))
 
-    def decode_token(self, token: str) -> Optional[TokenData]:
-        """Decodifica y valida token JWT"""
-        try:
-            payload = jwt.decode(
-                token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
-            )
-            user_id: str = payload.get("sub")
-            role: str = payload.get("role")
-            if user_id is None:
-                return None
-            return TokenData(user_id=user_id, role=role)
-        except JWTError:
+    def decode_token(self, token: str) -> TokenData | None:
+        payload = decode_token(token)
+        if not payload:
             return None
-
-    @staticmethod
-    def _not_deleted_filter():
-        """Filtro común para usuarios no eliminados."""
-        return User.is_deleted.is_(False)
+        return TokenData(user_id=payload.get("sub"), role=payload.get("role"))
 
     async def authenticate_user(
         self, db: AsyncSession, email: str, password: str
-    ) -> Optional[User]:
-        """Autentica usuario con email y contraseña"""
-        result = await db.execute(
-            select(User).where(User.email == email, self._not_deleted_filter())
-        )
-        user = result.scalar_one_or_none()
-        if not user:
-            return None
-        if not self.verify_password(password, user.hashed_password):
+    ) -> User | None:
+        user = await find_email_account(db, email)
+        if user is None or not self.verify_password(password, user.hashed_password):
             return None
         return user
 
     async def login(
         self, db: AsyncSession, login_data: LoginRequest
-    ) -> Tuple[str, str, User]:
-        """Realiza login y retorna tokens"""
+    ) -> tuple[str, str, User]:
         user = await self.authenticate_user(db, login_data.email, login_data.password)
-        if not user:
+        if user is None:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
+                status_code=401,
                 detail="Email o contraseña incorrectos",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-
-        if not user.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Usuario inactivo"
-            )
-
-        access_token = self.create_access_token(
-            data={"sub": str(user.id), "role": user.role.value}
+        await ensure_session_allowed(db, user)
+        return (
+            create_access_token(user.id, token_version=user.token_version),
+            create_refresh_token(user.id, token_version=user.token_version),
+            user,
         )
-        refresh_token = self.create_refresh_token(
-            data={"sub": str(user.id), "role": user.role.value}
-        )
-
-        return access_token, refresh_token, user
 
     async def refresh_tokens(
         self, db: AsyncSession, refresh_token: str
-    ) -> Tuple[str, str]:
-        """Refresca tokens usando refresh token"""
-        token_data = self.decode_token(refresh_token)
-        if not token_data:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Refresh token inválido",
-            )
-
-        if not token_data.user_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Refresh token inválido",
-            )
-
+    ) -> tuple[str, str]:
+        payload = decode_token(refresh_token, verify_type="refresh")
+        if payload is None:
+            raise HTTPException(status_code=401, detail="Refresh token inválido")
         try:
-            user_uuid = uuid.UUID(token_data.user_id)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Refresh token inválido",
-            )
-
-        result = await db.execute(
-            select(User).where(User.id == user_uuid, self._not_deleted_filter())
+            uid = UUID(payload["sub"])
+        except (ValueError, TypeError, KeyError, AttributeError):
+            raise HTTPException(status_code=401, detail="Refresh token inválido")
+        user = await db.scalar(
+            select(User).where(User.id == uid).execution_options(populate_existing=True)
         )
-        user = result.scalar_one_or_none()
-        if not user or not user.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Usuario no encontrado o inactivo",
-            )
-
-        new_access_token = self.create_access_token(
-            data={"sub": str(user.id), "role": user.role.value}
-        )
-        new_refresh_token = self.create_refresh_token(
-            data={"sub": str(user.id), "role": user.role.value}
-        )
-
-        return new_access_token, new_refresh_token
+        if user is None or not token_version_matches(payload, user.token_version):
+            raise HTTPException(status_code=401, detail="Credenciales no vigentes")
+        await ensure_session_allowed(db, user)
+        return create_access_token(
+            user.id, token_version=user.token_version
+        ), create_refresh_token(user.id, token_version=user.token_version)
 
 
 auth_service = AuthService()

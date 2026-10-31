@@ -202,7 +202,7 @@ async def _query_audit_logs(
         stmt = stmt.where(*filters_list)
     stmt = stmt.order_by(AuditLog.created_at.desc()).offset(offset).limit(limit)
     result = await db.execute(stmt)
-    return result.scalars().all(), total
+    return list(result.scalars().all()), total
 
 
 @router.get("")

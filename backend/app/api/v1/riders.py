@@ -40,7 +40,7 @@ from app.core.serialization import optional_enum_value
 from app.core.database import get_db
 from app.core.operation_permissions import ensure_operation_role
 from app.core.config import settings
-from app.models.rider import Rider, RiderStatus, VehicleType, utc_now_naive
+from app.models.rider import Rider, RiderStatus, VehicleType
 from app.models.user import User, UserRole
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
 from app.models.order import Order, OrderStatus
@@ -1443,6 +1443,10 @@ async def get_nearby_riders(
     Usa cálculos esféricos (ST_DistanceSphere) para precisión en metros.
     """
     ref_point = func.ST_SetSRID(func.ST_MakePoint(query.lng, query.lat), 4326)
+    if query.radius_km is None:
+        raise HTTPException(
+            status_code=422, detail="Indique un radio de búsqueda válido"
+        )
     radius_meters = query.radius_km * 1000
 
     stmt = (

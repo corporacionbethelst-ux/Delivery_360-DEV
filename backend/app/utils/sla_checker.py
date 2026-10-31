@@ -3,7 +3,7 @@ Verificador de SLA (Service Level Agreement) para entregas
 Cálculo de cumplimiento, alertas tempranas y penalizaciones
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
@@ -121,18 +121,23 @@ def calculate_sla_compliance_rate(deliveries: List[Dict]) -> float:
         return 100.0
 
     on_time_count = 0
-
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     for delivery in deliveries:
         estimated = delivery.get("estimated_delivery")
         actual = delivery.get("actual_delivery")
-
-        if actual and estimated:
+        if not isinstance(estimated, datetime) or (
+            actual is not None and not isinstance(actual, datetime)
+        ):
+            raise ValueError("El cálculo requiere plazos conocidos y fechas válidas")
+        if estimated.tzinfo is not None:
+            estimated = estimated.astimezone(timezone.utc).replace(tzinfo=None)
+        if actual is not None:
+            if actual.tzinfo is not None:
+                actual = actual.astimezone(timezone.utc).replace(tzinfo=None)
             if actual <= estimated:
                 on_time_count += 1
-        elif not actual:
-            # Entrega no completada, verificar si ya pasó el estimado
-            if datetime.now() <= estimated:
-                on_time_count += 1
+        elif now <= estimated:
+            on_time_count += 1
 
     return (on_time_count / len(deliveries)) * 100
 

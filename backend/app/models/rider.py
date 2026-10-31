@@ -21,6 +21,9 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from geoalchemy2 import Geometry
+from geoalchemy2.elements import WKBElement
+from sqlalchemy.sql.elements import ColumnElement
+from typing import Any
 import enum
 
 from app.core.database import Base
@@ -125,7 +128,7 @@ class Rider(Base):
     is_online: Mapped[bool | None] = mapped_column(
         Boolean, default=False, nullable=True
     )
-    last_location = Column(
+    last_location: Mapped[WKBElement | ColumnElement[Any] | None] = mapped_column(
         Geometry(geometry_type="POINT", srid=4326, spatial_index=True), nullable=True
     )
 

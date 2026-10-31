@@ -33,7 +33,9 @@ class CustomJsonFormatter(jsonlogger.JsonFormatter):
             log_record["request_id"] = record.request_id
 
 
-def setup_logging(level: str = "INFO", log_format: str = "json", log_file: str = None):
+def setup_logging(
+    level: str = "INFO", log_format: str = "json", log_file: str | None = None
+):
     """
     Configurar logging para la aplicación
 
@@ -51,6 +53,7 @@ def setup_logging(level: str = "INFO", log_format: str = "json", log_file: str =
     root_logger.handlers.clear()
 
     # Configurar formatter
+    formatter: logging.Formatter
     if log_format == "json":
         formatter = CustomJsonFormatter("%(timestamp)s %(level)s %(name)s %(message)s")
     else:

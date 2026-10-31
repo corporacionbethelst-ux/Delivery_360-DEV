@@ -1,0 +1,353 @@
+{
+  "riders": {
+    "ddl": "\nCREATE TABLE riders (\n\tid UUID NOT NULL, \n\tuser_id UUID NOT NULL, \n\tvehicle_type vehicletype, \n\tvehicle_plate VARCHAR(20), \n\tvehicle_model VARCHAR(100), \n\toperating_zone VARCHAR(100), \n\tzone_id UUID, \n\tcpf VARCHAR(14), \n\tcnh VARCHAR(20), \n\tvehicle_ownership_type vehicleownershiptype, \n\tassigned_vehicle_id UUID, \n\tstatus riderstatus, \n\ttier rider_tier NOT NULL, \n\tis_online BOOLEAN, \n\tlast_location geometry(POINT,4326), \n\tcurrent_order_id UUID, \n\tlast_lat FLOAT, \n\tlast_lng FLOAT, \n\tlast_location_at TIMESTAMP WITHOUT TIME ZONE, \n\tlevel INTEGER, \n\ttotal_points INTEGER, \n\tbadges JSON, \n\tnotes TEXT, \n\tdocuments_metadata JSON, \n\tapproved_at TIMESTAMP WITHOUT TIME ZONE, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\twallet_balance NUMERIC(10, 2), \n\tpending_balance NUMERIC(10, 2), \n\tversion INTEGER NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE, \n\tFOREIGN KEY(zone_id) REFERENCES zones (id) ON DELETE SET NULL, \n\tFOREIGN KEY(assigned_vehicle_id) REFERENCES vehicles (id) ON DELETE SET NULL, \n\tFOREIGN KEY(current_order_id) REFERENCES orders (id) ON DELETE SET NULL\n)\n\n",
+    "indexes": [
+      "CREATE INDEX idx_riders_last_location ON riders USING gist (last_location)",
+      "CREATE INDEX ix_riders_assigned_vehicle_id ON riders (assigned_vehicle_id)",
+      "CREATE INDEX ix_riders_current_order_id ON riders (current_order_id)",
+      "CREATE INDEX ix_riders_id ON riders (id)",
+      "CREATE INDEX ix_riders_zone_id ON riders (zone_id)",
+      "CREATE UNIQUE INDEX ix_riders_user_id ON riders (user_id)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "user_id": [
+        null,
+        null
+      ],
+      "vehicle_type": [
+        "VehicleType.MOTO",
+        null
+      ],
+      "vehicle_plate": [
+        null,
+        null
+      ],
+      "vehicle_model": [
+        null,
+        null
+      ],
+      "operating_zone": [
+        null,
+        null
+      ],
+      "zone_id": [
+        null,
+        null
+      ],
+      "cpf": [
+        null,
+        null
+      ],
+      "cnh": [
+        null,
+        null
+      ],
+      "vehicle_ownership_type": [
+        "PROPIO",
+        null
+      ],
+      "assigned_vehicle_id": [
+        null,
+        null
+      ],
+      "status": [
+        "RiderStatus.PENDIENTE",
+        null
+      ],
+      "tier": [
+        "RiderTier.BRONCE",
+        null
+      ],
+      "is_online": [
+        "False",
+        null
+      ],
+      "last_location": [
+        null,
+        null
+      ],
+      "current_order_id": [
+        null,
+        null
+      ],
+      "last_lat": [
+        null,
+        null
+      ],
+      "last_lng": [
+        null,
+        null
+      ],
+      "last_location_at": [
+        null,
+        null
+      ],
+      "level": [
+        "1",
+        null
+      ],
+      "total_points": [
+        "0",
+        null
+      ],
+      "badges": [
+        "list",
+        null
+      ],
+      "notes": [
+        null,
+        null
+      ],
+      "documents_metadata": [
+        null,
+        null
+      ],
+      "approved_at": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ],
+      "wallet_balance": [
+        "0.0",
+        null
+      ],
+      "pending_balance": [
+        "0.0",
+        null
+      ],
+      "version": [
+        "0",
+        null
+      ]
+    },
+    "enums": {
+      "vehicle_type": [
+        "MOTO",
+        "BICICLETA",
+        "PATINETA",
+        "AUTO",
+        "FURGONETA"
+      ],
+      "vehicle_ownership_type": [
+        "PROPIO",
+        "EMPRESA"
+      ],
+      "status": [
+        "PENDIENTE",
+        "ACTIVO",
+        "INACTIVO",
+        "OCUPADO",
+        "SUSPENDIDO"
+      ],
+      "tier": [
+        "BRONCE",
+        "PLATA",
+        "ORO",
+        "PLATINO"
+      ]
+    },
+    "foreign_keys": [
+      {
+        "column": "assigned_vehicle_id",
+        "target": "vehicles.id",
+        "ondelete": "SET NULL",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "current_order_id",
+        "target": "orders.id",
+        "ondelete": "SET NULL",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "user_id",
+        "target": "users.id",
+        "ondelete": "CASCADE",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      },
+      {
+        "column": "zone_id",
+        "target": "zones.id",
+        "ondelete": "SET NULL",
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {
+      "vehicle_type": {
+        "name": "vehicletype",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "vehicle_ownership_type": {
+        "name": "vehicleownershiptype",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "status": {
+        "name": "riderstatus",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      },
+      "tier": {
+        "name": "rider_tier",
+        "schema": null,
+        "native_enum": true,
+        "create_constraint": false,
+        "validate_strings": false
+      }
+    }
+  },
+  "zones": {
+    "ddl": "\nCREATE TABLE zones (\n\tid UUID DEFAULT gen_random_uuid() NOT NULL, \n\tname VARCHAR(100) NOT NULL, \n\tcode VARCHAR(20) NOT NULL, \n\tdescription TEXT, \n\tdelivery_fee_base FLOAT NOT NULL, \n\tcost_per_km FLOAT NOT NULL, \n\testimated_time_min FLOAT NOT NULL, \n\tbonus_multiplier FLOAT NOT NULL, \n\tis_priority BOOLEAN NOT NULL, \n\tis_active BOOLEAN NOT NULL, \n\tcolor_hex VARCHAR(7) NOT NULL, \n\tcenter_lat FLOAT, \n\tcenter_lng FLOAT, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_zones_active_priority ON zones (is_active, is_priority)",
+      "CREATE INDEX ix_zones_id ON zones (id)",
+      "CREATE UNIQUE INDEX ix_zones_code ON zones (code)"
+    ],
+    "defaults": {
+      "id": [
+        "uuid4",
+        null
+      ],
+      "name": [
+        null,
+        null
+      ],
+      "code": [
+        null,
+        null
+      ],
+      "description": [
+        null,
+        null
+      ],
+      "delivery_fee_base": [
+        "0.0",
+        null
+      ],
+      "cost_per_km": [
+        "0.0",
+        null
+      ],
+      "estimated_time_min": [
+        "30.0",
+        null
+      ],
+      "bonus_multiplier": [
+        "1.0",
+        null
+      ],
+      "is_priority": [
+        "False",
+        null
+      ],
+      "is_active": [
+        "True",
+        null
+      ],
+      "color_hex": [
+        "#6b7280",
+        null
+      ],
+      "center_lat": [
+        null,
+        null
+      ],
+      "center_lng": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {},
+    "foreign_keys": [],
+    "enum_options": {}
+  },
+  "platform_settings": {
+    "ddl": "\nCREATE TABLE platform_settings (\n\tkey VARCHAR(100) NOT NULL, \n\tvalue JSON NOT NULL, \n\tdescription VARCHAR(255), \n\tupdated_by_user_id UUID, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW() NOT NULL, \n\tupdated_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (key), \n\tFOREIGN KEY(updated_by_user_id) REFERENCES users (id)\n)\n\n",
+    "indexes": [
+      "CREATE INDEX ix_platform_settings_key ON platform_settings (key)",
+      "CREATE INDEX ix_platform_settings_updated_by_user_id ON platform_settings (updated_by_user_id)"
+    ],
+    "defaults": {
+      "key": [
+        null,
+        null
+      ],
+      "value": [
+        null,
+        null
+      ],
+      "description": [
+        null,
+        null
+      ],
+      "updated_by_user_id": [
+        null,
+        null
+      ],
+      "created_at": [
+        "utc_now_naive",
+        null
+      ],
+      "updated_at": [
+        "utc_now_naive",
+        "utc_now_naive"
+      ]
+    },
+    "enums": {},
+    "foreign_keys": [
+      {
+        "column": "updated_by_user_id",
+        "target": "users.id",
+        "ondelete": null,
+        "onupdate": null,
+        "use_alter": false,
+        "name": null,
+        "deferrable": null,
+        "initially": null
+      }
+    ],
+    "enum_options": {}
+  }
+}

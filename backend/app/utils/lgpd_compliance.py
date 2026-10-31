@@ -280,7 +280,7 @@ def _is_last_n_days(log: Dict, days: int) -> bool:
 
 def _group_access_by_purpose(access_logs: List[Dict]) -> Dict[str, int]:
     """Agrupa accesos por propósito"""
-    groups = {}
+    groups: dict[str, int] = {}
     for log in access_logs:
         purpose = log.get("purpose", "unknown")
         groups[purpose] = groups.get(purpose, 0) + 1

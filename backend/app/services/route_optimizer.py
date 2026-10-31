@@ -235,7 +235,7 @@ class RouteOptimizer:
         d_lat, d_lng = getattr(order, "delivery_latitude", None), getattr(
             order, "delivery_longitude", None
         )
-        if None in (p_lat, p_lng, d_lat, d_lng):
+        if p_lat is None or p_lng is None or d_lat is None or d_lng is None:
             return None
         return float(p_lat), float(p_lng), float(d_lat), float(d_lng)
 

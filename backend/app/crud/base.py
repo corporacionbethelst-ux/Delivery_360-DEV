@@ -6,7 +6,7 @@ Generic CRUD operations for all models
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, Union
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import func, inspect
 from sqlalchemy.orm import Session
 
 ModelType = TypeVar("ModelType")
@@ -24,10 +24,14 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
 
     def __init__(self, model: Type[ModelType]):
         self.model = model
+        mapper = inspect(model)
+        if mapper is None or len(mapper.primary_key) != 1:
+            raise ValueError("CRUDBase requiere un modelo con clave primaria simple")
+        self._primary_key = mapper.primary_key[0]
 
     def get(self, db: Session, id: Any) -> Optional[ModelType]:
         """Get a single record by ID"""
-        return db.query(self.model).filter(self.model.id == id).first()
+        return db.query(self.model).filter(self._primary_key == id).first()
 
     def get_multi(
         self,
@@ -49,7 +53,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
 
     def get_count(self, db: Session, filters: Optional[Dict[str, Any]] = None) -> int:
         """Get total count of records"""
-        query = db.query(func.count(self.model.id))
+        query = db.query(func.count(self._primary_key))
 
         if filters:
             for key, value in filters.items():
@@ -91,7 +95,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         db.refresh(db_obj)
         return db_obj
 
-    def remove(self, db: Session, *, id: int) -> ModelType:
+    def remove(self, db: Session, *, id: Any) -> Optional[ModelType]:
         """Soft delete a record (set is_active=False)"""
         obj = db.query(self.model).get(id)
         if obj and hasattr(obj, "is_active"):
@@ -101,7 +105,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
             db.refresh(obj)
         return obj
 
-    def hard_delete(self, db: Session, *, id: int) -> Optional[ModelType]:
+    def hard_delete(self, db: Session, *, id: Any) -> Optional[ModelType]:
         """Hard delete a record"""
         obj = db.query(self.model).get(id)
         if obj:

@@ -135,7 +135,7 @@ def _serialize_delivery(
         rider_data = {
             "id": str(rider.id),
             "first_name": user.first_name if user else "Sin Nombre",
-            "last_name": user.last_name or "",
+            "last_name": (user.last_name or "") if user else "",
             "vehicle_type": rider.vehicle_type.value if rider.vehicle_type else None,
             "status": rider.status.value if rider.status else None,
             "is_online": getattr(rider, "is_online", False),
@@ -289,7 +289,7 @@ def _serialize_order_as_delivery(
         rider_data = {
             "id": str(rider.id),
             "first_name": user.first_name if user else "Sin Nombre",
-            "last_name": user.last_name or "",
+            "last_name": (user.last_name or "") if user else "",
             "vehicle_type": rider.vehicle_type.value if rider.vehicle_type else None,
             "status": rider.status.value if rider.status else None,
             "is_online": getattr(rider, "is_online", False),
@@ -579,7 +579,10 @@ async def assign_delivery(
         .where(Delivery.id == delivery.id)
     )
     res = await db.execute(final_stmt)
-    d_row, r_row, u_row, o_row = res.first()
+    record = res.first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+    d_row, r_row, u_row, o_row = record
 
     return _serialize_delivery(d_row, r_row, u_row, o_row)
 
@@ -630,7 +633,10 @@ async def start_delivery(
         .where(Delivery.id == delivery.id)
     )
     res = await db.execute(final_stmt)
-    d_row, r_row, u_row, o_row = res.first()
+    record = res.first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+    d_row, r_row, u_row, o_row = record
 
     return _serialize_delivery(d_row, r_row, u_row, o_row)
 
@@ -690,7 +696,10 @@ async def complete_delivery(
         .where(Delivery.id == delivery.id)
     )
     result = await db.execute(final_stmt)
-    d_row, r_row, u_row, o_row = result.first()
+    record = result.first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+    d_row, r_row, u_row, o_row = record
 
     return _serialize_delivery(d_row, r_row, u_row, o_row)
 
@@ -760,7 +769,10 @@ async def fail_delivery(
         .where(Delivery.id == delivery.id)
     )
     res = await db.execute(final_stmt)
-    d_row, r_row, u_row, o_row = res.first()
+    record = res.first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+    d_row, r_row, u_row, o_row = record
 
     # Serializar respuesta
     response_data = _serialize_delivery(d_row, r_row, u_row, o_row)
@@ -836,6 +848,8 @@ async def get_previous_view(current_user: User = Depends(get_current_user)):
         UserRole.CLIENTE: "/client/orders",
     }
 
+    if current_user.role is None:
+        raise HTTPException(status_code=403, detail="Rol operativo no disponible")
     target_route = routes.get(current_user.role, "/manager/dashboard")
 
     return {"redirect_to": target_route, "label": "Volver al Panel Principal"}
@@ -1211,7 +1225,10 @@ async def update_delivery_status(
         .where(Delivery.id == delivery.id)
     )
     res = await db.execute(final_stmt)
-    d_row, r_row, u_row, o_row = res.first()
+    record = res.first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+    d_row, r_row, u_row, o_row = record
 
     # Serializar respuesta
     response_data = _serialize_delivery(d_row, r_row, u_row, o_row)

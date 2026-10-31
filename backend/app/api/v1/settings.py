@@ -267,33 +267,17 @@ def _coerce_settings(rows: dict[str, PlatformSetting]) -> dict[str, Any]:
     values["updated_at"] = latest_updated_at.isoformat() if latest_updated_at else None
     values["updated_by_user_id"] = latest_updated_by
 
+    def number(key: str) -> float | None:
+        value = values.get(key)
+        return float(value) if value is not None else None
+
     # Conversión segura: None se mantiene como None (validación estricta)
-    values["delivery_fee_base"] = (
-        float(values.get("delivery_fee_base"))
-        if values.get("delivery_fee_base") is not None
-        else None
-    )
-    values["commission_percentage"] = (
-        float(values.get("commission_percentage"))
-        if values.get("commission_percentage") is not None
-        else None
-    )
-    values["min_order_amount"] = (
-        float(values.get("min_order_amount"))
-        if values.get("min_order_amount") is not None
-        else None
-    )
+    values["delivery_fee_base"] = number("delivery_fee_base")
+    values["commission_percentage"] = number("commission_percentage")
+    values["min_order_amount"] = number("min_order_amount")
     # BONOS: Sin fallback! None indica falta de configuración crítica
-    values["rider_delivery_bonus"] = (
-        float(values.get("rider_delivery_bonus"))
-        if values.get("rider_delivery_bonus") is not None
-        else None
-    )
-    values["rider_failed_attempt_bonus"] = (
-        float(values.get("rider_failed_attempt_bonus"))
-        if values.get("rider_failed_attempt_bonus") is not None
-        else None
-    )
+    values["rider_delivery_bonus"] = number("rider_delivery_bonus")
+    values["rider_failed_attempt_bonus"] = number("rider_failed_attempt_bonus")
 
     values["active_zones"] = [
         str(zone).strip()
@@ -398,11 +382,7 @@ async def update_platform_settings(
     audit = AuditLog(
         user_id=current_user.id,
         user_email=current_user.email,
-        user_role=(
-            current_user.role.value
-            if hasattr(current_user.role, "value")
-            else str(current_user.role)
-        ),
+        user_role=(current_user.role.value if current_user.role is not None else None),
         action_type=ActionType.CONFIG_CHANGE,
         resource_type="PlatformSettings",
         resource_id="global",

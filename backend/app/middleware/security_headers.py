@@ -21,7 +21,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     - Permissions-Policy
     """
 
-    def __init__(self, app, custom_headers: Dict[str, str] = None):
+    def __init__(self, app, custom_headers: Dict[str, str] | None = None):
         super().__init__(app)
         self.custom_headers = custom_headers or {}
 
@@ -84,7 +84,7 @@ def get_default_security_headers() -> Dict[str, str]:
     }
 
 
-def get_csp_header(allow_domains: list = None) -> str:
+def get_csp_header(allow_domains: list | None = None) -> str:
     """
     Generar header Content-Security-Policy
 

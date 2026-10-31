@@ -18,6 +18,38 @@ from sqlalchemy.ext.asyncio import AsyncSession, AsyncEngine, async_sessionmaker
 logger = logging.getLogger(__name__)
 
 
+async def record_legacy_notice(
+    db: AsyncSession,
+    *,
+    user_id: Any,
+    notification_type: str,
+    title: str,
+    message: str,
+    data: Dict[str, Any] | None = None,
+) -> bool:
+    """Post-commit inbox persistence; failure never rolls back the caller session."""
+    if db.in_transaction() or not isinstance(db.bind, AsyncEngine):
+        logger.warning("Legacy notice requires a post-commit engine-bound session")
+        return False
+    factory = async_sessionmaker(db.bind, expire_on_commit=False, autoflush=False)
+    try:
+        from app.services.notification_service import NotificationService
+
+        async with factory() as own_db:
+            await NotificationService(own_db).create_notification(
+                user_id=user_id,
+                notification_type=notification_type,
+                title=title,
+                message=message,
+                data=data,
+                channel="push",
+            )
+        return True
+    except Exception:
+        logger.warning("Legacy notification persistence failed")
+        return False
+
+
 async def notify_event(
     template_code: str,
     user_id: Any,

@@ -116,7 +116,7 @@ class AuditService:
             .limit(limit)
             .offset(offset)
         )
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     async def get_resource_history(
         self, resource_type: str, resource_id: str
@@ -130,7 +130,7 @@ class AuditService:
             )
             .order_by(AuditLog.created_at.asc())
         )
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     async def get_actions_by_date_range(
         self,
@@ -149,7 +149,7 @@ class AuditService:
             query = query.where(AuditLog.user_id == user_id)
 
         result = await self.db.execute(query.order_by(AuditLog.created_at.desc()))
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     async def get_action_statistics(
         self, start_date: datetime, end_date: datetime

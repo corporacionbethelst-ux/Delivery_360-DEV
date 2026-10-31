@@ -3,7 +3,38 @@ Calculadora de costos operativos para entregas
 Cálculo de márgenes, costos por repartidor y simulación de precios
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TypedDict
+import math
+
+
+class DeliveryEarning(TypedDict):
+    delivery_index: int
+    earnings: float
+
+
+class RiderEarnings(TypedDict):
+    total_earnings: float
+    delivery_count: int
+    average_per_delivery: float
+    breakdown: List[DeliveryEarning]
+
+
+class ProfitMargin(TypedDict):
+    revenue: float
+    total_costs: float
+    profit: float
+    margin_percentage: float
+    cost_breakdown: Dict[str, float]
+
+
+def finite_number(value: object, name: str) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (float, int))
+        or not math.isfinite(value)
+    ):
+        raise ValueError(f"{name} debe ser un número finito")
+    return float(value)
 
 
 class CostCalculator:
@@ -24,31 +55,55 @@ class CostCalculator:
     def calculate_delivery_cost(
         self, distance_km: float, time_minutes: float, **kwargs
     ) -> Dict[str, float]:
-        return calculate_delivery_cost(
-            distance_km=distance_km,
-            time_minutes=time_minutes,
+        rates = dict(
             base_rate=self.base_rate,
             per_km_rate=self.per_km_rate,
             per_minute_rate=self.per_minute_rate,
             platform_fee_percentage=self.platform_fee_percentage,
-            **kwargs,
+        )
+        rates.update(kwargs)
+        return calculate_delivery_cost(
+            distance_km=distance_km, time_minutes=time_minutes, **rates
         )
 
     def calculate_rider_earnings(
         self, deliveries: List[Dict], payment_rule: str = "fixed"
-    ) -> Dict[str, float]:
+    ) -> RiderEarnings:
         return calculate_rider_earnings(deliveries, payment_rule)
 
-    def calculate_profit_margin(self, revenue: float, costs: float) -> Dict[str, float]:
-        return calculate_profit_margin(revenue, costs)
+    def calculate_profit_margin(
+        self, revenue: float, costs: float | Dict[str, float]
+    ) -> ProfitMargin:
+        return calculate_profit_margin(
+            revenue, costs if isinstance(costs, dict) else {"total": costs}
+        )
 
     def simulate_pricing_scenarios(
         self, base_scenario: Dict, variations: List[Dict]
     ) -> List[Dict]:
-        return simulate_pricing_scenarios(base_scenario, variations)
+        distance = base_scenario.get("distance_km", base_scenario.get("base_distance"))
+        minutes = base_scenario.get("time_minutes", base_scenario.get("base_time"))
+        return simulate_pricing_scenarios(
+            finite_number(distance, "distance_km"),
+            finite_number(minutes, "time_minutes"),
+            variations,
+            base_rate=self.base_rate,
+            per_km_rate=self.per_km_rate,
+            per_minute_rate=self.per_minute_rate,
+            platform_fee_percentage=self.platform_fee_percentage,
+        )
 
-    def get_operational_summary(self, period_deliveries: List[Dict]) -> Dict:
-        return get_operational_cost_summary(period_deliveries)
+    def get_operational_summary(
+        self,
+        period_deliveries: List[Dict],
+        rider_payments: Optional[List[float]] = None,
+        fixed_costs: Optional[Dict[str, float]] = None,
+    ) -> Dict:
+        if rider_payments is None or fixed_costs is None:
+            raise ValueError("Indique pagos a repartidores y costos fijos explícitos")
+        return get_operational_cost_summary(
+            period_deliveries, rider_payments, fixed_costs
+        )
 
 
 def calculate_delivery_cost(
@@ -77,6 +132,16 @@ def calculate_delivery_cost(
     Returns:
         Dict con desglose de costos
     """
+    distance_km = finite_number(distance_km, "distance_km")
+    time_minutes = finite_number(time_minutes, "time_minutes")
+    base_rate = finite_number(base_rate, "base_rate")
+    per_km_rate = finite_number(per_km_rate, "per_km_rate")
+    per_minute_rate = finite_number(per_minute_rate, "per_minute_rate")
+    platform_fee_percentage = finite_number(
+        platform_fee_percentage, "platform_fee_percentage"
+    )
+    fuel_surcharge = finite_number(fuel_surcharge, "fuel_surcharge")
+    insurance_fee = finite_number(insurance_fee, "insurance_fee")
     distance_cost = distance_km * per_km_rate
     time_cost = time_minutes * per_minute_rate
     subtotal = base_rate + distance_cost + time_cost + fuel_surcharge + insurance_fee
@@ -103,7 +168,7 @@ def calculate_rider_earnings(
     fixed_rate: float = 5.00,
     commission_rate: float = 0.20,
     bonus_rules: Optional[Dict] = None,
-) -> Dict[str, float]:
+) -> RiderEarnings:
     """
     Calcula ganancias del repartidor basado en reglas de pago
 
@@ -121,7 +186,7 @@ def calculate_rider_earnings(
         bonus_rules = {}
 
     total_earnings = 0.0
-    delivery_breakdown = []
+    delivery_breakdown: List[DeliveryEarning] = []
 
     for idx, delivery in enumerate(deliveries):
         earnings = 0.0
@@ -164,9 +229,7 @@ def calculate_rider_earnings(
     }
 
 
-def calculate_profit_margin(
-    revenue: float, costs: Dict[str, float]
-) -> Dict[str, float]:
+def calculate_profit_margin(revenue: float, costs: Dict[str, float]) -> ProfitMargin:
     """
     Calcula margen de ganancia de una entrega u operación
 
@@ -177,6 +240,8 @@ def calculate_profit_margin(
     Returns:
         Dict con margen absoluto y porcentual
     """
+    revenue = finite_number(revenue, "revenue")
+    costs = {key: finite_number(value, key) for key, value in costs.items()}
     total_costs = sum(costs.values())
     profit = revenue - total_costs
     margin_percentage = (profit / revenue * 100) if revenue > 0 else 0
@@ -191,7 +256,14 @@ def calculate_profit_margin(
 
 
 def simulate_pricing_scenarios(
-    base_distance: float, base_time: float, scenarios: List[Dict]
+    base_distance: float,
+    base_time: float,
+    scenarios: List[Dict],
+    *,
+    base_rate: float = 3.0,
+    per_km_rate: float = 1.5,
+    per_minute_rate: float = 0.2,
+    platform_fee_percentage: float = 0.15,
 ) -> List[Dict]:
     """
     Simula diferentes escenarios de precios
@@ -218,7 +290,10 @@ def simulate_pricing_scenarios(
         cost = calculate_delivery_cost(
             distance_km=adjusted_distance,
             time_minutes=adjusted_time,
-            base_rate=3.00 + rate_adjustment,
+            base_rate=base_rate + rate_adjustment,
+            per_km_rate=per_km_rate,
+            per_minute_rate=per_minute_rate,
+            platform_fee_percentage=platform_fee_percentage,
         )
 
         results.append(
