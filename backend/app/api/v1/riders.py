@@ -1457,10 +1457,15 @@ async def get_nearby_riders(
             ),
         )
         .options(joinedload(Rider.user))
+        .join(User, User.id == Rider.user_id)
         .where(
             Rider.status == RiderStatus.ACTIVO,
             Rider.is_online == True,
             Rider.last_location.isnot(None),
+            User.is_active.is_(True),
+            User.role == UserRole.REPARTIDOR,
+            Rider.last_lat.between(-90, 90),
+            Rider.last_lng.between(-180, 180),
             func.ST_DistanceSphere(Rider.last_location, ref_point) <= radius_meters,
         )
         .order_by("distance_meters")

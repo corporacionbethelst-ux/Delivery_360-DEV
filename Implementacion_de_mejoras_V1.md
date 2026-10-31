@@ -5942,3 +5942,193 @@ de preparación para producción.
 No se fusiona ni despliega, no se migra producción ni se ejecutan pagos, mensajes
 o facturas reales. La entrega robustece el sistema sin declararlo al cien por
 ciento. Guía de contratos y límites: backend/RUNTIME_CONTRACTS.md.
+
+---
+
+## Entrega 61 — Elegibilidad uniforme, asignación transaccional y motivos íntegros
+
+**Fecha:** 31 de octubre de 2026, America/Caracas. **Base contrastada:** main
+65876d582098c9cc8fbe6c6c5f3b890138af53a2, que fusionó el PR #301. Se cotejó el
+árbol remoto con el local probado de la entrega 60 antes de abrir otra rama.
+
+### Estado recibido y prioridad del bloque
+
+El CI del PR #301 confirmó **backend aprobado**, con 2315 tests aprobados, dos
+SDK omitidos, una advertencia y 1231,72 s; Mypy quedó sin errores en 192 archivos.
+El job de seguridad aprobó. Frontend tuvo 771 tests aprobados / 54 suites y
+falló su gate global de cobertura: líneas 30,28 %, statements 30,06 %, ramas
+24,90 % y funciones 25,74 %, frente al umbral 50 %. Son resultados de aquel
+PR; la validación nueva de esta entrega se presenta más abajo.
+
+La revisión señaló un P2 en RiderService: aceptaba motivos de 501–2000 caracteres
+y los escribía en changes_summary VARCHAR(500), provocando rollback al confirmar.
+Además, la revisión operativa encontró cuatro entradas de asignación con
+validaciones distintas, posibilidad de elegir User inactivo/rol ajeno o
+documentos no disponibles, y reasignación que limpiaba evidencia de avance.
+Se agrupan estos cambios porque deciden quién recibe el trabajo y qué evidencia
+se confirma, sin añadir infraestructura o pagos externos.
+
+### 1. Cuatro entradas HTTP y adaptadores con el mismo contrato de asignación
+
+El módulo order_assignment concentra las comprobaciones y la escritura coordinada.
+Lo utilizan crear pedido con rider_id, asignar desde pedido, asignar desde entrega
+y asignación automática. También lo reutiliza OrderService cuando crea con rider
+o invoca assign_rider_to_order. El responsable de esos adaptadores debe ser un UUID
+real habilitado; crear sin rider conserva su funcionamiento previo.
+
+Todos exigen Rider ACTIVO, User existente y activo con rol REPARTIDOR, y los cuatro
+tipos documentales requeridos, sin duplicados, aprobados y con archivos accesibles
+y no vacíos. Se reutiliza document_readiness_error y el bloqueo padre Rider de
+los flujos de documentos. Una denegación no autoaprueba, activa o confirma una
+restricción de seguridad dentro de una transacción ajena.
+
+La asignación manual administrativa puede reservar trabajo sin GPS ni conexión
+online, conservando ese comportamiento existente. La automática exige online,
+geometría presente y coordenadas finitas en rango; vuelve a comprobarlas bajo
+bloqueo tras descubrir candidatos. Nearby deja de ofrecer cuentas inactivas o
+roles ajenos y filtra rangos de posición; sigue siendo una búsqueda de candidatos,
+no una certificación documental completa de cada fila.
+
+La edición genérica de assigned_rider_id y el paso directo a ASIGNADO mediante
+cambio de estado devuelven 409. Debe usarse el flujo de asignación con sus
+controles. Los adaptadores de creación/asignación hacen rollback al fallar;
+los helpers no poseen el commit del llamador. No hay endpoints nuevos.
+
+### 2. Vigencia del operador y serialización de cambios concurrentes
+
+El coordinador bloquea Order, Delivery, Route si existe, Rider y Users en orden
+UUID. Order serializa cambios sobre la misma orden. User se bloquea con FOR SHARE
+para impedir que rol, actividad o época cambien entre la validación y el commit,
+sin modificar la cuenta. Los escritores documentales respetan el mismo padre
+Rider. El protocolo convive con las operaciones sobre una misma orden que ya
+adquieren primero su bloqueo padre.
+
+Se guarda la época JWT autenticada antes de las esperas y antes de que una
+recarga pueda sobrescribir el objeto current_user. Después se verifica actor
+activo, rol SUPERADMIN/GERENTE/OPERADOR y la época guardada. Una revocación durante
+la espera responde 401; perder el rol operativo responde 403. Un repartidor no
+habilitado devuelve 400 en las entradas manuales/creación y 404 cuando no hay
+candidato automático disponible.
+
+La automática conserva la ventana de cinco candidatos por distancia y usa
+SKIP LOCKED al adquirir cada Rider. Si el más cercano está ocupado por otra
+transacción o deja de ser elegible, puede usar el siguiente de esa ventana.
+Un 404 puede significar que debe reintentarse: no demuestra que toda la plataforma
+carezca de repartidores. No se añade una política de latencia cero para User,
+capacidad por repartidor ni búsqueda exhaustiva de todos los candidatos.
+
+Las pruebas incluyen esperas PostgreSQL reales, con pg_blocking_pids. Demuestran
+que una credencial revocada mientras espera Order no asigna, que desactivar el
+destinatario espera al commit de la asignación y que otro Rider puede usarse
+cuando el primero está bloqueado. También cubren cambio de rol, estado,
+documentos y coordenadas después de la consulta inicial.
+
+Desactivar después del commit no cancela automáticamente los pedidos anteriores.
+La prueba demuestra el orden transaccional de ambos hechos; el manejo operativo
+de obligaciones pendientes y compensaciones sigue siendo otro flujo.
+
+### 3. Evidencia preservada y auditoría atómica
+
+Una entrega solo admite esta asignación en PENDIENTE/INICIADA y sin marcas de
+llegada, salida, finalización o incidentes. Una ruta iniciada, completada,
+cancelada o con marcas operativas requiere revisión. La ambigüedad histórica y
+los vínculos Order/Delivery contradictorios devuelven 409. Se elimina el antiguo
+reinicio que borraba timestamps e incidentes de una reasignación; una entrega
+temprana sin avance sí puede reasignarse con trazabilidad del rider anterior.
+No se borra ni se repara evidencia histórica por deducción.
+
+Order, Delivery y AuditLog se confirman juntos en las cuatro vías. Si falla la
+auditoría, tampoco queda asignación ni pedido recién creado parcial. La auditoría
+guarda ASSIGN/REASSIGN, responsable, rider anterior/nuevo, entrega y source. Se
+normaliza el recurso nuevo a ORDER; la vía automática anterior usaba Order y
+sus registros históricos se conservan. Los hooks de notificación existentes
+mantienen su naturaleza local/post-commit según la entrada; no se introduce outbox.
+
+### 4. Motivos de aprobación completos, sin desbordar el esquema
+
+RiderService conserva el motivo completo admitido (hasta 2000 caracteres) en
+audit_logs.new_values.reason, JSON existente. changes_summary guarda los primeros
+500 caracteres, respetando su capacidad física. No hay ampliación de columna,
+migración o truncamiento del motivo completo. El resumen es solo una vista
+acotada; para el motivo íntegro debe leerse reason.
+
+Se comprueban aprobación y rechazo con 500, 501 y 2000 caracteres Unicode, además
+de rechazo previo a IO para 2001. La decisión sigue guardándose junto con su
+estado y auditoría; los permisos, documentos y revalidación de actor permanecen.
+Esto resuelve el hallazgo P2 de revisión del PR #301.
+
+### 5. Confirmación frontend y accesibilidad
+
+AssignRiderModal solo habilita confirmar si el UUID seleccionado sigue en la
+lista visible, activo y online, el pedido sigue PENDIENTE, no está ya asignado
+y la lista no se está recargando. Elegir una fila antes de un cambio de lista
+ya no deja un botón capaz de enviar ese UUID obsoleto. Se comprueban desaparición,
+desconexión, suspensión, recarga y cambio del pedido a terminal.
+
+Se mantiene el guard de pedido ya asignado del formulario, se añade selección
+por Enter/espacio y un nombre accesible al cierre. La API manual conserva su
+capacidad administrativa de reasignar cuando corresponde; el modal no reemplaza
+la autorización y la revisión documental del servidor. No se inventan estados
+de documento ni métricas de calificación en la interfaz.
+
+### 6. Verificación nueva y contratos conservados
+
+Se agregan **73 casos backend** (63 de elegibilidad/auditoría y diez de
+concurrencia/límites) y **once frontend**. Los dos tests existentes de asignación
+se actualizan con documentos reales y ruta planificada. El escenario de
+destinatario inactivo de la entrega 60 ahora provoca la desactivación después
+del commit, porque antes de asignar ya se rechaza correctamente.
+
+Los primeros ensayos detectaron datos de prueba incompatibles con NOT NULL en
+Delivery.rider_id y User.last_name; se corrigió el montaje de prueba, sin relajar
+el esquema. La corrida focal posterior aprobó; la regresión exhaustiva usa la
+fuente final. El primer build con red restringida terminó con error webpack sin
+detalle; se repitió con la conectividad del entorno y aprobó, sin editar código
+o relajar TLS. Los SDK se verifican con transportes HTTP sustituidos.
+
+| Control | Resultado |
+| --- | --- |
+| Denegación de elegibilidad, cuatro vías | 24 aprobados antes de la corrección del dato de apellido del caso positivo |
+| Integración, runtime y SLA focal | 85 aprobados, 24 excluidos, 182,57 s; una advertencia previa |
+| Concurrencia y adaptador legacy final | 14 aprobados, 59 excluidos, 21,49 s; una advertencia previa |
+| Control negativo del resumen anterior | Fallo esperado con StringDataRightTruncationError al guardar 501 caracteres en VARCHAR(500) |
+| Control negativo de elegibilidad anterior | Fallo esperado: HTTP 200 donde la cuenta inactiva debía dar 400 |
+| Backend exhaustivo final | **2388 aprobados, dos SDK opcionales omitidos**, 2390 nodos / 107 archivos; tres advertencias previas (una por grupo). Grupo a: 795 aprobados, 2 omitidos, 796.09 s; Grupo b: 797 aprobados, 0 omitidos, 729.43 s; Grupo c: 796 aprobados, 0 omitidos, 714.66 s |
+| SDK instalados, HTTP sustituido | Dos aprobados aparte, 1,78 s; una advertencia previa |
+| Frontend focal | Once aprobados / una suite, 3,73 s |
+| Frontend completo y cobertura | 782 aprobados / 55 suites, 95,811 s. Líneas 30,58 %, statements 30,34 %, ramas 25,63 %, funciones 26,13 %. El umbral 50 % sigue fallando sin reducirlo |
+| Frontend tipos, lint y build | Aprobados; 48 páginas generadas. Persisten advertencias previas de hooks |
+| Mypy | Cero errores / 193 archivos, mismas opciones CI; notas previas de cuerpos sin anotaciones |
+| Black, flake8 crítico, diff y hashes | **Aprobados**: Black (197 archivos), flake8 crítico (cero incidencias), diff y conservación de 636 hashes durante los tres grupos |
+| API y persistencia | 202 rutas, 194 contratos de dependencia y OpenAPI idénticos; fixtures físicos previos intactos |
+
+El manifiesto recoge 2390 nodos en 107 archivos, particionados por archivo sin
+solapamiento en tres grupos con PostgreSQL/PostGIS y Redis independientes. Los
+636 hashes de app/tests/fixtures/frontend se cotejan antes y después, sin editar
+código durante la regresión. Los dos SDK opcionales omitidos se prueban aparte.
+Los controles negativos se ejecutan en procesos separados con plugins temporales
+fuera del repositorio y no se incluyen entre los resultados de la fuente final.
+
+Se conservan las **202 rutas, 194 dependencias y OpenAPI SHA256
+84bef605f22c31d4e8b3d9279e812d05c3cc8d3d303f73c441248f307dba0172**.
+No se regeneran fixtures existentes ni se añaden columnas, migraciones,
+dependencias, flags o workflows. AssignmentCandidate es un objeto en memoria,
+no una entidad persistida. No hay ignores nuevos de aplicación ni reducción de
+umbrales. Mypy sin errores no equivale a tipado exhaustivo o prueba formal.
+
+### Pendientes y continuidad
+
+Se cierra la discrepancia de elegibilidad de estas entradas y el desbordamiento
+del resumen de aprobación, y se mejora cobertura mediante pruebas de interacción.
+Persisten el gate frontend 50 %, idempotencia de reintentos/revisión optimista de
+asignación, capacidad por rider, antigüedad GPS y reparación de datos históricos;
+outbox/reintentos durables y proveedores homologados; ciclo completo de alertas,
+conciliación y libros/monedas, observabilidad de workers y validación del roadmap.
+No se afirma que la ventana geográfica encuentre al mejor candidato global ni
+que desactivar después del commit resuelva automáticamente sus pedidos pendientes.
+
+El código validado se publica con cotejo de blobs/árbol/commit y un PR listo para
+revisión; su CI nuevo se consulta e informa por separado. No se fusiona ni
+despliega, no se migra producción y no se envían pagos, mensajes o facturas reales.
+No se declara el sistema al cien por ciento. Guía y diccionario de campos usados:
+backend/ASSIGNMENT_GUARDS.md.

@@ -17,6 +17,12 @@ from app.core.json_types import json_value
 from app.core.database import get_db
 from app.core.delivery_rules import validate_delivery_otp
 from app.services.route_geometry import coordinate
+from app.services.order_assignment import (
+    assign_order_manually,
+    lock_assignment_delivery,
+    assignment_candidate,
+    apply_order_assignment,
+)
 from app.core.operation_permissions import (
     ensure_operation_role,
     ensure_rider_resource_access,
@@ -544,18 +550,20 @@ async def create_order(
 
     order = Order(**order_kwargs)
 
-    if body.rider_id:
-        rider_uuid = _parse_uuid(body.rider_id, "rider_id")
-        order.assigned_rider_id = rider_uuid  # type: ignore[assignment]
-        order.status = OrderStatus.ASIGNADO
-        order.accepted_at = now_naive  # type: ignore[assignment]
-
+    actor_id, expected_version = current_user.id, current_user.token_version
     db.add(order)
     await db.flush()  # Obtener ID generado antes de crear delivery
 
     # CRITICAL: Si se asigna rider al crear la orden, crear registro en deliveries
     if body.rider_id:
-        await _ensure_delivery_record_on_assignment(db, order, rider_uuid)
+        await assign_order_manually(
+            db,
+            order,
+            _parse_uuid(body.rider_id, "rider_id"),
+            actor_id,
+            expected_version,
+            source="create_order",
+        )
 
     await db.commit()
     refreshed = await db.execute(
@@ -743,6 +751,7 @@ async def assign_rider(
         require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)
     ),
 ):
+    actor_id, expected_version = current_user.id, current_user.token_version
     result = await db.execute(
         select(Order)
         .where(Order.id == _parse_uuid(order_id, "order_id"))
@@ -758,36 +767,15 @@ async def assign_rider(
             detail=f"No se puede asignar un pedido en estado {optional_enum_value(order.status)}",
         )
 
-    result2 = await db.execute(
-        select(Rider).where(Rider.id == _parse_uuid(body.rider_id, "rider_id"))
+    candidate = await assign_order_manually(
+        db,
+        order,
+        _parse_uuid(body.rider_id, "rider_id"),
+        actor_id,
+        expected_version,
+        source="order_manual",
     )
-    rider = result2.scalar_one_or_none()
-    if not rider or rider.status != RiderStatus.ACTIVO:
-        raise HTTPException(status_code=400, detail="Repartidor no disponible")
-
-    old_rider_id = order.assigned_rider_id
-    order.assigned_rider_id = rider.id  # type: ignore[assignment]
-    order.status = OrderStatus.ASIGNADO
-    order.accepted_at = datetime.now(timezone.utc).replace(tzinfo=None)  # type: ignore[assignment]
-
-    # CRITICAL: Crear registro en deliveries cuando se asigna el repartidor
-    # Esto asegura trazabilidad desde el momento de asignación
-    await _ensure_delivery_record_on_assignment(db, order, rider.id)
-
-    db.add(
-        AuditLog(
-            user_id=current_user.id,
-            user_email=current_user.email,
-            user_role=optional_enum_value(current_user.role),
-            action_type=ActionType.REASSIGN if old_rider_id else ActionType.ASSIGN,
-            resource_type="ORDER",
-            resource_id=str(order.id),
-            description=f"Pedido asignado al rider {rider.id}",
-            old_values={"rider_id": str(old_rider_id) if old_rider_id else None},
-            new_values={"rider_id": str(rider.id)},
-            success=True,
-        )
-    )
+    rider = candidate.rider
     await db.commit()
 
     # Notification failure must never expire the committed request objects.
@@ -879,6 +867,11 @@ async def update_status(
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
 
     await _ensure_rider_order_access(db, current_user, order, write=True)
+
+    if target == OrderStatus.ASIGNADO:
+        raise HTTPException(
+            status_code=409, detail="Use la operación de asignación con sus controles"
+        )
 
     current_status = order.status
     allowed = (
@@ -1049,85 +1042,6 @@ async def _ensure_delivery_and_financial_records(
         )
 
 
-async def _ensure_delivery_record_on_assignment(
-    db: AsyncSession, order: Order, rider_id: uuid.UUID
-) -> None:
-    """
-    Crea o actualiza el registro en la tabla deliveries cuando se asigna/reasigna un repartidor a una orden.
-
-    Esto asegura que toda orden asignada tenga trazabilidad desde el inicio,
-    permitiendo que aparezca en la vista de auditoría del manager incluso antes
-    de ser completada.
-
-    En caso de REASIGNACIÓN (cambio de rider):
-    - Actualiza delivery.rider_id al nuevo rider
-    - Reinicia el estado a INICIADA para que el nuevo rider comience el flujo
-    - Limpia timestamps anteriores (started_at, arrived_pickup_at, etc.)
-    """
-    # Verificar si ya existe un registro de entrega para esta orden
-    delivery_result = await db.execute(
-        select(Delivery).where(Delivery.order_id == order.id)
-    )
-    delivery = delivery_result.scalar_one_or_none()
-
-    if delivery and delivery.status in (
-        DeliveryStatus.COMPLETADA,
-        DeliveryStatus.FALLIDA,
-        DeliveryStatus.CANCELADA,
-    ):
-        raise HTTPException(
-            status_code=409, detail="La entrega ya es terminal; requiere revisión"
-        )
-
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-
-    if not delivery:
-        # Crear registro de entrega en estado INICIADA
-        delivery = Delivery(
-            order_id=order.id,
-            rider_id=rider_id,
-            status=DeliveryStatus.INICIADA,
-            started_at=order.accepted_at or now,
-            sla_expected_minutes=getattr(order, "sla_minutes", 60),
-        )
-        db.add(delivery)
-        await db.flush()
-        logger.info(
-            f"Registro de entrega creado al asignar rider para orden {order.id} - Rider {rider_id}"
-        )
-    else:
-        # DETECTAR REASIGNACIÓN: Si el rider_id es diferente al actual
-        old_rider_id = delivery.rider_id
-        is_reassignment = old_rider_id is not None and old_rider_id != rider_id
-
-        if is_reassignment:
-            # REASIGNACIÓN: Actualizar rider y reiniciar estado de la entrega
-            logger.info(
-                f"Reasignación detectada: Orden {order.id} pasa de rider {old_rider_id} a {rider_id}"
-            )
-            delivery.rider_id = rider_id
-            delivery.status = DeliveryStatus.INICIADA
-            delivery.started_at = order.accepted_at or now
-            # Limpiar timestamps de etapas posteriores para que el nuevo rider comience limpio
-            delivery.arrived_pickup_at = None
-            delivery.left_pickup_at = None
-            delivery.arrived_delivery_at = None
-            delivery.completed_at = None
-            delivery.issue_type = None
-            delivery.issue_description = None
-            delivery.has_issues = False
-        elif not delivery.rider_id:
-            # Primera asignación (no había rider antes)
-            delivery.rider_id = rider_id
-            delivery.status = DeliveryStatus.INICIADA
-            delivery.started_at = order.accepted_at or now
-
-        await db.flush()
-        logger.info(
-            f"Registro de entrega {'reasignado' if is_reassignment else 'actualizado'} con rider para orden {order.id}"
-        )
-
-
 @router.patch("/{order_id}/cancel")
 async def cancel_order(
     order_id: str,
@@ -1163,6 +1077,8 @@ async def assign_order_auto(
     Usa el algoritmo de distancia esférica (Haversine/PostGIS).
     CORRECCIÓN: Se usan los nombres correctos de columnas (pickup_lat/pickup_lng).
     """
+    # Capture the authenticated epoch before waiting on Order/Delivery/Rider.
+    actor_id, expected_version = current_user.id, current_user.token_version
     # 1. Obtener el pedido
     result = await db.execute(
         select(Order)
@@ -1200,10 +1116,11 @@ async def assign_order_auto(
         func.ST_MakePoint(order.pickup_longitude, order.pickup_latitude), 4326
     )
 
-    # Buscamos los 5 más cercanos que estén ACTIVOS y ONLINE
+    delivery = await lock_assignment_delivery(db, order)
+    # Bound the search to five live-account candidates; lock/recheck each below.
     stmt = (
-        select(Rider)
-        .options(joinedload(Rider.user))
+        select(Rider.id)
+        .join(User, User.id == Rider.user_id)
         .where(
             Rider.status == RiderStatus.ACTIVO,
             Rider.is_online == True,
@@ -1212,8 +1129,10 @@ async def assign_order_auto(
             Rider.last_lng.is_not(None),
             Rider.last_lat.between(-90, 90),
             Rider.last_lng.between(-180, 180),
+            User.is_active.is_(True),
+            User.role == UserRole.REPARTIDOR,
         )
-        .order_by(func.ST_DistanceSphere(Rider.last_location, ref_point))
+        .order_by(func.ST_DistanceSphere(Rider.last_location, ref_point), Rider.id)
         .limit(5)
     )
 
@@ -1226,8 +1145,24 @@ async def assign_order_auto(
             detail="No hay repartidores disponibles cerca del restaurante.",
         )
 
-    # 3. Seleccionar al más cercano (el primero de la lista ordenada)
-    best_rider = nearby_riders[0]
+    candidate = None
+    for rider_id in nearby_riders:
+        candidate = await assignment_candidate(
+            db,
+            rider_id,
+            actor_id,
+            expected_version,
+            require_online=True,
+            skip_locked=True,
+        )
+        if candidate is not None:
+            break
+    if candidate is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No hay repartidores habilitados disponibles; vuelva a intentar",
+        )
+    best_rider = candidate.rider
 
     # Calcular distancia real en KM usando Haversine (Python) para la respuesta
     # Asumimos que last_lat/last_lng existen porque last_location no es None
@@ -1242,13 +1177,7 @@ async def assign_order_auto(
         best_rider.last_lng,
     )
 
-    # 4. Asignar el pedido
-    order.assigned_rider_id = best_rider.id
-    order.status = OrderStatus.ASIGNADO
-    order.accepted_at = utc_now_naive()
-
-    # CRITICAL: Crear registro en deliveries cuando se asigna el repartidor
-    await _ensure_delivery_record_on_assignment(db, order, best_rider.id)
+    await apply_order_assignment(db, order, delivery, candidate, source="order_auto")
 
     # 5. Crear notificación para el rider
     try:
@@ -1272,26 +1201,6 @@ async def assign_order_auto(
             "Modelo de Notificaciones no encontrado, saltando creación de notificación."
         )
 
-    # 6. Registrar en Auditoría
-    try:
-        from app.models.audit_log import ActionType, AuditLog
-
-        audit = AuditLog(
-            id=uuid.uuid4(),
-            user_id=current_user.id,
-            user_email=current_user.email,
-            user_role=(optional_enum_value(current_user.role)),
-            action_type=ActionType.ASSIGN,
-            resource_type="Order",
-            resource_id=str(order.id),
-            description=f"Asignación automática al rider {best_rider.id} (Distancia: {distance_km:.2f}km)",
-            success=True,
-            created_at=utc_now_naive(),
-        )
-        db.add(audit)
-    except Exception as exc:
-        logger.warning("No se pudo crear auditoría de asignación: %s", exc)
-
     await db.commit()
     await db.refresh(order)
 
@@ -1300,7 +1209,7 @@ async def assign_order_auto(
         "order_id": str(order.id),
         "assigned_rider": {
             "id": str(best_rider.id),
-            "name": f"{best_rider.user.first_name} {best_rider.user.last_name}",
+            "name": f"{candidate.owner.first_name or ''} {candidate.owner.last_name or ''}".strip(),
             "distance_km": round(distance_km, 2),
         },
         "other_candidates": len(nearby_riders) - 1,

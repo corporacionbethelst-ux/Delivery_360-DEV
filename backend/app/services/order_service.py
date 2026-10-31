@@ -19,6 +19,8 @@ from app.services.order_cancellation import (
     LEGACY_REASON,
 )
 from app.schemas.order import OrderCreate, OrderUpdate
+from app.services.order_assignment import assign_order_manually
+from app.services.notification_values import notification_uuid
 
 
 class OrderService:
@@ -42,29 +44,39 @@ class OrderService:
         self,
         db: AsyncSession,
         order_data: OrderCreate,
-        created_by: int,
+        created_by: int | uuid.UUID | str,
     ) -> Order:
-        now = datetime.utcnow()
-        estimated_delivery = now.replace(microsecond=0) + timedelta(minutes=60)
-        data = order_data.model_dump()
-        data["items"] = json_value(order_data.items)
-        data["priority"] = (
-            OrderPriority(order_data.priority.value)
-            if order_data.priority is not None
-            else None
-        )
-        data["status"] = OrderStatus.PENDIENTE
-        data["estimated_delivery_time"] = estimated_delivery
-        data["sla_deadline"] = estimated_delivery
-        order = Order(**data)
-        if order_data.assigned_rider_id is not None:
-            order.status = OrderStatus.ASIGNADO
-            order.accepted_at = now
-
-        db.add(order)
-        await db.commit()
-        await db.refresh(order)
-        return order
+        try:
+            now = datetime.utcnow()
+            estimated_delivery = now.replace(microsecond=0) + timedelta(minutes=60)
+            data = order_data.model_dump()
+            data["items"] = json_value(order_data.items)
+            data["priority"] = (
+                OrderPriority(order_data.priority.value)
+                if order_data.priority is not None
+                else None
+            )
+            data["status"] = OrderStatus.PENDIENTE
+            data["estimated_delivery_time"] = estimated_delivery
+            data["sla_deadline"] = estimated_delivery
+            order = Order(**data)
+            db.add(order)
+            if order_data.assigned_rider_id is not None:
+                actor_id = notification_uuid(created_by, "Responsable")
+                await db.flush()
+                await assign_order_manually(
+                    db,
+                    order,
+                    order_data.assigned_rider_id,
+                    actor_id,
+                    source="service_create",
+                )
+            await db.commit()
+            await db.refresh(order)
+            return order
+        except BaseException:
+            await db.rollback()
+            raise
 
     async def update_order(
         self,
@@ -75,6 +87,12 @@ class OrderService:
     ) -> Order:
         order = await self.get_order(db, order_id, lock=True)
         update_data = order_data.model_dump(exclude_unset=True)
+        if "assigned_rider_id" in update_data or (
+            order_data.status is not None
+            and order_data.status.value == "ASIGNADO"
+            and order.status != OrderStatus.ASIGNADO
+        ):
+            raise AppException("Use la operación de asignación con sus controles", 409)
         if "items" in update_data:
             update_data["items"] = json_value(update_data["items"])
         if order_data.priority is not None:
@@ -112,22 +130,29 @@ class OrderService:
         db: AsyncSession,
         order_id: uuid.UUID,
         rider_id: uuid.UUID,
-        assigned_by: int,
+        assigned_by: uuid.UUID | str,
     ) -> Order:
-        order = await self.get_order(db, order_id, lock=True)
-        if order.status not in [OrderStatus.PENDIENTE, OrderStatus.ASIGNADO]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"No se puede asignar repartidor. Estado actual: {optional_enum_value(order.status)}",
-            )
+        try:
+            order = await self.get_order(db, order_id, lock=True)
+            if order.status not in [OrderStatus.PENDIENTE, OrderStatus.ASIGNADO]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"No se puede asignar repartidor. Estado actual: {optional_enum_value(order.status)}",
+                )
 
-        order.assigned_rider_id = rider_id
-        order.status = OrderStatus.ASIGNADO
-        order.accepted_at = datetime.utcnow()
-        db.add(order)
-        await db.commit()
-        await db.refresh(order)
-        return order
+            await assign_order_manually(
+                db,
+                order,
+                rider_id,
+                notification_uuid(assigned_by, "Responsable"),
+                source="service_manual",
+            )
+            await db.commit()
+            await db.refresh(order)
+            return order
+        except BaseException:
+            await db.rollback()
+            raise
 
     async def update_status(
         self,
@@ -141,6 +166,8 @@ class OrderService:
                 db, order_id, str(updated_by), LEGACY_REASON, commit=True
             )
         order = await self.get_order(db, order_id, lock=True)
+        if new_status == OrderStatus.ASIGNADO:
+            raise AppException("Use la operación de asignación con sus controles", 409)
         valid_transitions = {
             OrderStatus.PENDIENTE: [OrderStatus.ASIGNADO, OrderStatus.CANCELADO],
             OrderStatus.ASIGNADO: [OrderStatus.RECOLECTADO, OrderStatus.CANCELADO],

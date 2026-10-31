@@ -167,3 +167,7 @@ ciclo de bloqueo con la cancelación y conserva el esquema y las rutas.
 La entrega 60 aísla los avisos posteriores a una asignación, hace atómica su
 auditoría y alinea los adaptadores internos con sus modelos y políticas reales.
 Consulte [contratos de ejecución, compatibilidad y límites](RUNTIME_CONTRACTS.md).
+
+La entrega 61 unifica elegibilidad y auditoría de las cuatro entradas de
+asignación, protege avance operativo y conserva motivos largos en el JSON de
+auditoría. Consulte [asignación, bloqueos y compatibilidad](ASSIGNMENT_GUARDS.md).

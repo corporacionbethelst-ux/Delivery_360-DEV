@@ -183,9 +183,10 @@ class RiderService:
                     resource_type="Rider",
                     resource_id=str(rider.id),
                     description="Decisión administrativa sobre perfil de repartidor",
-                    changes_summary=reason,
+                    changes_summary=reason[:500],
                     old_values=before,
                     new_values={
+                        "reason": reason,
                         "status": rider.status.value,
                         "approved_at": (
                             rider.approved_at.isoformat() if rider.approved_at else None
