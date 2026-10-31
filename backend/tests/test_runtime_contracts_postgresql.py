@@ -17,6 +17,7 @@ from app.core.security import create_access_token, decode_token
 from app.core.exceptions import AppException
 from app.models.user import User, UserRole
 from app.models.rider import Rider, RiderStatus
+from app.models.route import Route, RouteStatus
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
 from app.models.order import Order, OrderStatus
 from app.models.delivery import Delivery, DeliveryStatus
@@ -63,6 +64,7 @@ async def runtime_db(sla_db, tmp_path, monkeypatch):
             update(Order).values(status=OrderStatus.PENDIENTE, assigned_rider_id=None)
         )
         await db.execute(update(Delivery).values(status=DeliveryStatus.INICIADA))
+        await db.execute(update(Route).values(status=RouteStatus.PLANIFICADA))
         await db.commit()
     return client, sessions, ids
 
@@ -82,11 +84,20 @@ async def test_notice_failure_cannot_expire_committed_assignment_or_hide_its_aud
 ):
     client, sessions, ids = runtime_db
     if failure == "inactive_recipient":
-        async with sessions() as db:
-            await db.execute(
+        original_create = NotificationService.create_notification
+
+        async def deactivated_after_assignment(service, *args, **kwargs):
+            # Assignment now rejects pre-existing inactive owners. This fault
+            # occurs after the assignment commit, inside the separate notice unit.
+            await service.db.execute(
                 update(User).where(User.id == ids["owner"]).values(is_active=False)
             )
-            await db.commit()
+            await service.db.commit()
+            return await original_create(service, *args, **kwargs)
+
+        monkeypatch.setattr(
+            NotificationService, "create_notification", deactivated_after_assignment
+        )
     else:
         original_create = NotificationService.create_notification
 

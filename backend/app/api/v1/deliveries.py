@@ -22,6 +22,7 @@ from sqlalchemy.orm import aliased
 from app.api.v1.auth import get_current_user, require_role
 from app.core.serialization import optional_enum_value
 from app.core.database import get_db
+from app.services.order_assignment import assign_order_manually
 from app.core.operation_permissions import (
     ensure_operation_role,
     ensure_rider_resource_access,
@@ -506,6 +507,7 @@ async def assign_delivery(
     ),
 ):
     """Asigna un repartidor a una entrega pendiente."""
+    actor_id, expected_version = current_user.id, current_user.token_version
     delivery = await lock_delivery_transition(
         db, _parse_uuid(delivery_id, "delivery_id"), actor_id=current_user.id
     )
@@ -515,25 +517,24 @@ async def assign_delivery(
             detail=f"No se puede asignar en estado {optional_enum_value(delivery.status)}",
         )
 
-    rider_result = await db.execute(
-        select(Rider).where(Rider.id == _parse_uuid(body.rider_id, "rider_id"))
+    order = await db.scalar(
+        select(Order)
+        .where(Order.id == delivery.order_id)
+        .execution_options(populate_existing=True)
     )
-    rider = rider_result.scalar_one_or_none()
-    if not rider or rider.status != RiderStatus.ACTIVO:
-        raise HTTPException(status_code=400, detail="Repartidor no disponible")
-
-    now = datetime.now(timezone.utc)
-
-    delivery.rider_id = rider.id
-    delivery.status = DeliveryStatus.INICIADA
-    delivery.started_at = now
-
-    order_result = await db.execute(select(Order).where(Order.id == delivery.order_id))
-    order = order_result.scalar_one_or_none()
-    if order:
-        order.assigned_rider_id = rider.id
-        order.status = OrderStatus.ASIGNADO
-        order.accepted_at = now
+    if order is None:
+        raise HTTPException(
+            status_code=409, detail="La orden de la entrega requiere revisión"
+        )
+    candidate = await assign_order_manually(
+        db,
+        order,
+        _parse_uuid(body.rider_id, "rider_id"),
+        actor_id,
+        expected_version,
+        source="delivery_manual",
+    )
+    rider = candidate.rider
 
     await db.commit()
 

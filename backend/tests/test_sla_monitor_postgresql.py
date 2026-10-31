@@ -370,13 +370,34 @@ async def test_existing_worker_runs_warning_and_breach_scans_with_one_clock(
 @pytest.mark.asyncio
 async def test_assignment_records_notification_for_user_without_lazy_rider_relationship(
     sla_db,
+    tmp_path,
+    monkeypatch,
 ):
     from app.core.security import create_access_token
+    from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
+    from app.models.route import Route, RouteStatus
 
     client, sessions, ids = sla_db
+    monkeypatch.chdir(tmp_path)
     async with sessions() as db:
+        conn = await db.connection()
+        await conn.run_sync(RiderDocument.__table__.create)
+        folder = tmp_path / "uploads/documents" / str(ids["rider"])
+        folder.mkdir(parents=True)
+        for kind in DocumentType:
+            path = folder / (kind.value + ".pdf")
+            path.write_bytes(b"%PDF assignment evidence")
+            db.add(
+                RiderDocument(
+                    rider_id=ids["rider"],
+                    type=kind,
+                    status=DocumentStatus.APROBADO,
+                    file_url=f"/uploads/documents/{ids['rider']}/{path.name}",
+                )
+            )
         await db.execute(update(Order).values(status=OrderStatus.ASIGNADO))
         await db.execute(update(Delivery).values(status=DeliveryStatus.INICIADA))
+        await db.execute(update(Route).values(status=RouteStatus.PLANIFICADA))
         await db.commit()
     response = client.patch(
         f"/api/v1/orders/{ids['order']}/assign",

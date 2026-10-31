@@ -132,3 +132,13 @@ ciclo completo de alertas y bandejas, elegibilidad unificada, ratings verificado
 observabilidad de workers, conciliación y libros/monedas, cobertura y validación
 operativa del roadmap. Esta entrega no declara producción completa ni ejecuta
 despliegues, migraciones o pagos/mensajes/facturas reales.
+
+## Actualización de la entrega 61
+
+La elegibilidad de cuentas y documentos ahora se comprueba en las cuatro
+entradas HTTP de asignación y en los adaptadores OrderService correspondientes.
+Se capturan épocas JWT antes de esperar y se conservan permisos/cuentas bajo
+bloqueo hasta el commit. Una entrega/ruta con avance no se reinicia. El motivo
+completo de aprobación/rechazo se conserva en new_values.reason y su resumen
+se acota al VARCHAR(500) existente. Estas correcciones cierran esos pendientes
+de la entrega 60; detalles y límites restantes: [ASSIGNMENT_GUARDS.md](ASSIGNMENT_GUARDS.md).

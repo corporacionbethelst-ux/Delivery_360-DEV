@@ -43,16 +43,15 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
     return rider.is_online && rider.status === 'ACTIVO' && matchesSearch;
   });
 
-  const handleAssign = () => {
-    if (selectedRiderId) {
-      onAssign(selectedRiderId);
-    }
-  };
-
   // Detección segura de asignación previa
   // Asumiendo que Order tiene assignedRider o similar, si no, ajustar según tu tipo Order
   const assignedRider = (order as any).assigned_rider || order.assignedRider;
   const isAssigned = !!(order as any).assigned_rider_id || !!order.assignedRiderId || !!assignedRider;
+  const canAssign = !isLoading && !isAssigned && order.status === 'PENDIENTE' &&
+    availableRiders.some(rider => rider.id === selectedRiderId);
+  const handleAssign = () => {
+    if (canAssign && selectedRiderId) onAssign(selectedRiderId);
+  };
   const assignedRiderName = assignedRider?.full_name || 
                             `${(assignedRider as any)?.first_name || ''} ${(assignedRider as any)?.last_name || ''}`.trim() || 
                             'Repartidor';
@@ -69,7 +68,7 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
               - {order.customerName || (order as any).customer_name} 
             </p>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Cerrar asignación">
             <X className="w-5 h-5" />
           </Button>
         </div>
@@ -169,6 +168,16 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
               return (
                 <Card
                   key={rider.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Seleccionar a ${fullName}`}
+                  aria-pressed={selectedRiderId === rider.id}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setSelectedRiderId(rider.id);
+                    }
+                  }}
                   className={`p-4 cursor-pointer transition-all hover:shadow-md ${
                     selectedRiderId === rider.id 
                       ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' 
@@ -239,11 +248,11 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
           </Button>
           <Button 
             onClick={handleAssign} 
-            disabled={!selectedRiderId || isAssigned}
+            disabled={!canAssign}
             className="gap-2"
           >
             <User className="w-4 h-4" />
-            {isAssigned ? 'Ya Asignado' : `Asignar Orden`}
+            {isAssigned ? 'Ya Asignado' : order.status !== 'PENDIENTE' ? 'Pedido no asignable' : 'Asignar Orden'}
           </Button>
         </div>
       </Card>
