@@ -171,3 +171,7 @@ Consulte [contratos de ejecución, compatibilidad y límites](RUNTIME_CONTRACTS.
 La entrega 61 unifica elegibilidad y auditoría de las cuatro entradas de
 asignación, protege avance operativo y conserva motivos largos en el JSON de
 auditoría. Consulte [asignación, bloqueos y compatibilidad](ASSIGNMENT_GUARDS.md).
+
+La entrega 62 corrige los relojes SLA y la auditoría inicial al asignar, reconoce
+repeticiones sin cambios y confirma la operación real desde el componente de
+lista frontend. Consulte [repeticiones, confirmación y límites](ASSIGNMENT_REPLAY.md).

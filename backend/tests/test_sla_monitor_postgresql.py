@@ -395,7 +395,9 @@ async def test_assignment_records_notification_for_user_without_lazy_rider_relat
                     file_url=f"/uploads/documents/{ids['rider']}/{path.name}",
                 )
             )
-        await db.execute(update(Order).values(status=OrderStatus.ASIGNADO))
+        await db.execute(
+            update(Order).values(status=OrderStatus.PENDIENTE, assigned_rider_id=None)
+        )
         await db.execute(update(Delivery).values(status=DeliveryStatus.INICIADA))
         await db.execute(update(Route).values(status=RouteStatus.PLANIFICADA))
         await db.commit()

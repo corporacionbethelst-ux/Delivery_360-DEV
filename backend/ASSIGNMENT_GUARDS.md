@@ -126,3 +126,12 @@ revisión optimista de asignación en el formulario, capacidad por rider, polít
 de antigüedad GPS o revisión completa de datos históricos. Continúan también
 los proveedores homologados, conciliación, alertas, cobertura y validación
 operativa del roadmap. No se declara producción completa.
+
+## Actualización de la entrega 62
+
+Se corrigen dos errores de esta entrega: reiniciar el reloj al repetir el mismo
+rider y precargar el rider en OrderService.create_order antes de su primera
+auditoría. La repetición temprana sin cambios conserva tiempos y no emite nuevos
+recibos/hooks; no es idempotencia global por clave. Se conecta la confirmación
+real de OrderList y se conserva el error ante estadísticas legacy no disponibles.
+Detalles y compatibilidad: [ASSIGNMENT_REPLAY.md](ASSIGNMENT_REPLAY.md).

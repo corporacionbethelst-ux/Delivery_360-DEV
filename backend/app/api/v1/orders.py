@@ -780,7 +780,7 @@ async def assign_rider(
 
     # Notification failure must never expire the committed request objects.
     try:
-        if rider.user_id:
+        if candidate.changed and rider.user_id:
             notice_recorded = await record_legacy_notice(
                 db,
                 user_id=rider.user_id,
@@ -797,7 +797,7 @@ async def assign_rider(
     # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
     try:
         redis_logger = get_redis_audit_logger()
-        if redis_logger.connected:
+        if candidate.changed and redis_logger.connected:
             await redis_logger.log_order_assigned(
                 order_id=str(order.id),
                 rider_id=str(rider.id),

@@ -6132,3 +6132,196 @@ revisión; su CI nuevo se consulta e informa por separado. No se fusiona ni
 despliega, no se migra producción y no se envían pagos, mensajes o facturas reales.
 No se declara el sistema al cien por ciento. Guía y diccionario de campos usados:
 backend/ASSIGNMENT_GUARDS.md.
+
+---
+
+## Entrega 62 — Relojes SLA preservados, confirmación real y datos veraces
+
+**Fecha:** 31 de octubre de 2026, America/Caracas. **Base contrastada:** main
+20bd3d8155b602f3970ad3ef9021aea19053069c, que fusionó el PR #302. Se verificó el
+árbol remoto contra el local de la entrega 61 antes de crear una rama nueva.
+
+### Estado recibido y errores corregidos de la entrega anterior
+
+El CI del PR #302 aprobó backend y seguridad. Backend confirmó 2388 tests,
+dos SDK omitidos, una advertencia, 1241,56 s y Mypy sin errores en 193 archivos.
+Frontend aprobó 782 tests / 55 suites y falló el gate 50 %: líneas 30,58 %,
+statements 30,34 %, ramas 25,63 % y funciones 26,13 %. Son resultados anteriores;
+la verificación de la fuente nueva se registra por separado.
+
+La revisión encontró **dos errores P2 introducidos en la entrega 61**. Al repetir
+el rider existente sobre una entrega INICIADA se reemplazaba started_at, moviendo
+el reloj usado por el monitor y por el cálculo de duración. Además, el adaptador
+OrderService.create_order precargaba assigned_rider_id al construir Order y la
+primera auditoría se registraba como REASSIGN. Esta entrega corrige ambos y añade
+los escenarios positivos/repetidos que faltaban en la validación anterior.
+
+### 1. Repeticiones sin cambio de rider ni reinicio del SLA
+
+Bajo los mismos bloqueos y permisos de la entrega 61, una Order ASIGNADO con el
+mismo rider y su Delivery INICIADA reconoce el estado ya confirmado. No se
+reescriben accepted_at, started_at, updated_at ni filas de negocio; no se agrega
+otra auditoría de asignación. Se devuelven los datos persistidos actuales.
+
+El resultado interno changed controla efectos posteriores: el handler de pedido
+omite aviso legacy y publicación Redis si no cambió nada; el handler de entrega
+omite su hook. Se evita que una repetición vuelva a emitir una asignación que
+no ocurrió. No se eliminan recibos históricos ni se modifica el estado de lectura.
+
+La entrada POST /deliveries/{id}/assign admite repetir el mismo rider cuando la
+entrega ya está INICIADA, conservando el rechazo de un rider distinto en ese
+estado. La asignación manual de pedido y el adaptador interno comparten esta
+conducta. El automático continúa limitado a pedidos PENDIENTE. No cambian las
+rutas, cuerpos ni OpenAPI.
+
+Se sigue verificando cuenta, rol, documentos, época JWT y evidencia operativa:
+la repetición no permite eludir una revocación o una cuenta ahora inactiva. Un
+reloj histórico NULL permanece NULL; no se inventa un inicio nuevo ni se declara
+cumplimiento. Cuando una entrega histórica INICIADA ya ligada al mismo rider se
+coordina con una Order todavía PENDIENTE, también se conserva su inicio existente.
+
+Las pruebas comparan relojes conocidos/NULL y updated_at antes/después de dos
+repeticiones por pedido, entrega y servicio. Otra prueba invoca el monitor real
+con una entrega vencida y confirma que sigue creando su alerta. También se
+ejecutan primeras asignaciones simultáneas, incluidas entradas mezcladas de pedido
+y entrega: queda un recibo y un solo efecto de notificación correspondiente.
+
+### 2. Primera creación y reasignación con evidencia correcta
+
+OrderService.create_order retira assigned_rider_id del payload inicial del ORM,
+conservando el valor del esquema de entrada para entregárselo al coordinador.
+El objeto de entrada no se modifica. La primera asignación queda como ASSIGN,
+con rider previo nulo, y crea Delivery y AuditLog en la misma transacción.
+
+Una reasignación verdadera a otro rider mantiene REASSIGN y la política previa
+de iniciar su nueva etapa temprana. old_values/new_values incorpora accepted_at
+y started_at anterior/nuevo, junto con los vínculos y source ya existentes. Esto
+permite distinguir un cambio real de una simple repetición. No se reescribe el
+deadline original del pedido ni se homologan aquí todos los SLA entre etapas.
+
+La prueba de creación válida mediante el servicio verifica actor, ASSIGN, rider
+previo nulo y vínculo de entrega. La prueba de rider distinto comprueba ambos
+relojes de auditoría y una repetición posterior sin otro cambio.
+
+### 3. Confirmación frontend conectada al servidor
+
+OrderList, componente reutilizable, tenía un callback que solo imprimía un
+mensaje y cerraba el formulario. Ahora espera la acción real de ordersStore,
+confirma la respuesta y solo entonces cierra. No se afirma que todas las páginas
+de despacho utilicen ese componente; los flujos propios de otras páginas no se
+reescriben en este bloque.
+
+orderAssignmentPatch proyecta el contrato canónico de la API: assigned_rider,
+Order y Delivery deben coincidir con los IDs solicitados y ASIGNADO/INICIADA.
+La respuesta completa de una petición HTTP contra PostgreSQL de prueba se captura
+como fixture frontend nuevo. Se valida el nombre real de la relación y no se
+exige que el resumen del rider sea una cuenta User completa.
+
+La acción actualiza solo estado, referencia visible del rider y resumen de
+entrega. Conserva importes, cliente y direcciones; no reemplaza datos con defaults
+por ausencia de campos. Fechas/métricas opcionales ausentes o mal tipadas quedan
+desconocidas; los ceros medidos se conservan. Una respuesta exitosa pero
+contradictoria no publica éxito local: mantiene el formulario y pide revisar.
+Los fallos HTTP se propagan, y capturePrivateTask conserva el aislamiento de
+cuenta si una respuesta termina después de cambiar credenciales. El callback
+padre de OrderList vuelve a comprobar la sesión tras esperar al store: una
+cuenta puede cambiar justo después de que la acción ya haya terminado. El
+control negativo reproduce ese intervalo y la versión final no publica la
+confirmación anterior en la nueva cuenta.
+
+Si el padre entrega su propio array, se muestra el resultado confirmado mientras
+mantenga exactamente el objeto de entrada correspondiente. Un objeto nuevo del
+padre prevalece. No se instala un override permanente que oculte una actualización
+posterior ni se implementa aquí una revisión optimista de servidor.
+
+AssignRiderModal admite callbacks async, mantiene un único envío en curso por
+instancia y bloquea selección, confirmación y cierre hasta que termine. Contiene
+errores síncronos/asíncronos; el fallo conserva el formulario para revisar y
+reintentar, y el desmontaje no provoca otra llamada a cierre. Se mantienen sus
+controles anteriores de disponibilidad y estado del pedido. Los rechazos al
+cargar repartidores se contienen y bloquean confirmación hasta recargar, sin
+publicar estado desde una lectura que falló después del desmontaje.
+
+### 4. Estadísticas legacy sin cifras inventadas y respuestas vacías
+
+orderService.getStats deja de convertir un error de HTTP en 450 pedidos,
+ingresos y series ficticias. Propaga el error y rechaza métricas desconocidas o
+no finitas; no las transforma en ceros. Conserva datos válidos y no muta la
+respuesta. La ruta legacy /orders/stats sigue sin implementarse: no se agrega
+un endpoint nuevo ni se sustituye el panel operativo real existente.
+
+orderService.delete acepta una respuesta exitosa sin contenido, conforme a su
+contrato void, y sigue propagando errores. No se añade DELETE /orders ni se
+ejecuta borrado operativo real; tampoco se convierte la cancelación en borrado
+físico. Esta corrección evita declarar una segunda falla si una operación que
+devuelve vacío ya fue aceptada por su servidor.
+
+### 5. Regresión, cobertura y contratos
+
+Se añaden **16 casos backend y 49 frontend**. Cubren repetición, reloj desconocido,
+alerta vencida, auditoría inicial válida, cambio verdadero de rider, denegación
+vigente, concurrencia, transporte de confirmación, doble envío, error/reintento,
+props/store, cambio de cuenta, payload incoherente y métricas inválidas. Se ajusta
+el montaje de entrega PENDIENTE para no precargar un reloj de inicio artificial,
+y el test de aviso sin lazy-load representa una asignación real, no una repetida.
+
+Los primeros ensayos frontend señalaron datos de prueba sin refresh_token,
+fixtures incompletos frente a sus tipos y consultas DOM ambiguas entre opción de
+filtro y estado visible. Se corrigió el montaje/selector, sin relajar las
+validaciones de aplicación. La corrida focal final aprobó completa.
+
+| Control | Resultado |
+| --- | --- |
+| Backend focal: repetición/elegibilidad/concurrencia/SLA | 106 aprobados, 188,37 s; una advertencia previa |
+| Frontend focal, incluidos stores y cambio de cuenta | 166 aprobados / cuatro suites, 6,321 s |
+| Control negativo de reloj anterior | Fallo esperado: el monitor crea cero alertas donde debía crear una |
+| Control negativo de creación anterior | Fallo esperado: REASSIGN donde la primera asignación debe ser ASSIGN |
+| Control negativo del callback frontend | Fallo esperado: confirmación de la cuenta A tras iniciar B; la versión final conserva el error y no publica ese resultado |
+| Backend completo final | **2404 aprobados, dos SDK opcionales omitidos**, 2406 nodos / 108 archivos; tres advertencias previas (una por grupo). Grupo a: 795 aprobados, 2 omitidos, 975.29 s; Grupo b: 797 aprobados, 0 omitidos, 908.02 s; Grupo c: 812 aprobados, 0 omitidos, 932.89 s |
+| SDK instalados, HTTP sustituido | Dos aprobados aparte, 1,08 s; una advertencia previa |
+| Frontend completo/cobertura | **831 aprobados / 57 suites**, 54,314 s; tipos, lint y build aprobados (48 páginas). Líneas **31,84 %**, statements 31,64 %, ramas 27,48 %, funciones 27,54 %. El gate 50 % sigue fallando y no se reduce |
+| Frontend tipos, lint y build | Aprobados; 48 páginas generadas. Advertencias de hooks previas |
+| Mypy | Cero errores en 193 archivos con las mismas opciones CI; notas previas de cuerpos sin anotaciones |
+| Black, flake8 crítico, diff y hashes | **Aprobados**: Black (196 archivos), flake8 crítico (cero incidencias) y diff; 641 hashes conservados durante backend y 641 hashes finales para frontend, con cuatro cambios frontend explícitos después del backend |
+| API, ORM y snapshots previos | 202 rutas, 194 dependencias y OpenAPI idénticos; contratos físicos previos intactos |
+
+El manifiesto exhaustivo contiene 2406 nodos / 108 archivos. Reutiliza la partición
+anterior medida y añade los 16 casos nuevos al grupo que antes terminó primero:
+tres PostgreSQL/PostGIS y Redis independientes, sin solapamiento por archivo.
+Los 641 hashes de fuentes/tests/JSON/frontend se verifican antes y después.
+No se editó código durante esa regresión backend. Después de cerrarla se añadió
+la comprobación final de sesión del callback padre, modificando solo cuatro archivos
+frontend (lista, modal y sus tests). Se tomaron 641 hashes finales y se repitieron todas
+las pruebas, tipos, lint y build frontend sobre esa fuente final; las fuentes
+backend permanecen idénticas. Los SDK opcionales se ejecutan también por separado
+con transporte sustituido, sin proveedores externos.
+
+Los controles negativos ejecutan las funciones exactas de la base en procesos
+separados mediante un plugin temporal fuera del repositorio; sus fallos esperados
+no se mezclan con la fuente final. El fixture frontend nuevo contiene solo datos
+del servidor de prueba y no se regeneran snapshots anteriores.
+
+Se conserva OpenAPI SHA256 **84bef605f22c31d4e8b3d9279e812d05c3cc8d3d303f73c441248f307dba0172**,
+con 202 rutas y 194 contratos de dependencia. No cambian modelos/DDL, migraciones,
+dependencias, flags, workflows ni umbrales. Los nuevos tiempos de auditoría usan
+los JSON existentes. No hay ignores nuevos de aplicación. Cero errores de Mypy
+no equivale a tipado exhaustivo ni a una prueba formal de producción.
+
+### Pendientes y continuidad
+
+Se cierran ambos hallazgos P2 del PR #302 y se evita la confirmación ficticia del
+componente de lista y las cifras inventadas del helper estadístico legacy.
+La cobertura sube de 30,58 % a 31,84 % de líneas, con sus otras métricas también
+por debajo del umbral. Queda pendiente alcanzar 50 % sin excluir fuentes o bajar
+el control, además de la validación E2E de flujos completos.
+
+La repetición sin cambios no es idempotencia global: crear por POST puede crear
+otro pedido y un request antiguo con un rider distinto al actual puede producir
+otra reasignación. Siguen pendientes claves durables/revisión optimista, outbox,
+capacidad por rider, antigüedad GPS, reparación histórica y política SLA entre
+etapas, proveedores homologados, conciliación y el resto del roadmap.
+
+La publicación coteja blobs/árbol/commit con el local validado y abre un PR listo
+para revisión. Su CI nuevo se informa por separado. No se fusiona ni despliega,
+no se migra producción ni se envían pagos, mensajes o facturas reales. No se
+declara el sistema al cien por ciento. Guía: backend/ASSIGNMENT_REPLAY.md.
