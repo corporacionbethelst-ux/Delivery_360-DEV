@@ -132,7 +132,7 @@ def validate_date(
     try:
         date_obj = datetime.strptime(date_str, format)
         return True, date_obj
-    except ValueError:
+    except (ValueError, TypeError):
         return False, None
 
 
@@ -141,10 +141,10 @@ def validate_future_date(date_str: str, format: str = "%Y-%m-%d") -> bool:
     Valida que la fecha sea futura
     """
     is_valid, date_obj = validate_date(date_str, format)
-    if not is_valid:
+    if not is_valid or date_obj is None:
         return False
 
-    return date_obj > datetime.now()
+    return date_obj > datetime.now(date_obj.tzinfo)
 
 
 def validate_positive_number(value: float, allow_zero: bool = False) -> bool:

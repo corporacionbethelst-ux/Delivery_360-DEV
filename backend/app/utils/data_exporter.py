@@ -6,7 +6,7 @@ Soporte para CSV, Excel, PDF y JSON
 import csv
 import json
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any, TypedDict
 from io import StringIO, BytesIO
 
 
@@ -63,6 +63,7 @@ def export_to_json(
     Returns:
         String con contenido JSON
     """
+    output: Dict[str, Any] | List[Dict]
     if include_metadata:
         output = {
             "metadata": {
@@ -241,9 +242,22 @@ def export_financial_summary(period: str, summary: Dict, format: str = "json") -
         raise ValueError(f"Formato no soportado: {format}")
 
 
+class ExportSummary(TypedDict):
+    total_records: int
+    by_type: Dict[str, int]
+
+
+class DataExportPackage(TypedDict):
+    user_id: int
+    export_timestamp: str
+    data_types_included: List[str]
+    data: Dict[str, List[Dict]]
+    summary: ExportSummary
+
+
 def create_data_package(
     user_id: int, data_types: List[str], data: Dict[str, List[Dict]]
-) -> Dict:
+) -> DataExportPackage:
     """
     Crea paquete completo de datos para exportación (derecho LGPD)
 
@@ -255,7 +269,7 @@ def create_data_package(
     Returns:
         Paquete de datos listo para exportar
     """
-    package = {
+    package: DataExportPackage = {
         "user_id": user_id,
         "export_timestamp": datetime.now().isoformat(),
         "data_types_included": data_types,

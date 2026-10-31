@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy import Boolean, Column, DateTime, Float, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from app.core.database import Base
 
@@ -47,7 +47,7 @@ class Zone(Base):
     center_lng = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=False), default=utc_now_naive, nullable=False)
-    updated_at = Column(
+    updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=False),
         default=utc_now_naive,
         onupdate=utc_now_naive,

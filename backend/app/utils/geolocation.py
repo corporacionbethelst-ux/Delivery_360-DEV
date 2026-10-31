@@ -89,7 +89,7 @@ def simplify_route(
     if len(points) <= 2:
         return points
 
-    max_dist = 0
+    max_dist = 0.0
     max_idx = 0
 
     first = points[0]

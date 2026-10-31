@@ -29,7 +29,7 @@ class CRUDProductivity:
             .offset(skip)
             .limit(limit)
         )
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     async def create_metrics(
         self,

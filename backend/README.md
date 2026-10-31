@@ -163,3 +163,7 @@ envíos simulados, la liquidación sin evidencia y el borrado global ya no decla
 SLA e integridad de notificaciones legacy: [bloqueos, avisos previos, evidencia de
 envío, diccionario y límites](SLA_AND_LEGACY_INBOX.md). La entrega 59 elimina el
 ciclo de bloqueo con la cancelación y conserva el esquema y las rutas.
+
+La entrega 60 aísla los avisos posteriores a una asignación, hace atómica su
+auditoría y alinea los adaptadores internos con sus modelos y políticas reales.
+Consulte [contratos de ejecución, compatibilidad y límites](RUNTIME_CONTRACTS.md).

@@ -7,6 +7,7 @@ from fastapi import (
     Path,
     Response,
     Header,
+    Body,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -448,7 +449,7 @@ async def create_vehicle(
 @router.patch("/{vehicle_id}", response_model=VehicleResponse)
 async def update_vehicle(
     vehicle_id: str = Path(..., description="ID del vehículo (UUID)"),
-    body: VehicleUpdate = ...,
+    body: VehicleUpdate = Body(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
     if_match: Annotated[Optional[str], Header(alias="If-Match")] = None,

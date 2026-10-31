@@ -16,6 +16,7 @@ from app.core.serialization import optional_enum_value
 from app.core.json_types import json_value
 from app.core.database import get_db
 from app.core.delivery_rules import validate_delivery_otp
+from app.services.route_geometry import coordinate
 from app.core.operation_permissions import (
     ensure_operation_role,
     ensure_rider_resource_access,
@@ -37,11 +38,11 @@ from app.services.order_cancellation import (
     LEGACY_REASON,
 )
 from app.api.v1.auth import get_current_user, require_role
-from app.services.notification_service import NotificationService
+from app.services.notification_hooks import record_legacy_notice
 from app.models.notification import NotificationType
 from app.services.audit_service import AuditService, get_audit_service
 from app.services.redis_audit_service import get_redis_audit_logger
-from app.models.audit_log import ActionType
+from app.models.audit_log import ActionType, AuditLog
 
 router = APIRouter(prefix="/orders")
 logger = logging.getLogger(__name__)
@@ -773,41 +774,37 @@ async def assign_rider(
     # Esto asegura trazabilidad desde el momento de asignación
     await _ensure_delivery_record_on_assignment(db, order, rider.id)
 
-    await db.commit()
-
-    # NOTIFICATION: Enviar notificación al rider sobre la nueva asignación
-    try:
-        if rider.user_id:
-            notification_service = NotificationService(db)
-            await notification_service.create_notification(
-                user_id=rider.user_id,
-                notification_type=NotificationType.ASIGNACION_PEDIDO,
-                title="📦 Nuevo Pedido Asignado",
-                message=f"Se te ha asignado el pedido #{order.external_id or str(order.id)[:8]}",
-                data={"order_id": str(order.id), "external_id": order.external_id},
-                channel="push",
-            )
-            logger.info(
-                f"Notificación de asignación registrada para el rider {rider.id}"
-            )
-    except Exception as e:
-        logger.warning(f"No se pudo enviar notificación de asignación: {e}")
-
-    # AUDIT LOG (PostgreSQL): Registrar la acción de asignación
-    try:
-        audit_service = get_audit_service(db)
-        action_type = ActionType.REASSIGN if old_rider_id else ActionType.ASSIGN
-        await audit_service.log_action_async(
+    db.add(
+        AuditLog(
             user_id=current_user.id,
-            action=action_type,
+            user_email=current_user.email,
+            user_role=optional_enum_value(current_user.role),
+            action_type=ActionType.REASSIGN if old_rider_id else ActionType.ASSIGN,
             resource_type="ORDER",
             resource_id=str(order.id),
             description=f"Pedido asignado al rider {rider.id}",
             old_values={"rider_id": str(old_rider_id) if old_rider_id else None},
             new_values={"rider_id": str(rider.id)},
+            success=True,
         )
+    )
+    await db.commit()
+
+    # Notification failure must never expire the committed request objects.
+    try:
+        if rider.user_id:
+            notice_recorded = await record_legacy_notice(
+                db,
+                user_id=rider.user_id,
+                notification_type=NotificationType.ASIGNACION_PEDIDO,
+                title="📦 Nuevo Pedido Asignado",
+                message=f"Se te ha asignado el pedido #{order.external_id or str(order.id)[:8]}",
+                data={"order_id": str(order.id), "external_id": order.external_id},
+            )
+            if notice_recorded:
+                logger.info("Notificación de asignación registrada")
     except Exception as e:
-        logger.warning(f"No se pudo crear audit log en PostgreSQL: {e}")
+        logger.warning(f"No se pudo enviar notificación de asignación: {e}")
 
     # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
     try:
@@ -1184,10 +1181,16 @@ async def assign_order_auto(
         )
 
     # Verificar coordenadas con los nombres correctos (pickup_lat/pickup_lng)
-    if not order.pickup_latitude or not order.pickup_longitude:
+    if order.pickup_latitude is None or order.pickup_longitude is None:
         raise HTTPException(
             status_code=400,
             detail="El pedido no tiene coordenadas de recogida definidas.",
+        )
+    try:
+        coordinate(order.pickup_latitude, order.pickup_longitude)
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail="Las coordenadas de recogida son inválidas"
         )
 
     # 2. Buscar riders cercanos (Lógica optimizada con PostGIS)
@@ -1205,13 +1208,17 @@ async def assign_order_auto(
             Rider.status == RiderStatus.ACTIVO,
             Rider.is_online == True,
             Rider.last_location.isnot(None),
+            Rider.last_lat.is_not(None),
+            Rider.last_lng.is_not(None),
+            Rider.last_lat.between(-90, 90),
+            Rider.last_lng.between(-180, 180),
         )
         .order_by(func.ST_DistanceSphere(Rider.last_location, ref_point))
         .limit(5)
     )
 
-    result = await db.execute(stmt)
-    nearby_riders = result.scalars().all()
+    rider_result = await db.execute(stmt)
+    nearby_riders = rider_result.scalars().all()
 
     if not nearby_riders:
         raise HTTPException(
@@ -1224,6 +1231,10 @@ async def assign_order_auto(
 
     # Calcular distancia real en KM usando Haversine (Python) para la respuesta
     # Asumimos que last_lat/last_lng existen porque last_location no es None
+    if best_rider.last_lat is None or best_rider.last_lng is None:
+        raise HTTPException(
+            status_code=409, detail="La ubicación del repartidor requiere revisión"
+        )
     distance_km = _haversine_distance(
         order.pickup_latitude,
         order.pickup_longitude,
@@ -1246,12 +1257,14 @@ async def assign_order_auto(
         notification = Notification(
             id=uuid.uuid4(),
             rider_id=best_rider.id,
+            user_id=best_rider.user_id,
             notification_type=NotificationType.ASIGNACION_PEDIDO,
             title="📦 Nuevo Pedido Asignado",
             message=f"Tienes un nuevo pedido cerca de tu ubicación. Distancia aprox: {distance_km:.2f} km.",
             data={"order_id": str(order.id), "distance_km": round(distance_km, 2)},
             is_read=False,
             is_sent=False,
+            channels="in_app",
         )
         db.add(notification)
     except ImportError:
@@ -1267,11 +1280,7 @@ async def assign_order_auto(
             id=uuid.uuid4(),
             user_id=current_user.id,
             user_email=current_user.email,
-            user_role=(
-                current_user.role.value
-                if hasattr(current_user.role, "value")
-                else str(current_user.role)
-            ),
+            user_role=(optional_enum_value(current_user.role)),
             action_type=ActionType.ASSIGN,
             resource_type="Order",
             resource_id=str(order.id),

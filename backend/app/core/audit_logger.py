@@ -70,7 +70,7 @@ class AuditLogger:
                 .limit(limit)
                 .offset(offset)
             )
-            return result.scalars().all()
+            return list(result.scalars().all())
 
     @staticmethod
     async def get_resource_history(
@@ -87,7 +87,7 @@ class AuditLogger:
                 .order_by(AuditLog.created_at.desc())
                 .limit(limit)
             )
-            return result.scalars().all()
+            return list(result.scalars().all())
 
     @staticmethod
     async def search_logs(
@@ -112,7 +112,7 @@ class AuditLogger:
             result = await session.execute(
                 stmt.order_by(AuditLog.created_at.desc()).limit(limit)
             )
-            return result.scalars().all()
+            return list(result.scalars().all())
 
 
 audit_logger = AuditLogger()
