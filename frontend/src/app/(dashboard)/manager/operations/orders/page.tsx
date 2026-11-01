@@ -1,7 +1,10 @@
 'use client';
 
+import { canAssignOrder, orderView } from '@/lib/order-view';
 import { isCancellationReasonValid } from '@/lib/delivery-status';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useSyncExternalStore } from 'react';
+import { getCredentialGeneration, onCredentialsChanged, getStoredTokens } from '@/lib/auth-session';
+import { capturePrivateTask } from '@/lib/private-task';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -38,6 +41,13 @@ import { Label } from "@/components/ui/label";
 import { Rider } from '@/types/user';
 
 export default function OrdersPage() {
+  const generation = useSyncExternalStore(onCredentialsChanged, getCredentialGeneration, () => 0);
+  return <SessionOrdersPage key={generation} />;
+}
+
+function SessionOrdersPage() {
+  const requestSequence = useRef(0);
+  useEffect(() => () => { requestSequence.current++; }, []);
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [riders, setRiders] = useState<Rider[]>([]);
@@ -66,6 +76,10 @@ export default function OrdersPage() {
   }, []);
 
   const fetchInitialData = async () => {
+    if (!getStoredTokens().accessToken) { setLoading(false); return; }
+    const request = ++requestSequence.current;
+    const task = capturePrivateTask();
+    const current = () => request === requestSequence.current && task.isCurrent();
     setLoading(true);
     setError(null);
     try {
@@ -74,15 +88,16 @@ export default function OrdersPage() {
         riderService.listRiders({ status_filter: 'ACTIVO' }),
         vehicleService.getAvailableCompanyVehicles().catch(() => []) // Silently fail if no vehicles
       ]);
+      if (!current()) return;
       setOrders(ordersData);
       setRiders(ridersData);
       setCompanyVehicles(vehiclesData);
     } catch (err: any) {
+      if (!current()) return;
       console.error('Error fetching data:', err);
       setError('No se pudieron cargar los datos.');
     } finally {
-      setLoading(false);
-      setIsRefreshing(false);
+      if (current()) { setLoading(false); setIsRefreshing(false); }
     }
   };
 
@@ -100,55 +115,71 @@ export default function OrdersPage() {
   const confirmCancel = async () => {
     if (!orderToCancel || cancelling || !isCancellationReasonValid(cancelReason)) return;
     setCancelling(true);
+    const task = capturePrivateTask();
     try {
       await orderService.cancel(orderToCancel.id, cancelReason.trim());
+      task.assertCurrent();
       
       await fetchInitialData();
+      task.assertCurrent();
       setOrderToCancel(null);
     } catch (err: any) {
+      if (!task.isCurrent()) return;
       alert('Error al cancelar: ' + (err.response?.data?.detail || err.message));
     } finally {
-      setCancelling(false);
+      if (task.isCurrent()) setCancelling(false);
     }
   };
 
   // --- Lógica de Asignación ---
+  const canOfferAssignment = (order: Order) => canAssignOrder(orderView(order)) ||
+    order.status === 'ASIGNADO' && !!order.assigned_rider_id && order.delivery?.status === 'INICIADA';
+
   const handleAssignClick = (order: Order) => {
+    if (!canOfferAssignment(order)) return;
     setOrderToAssign(order);
     setSelectedRiderId(order.assigned_rider_id || '');
   };
 
   const performAutoAssign = async () => {
-    if (!orderToAssign) return;
+    if (!orderToAssign || !canAssignOrder(orderView(orderToAssign))) return;
     setAssigningAuto(true);
+    const task = capturePrivateTask();
     try {
       const result = await orderService.assignRiderAuto(orderToAssign.id);
+      task.assertCurrent();
       alert(`✅ ${result.message}\nAsignado a: ${result.assigned_rider.name}`);
       
       await fetchInitialData();
+      task.assertCurrent();
       setOrderToAssign(null);
       setSelectedRiderId('');
     } catch (err: any) {
+      if (!task.isCurrent()) return;
       alert('Error en asignación automática: ' + (err.response?.data?.detail || err.message));
     } finally {
-      setAssigningAuto(false);
+      if (task.isCurrent()) setAssigningAuto(false);
     }
   };
 
   const performManualAssign = async () => {
-    if (!orderToAssign || !selectedRiderId) return;
+    if (!orderToAssign || !selectedRiderId || !canOfferAssignment(orderToAssign)) return;
     setAssigningManual(true);
+    const task = capturePrivateTask();
     try {
       await orderService.assignRider(orderToAssign.id, selectedRiderId);
+      task.assertCurrent();
       alert('✅ Orden asignada correctamente');
       
       await fetchInitialData();
+      task.assertCurrent();
       setOrderToAssign(null);
       setSelectedRiderId('');
     } catch (err: any) {
+      if (!task.isCurrent()) return;
       alert('Error al asignar: ' + (err.response?.data?.detail || err.message));
     } finally {
-      setAssigningManual(false);
+      if (task.isCurrent()) setAssigningManual(false);
     }
   };
 
@@ -156,10 +187,14 @@ export default function OrdersPage() {
   const handleQuickStatusChange = async (orderId: string, nextStatus: OrderStatus) => {
     if (!confirm(`¿Cambiar estado a ${nextStatus}?`)) return;
     
+    const task = capturePrivateTask();
     try {
       await orderService.updateStatus(orderId, nextStatus);
+      task.assertCurrent();
       await fetchInitialData();
+      task.assertCurrent();
     } catch (err: any) {
+      if (!task.isCurrent()) return;
       alert('Error al actualizar estado: ' + (err.response?.data?.detail || err.message));
     }
   };
@@ -171,7 +206,7 @@ export default function OrdersPage() {
       Cliente: o.customer_name || 'N/A',
       Rider: getRiderName(o),
       Vehiculo: getRiderVehicle(o),
-      Total: o.total_amount || o.total || 0,
+      Total: o.total ?? o.total_amount ?? 'No informado',
       Fecha: new Date(o.created_at).toLocaleDateString()
     }));
     downloadCSV(dataToExport, 'reporte_ordenes');
@@ -395,7 +430,7 @@ export default function OrdersPage() {
               const nextActions: OrderStatus[] = getNextActions(order.status);
               
               const hasRider = !!order.assigned_rider_id;
-              const showAssignButton = (!hasRider && order.status === 'PENDIENTE') || hasRider;
+              const showAssignButton = canOfferAssignment(order);
 
               return (
                 <Card 
@@ -442,7 +477,7 @@ export default function OrdersPage() {
 
                     <div className="pt-3 border-t flex justify-between items-center">
                       <span className="text-xs text-gray-500">Total</span>
-                      <span className="font-bold text-lg text-gray-900">{formatCurrency(order.total_amount ?? order.total ?? 0)}</span>
+                      <span className="font-bold text-lg text-gray-900">{order.total !== undefined && order.total !== null ? formatCurrency(order.total) : order.total_amount !== undefined && order.total_amount !== null ? formatCurrency(order.total_amount) : 'No informado'}</span>
                     </div>
 
                     <div className="flex gap-2 pt-2 mt-2 flex-wrap">

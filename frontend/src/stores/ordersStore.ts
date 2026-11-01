@@ -1,3 +1,5 @@
+import { readOrderCatalog, validateHttpOrder } from '@/lib/operational-catalog';
+import { orderView, filterOrderViews } from '@/lib/order-view';
 import { capturePrivateTask, resetOnSessionChange } from '@/lib/private-task';
 // Store de Orders con Zustand - Delivery360
 import { create } from 'zustand';
@@ -22,8 +24,8 @@ interface OrdersState {
   pagination: {
     page: number;
     pageSize: number;
-    total: number;
-    totalPages: number;
+    total: number | null;
+    totalPages: number | null;
   };
   
   // Acciones Síncronas (Estado local)
@@ -58,10 +60,12 @@ const initialState = {
   pagination: {
     page: 1,
     pageSize: 20,
-    total: 0,
-    totalPages: 0,
+    total: null,
+    totalPages: null,
   },
 };
+
+let listRequest = 0, detailRequest = 0;
 
 export const useOrdersStore = create<OrdersState>((set, get) => ({
   ...initialState,
@@ -100,75 +104,37 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
   // --- ACCIONES ASÍNCRONAS (API) ---
   
   fetchOrders: async (filters) => {
-    const task = capturePrivateTask();
+    const task = capturePrivateTask(), request = ++listRequest;
+    const assertCurrent = () => {
+      task.assertCurrent();
+      if (request !== listRequest) throw new Error('Consulta de pedidos sustituida por otra más reciente');
+    };
     set({ isLoading: true, error: null });
     try {
-      const params = new URLSearchParams();
-      const currentFilters = filters || get().filters;
-      
-      if (currentFilters?.status && currentFilters.status.length > 0) {
-        params.append('status', currentFilters.status.join(','));
-      }
-      if (currentFilters?.riderId) {
-        params.append('rider_id', currentFilters.riderId);
-      }
-      if (currentFilters?.dateFrom) {
-        params.append('date_from', currentFilters.dateFrom.toISOString());
-      }
-      if (currentFilters?.dateTo) {
-        params.append('date_to', currentFilters.dateTo.toISOString());
-      }
-      if (currentFilters?.search) {
-        params.append('search', currentFilters.search);
-      }
-
-      const { page, pageSize } = get().pagination;
-      params.append('page', String(page));
-      params.append('page_size', String(pageSize));
-      
-      // ✅ CORRECCIÓN: api.get devuelve directamente los datos (T)
-      const response = await api.get<any>(`/orders?${params.toString()}`);
-      task.assertCurrent();
-      
-      // Lógica robusta para extraer lista y total
-      // Asume que 'response' es el objeto directo devuelto por el wrapper
-      const ordersList = response.items || response.data || response.orders || response || [];
-      const total = response.total ?? response.count ?? ordersList.length;
-
-      set({ 
-        orders: Array.isArray(ordersList) ? ordersList : [],
-        pagination: {
-          ...get().pagination,
-          total: Number(total),
-          totalPages: Math.ceil(Number(total) / pageSize),
-        },
-        isLoading: false 
-      });
+      const f = filters ?? get().filters;
+      const rows = await readOrderCatalog({ status: f.status?.length === 1 ? f.status[0] as never : undefined, rider_id: f.riderId }, assertCurrent);
+      assertCurrent();
+      const orders = filterOrderViews(rows.map(row => orderView(row)), f);
+      set({ orders, filters: f, pagination: { ...get().pagination, page: 1, total: orders.length,
+        totalPages: Math.ceil(orders.length / get().pagination.pageSize) }, isLoading: false });
     } catch (error: any) {
       task.assertCurrent();
-      console.error('[OrderStore] Error fetching orders:', error);
-      set({ 
-        error: error.message || 'Error al obtener pedidos',
-        isLoading: false 
-      });
+      if (request === listRequest) set({ error: error.message || 'Error al obtener pedidos', isLoading: false });
       throw error;
     }
   },
   
   fetchOrderById: async (id) => {
-    const task = capturePrivateTask();
+    const task = capturePrivateTask(), request = ++detailRequest;
     set({ isLoading: true, error: null });
     try {
-      // ✅ Sin .data
-      const order = await api.get<Order>(`/orders/${id}`);
+      const response = await api.get<unknown>(`/orders/${encodeURIComponent(id)}`);
       task.assertCurrent();
-      set({ selectedOrder: order, isLoading: false });
+      if (request !== detailRequest) return;
+      set({ selectedOrder: orderView(response, id), isLoading: false });
     } catch (error: any) {
       task.assertCurrent();
-      set({ 
-        error: error.message || 'Error al obtener pedido',
-        isLoading: false 
-      });
+      if (request === detailRequest) set({ error: error.message || 'Error al obtener pedido', isLoading: false });
       throw error;
     }
   },
@@ -178,23 +144,25 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
     set({ isCreating: true, error: null });
     try {
       // ✅ Sin .data
-      const newOrder = await api.post<Order>('/orders', input);
+      const response = await api.post<unknown>('/orders', input);
       task.assertCurrent();
       
+      const newOrder = orderView(response);
+      listRequest++;
       set((state) => ({ 
         orders: [newOrder, ...state.orders],
         pagination: {
           ...state.pagination,
-          total: state.pagination.total + 1,
+          total: null, totalPages: null,
         },
-        isCreating: false 
+        isCreating: false, isLoading: false
       }));
       return newOrder;
     } catch (error: any) {
       task.assertCurrent();
       set({ 
         error: error.message || 'Error al crear pedido',
-        isCreating: false 
+        isCreating: false, isLoading: false
       });
       throw error;
     }
@@ -205,10 +173,13 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
     set({ isUpdating: true, error: null });
     try {
       // ✅ Sin .data
-      const updatedOrder = await api.patch<Order>(`/orders/${id}/status`, { status });
+      const response = await api.patch<unknown>(`/orders/${encodeURIComponent(id)}/status`, {}, { params: { new_status: status } });
       task.assertCurrent();
+      const updatedOrder = orderView(response, id);
+      if (updatedOrder.status !== status) throw new Error('El servidor no confirmó el estado solicitado');
+      listRequest++; detailRequest++;
       get().updateOrderLocal(id, updatedOrder);
-      set({ isUpdating: false });
+      set({ isUpdating: false, isLoading: false });
     } catch (error: any) {
       task.assertCurrent();
       set({ 
@@ -230,8 +201,10 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
       const updatedOrder = await api.patch<unknown>(`/orders/${encodeURIComponent(orderId)}/assign`, { rider_id: riderId });
       task.assertCurrent();
       const confirmed = orderAssignmentPatch(updatedOrder, orderId, riderId);
+      validateHttpOrder(updatedOrder, orderId);
+      listRequest++; detailRequest++;
       get().updateOrderLocal(orderId, confirmed);
-      set({ isUpdating: false });
+      set({ isUpdating: false, isLoading: false });
       return confirmed;
     } catch (error: any) {
       task.assertCurrent();
@@ -249,8 +222,9 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
     try {
       await api.delete(`/orders/${id}`);
       task.assertCurrent();
+      listRequest++; detailRequest++;
       get().removeOrder(id);
-      set({ isUpdating: false });
+      set({ isUpdating: false, isLoading: false });
     } catch (error: any) {
       task.assertCurrent();
       set({ 
@@ -261,6 +235,6 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
     }
   },
   
-  reset: () => set(initialState),
+  reset: () => { listRequest++; detailRequest++; set(initialState); },
 }));
 resetOnSessionChange(useOrdersStore);

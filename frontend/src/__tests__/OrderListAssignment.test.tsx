@@ -129,8 +129,46 @@ it('fences the parent continuation after the store finishes under a different ac
   } });
   render(<List showActions orders={[order]} />);
   choose();
-  await screen.findByRole('alert');
-  expect(screen.getByRole('button', { name: 'Cerrar asignación' })).toBeEnabled();
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Cerrar asignación' })).not.toBeInTheDocument());
   expect(screen.queryByText(sample.assigned_rider.full_name)).not.toBeInTheDocument();
   expect(useOrdersStore.getState().orders).toEqual([]);
+});
+
+function replyFor(id: string) { return { ...sample, id, delivery: { ...sample.delivery, order_id: id } }; }
+it('retains three consecutive confirmations with stable caller objects, prunes removal and accepts refresh', async () => {
+  const rows = ['a', 'b', 'c'].map(id => ({ ...order, id, orderNumber: id }));
+  jest.mocked(api.patch).mockImplementation(async url => replyFor(String(url).split('/')[2]));
+  const { rerender } = render(<List showActions orders={rows} />);
+  for (let count = 0; count < 3; count++) {
+    fireEvent.click(screen.getAllByRole('button', { name: 'Asignar Repartidor' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: `Seleccionar a ${sample.assigned_rider.full_name}` }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Asignar Orden' })); });
+    expect(screen.getAllByText('Asignado', { selector: ':not(option)' })).toHaveLength(count + 1);
+  }
+  rerender(<List showActions orders={[rows[1], rows[2]]} />);
+  rerender(<List showActions orders={rows} />);
+  expect(screen.getAllByRole('button', { name: 'Asignar Repartidor' })).toHaveLength(1);
+  rerender(<List showActions orders={[rows[0], { ...rows[1], status: 'CANCELADO' }, rows[2]]} />);
+  expect(screen.getAllByText('Asignado', { selector: ':not(option)' })).toHaveLength(1);
+  expect(screen.getByText('Cancelado', { selector: ':not(option)' })).toBeInTheDocument();
+});
+it('clears confirmed private state, filters and an open selection on account change', async () => {
+  jest.mocked(api.patch).mockResolvedValue(sample);
+  render(<List showActions orders={[order]} />);
+  choose();
+  await screen.findByText('Asignado', { selector: ':not(option)' });
+  act(() => storeTokens({ access_token: 'new-account', refresh_token: 'new-refresh' }));
+  expect(screen.queryByText(sample.assigned_rider.full_name)).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Asignar Repartidor' })).toBeInTheDocument();
+});
+it.each(['remove', 'replace'])('does not resurrect a removed/replaced object after a late confirmation (%s)', async change => {
+  let resolve!: (value: unknown) => void;
+  jest.mocked(api.patch).mockReturnValue(new Promise(done => { resolve = done; }));
+  const { rerender } = render(<List showActions orders={[order]} />);
+  choose();
+  rerender(<List showActions orders={change === 'remove' ? [] : [{ ...order, status: 'CANCELADO' }]} />);
+  await act(async () => { resolve(sample); });
+  expect(screen.queryByText(sample.assigned_rider.full_name)).not.toBeInTheDocument();
+  rerender(<List showActions orders={[order]} />);
+  expect(screen.getByRole('button', { name: 'Asignar Repartidor' })).toBeInTheDocument();
 });

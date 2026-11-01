@@ -1,3 +1,5 @@
+import { capturePrivateTask } from '@/lib/private-task';
+import { readRiderCatalog } from '@/lib/operational-catalog';
 import { hasProfileFields, requireProfileRevision } from '@/lib/profile-revision';
 import { requireVehicleRevision } from '@/lib/vehicle-revision';
 import { hasFleetFields, requireAssignmentRevision } from '@/lib/assignment-revision';
@@ -202,12 +204,8 @@ export const riderService = {
    * GET /riders
    */
   getAll: async (): Promise<Rider[]> => {
-    try {
-      const response = await api.get<Rider[]>('/riders');
-      return extractData<Rider[]>(response);
-    } catch (error) {
-      throw handleApiError(error, 'Error fetching all riders');
-    }
+    const task = capturePrivateTask();
+    return readRiderCatalog({}, task.assertCurrent);
   },
 
   /**
@@ -218,23 +216,8 @@ export const riderService = {
     is_online?: boolean; 
     status_filter?: string 
   }): Promise<Rider[]> => {
-    try {
-      const queryParams = new URLSearchParams();
-      if (params?.is_online !== undefined) {
-        queryParams.append('is_online', String(params.is_online));
-      }
-      if (params?.status_filter) {
-        queryParams.append('status_filter', params.status_filter);
-      }
-      
-      const queryString = queryParams.toString();
-      const url = `/riders${queryString ? `?${queryString}` : ''}`;
-      
-      const response = await api.get<Rider[]>(url);
-      return extractData<Rider[]>(response);
-    } catch (error) {
-      throw handleApiError(error, 'Error listing riders with filters');
-    }
+    const task = capturePrivateTask();
+    return readRiderCatalog(params ?? {}, task.assertCurrent);
   },
 
   /**

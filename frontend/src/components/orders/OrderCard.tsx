@@ -1,6 +1,8 @@
 'use client';
 
 import React from 'react';
+import { amountLabel, itemCount, paymentLabel, canAssignOrder } from '@/lib/order-view';
+import OrderStatusBadge from './OrderStatusBadge';
 import { Order } from '@/types/order';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -16,41 +18,6 @@ interface OrderCardProps {
 }
 
 export default function OrderCard({ order, onSelect, onAssignRider, showActions = false }: OrderCardProps) {
-  // Mapeo de estados (Asumiendo que tu enum usa mayúsculas, ajustamos la lógica visual)
-  const getStatusColor = (status: string) => {
-    const s = status.toUpperCase();
-    switch (s) {
-      case 'PENDIENTE': return 'bg-yellow-100 text-yellow-800';
-      case 'CONFIRMADO': 
-      case 'ASIGNADO': return 'bg-blue-100 text-blue-800';
-      case 'EN_PREPARACION': return 'bg-purple-100 text-purple-800';
-      case 'LISTO': return 'bg-indigo-100 text-indigo-800';
-      case 'RECOGIENDO': 
-      case 'EN_CAMINO': return 'bg-orange-100 text-orange-800';
-      case 'ENTREGADO': return 'bg-green-100 text-green-800';
-      case 'CANCELADO': return 'bg-red-100 text-red-800';
-      case 'FALLIDO': return 'bg-gray-100 text-gray-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    const s = status.toUpperCase();
-    switch (s) {
-      case 'PENDIENTE': return 'Pendiente';
-      case 'CONFIRMADO': return 'Confirmado';
-      case 'EN_PREPARACION': return 'En Preparación';
-      case 'LISTO': return 'Listo';
-      case 'ASIGNADO': return 'Asignado';
-      case 'RECOGIENDO': return 'Retirando';
-      case 'EN_CAMINO': return 'En Tránsito';
-      case 'ENTREGADO': return 'Entregado';
-      case 'CANCELADO': return 'Cancelado';
-      case 'FALLIDO': return 'Fallido';
-      default: return status;
-    }
-  };
-
   const getPriorityColor = (priority: string) => {
     const p = priority?.toUpperCase();
     switch (p) {
@@ -73,8 +40,9 @@ export default function OrderCard({ order, onSelect, onAssignRider, showActions 
 
   // Formateador de hora seguro
   const formatTime = (dateString: string | Date | undefined) => {
-    if (!dateString) return '';
+    if (!dateString) return 'No informada';
     const date = new Date(dateString);
+    if (!Number.isFinite(date.getTime())) return 'No informada';
     return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
   };
 
@@ -89,13 +57,11 @@ export default function OrderCard({ order, onSelect, onAssignRider, showActions 
           <div className="space-y-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-semibold text-lg">#{order.orderNumber || order.id.substring(0, 8)}</h3>
-              <Badge className={getStatusColor(order.status)}>
-                {getStatusLabel(order.status)}
-              </Badge>
-              <Badge variant="outline" className={getPriorityColor(order.priority)}>
+              <OrderStatusBadge status={order.status} />
+              <Badge variant="outline" className={getPriorityColor(order.priority ?? '')}>
                 {order.priority === 'URGENTE' ? '🔥 Urgente' : 
                  order.priority === 'ALTA' ? '⚡ Alta' : 
-                 order.priority === 'MEDIA' ? '📋 Normal' : '🐌 Baja'}
+                 order.priority === 'MEDIA' || order.priority === 'NORMAL' ? '📋 Normal' : order.priority === 'BAJA' ? '🐌 Baja' : 'Prioridad no informada'}
               </Badge>
             </div>
             <p className="text-sm text-gray-500">
@@ -103,9 +69,9 @@ export default function OrderCard({ order, onSelect, onAssignRider, showActions 
             </p>
           </div>
           <div className="text-right">
-            <p className="font-bold text-lg">{formatCurrency(order.total)}</p>
+            <p className="font-bold text-lg">{amountLabel(order.total)}</p>
             <p className="text-xs text-gray-500">
-              {order.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0} items
+              {itemCount(order.items) === undefined ? 'Cantidad no informada' : `${itemCount(order.items)} items`}
             </p>
           </div>
         </div>
@@ -186,9 +152,7 @@ export default function OrderCard({ order, onSelect, onAssignRider, showActions 
         {/* Payment Info */}
         <div className="flex items-center gap-2 text-sm flex-wrap">
           <Badge variant="outline">
-            {order.paymentMethod === 'PIX' ? '💳 PIX' : 
-             order.paymentMethod === 'TARJETA' ? '💳 Crédito' : 
-             order.paymentMethod === 'DEBIT_CARD' ? '💳 Débito' : '💵 Efectivo'}
+            {paymentLabel(order.paymentMethod)}
           </Badge>
           {order.paymentStatus === 'PAGADO' && (
             <span className="text-xs text-green-600 font-medium flex items-center gap-1">
@@ -209,7 +173,7 @@ export default function OrderCard({ order, onSelect, onAssignRider, showActions 
         </div>
 
         {/* Actions */}
-        {showActions && !order.assignedRider && order.status !== 'CANCELADO' && order.status !== 'ENTREGADO' && (
+        {showActions && canAssignOrder(order) && (
           <div className="flex gap-2 pt-2 border-t">
             <Button 
               className="flex-1"

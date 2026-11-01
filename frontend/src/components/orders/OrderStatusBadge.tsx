@@ -43,6 +43,9 @@ export default function OrderStatusBadge({
         label: 'Asignado',
         icon: '👤'
       },
+      'EN_RECOLECCION': { color: 'bg-orange-100 text-orange-800', label: 'En recolección', icon: '📦' },
+      'RECOLECTADO': { color: 'bg-indigo-100 text-indigo-800', label: 'Recolectado', icon: '📦' },
+      'EN_RUTA': { color: 'bg-blue-100 text-blue-800', label: 'En ruta', icon: '🚚' },
       'RECOGIENDO': { 
         color: 'bg-orange-100 text-orange-800 border-orange-300', 
         label: 'Retirando',
