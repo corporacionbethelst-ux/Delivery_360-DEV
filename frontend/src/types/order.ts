@@ -5,6 +5,10 @@ import type { Delivery } from './delivery';
 export type OrderStatus =
   | 'PENDIENTE'
   | 'ASIGNADO'
+  | 'EN_RECOLECCION'
+  | 'RECOLECTADO'
+  | 'EN_RUTA'
+  | 'FALLIDO'
   | 'CONFIRMADO'
   | 'EN_PREPARACION'
   | 'LISTO_PARA_RECOGER'
@@ -13,17 +17,17 @@ export type OrderStatus =
   | 'CANCELADO'
   | 'RECHAZADO';
 
-export type OrderPriority = 'BAJA' | 'MEDIA' | 'ALTA' | 'URGENTE';
+export type OrderPriority = 'NORMAL' | 'BAJA' | 'MEDIA' | 'ALTA' | 'URGENTE';
 export type OrderType = 'DOMICILIO' | 'RECOGIDA' | 'PROGRAMADO';
 
 export interface OrderAddress {
   street: string;
-  number: string;
+  number?: string;
   complement?: string;
-  neighborhood: string;
-  city: string;
-  state: string;
-  zipCode: string; // Frontend camelCase
+  neighborhood?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string; // Frontend camelCase
   latitude?: number;
   longitude?: number;
   reference?: string;
@@ -33,9 +37,9 @@ export interface OrderItem {
   id: string;
   name: string;
   description?: string;
-  quantity: number;
-  unitPrice: number;
-  totalPrice: number;
+  quantity?: number;
+  unitPrice?: number;
+  totalPrice?: number;
   observations?: string;
 }
 
@@ -56,15 +60,15 @@ export interface Order {
   id: string;
   orderNumber: string;
   status: OrderStatus;
-  priority: OrderPriority;
-  type: OrderType;
+  priority?: OrderPriority;
+  type?: OrderType;
 
   // Cliente
-  customerId: string;
+  customerId?: string;
   customer_id?: string;
-  customerName: string;
+  customerName?: string;
   customer_name?: string;
-  customerPhone: string;
+  customerPhone?: string;
   customerEmail?: string;
 
   // Direcciones
@@ -72,11 +76,11 @@ export interface Order {
   deliveryAddress: OrderAddress;
 
   // Items y valores
-  items: OrderItem[];
-  subtotal: number;
-  deliveryFee: number;
-  discount: number;
-  total: number;
+  items?: OrderItem[];
+  subtotal?: number;
+  deliveryFee?: number;
+  discount?: number;
+  total?: number;
 
   // Asignación
   assignedRiderId?: string;
@@ -86,7 +90,7 @@ export interface Order {
   delivery?: Delivery | null;
 
   // Tiempos
-  createdAt: Date;
+  createdAt?: Date;
   estimatedPickupTime?: Date;
   estimatedDeliveryTime?: Date;
   pickedUpAt?: Date;
@@ -95,8 +99,8 @@ export interface Order {
   scheduledAt?: string | Date;
 
   // Información adicional
-  paymentMethod: 'EFECTIVO' | 'TARJETA' | 'PIX' | 'ONLINE' | 'DEBIT_CARD';
-  paymentStatus: 'PENDIENTE' | 'PAGADO' | 'REEMBOLSADO';
+  paymentMethod?: 'EFECTIVO' | 'TARJETA' | 'PIX' | 'ONLINE' | 'DEBIT_CARD';
+  paymentStatus?: 'PENDIENTE' | 'PAGADO' | 'REEMBOLSADO';
   observations?: string;
   internalNotes?: string;
 
@@ -106,7 +110,7 @@ export interface Order {
   photoProofUrl?: string;
 
   // Auditoría
-  createdBy: string;
+  createdBy?: string;
   updatedBy?: string;
   cancelledBy?: string;
   cancellation_reason?: string | null;

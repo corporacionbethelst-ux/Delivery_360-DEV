@@ -1,6 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useSyncExternalStore } from 'react';
+import { getCredentialGeneration, onCredentialsChanged, getStoredTokens } from '@/lib/auth-session';
+import { capturePrivateTask } from '@/lib/private-task';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { orderService, OrderStatus } from '@/services/order.service';
@@ -20,12 +22,20 @@ const ROWS_PER_PAGE_OPTIONS = [20, 40, 50, 100];
 const DEFAULT_PAGE_SIZE = 20;
 
 export default function OperatorOrdersPage() {
+  const generation = useSyncExternalStore(onCredentialsChanged, getCredentialGeneration, () => 0);
+  return <SessionOrdersPage key={generation} />;
+}
+
+function SessionOrdersPage() {
+  const requestSequence = useRef(0);
+  useEffect(() => () => { requestSequence.current++; }, []);
   const router = useRouter();
   const { user, isAuthenticated } = useAuthStore();
   
   // --- ESTADOS ---
   const [allOrders, setAllOrders] = useState<any[]>([]); // Datos crudos del servidor
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   
   // Estados de Paginación y Filtros
@@ -54,30 +64,22 @@ export default function OperatorOrdersPage() {
 
   // --- LÓGICA DE CARGA ---
   const loadOrders = async () => {
+    if (!getStoredTokens().accessToken) { setIsLoading(false); return; }
+    const request = ++requestSequence.current;
+    const task = capturePrivateTask();
+    const current = () => request === requestSequence.current && task.isCurrent();
     if (!isRefreshing) setIsLoading(true);
-    
+    setLoadError(null);
     try {
-      // ESTRATEGIA: Cargamos un lote suficiente (ej. 100) para filtrar en cliente.
-      // Esto evita errores de offset/search que el backend no soporta.
-      const params: any = {
-        limit: 100, 
-        status: statusFilter !== 'ALL' ? statusFilter : undefined,
-      };
-
-      const response = await orderService.getAll(params);
-
-      // Normalización de respuesta
-      const dataItems = Array.isArray(response) ? response : (response as any).items || (response as any).data || [];
-      
-      setAllOrders(dataItems);
-      setPage(1); // Resetear a página 1 al cargar nuevos datos
-
+      // Local filters operate on the complete bounded catalog, never a status-specific fragment.
+      const response = await orderService.getAll();
+      if (!current()) return;
+      setAllOrders(response);
+      setPage(1);
     } catch (error) {
-      console.error('Error loading orders:', error);
-      setAllOrders([]);
+      if (current()) setLoadError('No se pudo actualizar el catálogo. Se conservan los últimos pedidos disponibles.');
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (current()) { setIsLoading(false); setIsRefreshing(false); }
     }
   };
 
@@ -175,6 +177,7 @@ export default function OperatorOrdersPage() {
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
+      {loadError && <p role="alert" className="text-red-700">{loadError}</p>}
       <div className="max-w-7xl mx-auto space-y-6">
         
         {/* Header */}
@@ -299,7 +302,7 @@ export default function OperatorOrdersPage() {
                         {order.customer_name || order.customer?.first_name || 'N/A'}
                       </td>
                       <td className="px-6 py-4 text-right font-bold text-gray-900">
-                        {formatCurrency(Number(order.total_amount || order.total || 0))}
+                        {order.total !== undefined && order.total !== null ? formatCurrency(order.total) : order.total_amount !== undefined && order.total_amount !== null ? formatCurrency(order.total_amount) : 'No informado'}
                       </td>
                       <td className="px-6 py-4 text-gray-500 text-xs">
                         {order.created_at ? new Date(order.created_at).toLocaleString() : '-'}

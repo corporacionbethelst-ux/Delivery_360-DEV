@@ -34,7 +34,9 @@ export interface User {
 }
 
 // Interfaz extendida para Repartidores con datos específicos del modelo Rider
-export interface Rider extends User {
+export interface Rider extends Partial<User> {
+  id: string;
+  user_id?: string;
   // Datos específicos del Rider
   assignment_revision?: string;
   profile_revision?: string;
@@ -76,7 +78,7 @@ export interface Rider extends User {
 }
 
 // Helper para obtener nombre completo en el frontend
-export const getFullName = (user: Pick<User, 'first_name' | 'last_name'>): string => {
+export const getFullName = (user: Partial<Pick<User, 'first_name' | 'last_name'>>): string => {
   return `${user.first_name || ''} ${user.last_name || ''}`.trim();
 };
 
@@ -139,4 +141,4 @@ export interface RiderDocument {
   rejection_reason?: string;
   created_at: string;
   updated_at?: string;
-} 
+}

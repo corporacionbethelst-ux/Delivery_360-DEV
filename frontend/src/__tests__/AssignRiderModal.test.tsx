@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { storeTokens, clearStoredTokens } from '@/lib/auth-session';
 import Modal from '@/components/orders/AssignRiderModal';
 import type { Order } from '@/types/order';
 import type { Rider } from '@/types/user';
@@ -19,6 +20,7 @@ const order = {
   deliveryAddress: { street: 'Destino', number: '2', neighborhood: 'Centro' },
 } as Order;
 beforeEach(() => {
+  clearStoredTokens(); storeTokens({ access_token: 'modal-a', refresh_token: 'modal-refresh-a' });
   jest.clearAllMocks();
   mockFetch.mockReset();
   mockState = { riders: [rider], isLoading: false, fetchRiders: mockFetch };
@@ -29,7 +31,7 @@ it('loads active candidates and hides offline or suspended rows', () => {
   mockState.riders.push({ ...rider, id: 'offline', first_name: 'Offline', is_online: false });
   mockState.riders.push({ ...rider, id: 'suspended', first_name: 'Suspendido', status: 'SUSPENDIDO' });
   render(<Modal {...props()} />);
-  expect(mockFetch).toHaveBeenCalledWith({ status: ['ACTIVO'] });
+  expect(mockFetch).toHaveBeenCalledWith({ status: ['ACTIVO'], is_online: true });
   expect(screen.getByText('1 repartidores disponibles')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Seleccionar a Offline/ })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Seleccionar a Suspendido/ })).not.toBeInTheDocument();
@@ -170,3 +172,5 @@ it('contains a rider read that fails after the form unmounts', async () => {
   expect(p.onClose).not.toHaveBeenCalled();
   expect(p.onAssign).not.toHaveBeenCalled();
 });
+
+afterEach(() => clearStoredTokens());

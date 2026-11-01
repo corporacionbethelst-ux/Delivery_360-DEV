@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import type { Order, OrderItem } from '@/types/order';
+import { amountLabel, itemCount, canAssignOrder } from '@/lib/order-view';
 import { formatCurrency } from '@/lib/utils';
 import { 
   MapPin, Clock, User, Phone, Package, 
@@ -43,7 +44,7 @@ export function OrderDetailPanel({
   };
 
   // Helper para items
-  const totalItems = order.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0;
+  const totalItems = itemCount(order.items) ?? 'No informado';
 
   // Configuración de Pagos (Alineada con tus tipos: 'EFECTIVO' | 'TARJETA' | 'PIX'...)
   const paymentMethodConfig: Record<string, string> = {
@@ -62,8 +63,8 @@ export function OrderDetailPanel({
   };
 
   // Normalización segura
-  const methodKey = order.paymentMethod;
-  const statusKey = order.paymentStatus;
+  const methodKey = order.paymentMethod ?? 'Método no informado';
+  const statusKey = order.paymentStatus ?? 'Estado de pago no informado';
   
   const paymentLabel = paymentMethodConfig[methodKey] || `💳 ${methodKey}`;
   const paymentStatus = paymentStatusConfig[statusKey] || { label: statusKey, color: 'text-gray-500' };
@@ -79,7 +80,7 @@ export function OrderDetailPanel({
             </div>
             <p className="text-muted-foreground flex items-center gap-2">
               <Clock className="h-4 w-4" />
-              Creada el {new Date(order.createdAt).toLocaleString('es-ES')}
+              Creada el {order.createdAt && Number.isFinite(order.createdAt.getTime()) ? order.createdAt.toLocaleString('es-ES') : 'No informada'}
               {order.scheduledAt && (
                 <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-xs font-medium ml-2">
                   Programada: {new Date(order.scheduledAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
@@ -159,7 +160,9 @@ export function OrderDetailPanel({
                 Productos ({totalItems})
               </div>
               <div className="max-h-48 overflow-y-auto divide-y">
-                {order.items.map((item: OrderItem) => (
+                {!order.items && <p className="p-3">Artículos no informados</p>}
+                {order.items?.length === 0 && <p className="p-3">Sin artículos</p>}
+                {order.items?.map((item: OrderItem) => (
                   <div key={item.id} className="p-3 flex justify-between items-start">
                     <div>
                       <p className="text-sm font-medium">{item.name}</p>
@@ -167,11 +170,11 @@ export function OrderDetailPanel({
                       {item.observations && (
                         <p className="text-xs text-gray-500 mt-0.5">Nota: {item.observations}</p>
                       )}
-                      <p className="text-xs text-gray-500">Cantidad: {item.quantity}</p>
+                      <p className="text-xs text-gray-500">Cantidad: {item.quantity ?? 'No informada'}</p>
                     </div>
                     {/* CORRECCIÓN: Usamos 'unitPrice' en lugar de 'price' */}
                     <p className="text-sm font-medium">
-                      {formatCurrency(item.unitPrice * item.quantity)}
+                      {amountLabel(item.totalPrice ?? (item.unitPrice !== undefined && item.quantity !== undefined ? item.unitPrice * item.quantity : undefined))}
                     </p>
                   </div>
                 ))}
@@ -182,9 +185,9 @@ export function OrderDetailPanel({
             <div className="bg-gray-50 p-4 rounded-lg border space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Subtotal</span>
-                <span className="font-medium">{formatCurrency(order.subtotal)}</span>
+                <span className="font-medium">{amountLabel(order.subtotal)}</span>
               </div>
-              {order.discount && order.discount > 0 && (
+              {order.discount !== undefined && order.discount > 0 && (
                 <div className="flex justify-between text-sm text-green-600">
                   <span>Descuento</span>
                   <span>-{formatCurrency(order.discount)}</span>
@@ -192,12 +195,12 @@ export function OrderDetailPanel({
               )}
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Envío</span>
-                <span className="font-medium">{formatCurrency(order.deliveryFee)}</span>
+                <span className="font-medium">{amountLabel(order.deliveryFee)}</span>
               </div>
               <Separator />
               <div className="flex justify-between text-lg font-bold text-gray-900">
                 <span>Total</span>
-                <span>{formatCurrency(order.total)}</span>
+                <span>{amountLabel(order.total)}</span>
               </div>
               
               <div className="mt-3 pt-3 border-t flex items-center gap-2 flex-wrap">
@@ -233,7 +236,7 @@ export function OrderDetailPanel({
 
         {/* Acciones Principales */}
         <div className="flex gap-3 pt-4 border-t">
-          {!order.assignedRider && order.status !== 'CANCELADO' && order.status !== 'ENTREGADO' && (
+          {canAssignOrder(order) && (
             <Button onClick={onAssignRider} className="flex-1 bg-blue-600 hover:bg-blue-700">
               <User className="h-4 w-4 mr-2" /> Asignar Repartidor
             </Button>

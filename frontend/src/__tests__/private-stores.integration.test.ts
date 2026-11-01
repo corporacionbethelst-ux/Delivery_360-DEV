@@ -29,7 +29,7 @@ afterEach(() => {
 });
 it('fences the continuation gap after the HTTP interceptor has accepted a successful response', async () => {
   client.defaults.adapter = async (config) =>
-    reply(config, { items: [{ id: 'private-a' }], total: 1 });
+    reply(config, [{ id: 'private-a', status: 'PENDIENTE' }]);
   const interceptor = client.interceptors.response.use((response) => {
     storeTokens(b);
     useOrdersStore.getState().setOrders([{ id: 'private-b' } as never]);
@@ -49,7 +49,7 @@ it('logout through the real authStore clears received business data and query ca
   client.defaults.adapter = async (config) =>
     reply(
       config,
-      config.url?.startsWith('/orders') ? { items: [{ id: 'a' }], total: 1 } : { totalRevenue: 99 }
+      config.url?.startsWith('/orders') ? [{ id: 'a', status: 'PENDIENTE' }] : { totalRevenue: 99 }
     );
   await useOrdersStore.getState().fetchOrders();
   await useFinancialStore.getState().fetchSummary();
@@ -69,7 +69,7 @@ it('an ordinary refresh keeps the same account stores and cache while completing
         ...reply(config, {}),
         status: 401,
       });
-    return reply(config, { items: [{ id: 'active' }], total: 1 });
+    return reply(config, [{ id: 'active', status: 'PENDIENTE' }]);
   };
   axios.defaults.adapter = async (config) =>
     reply(config, { access_token: 'rotated-a', refresh_token: 'rotated-refresh-a' });

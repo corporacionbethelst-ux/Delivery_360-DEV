@@ -110,7 +110,7 @@ export default function ManagerRidersPage() {
       
       const matchesSearch = 
         fullName.includes(searchLower) || 
-        rider.email.toLowerCase().includes(searchLower) ||
+        rider.email?.toLowerCase().includes(searchLower) ||
         (rider.vehicle_plate || '').toLowerCase().includes(searchLower);
       
       const riderStatus = rider.status || 'PENDIENTE';

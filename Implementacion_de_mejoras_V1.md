@@ -6325,3 +6325,169 @@ La publicación coteja blobs/árbol/commit con el local validado y abre un PR li
 para revisión. Su CI nuevo se informa por separado. No se fusiona ni despliega,
 no se migra producción ni se envían pagos, mensajes o facturas reales. No se
 declara el sistema al cien por ciento. Guía: backend/ASSIGNMENT_REPLAY.md.
+
+---
+
+## Entrega 63 — Implementación nueva de catálogos operativos y confirmaciones múltiples
+
+**Fecha:** 31 de octubre de 2026, America/Caracas. **Base verificada en GitHub:**
+main `3f2c2b6c14c9d57b1e736c1597340a8d09ad5548`, PR #303 fusionado.
+**Rama:** `fix/operational-catalogs-and-multiple-confirmations-v2`.
+
+Esta es una implementación nueva desde el código real. Sustituye el trabajo local
+perdido de la entrega 63; no se recuperó ni se necesitó su commit/parche. Los
+resultados siguientes se obtuvieron ahora. No son los 919 casos ni el 33,61 %
+atribuidos a aquella implementación. El directorio recibido estaba limpio, sin
+AGENTS.md aplicable. Se conservó la base y su historial y se creó una rama nueva.
+
+### Problemas confirmados
+
+- OrderList guardaba una sola confirmación. Asignar B sustituía el parche de A
+  cuando el padre conservaba sus objetos originales.
+- ordersStore enviaba estados separados por comas y page/page_size. ridersStore
+  esperaba `{items,total}` y enviaba status, aunque la ruta devuelve un array y
+  utiliza status_filter. Varios filtros se ignoraban en el servidor.
+- El cambio de estado en ordersStore enviaba un body con status; el endpoint
+  exige new_status en la query. El servicio ya usaba esa query correctamente.
+- No había orden de precedencia entre lecturas concurrentes dentro de la misma
+  sesión. Los modelos de vista exigían datos que el HTTP no informa; algunas
+  vistas convertían ausencia en efectivo, cero, cantidad cero o fecha inválida.
+- El operador cargaba un fragmento de 100 pedidos para paginar/contar localmente,
+  podía conservar un subconjunto por estado y vaciaba datos ante errores.
+
+### Implementación desarrollada
+
+1. **Confirmaciones múltiples.** Mapa por pedido ligado al objeto original del
+   padre: varios resultados consecutivos permanecen visibles; objetos nuevos
+   prevalecen. Se retiran entradas reemplazadas/eliminadas, incluso si después
+   se reutiliza el objeto antiguo. Una respuesta tardía no recrea una entrada
+   retirada. El cambio de generación de credenciales remonta el estado privado
+   de la lista: confirmaciones, selección, modal y filtros. Se mantiene la
+   comprobación de sesión después del await y la validación real del servidor.
+2. **Contratos HTTP verificados.** Catálogo compartido para stores y servicios.
+   GET /orders acepta un status y rider_id; usa limit/offset. GET /riders acepta
+   status_filter/is_online y devuelve un array sin paginación. La actualización
+   de estado envía new_status en query y comprueba pedido/estado de respuesta.
+   Se verifican también IDs de la confirmación manual y la respuesta más pequeña
+   de asignación automática. Un HTTP 200 contradictorio no produce éxito local.
+3. **Lectura acotada y publicación completa.** Hasta diez páginas de pedidos;
+   tamaño predeterminado 200 y máximo 200 por página. Se detiene al recibir una
+   página corta. Diez páginas llenas producen error, incluso si el catálogo
+   pudiera terminar exactamente allí: no se presume completitud. Se rechazan
+   envelopes, páginas excesivas, IDs repetidos, filtros de servidor incumplidos,
+   relaciones incompatibles y errores posteriores. Los datos/totales anteriores
+   se conservan ante un fallo; el estado inicial del total de pedidos es null.
+   Los conteos corresponden al conjunto completo cargado y filtrado, no a un
+   supuesto total global del servidor. Los requests de cada página comprueban
+   sesión y vigencia antes y después del HTTP; una cuenta nueva no continúa la
+   lectura anterior con sus credenciales.
+4. **Filtros explícitos.** Estados múltiples, búsqueda, fechas y filtros visuales
+   se aplican en cliente tras completar la lectura. Repartidores filtra también
+   vehículo/zona localmente y conserva is_online=false. Una consulta explícita
+   de repartidores reemplaza los filtros guardados para no ocultar candidatos
+   de asignación por una búsqueda anterior. customer_id y comienzos page/offset
+   distintos de la primera página se rechazan explícitamente en getAll; page=1
+   y offset=0 son compatibles. limit es tamaño de página, no límite del resultado.
+5. **Adaptación veraz.** Proyección HTTP snake_case a la vista camelCase, sin
+   fabricar User, rol, actividad, pago, fecha actual o importes. Se conservan
+   importes/coordenadas/cantidades cero y se ignoran números no finitos o fechas
+   inválidas. Artículos omitidos permanecen desconocidos; [] significa informado
+   vacío. Los campos opcionales del modelo reflejan esas ausencias. Las vistas
+   muestran “No informado” y no asumen efectivo. El resumen Rider no exige todos
+   los campos de una cuenta User. Dos riders no pueden reclamar el mismo user_id.
+6. **Estados y respuestas tardías.** Tarjetas, detalle, tabla y filtros representan
+   EN_RECOLECCION, RECOLECTADO, EN_RUTA y FALLIDO. La primera asignación requiere
+   PENDIENTE y ausencia de vínculos existentes; una entrega avanzada la bloquea.
+   La página de gerencia limita su opción de reasignación a ASIGNADO/INICIADA.
+   Los stores impiden que lecturas anteriores sobrescriban consultas nuevas;
+   la asignación también invalida lecturas de pedidos previas. Las páginas de
+   gerencia/operador comprueban sesión y secuencia después de los servicios y
+   limpian estado al cambiar de cuenta. El operador carga el catálogo completo,
+   conserva resultados anteriores y muestra el error. Los permisos y las
+   transiciones del servidor conservan la autoridad final.
+
+### Validación realmente ejecutada
+
+Se añadieron **90 casos frontend netos** sobre los 831 de esta base. Los mocks
+previos de lecturas exitosas se ajustaron a arrays HTTP reales, con estado de
+pedido; no se relajó el validador para aceptar los contratos ficticios.
+
+| Control de esta implementación | Resultado |
+| --- | --- |
+| `npm test -- --runInBand --coverage --watchAll=false` | **921 aprobados / 60 suites**, 19,04 s; cero tests fallidos |
+| Cobertura global | Statements 34,05 %, ramas 30,62 %, funciones 29,78 %, líneas **34,08 %** |
+| Umbral global del 50 % | **Falla** en las cuatro métricas; comando de cobertura termina con exit 1 |
+| `npm run type-check` | Aprobado, sin errores |
+| `npm run lint` | Aprobado; advertencias existentes de hooks/imágenes, sin reglas desactivadas |
+| `npm run build` estándar | Bloqueado por descarga de Inter desde Google Fonts: proxy no disponible |
+| Control sobre la base original | El mismo build estándar falla por Google Fonts; layout sin modificar |
+| Build adicional sin red de fuentes | Aprobado: compilación, tipos/lint y 48 páginas; recurso Open Sans local sustituido solo para diagnosticar la dependencia de Google Fonts |
+| `git diff --check` | Aprobado |
+| Backend | Fuentes, tests, contratos, migraciones y workflows sin cambios; no se atribuye una corrida backend local nueva |
+
+La comprobación adicional utiliza el mecanismo de pruebas de next/font
+`NEXT_FONT_GOOGLE_MOCKED_RESPONSES` apuntando a un archivo temporal fuera del
+repositorio, con CSS y bytes reales de Open Sans local. Se usa
+`CIRCLE_NODE_TOTAL=3` para limitar trabajadores. No se cambian fuentes de la app,
+next.config, dependencias, exclusiones ni umbrales. No equivale a aprobar el build
+estándar con la fuente Inter de producción ni a una prueba visual/E2E.
+
+Las pruebas incluyen tres asignaciones consecutivas con props estables, refresco,
+retirada/reintroducción de objetos, cuenta nueva mientras se espera, consultas
+fuera de orden, sesión antes de la siguiente página, errores tardíos, filtros,
+arrays mal formados, duplicados entre páginas, identidades incompatibles, estados
+reales, cantidades desconocidas y ceros, confirmaciones incorrectas y fallo de
+refresco del operador con datos anteriores conservados.
+
+### Limitaciones y siguiente prioridad
+
+- Offset sobre created_at no ofrece cursor ni snapshot estable; inserciones,
+  eliminaciones y empates pueden causar omisiones sin duplicados detectables.
+  Se detectan duplicados/contradicciones pero no se garantiza consistencia
+  transaccional entre páginas. Hace falta paginación con orden único y revisión
+  de catálogo en backend. El límite no certifica un snapshot global.
+- Cada getAll usa como máximo diez requests; con limit=50 el tope es 500 filas
+  y con limit=100 es 1000. Un catálogo que llena el tope produce error y conserva
+  el anterior; se puede acotar por estado/rider o planificar la API paginada.
+- /riders devuelve todo en una sola respuesta; no existe cota de tamaño ni
+  paginación del servidor. No se finge una paginación que la API no ofrece.
+- El serializer actual de pedidos omite pagos, tipo y algunos datos de cliente;
+  no se pueden inferir. Los filtros locales excluyen valores desconocidos.
+  Además convierte items NULL a []; el cliente distingue omisión de [] en HTTP,
+  pero no puede recuperar esa distinción ya perdida en el serializer.
+- Se preserva compatibilidad de tipos/etiquetas legacy para callers existentes;
+  las consultas operativas solo admiten estados canónicos. No es una reescritura
+  de todos los formularios/pantallas legacy ni un cierre de todas las brechas HTTP.
+- Persisten el gate de cobertura del 50 %, E2E operativos, claves durables de
+  reintento/revisión optimista, outbox y reglas operativas pendientes de entregas
+  anteriores. No se declara el sistema listo al 100 % para producción.
+
+**Siguiente mejora prioritaria del roadmap:** homologación verificable de pagos
+(Fase 7), empezando por idempotencia/reconciliación y pruebas de webhooks en sandbox,
+con separación explícita de simulación y proveedor real. El roadmap histórico
+menciona iniciar Stripe, pero ya hay adaptadores: corresponde verificar/cerrar
+el circuito existente antes de afirmar que los pagos están homologados. Como
+continuación inmediata de este catálogo queda la paginación estable de backend.
+
+La publicación se realiza mediante el conector autorizado de GitHub: el transporte
+git de terminal no puede conectar al proxy. Se cotejan blobs y árbol remoto contra
+el árbol local validado. Commit, PR y comprobaciones remotas se anotan después de
+crearlos. No se fusiona, despliega, migra producción ni se envían pagos, mensajes
+ni facturas reales.
+
+### Publicación verificada de esta entrega
+
+- **Commit de implementación:** `e5d5a919dd23aa68e7e6294c97232094ec33f8bc`.
+- **Árbol de implementación:** `6bd4201e0ddf111a1c302fd8f1d579b33a8013f9`;
+  coincide exactamente con git write-tree local. Se compararon los 25 blobs.
+- **Rama publicada:** `fix/operational-catalogs-and-multiple-confirmations-v2`.
+- **PR listo para revisión, abierto y sin fusionar:**
+  https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/304.
+- **CI observado al publicar:** CI/CD Pipeline, ejecución 41266091344, en cola,
+  sin conclusión todavía. No se presenta como CI aprobado. Un commit posterior
+  exclusivamente documental registra estos identificadores; sus comprobaciones
+  deben consultarse sobre el nuevo head del PR.
+
+La fuente validada permanece en el commit de implementación anterior; la nota
+posterior de publicación no altera fuentes/tests ni cambia resultados locales.
+El resumen final de entrega informa el estado del head y de los checks consultados.

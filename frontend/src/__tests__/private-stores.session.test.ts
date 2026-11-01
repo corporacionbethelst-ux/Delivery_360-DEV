@@ -257,10 +257,10 @@ it.each(cases)('$name sends nothing before credentials exist', async (test) => {
   expect(test.state()).toBe(before);
 });
 it('keeps a current-session order read and creation working', async () => {
-  jest.mocked(api.get).mockResolvedValueOnce({ items: [{ id: 'order-a' }], total: 1 });
+  jest.mocked(api.get).mockResolvedValueOnce([{ id: 'order-a', status: 'PENDIENTE' }]);
   await useOrdersStore.getState().fetchOrders();
   expect(useOrdersStore.getState().orders[0].id).toBe('order-a');
-  jest.mocked(api.post).mockResolvedValueOnce({ id: 'order-b' });
+  jest.mocked(api.post).mockResolvedValueOnce({ id: 'order-b', status: 'PENDIENTE' });
   const created = await useOrdersStore.getState().createOrder({} as never);
   expect(created.id).toBe('order-b');
   expect(useOrdersStore.getState().orders.map((o) => o.id)).toEqual(['order-b', 'order-a']);
@@ -272,7 +272,7 @@ it('keeps current-session delivery normalization working through the Axios defau
   expect(useDeliveriesStore.getState().isLoading).toBe(false);
 });
 it('keeps current-session riders and earnings reads working', async () => {
-  jest.mocked(api.get).mockResolvedValueOnce({ items: [{ id: 'r' }], total: 1 });
+  jest.mocked(api.get).mockResolvedValueOnce([{ id: 'r' }]);
   await useRidersStore.getState().fetchRiders();
   expect(useRidersStore.getState().riders[0].id).toBe('r');
   jest.mocked(api.get).mockResolvedValueOnce({ amount: 10 }).mockResolvedValueOnce({ amount: 70 });

@@ -1,3 +1,6 @@
+import { capturePrivateTask } from '@/lib/private-task';
+import { readOrderCatalog, validateHttpOrder, record, identifier } from '@/lib/operational-catalog';
+import { orderAssignmentPatch } from '@/lib/order-assignment';
 import { api } from '@/lib/api';
 import { isCancellationReasonValid } from '@/lib/delivery-status';
 import { User } from '@/types/user';
@@ -174,6 +177,7 @@ export interface OrderListParams {
   customer_id?: string;
   limit?: number;
   page?: number;
+  offset?: number;
   date_from?: string;
   date_to?: string;
 }
@@ -198,22 +202,8 @@ export const orderService = {
    * Listar órdenes con filtros
    */
   getAll: async (params?: OrderListParams): Promise<Order[]> => {
-    try {
-      const queryParams = new URLSearchParams();
-      if (params?.status) queryParams.append('status', params.status);
-      if (params?.rider_id) queryParams.append('rider_id', params.rider_id);
-      if (params?.limit) queryParams.append('limit', String(params.limit));
-      if (params?.page) queryParams.append('page', String(params.page));
-      if (params?.date_from) queryParams.append('date_from', params.date_from);
-      if (params?.date_to) queryParams.append('date_to', params.date_to);
-      
-      const query = queryParams.toString() ? `?${queryParams}` : '';
-      const response = await api.get<Order[]>(`/orders${query}`);
-      return extractData<Order[]>(response);
-    } catch (error) {
-      console.error('[OrderService] Error fetching orders:', error);
-      throw error;
-    }
+    const task = capturePrivateTask();
+    return readOrderCatalog(params, task.assertCurrent);
   },
 
   /**
@@ -222,13 +212,10 @@ export const orderService = {
   getById: async (id: string): Promise<Order> => {
     if (!id) throw new Error('[OrderService] ID de orden requerido');
     
-    try {
-      const response = await api.get<Order>(`/orders/${id}`);
-      return extractData<Order>(response);
-    } catch (error) {
-      console.error(`[OrderService] Error fetching order ${id}:`, error);
-      throw error;
-    }
+    const task = capturePrivateTask();
+    const response = await api.get<unknown>(`/orders/${encodeURIComponent(id)}`);
+    task.assertCurrent();
+    return validateHttpOrder(response, id);
   },
 
   /**
@@ -272,13 +259,11 @@ export const orderService = {
       throw new Error('[OrderService] OrderID y RiderID son requeridos');
     }
     
-    try {
-      const response = await api.patch<Order>(`/orders/${orderId}/assign`, { rider_id: riderId });
-      return extractData<Order>(response);
-    } catch (error) {
-      console.error(`[OrderService] Error assigning rider to order ${orderId}:`, error);
-      throw error;
-    }
+    const task = capturePrivateTask();
+    const response = await api.patch<unknown>(`/orders/${encodeURIComponent(orderId)}/assign`, { rider_id: riderId });
+    task.assertCurrent();
+    orderAssignmentPatch(response, orderId, riderId);
+    return validateHttpOrder(response, orderId);
   },
 
   /**
@@ -296,13 +281,17 @@ export const orderService = {
   }> => {
     if (!orderId) throw new Error('[OrderService] OrderID requerido para asignación automática');
     
-    try {
-      const response = await api.post<any>(`/orders/${orderId}/assign-auto`);
-      return extractData(response);
-    } catch (error) {
-      console.error(`[OrderService] Error in auto-assignment for order ${orderId}:`, error);
-      throw error;
+    const task = capturePrivateTask();
+    const response = await api.post<unknown>(`/orders/${encodeURIComponent(orderId)}/assign-auto`);
+    task.assertCurrent();
+    const result = record(response), rider = record(result.assigned_rider);
+    identifier(rider.id);
+    if (result.order_id !== orderId || typeof result.message !== 'string' || typeof rider.name !== 'string' ||
+        typeof rider.distance_km !== 'number' || !Number.isFinite(rider.distance_km) || rider.distance_km < 0 ||
+        !Number.isInteger(result.other_candidates) || Number(result.other_candidates) < 0) {
+      throw new Error('La confirmación automática no coincide con el pedido');
     }
+    return response as { message: string; order_id: string; assigned_rider: { id: string; name: string; distance_km: number }; other_candidates: number };
   },
 
   /**
@@ -313,29 +302,12 @@ export const orderService = {
       throw new Error('[OrderService] ID y Status son requeridos');
     }
     
-    try {
-      // CAMBIO CLAVE: Usamos 'params' en lugar de enviar un objeto en el body
-      // Axios convertirá esto en: /orders/{id}/status?new_status=ENTREGADO
-      const response = await api.patch<Order>(
-        `/orders/${id}/status`, 
-        {}, // Body vacío
-        { params: { new_status: status } } // Parámetros de URL
-      );
-      return extractData<Order>(response);
-    } catch (error: unknown) {
-      console.error(`[OrderService] Error updating status for order ${id}:`, error);
-      
-      // Mejorar el mensaje de error para depuración
-      let msg = 'Error al actualizar estado';
-      const axiosError = error as AxiosError<{ detail?: string }>;
-      if (axiosError.response?.data?.detail) {
-        msg = axiosError.response.data.detail;
-      } else if (axiosError.response?.status === 422) {
-        msg = 'Formato de estado inválido o faltante (Error 422). Verifica la consola del servidor.';
-      }
-      
-      throw new Error(msg);
-    }
+    const task = capturePrivateTask();
+    const response = await api.patch<unknown>(`/orders/${encodeURIComponent(id)}/status`, {}, { params: { new_status: status } });
+    task.assertCurrent();
+    const order = validateHttpOrder(response, id);
+    if (order.status !== status) throw new Error('El servidor no confirmó el estado solicitado');
+    return order;
   },
 
   /**

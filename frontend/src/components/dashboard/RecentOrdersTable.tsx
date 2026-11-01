@@ -1,4 +1,6 @@
 import { useState } from 'react'; 
+import { canAssignOrder } from '@/lib/order-view';
+import OrderStatusBadge from '@/components/orders/OrderStatusBadge';
 import { Order } from '@/types/order';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,28 +14,13 @@ interface RecentOrdersTableProps {
   onAssignRider?: (order: Order) => void;
 }
 
-// Mapeo de estados
-const getStatusConfig = (status: string) => {
-  switch (status) {
-    case 'PENDIENTE': return { color: 'bg-yellow-100 text-yellow-800', label: 'Pendiente' };
-    case 'CONFIRMADO': return { color: 'bg-blue-100 text-blue-800', label: 'Confirmado' };
-    case 'EN_PREPARACION': return { color: 'bg-purple-100 text-purple-800', label: 'Preparando' };
-    case 'LISTO_PARA_RECOLECCION': return { color: 'bg-indigo-100 text-indigo-800', label: 'Listo' };
-    case 'ASIGNADO': return { color: 'bg-cyan-100 text-cyan-800', label: 'Asignado' };
-    case 'EN_RUTA': return { color: 'bg-blue-100 text-blue-800', label: 'En Camino' };
-    case 'ENTREGADO': return { color: 'bg-green-100 text-green-800', label: 'Entregado' };
-    case 'CANCELADO': return { color: 'bg-red-100 text-red-800', label: 'Cancelado' };
-    default: return { color: 'bg-gray-100 text-gray-800', label: status };
-  }
-};
-
 export function RecentOrdersTable({ orders, onViewOrder, onAssignRider }: RecentOrdersTableProps) {
   const [filter, setFilter] = useState<'all' | 'pending' | 'active'>('all');
 
   const filteredOrders = orders.filter(order => {
     if (filter === 'all') return true;
-    if (filter === 'pending') return ['PENDIENTE', 'CONFIRMADO'].includes(order.status);
-    if (filter === 'active') return ['EN_PREPARACION', 'LISTO_PARA_RECOLECCION', 'ASIGNADO', 'EN_RUTA'].includes(order.status);
+    if (filter === 'pending') return ['PENDIENTE'].includes(order.status);
+    if (filter === 'active') return ['ASIGNADO', 'EN_RECOLECCION', 'RECOLECTADO', 'EN_RUTA'].includes(order.status);
     return true;
   });
 
@@ -63,7 +50,6 @@ export function RecentOrdersTable({ orders, onViewOrder, onAssignRider }: Recent
           </thead>
           <tbody>
             {filteredOrders.map(order => {
-              const statusConfig = getStatusConfig(order.status);
               
               // ✅ CORRECCIÓN LÍNEAS 71-72: Acceso seguro directo sin casts complejos
               const customerName = 
@@ -72,11 +58,10 @@ export function RecentOrdersTable({ orders, onViewOrder, onAssignRider }: Recent
                 order.id.slice(0, 8);
               
               // ✅ CORRECCIÓN LÍNEA 76: Manejo flexible de dirección
-              const deliveryAddress = (order as any).delivery_address;
+              const deliveryAddress = order.deliveryAddress;
               const address = typeof deliveryAddress === 'string' 
                 ? deliveryAddress 
-                : deliveryAddress?.address || 
-                  deliveryAddress?.street || 
+                : deliveryAddress?.street ||
                   'Sin dirección';
 
               // ✅ CORRECCIÓN LÍNEA 84: Acceso seguro al repartidor
@@ -101,7 +86,7 @@ export function RecentOrdersTable({ orders, onViewOrder, onAssignRider }: Recent
                     </div>
                   </td>
                   <td className="p-3">
-                    <Badge className={statusConfig.color}>{statusConfig.label}</Badge>
+                    <OrderStatusBadge status={order.status} />
                   </td>
                   {/* ✅ CORRECCIÓN LÍNEA 96: Renderizado condicional seguro */}
                   <td className="p-3">
@@ -111,11 +96,11 @@ export function RecentOrdersTable({ orders, onViewOrder, onAssignRider }: Recent
                         <span>{riderName}</span>
                       </div>
                     ) : (
-                      <span className="text-muted-foreground text-sm">Sin asignar</span>
+                      <span className="text-muted-foreground text-sm">{order.assignedRiderId || order.delivery?.riderId || order.delivery?.rider_id ? 'Asignado (datos no informados)' : 'Sin asignar'}</span>
                     )}
                   </td>
                   <td className="p-3 text-sm text-muted-foreground">
-                    {formatDistanceToNow(new Date((order as any).createdAt || order.createdAt), { addSuffix: true, locale: es })}
+                    {order.createdAt && Number.isFinite(order.createdAt.getTime()) ? formatDistanceToNow(order.createdAt, { addSuffix: true, locale: es }) : 'No informada'}
                   </td>
                   {/* ✅ CORRECCIÓN LÍNEA 101: Acciones seguras */}
                   <td className="p-3">
@@ -123,8 +108,8 @@ export function RecentOrdersTable({ orders, onViewOrder, onAssignRider }: Recent
                       <Button variant="outline" size="sm" onClick={() => onViewOrder?.(order)}>
                         <Eye className="h-4 w-4" />
                       </Button>
-                      {!assignedRider && order.status !== 'CANCELADO' && (
-                        <Button variant="default" size="sm" onClick={() => onAssignRider?.(order)}>
+                      {canAssignOrder(order) && (
+                        <Button aria-label="Asignar repartidor" variant="default" size="sm" onClick={() => onAssignRider?.(order)}>
                           <Truck className="h-4 w-4" />
                         </Button>
                       )}

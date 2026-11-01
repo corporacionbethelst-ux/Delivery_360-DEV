@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { Order } from '@/types/order';
 import OrderCard from './OrderCard';
 import AssignRiderModal from './AssignRiderModal';
@@ -11,6 +11,9 @@ import { Search, Filter, ListFilter, X } from 'lucide-react';
 import { useOrdersStore } from '@/stores/ordersStore';
 import { Badge } from '@/components/ui/badge';
 import type { OrderAssignmentPatch } from '@/lib/order-assignment';
+import { getCredentialGeneration, onCredentialsChanged } from '@/lib/auth-session';
+import { ORDER_STATUSES } from '@/lib/operational-catalog';
+import { canAssignOrder } from '@/lib/order-view';
 import { capturePrivateTask } from '@/lib/private-task';
 
 interface OrderListProps {
@@ -21,7 +24,12 @@ interface OrderListProps {
   compact?: boolean;
 }
 
-export default function OrderList({ 
+export default function OrderList(props: OrderListProps) {
+  const generation = useSyncExternalStore(onCredentialsChanged, getCredentialGeneration, () => 0);
+  return <SessionOrderList key={generation} {...props} />;
+}
+
+function SessionOrderList({
   orders, 
   showFilters = true, 
   showActions = false,
@@ -33,15 +41,24 @@ export default function OrderList({
   const [priorityFilter, setPriorityFilter] = useState<string>('ALL');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showAssignModal, setShowAssignModal] = useState(false);
-  const [confirmation, setConfirmation] = useState<{ original: Order; patch: OrderAssignmentPatch } | null>(null);
+  const [confirmations, setConfirmations] = useState<Map<string, { original: Order; patch: OrderAssignmentPatch }>>(() => new Map());
   
   const { assignRider, orders: storeOrders } = useOrdersStore();
   
-  // Si no se proporcionan órdenes, usar las del store
-  // A caller-owned array may remain unchanged until its next refresh. Preserve
-  // the confirmed result only for that exact input object; a new object wins.
-  const orderList = (orders || storeOrders).map(order =>
-    confirmation?.original === order ? { ...order, ...confirmation.patch } : order);
+  const source = orders ?? storeOrders;
+  const currentSource = useRef(source);
+  currentSource.current = source;
+  useEffect(() => {
+    setConfirmations(previous => {
+      const next = new Map(Array.from(previous).filter(([id, c]) => source.some(o => o.id === id && o === c.original)));
+      return next.size === previous.size ? previous : next;
+    });
+    setSelectedOrder(previous => previous ? source.find(o => o.id === previous.id) ?? null : null);
+  }, [source]);
+  const orderList = source.map(order => {
+    const confirmation = confirmations.get(order.id);
+    return confirmation?.original === order ? { ...order, ...confirmation.patch } : order;
+  });
 
   // Filtrar órdenes
   const filteredOrders = orderList.filter(order => {
@@ -66,7 +83,7 @@ export default function OrderList({
 
   const handleAssignRider = (orderId: string) => {
     const order = orderList.find(o => o.id === orderId);
-    if (order) {
+    if (order && canAssignOrder(order)) {
       setSelectedOrder(order);
       setShowAssignModal(true);
     }
@@ -111,15 +128,7 @@ export default function OrderList({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">Todos los estados</SelectItem>
-                <SelectItem value="PENDIENTE">Pendiente</SelectItem>
-                <SelectItem value="CONFIRMADO">Confirmado</SelectItem>
-                <SelectItem value="EN_PREPARACION">En Preparación</SelectItem>
-                <SelectItem value="LISTO">Listo</SelectItem>
-                <SelectItem value="ASIGNADO">Asignado</SelectItem>
-                <SelectItem value="RECOGIENDO">Retirando</SelectItem>
-                <SelectItem value="EN_CAMINO">En Tránsito</SelectItem>
-                <SelectItem value="ENTREGADO">Entregado</SelectItem>
-                <SelectItem value="CANCELADO">Cancelado</SelectItem>
+                {ORDER_STATUSES.map(status => <SelectItem key={status} value={status}>{status.replaceAll('_', ' ')}</SelectItem>)}
               </SelectContent>
             </Select>
             
@@ -133,6 +142,7 @@ export default function OrderList({
                 <SelectItem value="URGENTE">🔥 Urgente</SelectItem>
                 <SelectItem value="ALTA">⚡ Alta</SelectItem>
                 <SelectItem value="NORMAL">📋 Normal</SelectItem>
+                <SelectItem value="MEDIA">Media (legacy)</SelectItem>
                 <SelectItem value="BAJA">🐌 Baja</SelectItem>
               </SelectContent>
             </Select>
@@ -220,10 +230,13 @@ export default function OrderList({
           }}
           onAssign={async (riderId) => {
             const task = capturePrivateTask();
-            const original = selectedOrder;
+            const original = source.find(o => o.id === selectedOrder.id);
+            if (!original || !canAssignOrder(original)) throw new Error("El pedido cambió; revisa su estado");
             const patch = await assignRider(original.id, riderId);
             task.assertCurrent();
-            setConfirmation({ original, patch });
+            if (currentSource.current.includes(original)) {
+              setConfirmations(previous => new Map(previous).set(original.id, { original, patch }));
+            }
             setShowAssignModal(false);
             setSelectedOrder(null);
           }}

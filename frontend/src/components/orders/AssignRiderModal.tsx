@@ -1,6 +1,8 @@
 'use client'; 
 
 import React, { useState, useEffect, useRef } from 'react';
+import { amountLabel, canAssignOrder } from '@/lib/order-view';
+import { capturePrivateTask } from '@/lib/private-task';
 import { Order } from '@/types/order';
 import type { Rider } from '@/types/user';
 import { Button } from '@/components/ui/button';
@@ -35,7 +37,7 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
     setLoadError(null);
     void (async () => {
       try {
-        await fetchRiders({ status: ['ACTIVO'] });
+        await fetchRiders({ status: ['ACTIVO'], is_online: true });
       } catch {
         if (current) setLoadError('No se pudieron cargar los repartidores. Vuelve a cargar la lista.');
       }
@@ -59,8 +61,8 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
   // Detección segura de asignación previa
   // Asumiendo que Order tiene assignedRider o similar, si no, ajustar según tu tipo Order
   const assignedRider = (order as any).assigned_rider || order.assignedRider;
-  const isAssigned = !!(order as any).assigned_rider_id || !!order.assignedRiderId || !!assignedRider;
-  const canAssign = !isLoading && !loadError && !isSubmitting && !isAssigned && order.status === 'PENDIENTE' &&
+  const isAssigned = !!(order as any).assigned_rider_id || !!order.assignedRiderId || !!assignedRider || !!order.delivery?.riderId || !!order.delivery?.rider_id;
+  const canAssign = !isLoading && !loadError && !isSubmitting && !isAssigned && canAssignOrder(order) &&
     availableRiders.some(rider => rider.id === selectedRiderId);
   const handleAssign = async () => {
     if (!canAssign || !selectedRiderId || submitting.current) return;
@@ -68,7 +70,9 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
     setIsSubmitting(true);
     setSubmitError(null);
     try {
+      const task = capturePrivateTask();
       await onAssign(selectedRiderId);
+      task.assertCurrent();
     } catch {
       if (mounted.current) setSubmitError('No se pudo confirmar la asignación. Revisa el pedido antes de volver a intentar.');
     } finally {
@@ -116,7 +120,7 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
             </div>
             <div>
               <p className="text-xs text-gray-500">Total</p>
-              <p className="font-bold text-lg">{formatCurrency(order.total || (order as any).total_amount || 0)}</p>
+              <p className="font-bold text-lg">{amountLabel(order.total)}</p>
             </div>
             <div>
               <p className="text-xs text-gray-500">Prioridad</p>
@@ -187,12 +191,6 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
               const vehicleType = rider.vehicle_type || 'No especificado';
               const vehiclePlate = rider.vehicle_plate || 'S/P';
               
-              // Como la interfaz Rider no tiene 'stats' anidado ni 'customer_rating' directo en tu definición,
-              // usamos valores por defecto o campos alternativos si existieran en una extensión futura.
-              // Por ahora, simulamos rating 0 o buscamos en extensiones posibles.
-              const rating = 0; // Valor por defecto seguro basado en tu interfaz actual
-              const deliveries = 0; // Valor por defecto seguro
-
               const fullName = rider.full_name || `${rider.first_name || ''} ${rider.last_name || ''}`.trim() || 'Sin Nombre';
 
               return (
@@ -224,13 +222,7 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
                       <div className="flex-1 space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="font-semibold">{fullName}</h3>
-                          {/* Mostramos badge solo si tuvieras rating real, por ahora oculto o estático */}
-                          {rating >= 4.5 && (
-                            <Badge className="bg-yellow-100 text-yellow-800 text-xs">
-                              <Star className="w-3 h-3 fill-yellow-500 mr-1" />
-                              {Number(rating).toFixed(1)}
-                            </Badge>
-                          )}
+
                         </div>
                         <div className="flex items-center gap-3 text-sm text-gray-600 flex-wrap">
                           <span className="flex items-center gap-1">
@@ -284,7 +276,7 @@ export default function AssignRiderModal({ order, onClose, onAssign }: AssignRid
             className="gap-2"
           >
             <User className="w-4 h-4" />
-            {isSubmitting ? 'Asignando...' : isAssigned ? 'Ya Asignado' : order.status !== 'PENDIENTE' ? 'Pedido no asignable' : 'Asignar Orden'}
+            {isSubmitting ? 'Asignando...' : isAssigned ? 'Ya Asignado' : !canAssignOrder(order) ? 'Pedido no asignable' : 'Asignar Orden'}
           </Button>
         </div>
       </Card>

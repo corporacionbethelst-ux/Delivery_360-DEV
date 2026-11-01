@@ -1,3 +1,4 @@
+import { readRiderCatalog, validateRider } from '@/lib/operational-catalog';
 import { capturePrivateTask, resetOnSessionChange } from '@/lib/private-task';
 // Riders Store - Zustand para gestión de repartidores
 // VERSIÓN DEFINITIVA: Consistente con user.ts (snake_case) y api wrapper
@@ -83,6 +84,8 @@ const initialState = {
   total: 0,
 };
 
+let listRequest = 0, detailRequest = 0;
+
 export const useRidersStore = create<RidersState>((set, get) => ({
   ...initialState,
   
@@ -91,49 +94,47 @@ export const useRidersStore = create<RidersState>((set, get) => ({
   // ==========================================================================
   
   fetchRiders: async (filters?: Partial<RiderFilters>) => {
-    const task = capturePrivateTask();
+    const task = capturePrivateTask(), request = ++listRequest;
+    const assertCurrent = () => {
+      task.assertCurrent();
+      if (request !== listRequest) throw new Error('Consulta de repartidores sustituida por otra más reciente');
+    };
     set({ isLoading: true, error: null });
     try {
-      const allFilters = { ...get().filters, ...filters };
-      const params = new URLSearchParams();
-      
-      if (allFilters.status) params.append('status', allFilters.status.join(','));
-      if (allFilters.is_online !== undefined) params.append('is_online', String(allFilters.is_online));
-      if (allFilters.vehicle_type) params.append('vehicle_type', allFilters.vehicle_type.join(','));
-      if (allFilters.operating_zone) params.append('operating_zone', allFilters.operating_zone);
-      if (allFilters.search) params.append('search', allFilters.search);
-      if (allFilters.dateFrom) params.append('dateFrom', allFilters.dateFrom.toISOString());
-      if (allFilters.dateTo) params.append('dateTo', allFilters.dateTo.toISOString());
-      
-      // ✅ api.get devuelve directamente { items: Rider[], total: number }
-      const response = await api.get<{ items: Rider[]; total: number }>(`/riders?${params.toString()}`);
-      task.assertCurrent();
-      
-      set({ 
-        riders: response.items || [], 
-        total: response.total || 0,
-        isLoading: false 
+      const f = filters ?? get().filters;
+      const rows = await readRiderCatalog({ status_filter: f.status?.length === 1 ? f.status[0] : undefined, is_online: f.is_online }, assertCurrent);
+      assertCurrent();
+      const from = f.dateFrom?.getTime(), to = f.dateTo?.getTime();
+      if (from !== undefined && !Number.isFinite(from) || to !== undefined && !Number.isFinite(to)) throw new Error('Fecha de filtro inválida');
+      const riders = rows.filter(r => {
+        const time = r.created_at ? new Date(r.created_at).getTime() : NaN;
+        return (!f.status?.length || !!r.status && f.status.includes(r.status)) &&
+          (!f.vehicle_type?.length || !!r.vehicle_type && f.vehicle_type.includes(r.vehicle_type)) &&
+          (!f.operating_zone || r.operating_zone === f.operating_zone) &&
+          (from === undefined || time >= from) && (to === undefined || time <= to) &&
+          (!f.search || [r.id, r.full_name, r.first_name, r.last_name, r.phone, r.email, r.cpf, r.vehicle_plate]
+            .some(v => v?.toLowerCase().includes(f.search!.toLowerCase())));
       });
+      set({ riders, filters: f, total: riders.length, isLoading: false });
     } catch (error: any) {
       task.assertCurrent();
-      console.error('[RidersStore] Error fetching riders:', error);
-      set({ error: error.message || 'Error al obtener repartidores', isLoading: false });
+      if (request === listRequest) set({ error: error.message || 'Error al obtener repartidores', isLoading: false });
       throw error;
     }
   },
   
   fetchRiderById: async (id: string) => {
-    const task = capturePrivateTask();
+    const task = capturePrivateTask(), request = ++detailRequest;
     set({ isLoading: true, error: null });
     try {
-      // ✅ Devuelve directamente el objeto Rider
-      const rider = await api.get<Rider>(`/riders/${id}`);
+      // Validate identity before publishing
+      const rider = await api.get<Rider>(`/riders/${encodeURIComponent(id)}`);
       task.assertCurrent();
-      set({ selectedRider: rider, isLoading: false });
+      if (request === detailRequest) set({ selectedRider: validateRider(rider, id), isLoading: false });
     } catch (error: any) {
       task.assertCurrent();
       console.error(`[RidersStore] Error fetching rider ${id}:`, error);
-      set({ error: error.message || 'Error al obtener detalle del repartidor', isLoading: false });
+      if (request === detailRequest) set({ error: error.message || 'Error al obtener detalle del repartidor', isLoading: false });
       throw error;
     }
   },
@@ -327,7 +328,7 @@ export const useRidersStore = create<RidersState>((set, get) => ({
     const lowerQuery = query.toLowerCase();
     return riders.filter(r => 
       `${r.first_name} ${r.last_name}`.toLowerCase().includes(lowerQuery) ||
-      r.email.toLowerCase().includes(lowerQuery) ||
+      r.email?.toLowerCase().includes(lowerQuery) ||
       (r.phone && r.phone.includes(query))
     );
   },
