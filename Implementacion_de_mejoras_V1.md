@@ -6474,3 +6474,20 @@ git de terminal no puede conectar al proxy. Se cotejan blobs y árbol remoto con
 el árbol local validado. Commit, PR y comprobaciones remotas se anotan después de
 crearlos. No se fusiona, despliega, migra producción ni se envían pagos, mensajes
 ni facturas reales.
+
+### Publicación verificada de esta entrega
+
+- **Commit de implementación:** `e5d5a919dd23aa68e7e6294c97232094ec33f8bc`.
+- **Árbol de implementación:** `6bd4201e0ddf111a1c302fd8f1d579b33a8013f9`;
+  coincide exactamente con git write-tree local. Se compararon los 25 blobs.
+- **Rama publicada:** `fix/operational-catalogs-and-multiple-confirmations-v2`.
+- **PR listo para revisión, abierto y sin fusionar:**
+  https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/304.
+- **CI observado al publicar:** CI/CD Pipeline, ejecución 41266091344, en cola,
+  sin conclusión todavía. No se presenta como CI aprobado. Un commit posterior
+  exclusivamente documental registra estos identificadores; sus comprobaciones
+  deben consultarse sobre el nuevo head del PR.
+
+La fuente validada permanece en el commit de implementación anterior; la nota
+posterior de publicación no altera fuentes/tests ni cambia resultados locales.
+El resumen final de entrega informa el estado del head y de los checks consultados.
