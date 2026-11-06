@@ -6491,3 +6491,157 @@ ni facturas reales.
 La fuente validada permanece en el commit de implementación anterior; la nota
 posterior de publicación no altera fuentes/tests ni cambia resultados locales.
 El resumen final de entrega informa el estado del head y de los checks consultados.
+
+---
+
+## Entrega 64 — Confirmación verificable y recuperación de retiros por cuenta
+
+**Fecha:** 5 de noviembre de 2026, America/Caracas. **Base verificada:** main
+`0cff408485c26a7918e8617e3c0732a89d838080`, que fusionó el PR #304.
+**Rama:** `fix/payout-confirmation-and-session-recovery-v1`.
+
+Se comprobó el cierre real de la entrega 63: backend y seguridad aprobaron;
+frontend pasó sus 921 tests, tipos, lint y build, pero falló el gate de cobertura.
+Ese resultado anterior no se atribuye a esta implementación. main conserva el
+árbol validado de la entrega 63. El repositorio recibido estaba limpio; no había
+AGENTS.md aplicable. Se conserva esa rama y se crea otra desde main verificado.
+
+### Hallazgos y alcance real de pagos
+
+El roadmap de Fase 7 sigue priorizando pagos verificables. La inspección del
+circuito actual de payouts encontró una distinción necesaria: approve registra
+un débito contable y devuelve EN_PROCESO; no llama a Stripe/Mercado Pago ni confirma
+recepción bancaria. Los adaptadores fiscales existentes tampoco demuestran una
+pasarela de retiros homologada. Esta entrega corrige la confianza y recuperación
+frontend antes de conectar ese circuito externo; no afirma cerrar la Fase 7.
+
+Se confirmaron estos problemas en la base:
+
+- La recuperación por clave y el POST mostraban éxito y borraban el intento sin
+  comparar todos sus datos con la respuesta. Un 200 de otra solicitud podía
+  retirar la evidencia necesaria para reintentar la original.
+- El servicio no comprobaba nuevamente la sesión tras esperar al HTTP y varias
+  páginas podían publicar continuaciones de otra cuenta o de una consulta vieja.
+- normalizePayout creaba la fecha actual al faltar fechas, asumía TRANSFERENCIA
+  al faltar método y aceptaba aliases monetarios contradictorios.
+- balance con degraded=true se mostraba como un saldo normal de cero.
+- El detalle declaraba «pago completado» por la sola existencia de processed_at,
+  aunque el backend también informa esa fecha para EN_PROCESO y RECHAZADO.
+- Los listados describían como completo un historial limitado a la primera
+  página y sus métricas locales; algunas vistas asumían USD o redondeaban importes.
+
+Un control separado, usando el normalizador exacto de la base extraído de Git y
+transpilado fuera del repositorio, reprodujo fecha fabricada, método fabricado y
+aceptación de importes contradictorios. La fuente nueva se verifica con pruebas
+propias. El control no modifica la base ni publica el código anterior.
+
+### Cambios implementados
+
+1. **Identidad y payload confirmados.** El servicio comprueba ID, clave,
+   importe en centavos, método y sufijo de cuenta. La página verifica también
+   requested_by_user_id contra el usuario del intento guardado. La búsqueda
+   por clave exige la misma clave. Detalle/decisiones/historial comprueban la
+   identidad solicitada y las transiciones reales; approve confirma EN_PROCESO,
+   reject confirma RECHAZADO y su motivo. Un resultado incoherente conserva
+   el intento y no muestra éxito.
+2. **Claves retenidas.** requestPayout exige una clave del caller; ya no crea
+   otra implícitamente al faltar. El único caller productivo identificado guarda
+   el intento antes del POST. Se mantiene la recuperación por usuario/pestaña,
+   el bloqueo de datos de un intento incierto y el reintento de la misma clave
+   incluso con saldo menor o desconocido. Un 404 de búsqueda no autoriza a
+   descartar la solicitud. Un bank_account_id se rechaza porque la API lo ignora;
+   los últimos cuatro dígitos no son una cuenta tokenizada de transferencia.
+3. **Sesión y concurrencia.** Todos los métodos de payout vuelven a comprobar
+   sesión después del HTTP, también ante error/404. Las páginas verifican su
+   vigencia después del servicio y se reinician al cambiar cuenta/rol; el detalle
+   se reinicia al cambiar ID de ruta. Lecturas anteriores no sustituyen las más
+   recientes. Gerencia verifica la cuenta antes de consultar riders complementarios.
+   Bloqueos síncronos evitan doble envío y consultas simultáneas con reintento.
+   La recuperación inicial termina antes de exponer un formulario nuevo.
+4. **Disponibilidad y errores.** El saldo degradado/mal formado produce error
+   y una opción de consulta; no se interpreta como cero real. El cero medido
+   sí se conserva. La recuperación puede completarse aunque falle la lectura
+   de saldo. Los listados conservan datos previos y muestran el fallo de refresco.
+   Una aprobación ya confirmada se conserva si falla su recarga posterior, y
+   el detalle bloquea nuevas acciones mientras los datos requieren revisión.
+5. **Datos fieles.** Los importes validan precisión decimal y límites sin
+   coercionar booleanos/vacíos; los saldos agregados pueden superar el límite
+   por retiro. Se rechazan aliases contradictorios y se mantienen desconocidos
+   fechas, cantidad de órdenes y snapshots de saldo ausentes. La página respeta
+   la moneda informada por balance; otras respuestas sin moneda lo indican.
+   Se conservan los decimales y no se asume USD. La fecha de gestión se presenta
+   con el estado del servidor, sin certificar una transferencia completada.
+6. **Páginas y contratos explícitos.** Los listados indican hasta 50 registros
+   y limitan sus métricas/filtros a ese lote. getAll sigue siendo una sola página
+   limit/offset, sin inventar total global. Rechaza envelopes, duplicados,
+   páginas excesivas y datos fuera de filtros. Las etiquetas históricas se
+   pueden visualizar, pero los filtros de servidor solo admiten sus seis estados
+   canónicos. Se conservan permisos, transacciones e idempotencia del backend.
+
+Guía y contrato para futuros callers: `frontend/PAYOUT_CONFIRMATIONS.md`.
+
+### Validación nueva
+
+**131 casos frontend netos nuevos**, sobre los 921 de esta base. Las pruebas
+incluyen contratos, reintentos, doble envío, cambios de cuenta durante POST,
+consulta y saldo; navegación a otro retiro, datos fuera de orden, refrescos
+fallidos, bloqueo de acciones, monedas/fechas/saldos desconocidos y ceros reales.
+También se ejecutan cuatro integraciones con el wrapper Axios real y transporte
+en memoria, incluido el intervalo posterior al interceptor de sesión.
+
+| Control | Resultado de esta implementación |
+| --- | --- |
+| Suite completa con cobertura | **1052 aprobados / 64 suites**, 21,982 s; cero tests fallidos |
+| Cobertura global local | Statements 36,52 %, ramas 32,69 %, funciones 32,23 %, líneas **36,38 %** |
+| Gate global 50 % | Sigue fallando en las cuatro métricas; comando de cobertura termina con exit 1 |
+| TypeScript independiente, después del build | Aprobado, sin errores |
+| Lint | Aprobado; advertencias anteriores de hooks/imágenes, sin reglas desactivadas |
+| Build sin caché reutilizada | Bloqueado por descarga de Inter desde Google Fonts: conexión al proxy EPERM |
+| Build adicional, fuente local controlada | Aprobado, compilación, tipos/lint y **48 páginas** |
+| Control del normalizador anterior | Reproduce los tres defectos indicados, en proceso separado |
+| git diff --check | Aprobado |
+| Backend local | Sin modificaciones; no se atribuye una corrida backend nueva |
+
+La primera corrida concurrente de tipos/build encontró archivos .next/types
+retirados mientras Next los regeneraba. Se corrigió la secuencia de verificación:
+build completo y después tipos/lint independientes. Ese fallo de coordinación no
+se presenta como una regresión de TypeScript en la fuente final.
+
+Un build inicial reutilizó caché de la comprobación anterior con fuente sustituida;
+no se toma como prueba de descarga de Inter. Se retiró esa caché a work, preservándola,
+y el build sin esa reutilización reprodujo el bloqueo externo. La comprobación
+adicional usa NEXT_FONT_GOOGLE_MOCKED_RESPONSES con Open Sans local y
+CIRCLE_NODE_TOTAL=3, fuera del repositorio. No cambia el layout ni next.config y
+no equivale al build estándar con Inter ni a una prueba visual/E2E. El CI nuevo
+se consulta e informa por separado.
+
+No se cambian backend, esquema, migraciones, dependencias, workflows, umbrales
+ni exclusiones. Los transportes de prueba no envían pagos, mensajes ni facturas
+reales; no se despliega ni fusiona automáticamente.
+
+### Limitaciones y siguiente prioridad
+
+La validación cliente evita confirmaciones locales falsas; el servidor conserva
+la autoridad de acceso, reservas y transiciones. El backend aún admite callers
+antiguos sin clave. sessionStorage no ofrece recuperación global entre pestañas,
+navegadores o dispositivos ni sobrevive a su borrado. Su contenido no autoriza
+operaciones. La página conserva claves inciertas en lugar de iniciar otra
+solicitud automáticamente.
+
+Los historiales siguen paginados por offset sin snapshot estable. El serializer
+backend conserva algunos placeholders y no informa moneda por retiro; esta
+entrega no reconstruye datos que el HTTP omite. No se añade pasarela, confirmación
+bancaria, webhook público o conciliación automática nueva. También quedan el
+umbral de cobertura del 50 % y los E2E completos.
+
+**Siguiente bloque prioritario:** definir y probar el contrato de ejecución del
+proveedor de retiros en sandbox, con un recibo durable distinto de la aprobación
+contable, idempotencia de envío, verificación de firmas/deduplicación de webhooks
+y conciliación. Requiere comprobar primero qué proveedor/cuenta sandbox se va a
+homologar y su configuración disponible; no se debe presentar simulación como
+pago real ni activar transferencias por defecto.
+
+La publicación coteja todos los blobs y el árbol local con GitHub y abre un PR
+listo para revisión. El transporte git del terminal sigue sin conectar al proxy;
+se usa el conector autorizado. Commit, PR y estado observado del CI se registran
+cuando existen. No se declara el sistema listo al 100 % para producción.

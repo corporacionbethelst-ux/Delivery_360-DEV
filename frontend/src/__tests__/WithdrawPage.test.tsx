@@ -1,3 +1,4 @@
+import { storeTokens, clearStoredTokens } from '@/lib/auth-session';
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import WithdrawPage from '@/app/(dashboard)/rider/earnings/withdraw/page';
@@ -8,6 +9,7 @@ jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }));
 jest.mock('@/stores/authStore', () => ({ useAuthStore: () => ({ user: mockUser, isAuthenticated: true }) }));
 jest.mock('@/services/payout.service', () => ({ payoutService: { getAvailableBalance: jest.fn(), requestPayout: jest.fn(), findRequestByKey: jest.fn() }, createPayoutIdempotencyKey: jest.fn(), payoutHttpStatus: jest.requireActual('@/services/payout.service').payoutHttpStatus }));
 beforeEach(() => {
+  clearStoredTokens(); storeTokens({ access_token: 'withdraw-a', refresh_token: 'refresh-a' });
   jest.resetAllMocks();
   sessionStorage.clear();
   jest.mocked(payoutService.findRequestByKey).mockResolvedValue(null);
@@ -69,7 +71,7 @@ it('recovers the authoritative request after remount without submitting again', 
   submit();
   await screen.findByText('Error al procesar. Intenta más tarde.');
   page.unmount();
-  jest.mocked(payoutService.findRequestByKey).mockResolvedValue({ id: 'registered', rider_id: 'rider-1', amount: 60, total_amount: 60, status: 'RECHAZADO', method: 'TRANSFERENCIA', requested_at: '2026-10-24', created_at: '2026-10-24', updated_at: '2026-10-24' });
+  jest.mocked(payoutService.findRequestByKey).mockResolvedValue({ id: 'registered', rider_id: 'rider-1', amount: 60, total_amount: 60, status: 'RECHAZADO', method: 'TRANSFERENCIA', requested_at: '2026-10-24', created_at: '2026-10-24', updated_at: '2026-10-24', idempotency_key: 'intent-1', requested_by_user_id: 'rider-user' });
   render(<WithdrawPage />);
   expect(await screen.findByText('Solicitud encontrada')).toBeInTheDocument();
   expect(screen.getByText('Estado actual: RECHAZADO')).toBeInTheDocument();
@@ -102,7 +104,7 @@ it('shows the final server status when retrying an uncertain request', async () 
   fireEvent.change(await screen.findByLabelText('Monto a Retirar'), { target: { value: '60' } });
   submit();
   await screen.findByText('Error al procesar. Intenta más tarde.');
-  jest.mocked(payoutService.requestPayout).mockResolvedValueOnce({ id: 'registered', rider_id: 'rider-1', amount: 60, total_amount: 60, status: 'RECHAZADO', method: 'TRANSFERENCIA', requested_at: '2026-10-24', created_at: '2026-10-24', updated_at: '2026-10-24' });
+  jest.mocked(payoutService.requestPayout).mockResolvedValueOnce({ id: 'registered', rider_id: 'rider-1', amount: 60, total_amount: 60, status: 'RECHAZADO', method: 'TRANSFERENCIA', requested_at: '2026-10-24', created_at: '2026-10-24', updated_at: '2026-10-24', idempotency_key: 'intent-1', requested_by_user_id: 'rider-user' });
   submit();
   expect(await screen.findByText('Solicitud encontrada')).toBeInTheDocument();
   expect(screen.getByText('Estado actual: RECHAZADO')).toBeInTheDocument();
@@ -119,3 +121,5 @@ it('retains recovery metadata when the status service is unavailable', async () 
   expect(payoutService.requestPayout).toHaveBeenCalledWith(expect.objectContaining({ idempotency_key: 'original-key' }));
   expect(createPayoutIdempotencyKey).not.toHaveBeenCalled();
 });
+
+afterEach(() => clearStoredTokens());

@@ -1,3 +1,4 @@
+import { clearStoredTokens, storeTokens } from '@/lib/auth-session';
 import { api } from '@/lib/api';
 import { payoutService, PayoutStatus } from '@/services/payout.service';
 
@@ -7,10 +8,11 @@ const post = jest.mocked(api.post);
 const patch = jest.mocked(api.patch);
 const row = { id: 'payout-1', rider_id: 'rider-1', amount: 12.5, status: 'PENDIENTE', method: 'TRANSFERENCIA', created_at: '2026-10-24T10:00:00' };
 beforeEach(() => {
+  clearStoredTokens(); storeTokens({ access_token: 'payout-a', refresh_token: 'refresh-a' });
   jest.resetAllMocks();
   jest.spyOn(console, 'error').mockImplementation(() => undefined);
 });
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => { clearStoredTokens(); jest.restoreAllMocks(); });
 
 it.each<PayoutStatus>(['PENDIENTE', 'APROBADO', 'EN_PROCESO', 'COMPLETADO', 'RECHAZADO', 'FALLIDO', 'PROCESADO', 'CANCELADO'])('accepts %s without relabeling it as paid', async (status) => {
   get.mockResolvedValueOnce([{ ...row, status }]);
@@ -18,7 +20,7 @@ it.each<PayoutStatus>(['PENDIENTE', 'APROBADO', 'EN_PROCESO', 'COMPLETADO', 'REC
   expect(result[0]).toMatchObject({ status, amount: 12.5, created_at: row.created_at });
 });
 it('normalizes aliases and clamps pagination without sending ALL', async () => {
-  get.mockResolvedValueOnce([{ ...row, amount: undefined, total_amount: 15, method: undefined, payment_method: 'EFECTIVO' }]);
+  get.mockResolvedValueOnce([{ ...row, amount: undefined, total_amount: 15, method: undefined, payment_method: 'EFECTIVO', idempotency_key: 'retry-1' }]);
   const result = await payoutService.getAll({ rider_id: ' rider-1 ', status: 'ALL', limit: 999, offset: 2.9 });
   expect(get).toHaveBeenCalledWith('/payouts?rider_id=rider-1&limit=200&offset=2');
   expect(result[0]).toMatchObject({ amount: 15, total_amount: 15, method: 'EFECTIVO', processed_at: null });
@@ -33,19 +35,18 @@ it.each([{ id: '' }, { rider_id: '' }, { status: 'PAID' }, { method: 'UNKNOWN' }
   await expect(payoutService.getAll()).rejects.toThrow();
 });
 it.each([0, -1, NaN, Infinity])('does not submit invalid amounts: %s', async (amount) => {
-  await expect(payoutService.requestPayout({ amount, method: 'TRANSFERENCIA' })).rejects.toThrow();
+  await expect(payoutService.requestPayout({ amount, method: 'TRANSFERENCIA', idempotency_key: 'retry-1' })).rejects.toThrow();
   expect(post).not.toHaveBeenCalled();
 });
 it('preserves caller idempotency keys and bank details', async () => {
-  post.mockResolvedValueOnce(row);
+  post.mockResolvedValueOnce({ ...row, idempotency_key: 'retry-1', bank_account_last4: '1234' });
   const request = { amount: 12.5, method: 'TRANSFERENCIA' as const, bank_account_last4: '1234', idempotency_key: 'retry-1' };
   await payoutService.requestPayout(request);
   expect(post).toHaveBeenCalledWith('/payouts/request', request);
 });
-it('assigns a key for new requests', async () => {
-  post.mockResolvedValueOnce(row);
-  await payoutService.requestPayout({ amount: 12.5, method: 'TRANSFERENCIA' });
-  expect(post).toHaveBeenCalledWith('/payouts/request', expect.objectContaining({ idempotency_key: expect.any(String) }));
+it('requires a retained key instead of silently creating a fresh financial request', async () => {
+  await expect(payoutService.requestPayout({ amount: 12.5, method: 'TRANSFERENCIA' } as never)).rejects.toThrow();
+  expect(post).not.toHaveBeenCalled();
 });
 it('approval preserves the backend in-process state', async () => {
   patch.mockResolvedValueOnce({ ...row, status: 'EN_PROCESO' });
@@ -53,7 +54,7 @@ it('approval preserves the backend in-process state', async () => {
   expect(patch).toHaveBeenCalledWith('/payouts/payout-1/approve');
 });
 it('trims rejection details', async () => {
-  patch.mockResolvedValueOnce({ ...row, status: 'RECHAZADO' });
+  patch.mockResolvedValueOnce({ ...row, status: 'RECHAZADO', rejection_reason: 'no funds' });
   expect((await payoutService.reject(' payout-1 ', ' no funds ')).status).toBe('RECHAZADO');
   expect(patch).toHaveBeenCalledWith('/payouts/payout-1/reject', { rejection_reason: 'no funds' });
 });
@@ -68,7 +69,7 @@ it('rejects blank identifiers and reasons before making requests', async () => {
 it('propagates server failures', async () => {
   const failure = new Error('Server unavailable');
   post.mockRejectedValueOnce(failure);
-  await expect(payoutService.requestPayout({ amount: 12.5, method: 'EFECTIVO' })).rejects.toBe(failure);
+  await expect(payoutService.requestPayout({ amount: 12.5, method: 'EFECTIVO', idempotency_key: 'retry-1' })).rejects.toBe(failure);
 });
 it('retrieves balances, detail and audit history', async () => {
   get.mockResolvedValueOnce({ available: 10, pending: 2 }).mockResolvedValueOnce(row).mockResolvedValueOnce([]);
@@ -80,7 +81,7 @@ it('retrieves balances, detail and audit history', async () => {
 });
 
 it('looks up only the submitted key and normalizes the server record', async () => {
-  get.mockResolvedValueOnce(row);
+  get.mockResolvedValueOnce({ ...row, idempotency_key: 'key 1' });
   expect((await payoutService.findRequestByKey('key 1'))?.id).toBe('payout-1');
   expect(get).toHaveBeenCalledWith('/payouts/request-status?idempotency_key=key%201');
 });

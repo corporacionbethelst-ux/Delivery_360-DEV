@@ -1,10 +1,15 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import { PayoutSessionBoundary } from '@/components/financial/PayoutSessionBoundary';
+import { usePayoutRead } from '@/hooks/usePayoutRead';
+import { capturePrivateTask } from '@/lib/private-task';
+
+import React, { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
+import { payoutDateLabel, payoutAmountLabel } from '@/lib/payout-contract';
 import { payoutService, Payout, PayoutMethod, PayoutStatus } from '@/services/payout.service';
-import { formatCurrency, formatDate } from '@/lib/formatters';
+import { formatDate } from '@/lib/formatters';
 import { ArrowLeft, Clock, CheckCircle, XCircle, Ban, Wallet, Loader2, AlertCircle, FileText } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -37,6 +42,11 @@ const getErrorMessage = (error: unknown): string => {
 };
 
 export default function RiderPayoutsPage() {
+  return <PayoutSessionBoundary><PayoutContent /></PayoutSessionBoundary>;
+}
+
+function PayoutContent() {
+  const beginRead = usePayoutRead();
   const router = useRouter();
   const { user, isAuthenticated } = useAuthStore();
   const [payouts, setPayouts] = useState<Payout[]>([]);
@@ -44,27 +54,31 @@ export default function RiderPayoutsPage() {
   const [error, setError] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
 
+  const loadPayouts = useCallback(async () => {
+    const current = beginRead();
+    if (!current()) return;
+    setLoadingData(true);
+    setError(null);
+    try {
+      const data = await payoutService.getAll({ limit: 50 });
+      if (current()) setPayouts(data);
+    } catch (err) {
+      if (!current()) return;
+      console.error('Error loading rider payouts:', err);
+      setError(getErrorMessage(err));
+    } finally {
+      if (current()) setLoadingData(false);
+    }
+  }, [beginRead]);
+
   useEffect(() => { setIsMounted(true); }, []);
 
   useEffect(() => {
     if (!isMounted || !isAuthenticated || !user) return;
     if (user.role !== 'REPARTIDOR') { router.push('/rider'); return; }
     void loadPayouts();
-  }, [isAuthenticated, user, router, isMounted]);
+  }, [isAuthenticated, user, router, isMounted, loadPayouts]);
 
-  const loadPayouts = async () => {
-    setLoadingData(true);
-    setError(null);
-    try {
-      const data = await payoutService.getAll({ limit: 50 });
-      setPayouts(data);
-    } catch (err) {
-      console.error('Error loading rider payouts:', err);
-      setError(getErrorMessage(err));
-    } finally {
-      setLoadingData(false);
-    }
-  };
 
   if (!isMounted || !isAuthenticated || !user || loadingData) {
     return (
@@ -88,7 +102,7 @@ export default function RiderPayoutsPage() {
               <FileText className="w-6 h-6 text-blue-600" />
               Historial de Retiros
             </h1>
-            <p className="text-gray-500 text-sm">Traza completa de tus solicitudes de pago.</p>
+            <p className="text-gray-500 text-sm">Últimas 50 solicitudes como máximo. Este listado no representa el historial completo.</p>
           </div>
         </div>
 
@@ -136,7 +150,7 @@ export default function RiderPayoutsPage() {
                       {/* Info Principal */}
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-3 mb-2">
-                          <h3 className="text-xl font-bold text-gray-900">{formatCurrency(payout.amount)}</h3>
+                          <h3 className="text-xl font-bold text-gray-900">{payoutAmountLabel(payout.amount)}</h3>
                           <Badge className={`${config.bg} ${config.color} border-transparent font-semibold text-xs px-2.5 py-0.5`}>
                             {config.label}
                           </Badge>
@@ -146,7 +160,7 @@ export default function RiderPayoutsPage() {
                         <div className="space-y-1.5">
                           <p className="text-sm text-gray-600 flex items-center gap-2">
                             <Clock className="w-3.5 h-3.5 text-gray-400" />
-                            Solicitado el <span className="font-medium text-gray-900">{formatDate(payout.requested_at)}</span>
+                            Solicitado el <span className="font-medium text-gray-900">{payoutDateLabel(payout.requested_at)}</span>
                           </p>
                           
                           {payout.bank_account_last4 && (
@@ -173,8 +187,8 @@ export default function RiderPayoutsPage() {
                         
                         {payout.processed_at ? (
                           <div className="flex flex-col items-center md:items-end">
-                            <span className="text-xs text-emerald-600 font-bold flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded-full">
-                              <CheckCircle className="w-3 h-3" /> Procesado
+                            <span className="text-xs text-gray-600 font-bold flex items-center gap-1 bg-gray-50 px-2 py-1 rounded-full">
+                              <Clock className="w-3 h-3" /> Gestión registrada
                             </span>
                             <span className="text-[10px] text-gray-400 mt-1">{formatDate(payout.processed_at)}</span>
                           </div>

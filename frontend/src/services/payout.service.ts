@@ -1,14 +1,10 @@
+import { capturePrivateTask } from '@/lib/private-task';
+import { normalizePayout, normalizePayoutBalance, normalizePayoutHistory, payoutCents, payoutId, payoutKey, payoutMethod } from '@/lib/payout-contract';
 import { api } from '@/lib/api';
 
 // Six canonical backend states plus two values kept for historical responses.
 export type PayoutStatus = 'PENDIENTE' | 'APROBADO' | 'EN_PROCESO' | 'COMPLETADO' | 'RECHAZADO' | 'FALLIDO' | 'PROCESADO' | 'CANCELADO';
 export type PayoutMethod = 'TRANSFERENCIA' | 'EFECTIVO' | 'BILLETERA_DIGITAL';
-
-type ApiPayout = Partial<Payout> & {
-  amount?: number;
-  total_amount?: number;
-  payment_method?: PayoutMethod;
-};
 
 export interface Payout {
   id: string;
@@ -18,9 +14,9 @@ export interface Payout {
   status: PayoutStatus;
   method: PayoutMethod;
   payment_method?: PayoutMethod;
-  requested_at: string;
-  created_at: string;
-  updated_at: string;
+  requested_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
   processed_at?: string | null;
   bank_account_last4?: string | null;
   reference_code?: string | null;
@@ -41,7 +37,7 @@ export interface PayoutRequestInput {
   method: PayoutMethod;
   bank_account_last4?: string;
   bank_account_id?: string;
-  idempotency_key?: string;
+  idempotency_key: string;
 }
 
 export interface PayoutStatusHistory {
@@ -71,60 +67,22 @@ export interface PayoutFilters {
   status?: PayoutStatus | 'ALL' | 'all';
 }
 
-const VALID_STATUSES = new Set<PayoutStatus>(['PENDIENTE', 'APROBADO', 'EN_PROCESO', 'COMPLETADO', 'RECHAZADO', 'FALLIDO', 'PROCESADO', 'CANCELADO']);
-const VALID_METHODS = new Set<PayoutMethod>(['TRANSFERENCIA', 'EFECTIVO', 'BILLETERA_DIGITAL']);
-
-const normalizePayout = (payout: ApiPayout): Payout => {
-  if (!payout.id || !payout.rider_id) {
-    throw new Error('[PayoutService] Respuesta de retiro inválida');
+async function privateRequest<T>(request: () => Promise<T>): Promise<T> {
+  const task = capturePrivateTask();
+  try {
+    const response = await request();
+    task.assertCurrent();
+    return response;
+  } catch (error) {
+    task.assertCurrent();
+    throw error;
   }
-
-  const status = payout.status as PayoutStatus;
-  const method = (payout.method || payout.payment_method || 'TRANSFERENCIA') as PayoutMethod;
-  const amount = Number(payout.amount ?? payout.total_amount ?? 0);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    throw new Error('[PayoutService] Monto de retiro inválido recibido del backend');
-  }
-  const requestedAt = payout.requested_at || payout.created_at || new Date().toISOString();
-
-  if (!VALID_STATUSES.has(status)) {
-    throw new Error('[PayoutService] Estado de retiro inválido recibido del backend');
-  }
-
-  if (!VALID_METHODS.has(method)) {
-    throw new Error('[PayoutService] Método de retiro inválido recibido del backend');
-  }
-
-  return {
-    id: payout.id,
-    rider_id: payout.rider_id,
-    amount,
-    total_amount: amount,
-    status,
-    method,
-    payment_method: method,
-    requested_at: requestedAt,
-    created_at: requestedAt,
-    updated_at: payout.updated_at || payout.processed_at || requestedAt,
-    processed_at: payout.processed_at ?? null,
-    bank_account_last4: payout.bank_account_last4 ?? null,
-    reference_code: payout.reference_code ?? null,
-    rejection_reason: payout.rejection_reason ?? null,
-    balance_before: payout.balance_before ?? null,
-    balance_after: payout.balance_after ?? null,
-    requested_by_user_id: payout.requested_by_user_id ?? null,
-    processed_by_user_id: payout.processed_by_user_id ?? null,
-    idempotency_key: payout.idempotency_key ?? null,
-    orders_count: payout.orders_count ?? 0,
-    period: payout.period ?? null,
-    period_start: payout.period_start ?? null,
-    period_end: payout.period_end ?? null,
-  };
-};
+}
 
 const buildQuery = (params?: Readonly<PayoutFilters>): string => {
   const queryParams = new URLSearchParams();
 
+  if (params?.status && !['ALL', 'all', 'PENDIENTE', 'APROBADO', 'EN_PROCESO', 'COMPLETADO', 'RECHAZADO', 'FALLIDO'].includes(params.status)) throw new Error('El servidor no admite ese filtro de estado');
   if (params?.rider_id?.trim()) queryParams.append('rider_id', params.rider_id.trim());
   if (params?.status && params.status !== 'ALL' && params.status !== 'all') queryParams.append('status', params.status);
 
@@ -159,114 +117,85 @@ export const payoutHttpStatus = (error: unknown): number | undefined => {
 };
 
 export const payoutService = {
-  /** A 404 does not cancel an in-flight request; retain its key for retry. */
+  /** 404 is only a point-in-time absence, never permission to discard the retry key. */
   findRequestByKey: async (key: string): Promise<Payout | null> => {
-    if (!key.trim() || key.length > 100) throw new Error('Clave de solicitud inválida');
-    try {
-      const response = await api.get<ApiPayout>(`/payouts/request-status?idempotency_key=${encodeURIComponent(key)}`);
-      return normalizePayout(response);
-    } catch (error: unknown) {
-      if (payoutHttpStatus(error) === 404) return null;
-      throw error;
-    }
+    payoutKey(key);
+    return privateRequest(async () => {
+      try {
+        const p = normalizePayout(await api.get<unknown>(`/payouts/request-status?idempotency_key=${encodeURIComponent(key)}`));
+        if (p.idempotency_key !== key) throw new Error('La respuesta identifica otra solicitud de retiro');
+        return p;
+      } catch (error) {
+        if (payoutHttpStatus(error) === 404) return null;
+        throw error;
+      }
+    });
   },
 
-  /** Obtener historial real de retiros con filtros opcionales. */
-  getAll: async (params?: Readonly<PayoutFilters>): Promise<Payout[]> => {
-    try {
-      const response = await api.get<ApiPayout[]>(`/payouts${buildQuery(params)}`);
-      return response.map(normalizePayout);
-    } catch (error) {
-      console.error('[PayoutService] Error fetching payouts:', error);
-      throw error;
-    }
-  },
+  /** One explicit server page, without claiming a total or a complete catalog. */
+  getAll: async (params?: Readonly<PayoutFilters>): Promise<Payout[]> => privateRequest(async () => {
+    const response = await api.get<unknown>(`/payouts${buildQuery(params)}`);
+    if (!Array.isArray(response)) throw new Error('Historial de retiros mal formado');
+    const limit = Number.isFinite(params?.limit) ? Math.min(Math.max(Math.trunc(params!.limit!), 1), 200) : 50;
+    if (response.length > limit) throw new Error('La respuesta excedió la página de retiros solicitada');
+    const ids = new Set<string>();
+    return response.map(value => {
+      const p = normalizePayout(value);
+      if (ids.has(p.id) || params?.rider_id?.trim() && p.rider_id !== params.rider_id.trim() ||
+          params?.status && !['ALL', 'all'].includes(params.status) && p.status !== params.status) {
+        throw new Error('El historial contiene identidades duplicadas o datos fuera del filtro');
+      }
+      ids.add(p.id);
+      return p;
+    });
+  }),
 
-  /** Solicitar un nuevo retiro con payload JSON real. */
+  /** Callers must retain this key before sending so ambiguous retries cannot create a new request. */
   requestPayout: async (data: PayoutRequestInput): Promise<Payout> => {
-    if (!Number.isFinite(data.amount) || data.amount <= 0) {
-      throw new Error('[PayoutService] El monto del retiro debe ser mayor a cero');
-    }
-    if (!data.method) {
-      throw new Error('[PayoutService] Método de pago requerido');
-    }
-
-    try {
-      const payload = { ...data, idempotency_key: data.idempotency_key || createPayoutIdempotencyKey() };
-      const response = await api.post<ApiPayout>('/payouts/request', payload);
-      return normalizePayout(response);
-    } catch (error) {
-      console.error('[PayoutService] Error requesting payout:', error);
-      throw error;
-    }
+    const cents = payoutCents(data.amount), method = payoutMethod(data.method), key = payoutKey(data.idempotency_key);
+    if (cents > 9999999999) throw new Error('El retiro excede el máximo admitido');
+    if (cents < 1000) throw new Error('El retiro mínimo es 10.00');
+    if (data.bank_account_last4 !== undefined && !/^[0-9]{4}$/.test(data.bank_account_last4)) throw new Error('Los últimos cuatro dígitos son inválidos');
+    if (data.bank_account_id !== undefined) throw new Error('La API actual no admite bank_account_id');
+    return privateRequest(async () => {
+      const p = normalizePayout(await api.post<unknown>('/payouts/request', { ...data }));
+      if (p.idempotency_key !== key || payoutCents(p.amount) !== cents || p.method !== method ||
+          (p.bank_account_last4 ?? undefined) !== data.bank_account_last4) throw new Error('El servidor no confirmó la misma solicitud de retiro');
+      return p;
+    });
   },
 
-  /** Obtener saldo disponible para retiro. */
-  getAvailableBalance: async (riderId?: string): Promise<PayoutBalance> => {
-    try {
-      const query = riderId?.trim() ? `?rider_id=${encodeURIComponent(riderId.trim())}` : '';
-      return await api.get<PayoutBalance>(`/payouts/balance${query}`);
-    } catch (error) {
-      console.error('[PayoutService] Error fetching payout balance:', error);
-      throw error;
-    }
-  },
+  getAvailableBalance: async (riderId?: string): Promise<PayoutBalance> => privateRequest(async () => {
+    const query = riderId?.trim() ? `?rider_id=${encodeURIComponent(riderId.trim())}` : '';
+    return normalizePayoutBalance(await api.get<unknown>(`/payouts/balance${query}`));
+  }),
 
-  /** Aprobar un retiro pendiente. */
   approve: async (id: string): Promise<Payout> => {
-    const payoutId = id?.trim();
-    if (!payoutId) throw new Error('[PayoutService] ID de pago requerido para aprobar');
-
-    try {
-      const response = await api.patch<ApiPayout>(`/payouts/${payoutId}/approve`);
-      return normalizePayout(response);
-    } catch (error) {
-      console.error(`[PayoutService] Error approving payout ${payoutId}:`, error);
-      throw error;
-    }
+    const requestedId = payoutId(id?.trim());
+    return privateRequest(async () => {
+      const p = normalizePayout(await api.patch<unknown>(`/payouts/${encodeURIComponent(requestedId)}/approve`), requestedId);
+      if (p.status !== 'EN_PROCESO') throw new Error('El servidor no confirmó la aprobación del retiro');
+      return p;
+    });
   },
 
-  /** Rechazar un retiro pendiente con motivo real. */
   reject: async (id: string, reason: string): Promise<Payout> => {
-    const payoutId = id?.trim();
-    const rejectionReason = reason?.trim();
-
-    if (!payoutId) throw new Error('[PayoutService] ID de pago requerido para rechazar');
-    if (!rejectionReason) throw new Error('[PayoutService] Motivo de rechazo requerido');
-
-    try {
-      const response = await api.patch<ApiPayout>(`/payouts/${payoutId}/reject`, { rejection_reason: rejectionReason });
-      return normalizePayout(response);
-    } catch (error) {
-      console.error(`[PayoutService] Error rejecting payout ${payoutId}:`, error);
-      throw error;
-    }
+    const requestedId = payoutId(id?.trim()), rejectionReason = reason?.trim();
+    if (!rejectionReason || rejectionReason.length > 500) throw new Error('Indica un motivo de rechazo de hasta 500 caracteres');
+    return privateRequest(async () => {
+      const p = normalizePayout(await api.patch<unknown>(`/payouts/${encodeURIComponent(requestedId)}/reject`, { rejection_reason: rejectionReason }), requestedId);
+      if (p.status !== 'RECHAZADO' || p.rejection_reason !== rejectionReason) throw new Error('El servidor no confirmó el rechazo del retiro');
+      return p;
+    });
   },
 
-  /** Obtener historial auditable de cambios de estado de un retiro. */
   getHistory: async (id: string): Promise<PayoutStatusHistory[]> => {
-    const payoutId = id?.trim();
-    if (!payoutId) throw new Error('[PayoutService] ID de pago requerido para historial');
-
-    try {
-      return await api.get<PayoutStatusHistory[]>(`/payouts/${payoutId}/history`);
-    } catch (error) {
-      console.error(`[PayoutService] Error fetching payout history ${payoutId}:`, error);
-      throw error;
-    }
+    const requestedId = payoutId(id?.trim());
+    return privateRequest(async () => normalizePayoutHistory(await api.get<unknown>(`/payouts/${encodeURIComponent(requestedId)}/history`), requestedId));
   },
 
-  /** Obtener detalle real de un retiro. */
   getById: async (id: string): Promise<Payout> => {
-    const payoutId = id?.trim();
-    if (!payoutId) throw new Error('[PayoutService] ID de pago requerido');
-
-    try {
-      const response = await api.get<ApiPayout>(`/payouts/${payoutId}`);
-      return normalizePayout(response);
-    } catch (error) {
-      console.error(`[PayoutService] Error fetching payout ${payoutId}:`, error);
-      throw error;
-    }
+    const requestedId = payoutId(id?.trim());
+    return privateRequest(async () => normalizePayout(await api.get<unknown>(`/payouts/${encodeURIComponent(requestedId)}`), requestedId));
   },
 };

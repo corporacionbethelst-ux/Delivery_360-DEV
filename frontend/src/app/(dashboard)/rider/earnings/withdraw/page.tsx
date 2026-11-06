@@ -1,6 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useSyncExternalStore } from 'react';
+import { capturePrivateTask } from '@/lib/private-task';
+import { getCredentialGeneration, onCredentialsChanged } from '@/lib/auth-session';
+import { confirmWithdrawal, payoutAmountLabel } from '@/lib/payout-contract';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { payoutService, PayoutBalance, createPayoutIdempotencyKey, payoutHttpStatus } from '@/services/payout.service';
@@ -9,14 +12,22 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { formatCurrency } from '@/lib/formatters';
 import { WithdrawalIntent, loadWithdrawalIntent, saveWithdrawalIntent, clearWithdrawalIntent } from '@/lib/withdrawal-intent';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export default function WithdrawPage() {
+  const generation = useSyncExternalStore(onCredentialsChanged, getCredentialGeneration, () => 0);
+  const { user } = useAuthStore();
+  return <SessionWithdrawPage key={JSON.stringify([generation, user?.id, user?.role])} />;
+}
+
+function SessionWithdrawPage() {
   const router = useRouter();
   const { user, isAuthenticated } = useAuthStore();
   
+  const alive = useRef(false), submitLock = useRef(false), lookupLock = useRef(false), balanceSequence = useRef(0);
+  const [initializing, setInitializing] = useState(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const requestIntent = useRef<WithdrawalIntent | null>(null);
   const [checkingRequest, setCheckingRequest] = useState(false);
   const [unconfirmed, setUnconfirmed] = useState(false);
@@ -39,48 +50,64 @@ export default function WithdrawPage() {
     if (user.role !== 'REPARTIDOR') { router.push('/rider'); return; }
     let active = true;
     void (async () => {
-      await loadBalance();
-      if (!active) return;
       try {
+        // Recover first: a failed balance read must not lose an uncertain request.
         const saved = loadWithdrawalIntent(user.id);
         if (saved) {
           requestIntent.current = saved;
           setAmount((saved.amountCents / 100).toFixed(2));
           setBankAccountLast4(saved.bankLast4);
           setUnconfirmed(true);
-          await checkRequest(saved, () => active);
         }
+        await loadBalance();
+        if (active && saved) await checkRequest(saved, () => active);
       } catch {
-        if (!active) return;
-        setUnconfirmed(true);
-        setError('No se puede recuperar la solicitud. Revisa tu historial de retiros antes de crear otra.');
+        if (active) {
+          setUnconfirmed(true);
+          setError('No se puede recuperar la solicitud. Revisa tu historial de retiros antes de crear otra.');
+        }
+      } finally {
+        if (active) setInitializing(false);
       }
     })();
     return () => { active = false; };
   }, [user, isAuthenticated, router, isMounted]);
 
   const loadBalance = async () => {
+    const sequence = ++balanceSequence.current;
+    let task: ReturnType<typeof capturePrivateTask> | undefined;
+    const current = () => alive.current && (!task || task.isCurrent()) && sequence === balanceSequence.current;
     setLoadingBalance(true);
-    setError(null);
     try {
+      task = capturePrivateTask();
       const data = await payoutService.getAvailableBalance();
-      setBalance(data);
-    } catch (e) {
-      setError('No se pudo cargar tu saldo disponible.');
+      task.assertCurrent();
+      if (current()) setBalance(data);
+    } catch {
+      if (current()) {
+        setBalance(null);
+        setError('No se pudo cargar tu saldo disponible. Puedes volver a consultarlo.');
+      }
     } finally {
-      setLoadingBalance(false);
+      if (current()) setLoadingBalance(false);
     }
   };
 
   const checkRequest = async (saved: WithdrawalIntent, active = () => true) => {
+    if (lookupLock.current || submitLock.current) return;
+    lookupLock.current = true;
+    const task = capturePrivateTask();
+    const current = () => alive.current && active() && task.isCurrent();
     setCheckingRequest(true);
     try {
       const payout = await payoutService.findRequestByKey(saved.key);
-      if (!active()) return;
+      task.assertCurrent();
+      if (!current()) return;
       if (payout) {
-        try { clearWithdrawalIntent(saved.userId, saved.key); } catch { /* Confirmation is authoritative even when browser cleanup fails. */ }
-        setSubmittedAmount(payout.amount);
-        setRequestStatus(payout.status);
+        const confirmed = confirmWithdrawal(payout, saved);
+        try { clearWithdrawalIntent(saved.userId, saved.key); } catch { /* Server confirmation remains authoritative. */ }
+        setSubmittedAmount(confirmed.amount);
+        setRequestStatus(confirmed.status);
         setRecovered(true);
         setSuccess(true);
         setUnconfirmed(false);
@@ -88,23 +115,27 @@ export default function WithdrawPage() {
         setError('La solicitud aún no aparece registrada. Puedes consultar de nuevo o reintentar la misma solicitud.');
       }
     } catch {
-      if (active()) setError('No se pudo confirmar la solicitud. Conservamos sus datos para reintentar sin crear otra.');
+      if (current()) setError('No se pudo confirmar la solicitud. Conservamos sus datos para reintentar sin crear otra.');
     } finally {
-      if (active()) setCheckingRequest(false);
+      lookupLock.current = false;
+      if (current()) setCheckingRequest(false);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || isSubmitting || checkingRequest) return;
+    if (!user || user.role !== 'REPARTIDOR' || initializing || loadingBalance || isSubmitting || checkingRequest || submitLock.current || lookupLock.current) return;
+    const task = capturePrivateTask();
+    const current = () => alive.current && task.isCurrent();
     setError(null);
     
     const numAmount = parseFloat(amount);
-    const available = Number(balance?.available ?? 0);
+    const available = balance?.available;
 
     if (isNaN(numAmount) || numAmount <= 0) { setError('Ingresa un monto válido.'); return; }
-    if (!unconfirmed && numAmount > available) { setError('Monto superior al disponible.'); return; }
-    if (numAmount < 10) { setError('Mínimo $10.00 para retirar.'); return; }
+    if (!unconfirmed && available === undefined) { setError('Consulta el saldo disponible antes de crear un retiro.'); return; }
+    if (!unconfirmed && available !== undefined && numAmount > available) { setError('Monto superior al disponible.'); return; }
+    if (numAmount < 10) { setError('El monto mínimo de retiro es 10.00.'); return; }
 
     if (bankAccountLast4 && !/^[0-9]{4}$/.test(bankAccountLast4)) { setError('Ingresa los cuatro dígitos completos de la cuenta.'); return; }
     if (!/^\d+(?:\.\d{1,2})?$/.test(amount.trim())) { setError('Usa un monto con hasta dos decimales.'); return; }
@@ -122,6 +153,7 @@ export default function WithdrawPage() {
       setError('El navegador no pudo conservar la solicitud. Revisa tu historial y la configuración del navegador antes de continuar.');
       return;
     }
+    submitLock.current = true;
     setIsSubmitting(true);
     try {
       const payout = await payoutService.requestPayout({
@@ -130,14 +162,18 @@ export default function WithdrawPage() {
         bank_account_last4: intent.bankLast4 || undefined,
         idempotency_key: intent.key,
       });
+      task.assertCurrent();
+      if (!current()) return;
+      const confirmed = confirmWithdrawal(payout, intent);
       try { clearWithdrawalIntent(intent.userId, intent.key); } catch { /* Retry lookup remains safe. */ }
-      setSubmittedAmount(payout.amount);
-      setRequestStatus(payout.status);
+      setSubmittedAmount(confirmed.amount);
+      setRequestStatus(confirmed.status);
       setRecovered(unconfirmed);
       setSuccess(true);
       setUnconfirmed(false);
       void loadBalance();
     } catch (err: unknown) {
+      if (!current()) return;
       const status = payoutHttpStatus(err);
       if (!unconfirmed && (status === 400 || status === 422)) {
         try { clearWithdrawalIntent(intent.userId, intent.key); } catch { /* Keep server confirmation checks available on reload. */ }
@@ -148,11 +184,12 @@ export default function WithdrawPage() {
       }
       setError('Error al procesar. Intenta más tarde.');
     } finally {
-      setIsSubmitting(false);
+      submitLock.current = false;
+      if (current()) setIsSubmitting(false);
     }
   };
 
-  if (!isMounted || !isAuthenticated || !user || loadingBalance || checkingRequest) {
+  if (!isMounted || !isAuthenticated || !user || (!success && (initializing || loadingBalance || checkingRequest))) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <Loader2 className="animate-spin h-12 w-12 text-blue-600" />
@@ -169,7 +206,7 @@ export default function WithdrawPage() {
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">{recovered ? 'Solicitud encontrada' : '¡Solicitud Enviada!'}</h2>
           <p className="text-gray-600 mb-8 leading-relaxed">
-            {recovered ? 'Encontramos tu solicitud de' : 'Hemos recibido tu solicitud de'} <strong className="text-gray-900 text-lg">{formatCurrency(submittedAmount ?? 0)}</strong>.
+            {recovered ? 'Encontramos tu solicitud de' : 'Hemos recibido tu solicitud de'} <strong className="text-gray-900 text-lg">{payoutAmountLabel(submittedAmount!, balance?.currency)}</strong>.
             <br/>
             <span className="text-sm text-gray-500">Puedes consultar el estado de la solicitud en tu historial de retiros.</span>
           </p>
@@ -182,8 +219,8 @@ export default function WithdrawPage() {
     );
   }
 
-  const available = Number(balance?.available ?? 0);
-  const canWithdraw = unconfirmed ? requestIntent.current !== null : available >= 10;
+  const available = balance?.available;
+  const canWithdraw = unconfirmed ? requestIntent.current !== null : available !== undefined && available >= 10;
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
@@ -205,7 +242,7 @@ export default function WithdrawPage() {
           <CardContent className="p-6 flex items-center justify-between relative z-10">
             <div>
               <p className="text-sm font-bold text-green-800 uppercase tracking-wide">Saldo Disponible</p>
-              <p className="text-4xl font-extrabold text-green-900 mt-1">{formatCurrency(available)}</p>
+              <p className="text-4xl font-extrabold text-green-900 mt-1">{available === undefined ? 'No disponible' : payoutAmountLabel(available, balance?.currency)}</p>
             </div>
             <div className="p-4 bg-white rounded-full shadow-lg border border-green-100">
               <Banknote className="w-8 h-8 text-green-600" />
@@ -213,6 +250,7 @@ export default function WithdrawPage() {
           </CardContent>
         </Card>
 
+        {!balance && <Button type="button" onClick={() => { setError(null); void loadBalance(); }}>Volver a consultar saldo</Button>}
         {unconfirmed && (
           <Alert><AlertDescription>
             Hay una solicitud pendiente de confirmar. Conservaremos sus datos al reintentar.
@@ -247,23 +285,23 @@ export default function WithdrawPage() {
               <div className="space-y-2">
                 <Label htmlFor="amount" className="font-bold text-gray-700">Monto a Retirar</Label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-bold text-lg">$</span>
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-bold text-sm">{balance?.currency ?? '—'}</span>
                   <Input
                     id="amount"
                     type="number"
                     step="0.01"
                     min="10"
-                    max={available}
+                    max={unconfirmed ? undefined : available}
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    className="pl-8 text-lg font-bold h-14 focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:border-green-500"
+                    className="pl-14 text-lg font-bold h-14 focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:border-green-500"
                     placeholder="0.00"
                     disabled={isSubmitting || unconfirmed || !canWithdraw}
                   />
                 </div>
                 <div className="flex justify-between text-xs font-medium text-gray-500 px-1">
-                  <span>Mín: {formatCurrency(10)}</span>
-                  <span>Max: {formatCurrency(available)}</span>
+                  <span>Mín: {payoutAmountLabel(10, balance?.currency)}</span>
+                  <span>Max: {available === undefined ? 'No disponible' : payoutAmountLabel(available, balance?.currency)}</span>
                 </div>
               </div>
 
@@ -312,9 +350,9 @@ export default function WithdrawPage() {
                 )}
               </Button>
               
-              {!canWithdraw && (
+              {!canWithdraw && available !== undefined && (
                 <p className="text-xs text-center text-red-500 font-bold bg-red-50 p-2 rounded">
-                  Necesitas al menos {formatCurrency(10)} para retirar.
+                  Necesitas al menos {payoutAmountLabel(10, balance?.currency)} para retirar.
                 </p>
               )}
             </CardContent>
