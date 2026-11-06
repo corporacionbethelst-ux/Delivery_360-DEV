@@ -11,7 +11,7 @@ const valid = (value: unknown, userId: string): value is WithdrawalIntent => {
   if (typeof value !== 'object' || value === null) return false;
   return 'version' in value && value.version === 1 &&
     'userId' in value && value.userId === userId &&
-    'key' in value && typeof value.key === 'string' && !!value.key.trim() && value.key.length <= 100 &&
+    'key' in value && typeof value.key === 'string' && !!value.key.trim() && value.key === value.key.trim() && value.key.length <= 100 &&
     'amountCents' in value && typeof value.amountCents === 'number' && Number.isSafeInteger(value.amountCents) && value.amountCents >= 1000 && value.amountCents <= 9999999999 &&
     'bankLast4' in value && typeof value.bankLast4 === 'string' && /^(?:[0-9]{4})?$/.test(value.bankLast4);
 };

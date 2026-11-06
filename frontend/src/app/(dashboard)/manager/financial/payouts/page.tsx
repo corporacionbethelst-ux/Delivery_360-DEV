@@ -1,5 +1,9 @@
 'use client';
 
+import { PayoutSessionBoundary } from '@/components/financial/PayoutSessionBoundary';
+import { usePayoutRead } from '@/hooks/usePayoutRead';
+import { capturePrivateTask } from '@/lib/private-task';
+
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +35,7 @@ import {
   XCircle,
   RefreshCw, // MODIFICACIÓN: Importar ícono de actualizar
 } from 'lucide-react';
+import { payoutAmountLabel } from '@/lib/payout-contract';
 import { payoutService } from '@/services/payout.service';
 import { riderService } from '@/services/rider.service';
 import type { PayoutWithRider } from '@/types/payout';
@@ -46,8 +51,14 @@ interface PayoutMetrics {
 }
 
 export default function ManagerPayoutsPage() {
+  return <PayoutSessionBoundary><PayoutContent /></PayoutSessionBoundary>;
+}
+
+function PayoutContent() {
+  const beginRead = usePayoutRead();
   const [payouts, setPayouts] = useState<PayoutWithRider[]>([]);
   const [ridersMap, setRidersMap] = useState<Record<string, Rider>>({});
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false); // MODIFICACIÓN: Estado para refresh manual
   const [searchTerm, setSearchTerm] = useState('');
@@ -66,6 +77,9 @@ export default function ManagerPayoutsPage() {
 
   // MODIFICACIÓN: Función de carga actualizada para soportar refresh manual
   const loadPayouts = async (isRefresh: boolean = false) => {
+    const current = beginRead();
+    if (!current()) return;
+    setError(null);
     if (isRefresh) {
       setIsRefreshing(true);
     } else {
@@ -75,6 +89,7 @@ export default function ManagerPayoutsPage() {
     try {
       const data = await payoutService.getAll();
       
+      if (!current()) return;
       const riderIds = Array.from(new Set(data.map((p) => p.rider_id)));
 
       const ridersData = await Promise.all(
@@ -88,14 +103,16 @@ export default function ManagerPayoutsPage() {
         }
       });
 
+      if (!current()) return;
       setRidersMap(ridersMapTemp);
       const mappedData: PayoutWithRider[] = data.map((p) => ({ ...p }));
 
       setPayouts(mappedData);
       calculateMetrics(mappedData);
     } catch (error) {
-      console.error('Error loading payouts:', error);
+      if (current()) setError('No se pudieron actualizar los retiros. Se conservan los últimos datos disponibles.');
     } finally {
+      if (!current()) return;
       setLoading(false);
       setIsRefreshing(false); // MODIFICACIÓN: Resetear estado de refresh
     }
@@ -112,6 +129,7 @@ export default function ManagerPayoutsPage() {
 
     const paidThisMonth = data
       .filter((p) => {
+        if (!p.created_at) return false;
         const payoutDate = new Date(p.created_at);
         return (
           p.status === 'COMPLETADO' &&
@@ -171,15 +189,10 @@ export default function ManagerPayoutsPage() {
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('es-CO', {
-      style: 'currency',
-      currency: 'COP',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
+  const formatCurrency = payoutAmountLabel;
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return 'Fecha no informada';
     return new Date(dateString).toLocaleDateString('es-CO', {
       year: 'numeric',
       month: 'short',
@@ -202,6 +215,8 @@ export default function ManagerPayoutsPage() {
 
   return (
     <div className="space-y-6">
+      {error && <p role="alert" className="text-red-700">{error}</p>}
+      <p className="text-sm text-muted-foreground">Últimos 50 retiros como máximo. Filtros y métricas corresponden a este lote, no al historial completo.</p>
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -230,12 +245,12 @@ export default function ManagerPayoutsPage() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pagado este Mes</CardTitle>
+            <CardTitle className="text-sm font-medium">Completados del lote (mes)</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(metrics.totalPaidMonth)}</div>
-            <p className="text-xs text-muted-foreground">Total aprobado y pagado</p>
+            <p className="text-xs text-muted-foreground">Según estado del servidor, por fecha de solicitud</p>
           </CardContent>
         </Card>
 
@@ -369,7 +384,7 @@ export default function ManagerPayoutsPage() {
                         {formatCurrency(payout.total_amount || 0)}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">{payout.orders_count || 0} órdenes</Badge>
+                        <Badge variant="outline">{payout.orders_count === undefined ? 'Cantidad no informada' : `${payout.orders_count} órdenes`}</Badge>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {payout.period_start && payout.period_end

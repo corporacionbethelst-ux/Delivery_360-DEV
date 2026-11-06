@@ -1,5 +1,9 @@
 'use client';
 
+import { PayoutSessionBoundary } from '@/components/financial/PayoutSessionBoundary';
+import { usePayoutRead } from '@/hooks/usePayoutRead';
+import { capturePrivateTask } from '@/lib/private-task';
+
 import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
@@ -21,8 +25,8 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { payoutDateLabel, payoutAmountLabel } from '@/lib/payout-contract';
 import { payoutService, Payout, PayoutStatus, PayoutStatusHistory } from '@/services/payout.service';
-import { formatCurrency } from '@/lib/formatters';
 
 const getErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
@@ -45,8 +49,16 @@ const METHOD_LABELS: Record<string, string> = {
 };
 
 export default function PayoutDetailPage() {
+  const params = useParams();
+  return <PayoutSessionBoundary><PayoutContent key={String(params.id)} /></PayoutSessionBoundary>;
+}
+
+function PayoutContent() {
+  const beginRead = usePayoutRead();
   const router = useRouter();
   const params = useParams();
+  const actionLock = React.useRef(false), alive = React.useRef(false);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const [payout, setPayout] = useState<Payout | null>(null);
   const [history, setHistory] = useState<PayoutStatusHistory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,6 +75,8 @@ export default function PayoutDetailPage() {
   }, [params.id]);
 
   const loadPayout = async () => {
+    const current = beginRead();
+    if (!current()) return;
     setLoading(true);
     setError(null);
     try {
@@ -71,43 +85,64 @@ export default function PayoutDetailPage() {
         payoutService.getById(payoutId),
         payoutService.getHistory(payoutId),
       ]);
+      if (!current()) return;
       setPayout(data);
       setHistory(historyData);
     } catch (err: unknown) {
+      if (!current()) return;
       console.error('Error loading payout:', err);
       setError(getErrorMessage(err, 'No se pudo cargar el retiro solicitado.'));
-      setPayout(null);
-      setHistory([]);
+
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
   };
 
   const handleApprove = async () => {
-    if (!payout) return;
+    if (!payout || payout.status !== 'PENDIENTE' || actionLock.current) return;
+    const task = capturePrivateTask();
+    const current = () => alive.current && task.isCurrent();
+    actionLock.current = true;
     setActionLoading(true);
     try {
-      await payoutService.approve(payout.id);
+      const confirmed = await payoutService.approve(payout.id);
+      task.assertCurrent();
+      if (!current()) return;
+      if (confirmed.id !== payout.id || confirmed.rider_id !== payout.rider_id || confirmed.amount !== payout.amount) throw new Error('La confirmación corresponde a otros datos de retiro');
+      setPayout(confirmed);
       await loadPayout();
+      task.assertCurrent();
     } catch (err: unknown) {
+      if (!current()) return;
       alert('Error al aprobar: ' + getErrorMessage(err, 'Intente nuevamente'));
     } finally {
-      setActionLoading(false);
+      actionLock.current = false;
+      if (current()) setActionLoading(false);
     }
   };
 
   const handleReject = async () => {
-    if (!payout || !rejectReason.trim()) return;
+    if (!payout || payout.status !== 'PENDIENTE' || !rejectReason.trim() || actionLock.current) return;
+    const task = capturePrivateTask();
+    const current = () => alive.current && task.isCurrent();
+    actionLock.current = true;
     setActionLoading(true);
     try {
-      await payoutService.reject(payout.id, rejectReason);
+      const confirmed = await payoutService.reject(payout.id, rejectReason);
+      task.assertCurrent();
+      if (!current()) return;
+      if (confirmed.id !== payout.id || confirmed.rider_id !== payout.rider_id || confirmed.amount !== payout.amount) throw new Error('La confirmación corresponde a otros datos de retiro');
+      setPayout(confirmed);
       setShowRejectDialog(false);
       setRejectReason('');
       await loadPayout();
+      task.assertCurrent();
     } catch (err: unknown) {
+      if (!current()) return;
       alert('Error al rechazar: ' + getErrorMessage(err, 'Intente nuevamente'));
     } finally {
-      setActionLoading(false);
+      actionLock.current = false;
+      if (current()) setActionLoading(false);
     }
   };
 
@@ -119,7 +154,7 @@ export default function PayoutDetailPage() {
     );
   }
 
-  if (error || !payout) {
+  if (!payout) {
     return (
       <div className="p-6 max-w-4xl mx-auto">
         <Alert variant="destructive">
@@ -133,12 +168,13 @@ export default function PayoutDetailPage() {
     );
   }
 
-  const isPending = payout.status === 'PENDIENTE';
+  const isPending = payout.status === 'PENDIENTE' && !error;
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-4xl mx-auto space-y-6">
 
+        {error && <p role="alert" className="text-red-700">{error}</p>}
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
@@ -165,9 +201,7 @@ export default function PayoutDetailPage() {
                 <CardTitle className="text-lg text-gray-600">Solicitud de Retiro</CardTitle>
                 <CardDescription className="flex items-center gap-2 mt-1">
                   <Calendar className="w-4 h-4" />
-                  Solicitado el: {new Date(payout.requested_at).toLocaleDateString('es-ES', {
-                    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                  })}
+                  Solicitado el: {payoutDateLabel(payout.requested_at)}
                 </CardDescription>
               </div>
             </div>
@@ -179,7 +213,7 @@ export default function PayoutDetailPage() {
               <div className="p-6 bg-indigo-50 rounded-xl border border-indigo-100 flex flex-col justify-center">
                 <span className="text-indigo-600 font-medium text-sm uppercase tracking-wide">Monto a Pagar</span>
                 <span className="text-4xl font-bold text-indigo-900 mt-1">
-                  {formatCurrency(payout.amount)}
+                  {payoutAmountLabel(payout.amount)}
                 </span>
               </div>
 
@@ -241,11 +275,11 @@ export default function PayoutDetailPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div className="bg-gray-50 p-4 rounded border">
                   <p className="text-xs text-gray-500 uppercase font-semibold">Saldo antes</p>
-                  <p className="text-lg font-bold text-gray-900">{formatCurrency(payout.balance_before || 0)}</p>
+                  <p className="text-lg font-bold text-gray-900">{payoutAmountLabel(payout.balance_before)}</p>
                 </div>
                 <div className="bg-gray-50 p-4 rounded border">
                   <p className="text-xs text-gray-500 uppercase font-semibold">Saldo después</p>
-                  <p className="text-lg font-bold text-gray-900">{formatCurrency(payout.balance_after || 0)}</p>
+                  <p className="text-lg font-bold text-gray-900">{payoutAmountLabel(payout.balance_after)}</p>
                 </div>
               </div>
               <div className="space-y-2">
@@ -261,7 +295,7 @@ export default function PayoutDetailPage() {
                     </div>
                     <div className="text-xs text-gray-500 md:text-right">
                       <p>{item.created_at ? new Date(item.created_at).toLocaleString() : 'Fecha no disponible'}</p>
-                      <p>{formatCurrency(item.balance_before || 0)} → {formatCurrency(item.balance_after || 0)}</p>
+                      <p>{payoutAmountLabel(item.balance_before)} → {payoutAmountLabel(item.balance_after)}</p>
                     </div>
                   </div>
                 ))}
@@ -270,12 +304,12 @@ export default function PayoutDetailPage() {
 
             {/* Fecha de Procesamiento (Si aplica) */}
             {payout.processed_at && (
-               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <h4 className="text-green-800 font-bold text-sm mb-1 flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4" /> Procesado Exitosamente
+               <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <h4 className="text-gray-800 font-bold text-sm mb-1 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4" /> Fecha de gestión registrada
                 </h4>
-                <p className="text-green-700 text-sm">
-                  El pago se completó el {new Date(payout.processed_at).toLocaleString()}.
+                <p className="text-gray-700 text-sm">
+                  Registrada el {payoutDateLabel(payout.processed_at)}. Estado: {payout.status.replaceAll('_', ' ')}.
                 </p>
               </div>
             )}
@@ -290,7 +324,7 @@ export default function PayoutDetailPage() {
                 onClick={() => setShowRejectDialog(true)}
                 disabled={actionLoading}
               >
-                <XCircle className="w-4 h-4 mr-2" /> Rechazar Pago
+                <XCircle className="w-4 h-4 mr-2" /> Rechazar retiro
               </Button>
               <Button
                 className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
@@ -298,7 +332,7 @@ export default function PayoutDetailPage() {
                 disabled={actionLoading}
               >
                 {actionLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
-                Aprobar Pago
+                Aprobar retiro
               </Button>
             </CardFooter>
           )}
@@ -310,7 +344,7 @@ export default function PayoutDetailPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="text-red-600 flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5" /> Rechazar Pago
+              <AlertTriangle className="w-5 h-5" /> Rechazar retiro
             </DialogTitle>
             <DialogDescription>
               Indique el motivo del rechazo. Esta acción notificará al repartidor y cancelará la transacción.

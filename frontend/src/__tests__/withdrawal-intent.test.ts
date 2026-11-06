@@ -27,3 +27,6 @@ it('propagates storage failures so the caller can stop before submitting', () =>
   jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Storage unavailable'); });
   expect(() => saveWithdrawalIntent(intent)).toThrow('Storage unavailable');
 });
+it('rejects a noncanonical recovery key instead of trimming into another request identity', () => {
+  expect(() => saveWithdrawalIntent({ ...intent, key: ' key ' })).toThrow();
+});
