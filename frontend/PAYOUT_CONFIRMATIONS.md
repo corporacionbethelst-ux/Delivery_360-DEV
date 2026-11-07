@@ -1,4 +1,4 @@
-# Confirmación y recuperación de retiros — entrega 64
+# Confirmación y recuperación de retiros — entregas 64–65
 
 La API actual registra solicitudes y decisiones contables. Aprobar mediante
 `PATCH /payouts/{id}/approve` registra un débito y devuelve `EN_PROCESO`.
@@ -62,11 +62,42 @@ repartidores, gerencia vuelve a verificar la sesión de la lectura original.
 - La página de retiro respeta la moneda informada por balance (hoy COP).
   Cuando la respuesta no informa moneda, las vistas lo indican y conservan los
   decimales; no asumen USD ni deducen moneda del método de pago.
-- Los listados actuales muestran hasta 50 retiros y las métricas/filtros locales
-  se identifican como pertenecientes a ese lote. `getAll` conserva su contrato
-  de una página con limit/offset; no devuelve un total global ni agota páginas.
-  Las dos etiquetas históricas PROCESADO/CANCELADO se pueden leer, pero no se
-  envían como filtros de servidor: el enum vigente tiene seis estados.
+- Los listados muestran páginas de 50 retiros. Cada lectura pide 51 filas:
+  la adicional permite habilitar Siguiente sin inventar total o número de páginas.
+  Los offsets avanzan de 50 en 50; la fila adicional pasa a la página siguiente,
+  no se presenta anticipadamente ni provoca consultas de su rider.
+- El estado se filtra en el servidor y vuelve a offset 0. Buscar por ID/nombre/email
+  sigue siendo local a la página visible y se indica así. Las métricas de gerencia
+  resumen esa página, antes de la búsqueda local; no son totales globales.
+- Si falla una página o filtro, se conserva la última página confirmada con su
+  estado/offset reales; Reintentar consulta repite el intento que falló. Una
+  consulta anterior no puede sustituir una posterior, tampoco sus errores.
+- Si dos páginas contiguas repiten un ID visible, se conserva la anterior y se
+  solicita volver al inicio. No se deduplican filas para disimular el cambio.
+  Esto detecta algunos cambios, no todas las omisiones concurrentes de offset.
+- getAll conserva su contrato de una página limit/offset; ahora copia los filtros
+  del caller para validar la misma consulta que envió aunque el objeto se modifique.
+  Las etiquetas históricas PROCESADO/CANCELADO siguen visibles, pero solo se ofrecen
+  los seis estados canónicos como filtros de servidor.
+
+## Recuperación de decisiones administrativas — entrega 65
+
+Una aprobación/rechazo incierto conserva los datos previos y bloquea otra decisión.
+Consultar estado del retiro solo lee detalle e historial; no vuelve a enviar PATCH.
+Si ambas lecturas son válidas, se publica el estado observado. Un PENDIENTE leído
+permite un nuevo clic deliberado; no demuestra que un request anterior se haya
+cancelado. Los bloqueos, permisos y transacciones del servidor siguen siendo la
+autoridad final. Un fallo de lectura conserva el bloqueo y permite volver a consultar.
+
+Una decisión confirmada conserva su respuesta aunque falle la recarga posterior.
+Se verifica también que método y sufijo de cuenta correspondan al retiro revisado.
+La fecha de gestión y el rechazo tampoco equivalen a cancelar una transferencia
+bancaria. No se añade ninguna llamada a una pasarela externa.
+
+La recuperación de una lectura inicial fallida está disponible en el mismo detalle,
+sin tener que navegar a otra pantalla. Las lecturas de nombres de riders están
+limitadas a los IDs únicos de la página visible (máximo 50), verifican identidad y
+sesión y muestran una indicación si no pueden completarse.
 
 ## Límites y siguiente trabajo
 
@@ -84,3 +115,5 @@ La homologación real necesita un contrato de proveedor, estados/recibos durable
 idempotencia de envío, verificación de firma y deduplicación de webhooks,
 conciliación y pruebas sandbox. Debe mantenerse separada de la aprobación contable
 actual. Quedan también E2E completos y el gate de cobertura del 50 %.
+
+Detalle y validación de esta ampliación: [ENTREGA_65.md](ENTREGA_65.md).

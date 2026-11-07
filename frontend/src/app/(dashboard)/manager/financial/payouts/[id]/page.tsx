@@ -4,7 +4,7 @@ import { PayoutSessionBoundary } from '@/components/financial/PayoutSessionBound
 import { usePayoutRead } from '@/hooks/usePayoutRead';
 import { capturePrivateTask } from '@/lib/private-task';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -57,6 +57,7 @@ function PayoutContent() {
   const beginRead = usePayoutRead();
   const router = useRouter();
   const params = useParams();
+  const payoutId = typeof params.id === 'string' ? params.id : '';
   const actionLock = React.useRef(false), alive = React.useRef(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const [payout, setPayout] = useState<Payout | null>(null);
@@ -66,21 +67,16 @@ function PayoutContent() {
 
   // Estados para acciones de admin
   const [actionLoading, setActionLoading] = useState(false);
+  const [decisionUnconfirmed, setDecisionUnconfirmed] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
 
-  useEffect(() => {
-    if (!params.id) return;
-    loadPayout();
-  }, [params.id]);
-
-  const loadPayout = async () => {
+  const loadPayout = useCallback(async () => {
     const current = beginRead();
     if (!current()) return;
     setLoading(true);
     setError(null);
     try {
-      const payoutId = params.id as string;
       const [data, historyData] = await Promise.all([
         payoutService.getById(payoutId),
         payoutService.getHistory(payoutId),
@@ -88,6 +84,7 @@ function PayoutContent() {
       if (!current()) return;
       setPayout(data);
       setHistory(historyData);
+      setDecisionUnconfirmed(false);
     } catch (err: unknown) {
       if (!current()) return;
       console.error('Error loading payout:', err);
@@ -96,25 +93,33 @@ function PayoutContent() {
     } finally {
       if (current()) setLoading(false);
     }
-  };
+  }, [beginRead, payoutId]);
+
+  useEffect(() => {
+    if (payoutId) void loadPayout();
+    else { setLoading(false); setError('Identificador del retiro no disponible.'); }
+  }, [payoutId, loadPayout]);
 
   const handleApprove = async () => {
-    if (!payout || payout.status !== 'PENDIENTE' || actionLock.current) return;
+    if (!payout || payout.status !== 'PENDIENTE' || decisionUnconfirmed || error || actionLock.current) return;
     const task = capturePrivateTask();
     const current = () => alive.current && task.isCurrent();
     actionLock.current = true;
     setActionLoading(true);
+    setDecisionUnconfirmed(true);
+    setError(null);
     try {
       const confirmed = await payoutService.approve(payout.id);
       task.assertCurrent();
       if (!current()) return;
-      if (confirmed.id !== payout.id || confirmed.rider_id !== payout.rider_id || confirmed.amount !== payout.amount) throw new Error('La confirmación corresponde a otros datos de retiro');
+      if (confirmed.id !== payout.id || confirmed.rider_id !== payout.rider_id || confirmed.amount !== payout.amount || confirmed.method !== payout.method || (confirmed.bank_account_last4 ?? null) !== (payout.bank_account_last4 ?? null)) throw new Error('La confirmación corresponde a otros datos de retiro');
       setPayout(confirmed);
+      setDecisionUnconfirmed(false);
       await loadPayout();
       task.assertCurrent();
     } catch (err: unknown) {
       if (!current()) return;
-      alert('Error al aprobar: ' + getErrorMessage(err, 'Intente nuevamente'));
+      setError('No se pudo confirmar la aprobación. Consulta el estado del retiro antes de volver a actuar.');
     } finally {
       actionLock.current = false;
       if (current()) setActionLoading(false);
@@ -122,24 +127,28 @@ function PayoutContent() {
   };
 
   const handleReject = async () => {
-    if (!payout || payout.status !== 'PENDIENTE' || !rejectReason.trim() || actionLock.current) return;
+    if (!payout || payout.status !== 'PENDIENTE' || decisionUnconfirmed || error || !rejectReason.trim() || actionLock.current) return;
     const task = capturePrivateTask();
     const current = () => alive.current && task.isCurrent();
     actionLock.current = true;
     setActionLoading(true);
+    setDecisionUnconfirmed(true);
+    setError(null);
     try {
       const confirmed = await payoutService.reject(payout.id, rejectReason);
       task.assertCurrent();
       if (!current()) return;
-      if (confirmed.id !== payout.id || confirmed.rider_id !== payout.rider_id || confirmed.amount !== payout.amount) throw new Error('La confirmación corresponde a otros datos de retiro');
+      if (confirmed.id !== payout.id || confirmed.rider_id !== payout.rider_id || confirmed.amount !== payout.amount || confirmed.method !== payout.method || (confirmed.bank_account_last4 ?? null) !== (payout.bank_account_last4 ?? null)) throw new Error('La confirmación corresponde a otros datos de retiro');
       setPayout(confirmed);
+      setDecisionUnconfirmed(false);
       setShowRejectDialog(false);
       setRejectReason('');
       await loadPayout();
       task.assertCurrent();
     } catch (err: unknown) {
       if (!current()) return;
-      alert('Error al rechazar: ' + getErrorMessage(err, 'Intente nuevamente'));
+      setError('No se pudo confirmar el rechazo. Consulta el estado del retiro antes de volver a actuar.');
+      setShowRejectDialog(false);
     } finally {
       actionLock.current = false;
       if (current()) setActionLoading(false);
@@ -161,6 +170,7 @@ function PayoutContent() {
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error || 'Pago no encontrado'}</AlertDescription>
         </Alert>
+        <Button variant="outline" onClick={() => { void loadPayout(); }} className="mt-4">Consultar estado del retiro</Button>
         <Button variant="outline" onClick={() => router.back()} className="mt-4">
           <ArrowLeft className="w-4 h-4 mr-2" /> Volver
         </Button>
@@ -168,13 +178,14 @@ function PayoutContent() {
     );
   }
 
-  const isPending = payout.status === 'PENDIENTE' && !error;
+  const isPending = payout.status === 'PENDIENTE' && !error && !decisionUnconfirmed;
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-4xl mx-auto space-y-6">
 
         {error && <p role="alert" className="text-red-700">{error}</p>}
+        <Button variant="outline" onClick={() => { void loadPayout(); }} disabled={actionLoading}>Consultar estado del retiro</Button>
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
@@ -347,7 +358,7 @@ function PayoutContent() {
               <AlertTriangle className="w-5 h-5" /> Rechazar retiro
             </DialogTitle>
             <DialogDescription>
-              Indique el motivo del rechazo. Esta acción notificará al repartidor y cancelará la transacción.
+              Indica el motivo. El retiro rechazado conserva su historial y libera la reserva correspondiente.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
