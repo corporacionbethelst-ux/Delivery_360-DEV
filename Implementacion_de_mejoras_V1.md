@@ -6851,3 +6851,42 @@ Implementación `63c5d16dc420e5fc9959d1ca183da107553abf89`, árbol local/GitHub
 `75ba6d7ae2e869f2d8633a829adfa94e7184cc51`. Un segundo commit exclusivamente
 documental registra estos identificadores. El PR distingue CI del head final y
 resultados locales, sin afirmar todos los controles aprobados.
+
+
+## Entrega 71 — Catálogo de auditoría, filtros y CSV de página
+
+**Fecha:** 7 de noviembre de 2026, America/Caracas. **Base:**
+`9383271c75ecf9fa0859a4245c7f9ff6eaeb0612` (PR #311 fusionado).
+**Rama:** `fix/rider-audit-catalog-filters-and-csv-v1`.
+
+El catálogo de auditoría consulta filtros de estado/disponibilidad reales y navega
+por páginas de 50 con una fila extra como señal. No confunde total del envelope
+con un total global. La búsqueda local por IDs, nombre, contacto, placa y zona se
+etiqueta como de página y admite texto sin acentos. Las métricas se limitan a las
+coincidencias; se elimina la suma de importes de monedas desconocidas.
+
+Cada página conserva su consulta confirmada. Fallos mantienen datos/etiquetas y
+permiten reintentar el intento exacto o reiniciar. Servicio/controlador/frontera
+retiran lecturas de otra cuenta/rol o más antiguas; solo GERENTE/SUPERADMIN pueden
+montar el catálogo. Se preservan cero, Offline y campos desconocidos, y se muestran
+IDs reales y enlaces codificados. El CSV exporta solo coincidencias de la página,
+con 33 columnas, IDs rider/usuario, filtros, offset, búsqueda, alcance parcial y
+fecha UTC; reutiliza el helper seguro y no ejecuta otra lectura.
+
+Validación nueva: **1700 pruebas frontend / 92 suites** aprobadas, 100 casos netos
+nuevos. TypeScript, lint y build de 48 páginas con Inter real aprobados. Cobertura
+de líneas **41,77 %**; el gate global del 50 % sigue fallando sin alterar umbrales.
+Chromium aprueba siete escenarios del catálogo con 14 lecturas y un CSV descargado
+verificado de 1 fila/33 columnas, y siete de regresión del detalle con 54 lecturas.
+Cero escrituras/excepciones pageerror con HTTP/WebSocket interceptados y datos
+sintéticos. Se revisan escritorio y móvil. Sin cambios backend ni atribución de
+resultados locales backend nuevos.
+
+Contrato: [frontend/RIDER_AUDIT_CATALOG.md](frontend/RIDER_AUDIT_CATALOG.md). Registro:
+[frontend/ENTREGA_71.md](frontend/ENTREGA_71.md). Los offsets no garantizan snapshot
+ni ausencia de omisiones concurrentes. Búsqueda/CSV son parciales y algunas
+ausencias se pierden antes del HTTP. Siguiente prioridad: listado de entregas de
+gerencia, contratos de apoyo/páginas, filtros —Sin asignar—, sesión y datos fieles.
+Siguen pendientes cobertura global, E2E con backend real, cursor estable y sandbox
+de pagos. No se envían pagos, mensajes o facturas, ni se fusiona o despliega.
+Commit/árbol/PR y CI observado se registran después de publicar.

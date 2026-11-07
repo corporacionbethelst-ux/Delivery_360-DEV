@@ -332,7 +332,7 @@ def main():
         state["mode"] = "normal"
         page.get_by_role("link", name="Volver al catálogo de auditoría").click()
         expect(page.get_by_text("Rider dos", exact=True)).to_be_visible()
-        page.get_by_role("button", name="Ver detalle", exact=True).nth(1).click()
+        page.get_by_role("link", name="Ver auditoría de rider-2", exact=True).click()
         expect(
             page.get_by_text(
                 "Repartidor de la consulta confirmada: rider-2", exact=True

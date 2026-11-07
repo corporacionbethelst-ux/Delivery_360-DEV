@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { getCredentialGeneration, onCredentialsChanged } from '@/lib/auth-session';
 
-export function RiderAuditAccess({ children, riderId }: PropsWithChildren<{ riderId: string }>) {
+export function RiderAuditAccess({ children, riderId = 'catalog' }: PropsWithChildren<{ riderId?: string }>) {
   const router = useRouter(), { user, isAuthenticated } = useAuthStore();
   const generation = useSyncExternalStore(onCredentialsChanged, getCredentialGeneration, () => 0);
   const allowed = isAuthenticated && !!user && ['GERENTE', 'SUPERADMIN'].includes(user.role);

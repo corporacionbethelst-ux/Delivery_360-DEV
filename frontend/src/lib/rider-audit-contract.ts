@@ -4,6 +4,7 @@ import { transactionId } from '@/lib/transaction-contract';
 import { DeliveryStatus } from '@/types/delivery';
 
 export const AUDIT_PAGE_SIZE = 50;
+export const RIDER_AUDIT_STATUSES = ['ACTIVO', 'INACTIVO', 'OCUPADO', 'PENDIENTE', 'SUSPENDIDO'] as const;
 export const AUDIT_SUMMARY_PAGE_SIZE = 100;
 export const AUDIT_SUMMARY_MAX_PAGES = 5;
 const invalid = (): never => { throw new Error('La auditoría está incompleta o no coincide con el repartidor solicitado'); };
@@ -39,18 +40,20 @@ export function normalizeAuditSummary(value: unknown) {
   const available = typeof row.available_to_payout === 'number' ? row.available_to_payout : auditMoney(row.available_to_payout);
   const expectedAvailable = Math.max(0, earned - pending);
   if (pending < 0 || !Number.isFinite(available) || Math.abs(available - expectedAvailable) > Number.EPSILON * Math.max(1, Math.abs(expectedAvailable)) * 4) return invalid();
-  if (row.status != null && !['ACTIVO', 'INACTIVO', 'OCUPADO', 'PENDIENTE', 'SUSPENDIDO'].includes(row.status as string)) return invalid();
+  if (row.status != null && !RIDER_AUDIT_STATUSES.includes(row.status as never)) return invalid();
   if (row.is_online != null && typeof row.is_online !== 'boolean') return invalid();
   return { ...counts, rider_id: auditId(row.rider_id), user_id: auditId(row.user_id),
     full_name: text(row.full_name), email: text(row.email), phone: text(row.phone), status: text(row.status),
+    vehicle_type: text(row.vehicle_type), vehicle_plate: text(row.vehicle_plate), operating_zone: text(row.operating_zone),
+    zone_id: row.zone_id == null ? null : auditId(row.zone_id), current_order_id: row.current_order_id == null ? null : auditId(row.current_order_id),
     is_online: row.is_online == null ? null : row.is_online as boolean,
     last_lat: coordinate(row.last_lat, 90), last_lng: coordinate(row.last_lng, 180), last_location_at: date(row.last_location_at),
     sla_compliance_rate: rate, total_earned: earned, pending_payouts: pending, currency: currency(row.currency) };
 }
 export type AuditSummary = ReturnType<typeof normalizeAuditSummary>;
-export function normalizeSummaryPage(value: unknown, offset: number) {
+export function normalizeSummaryPage(value: unknown, offset: number, limit = AUDIT_SUMMARY_PAGE_SIZE) {
   const envelope = record(value);
-  if (envelope.limit !== AUDIT_SUMMARY_PAGE_SIZE || envelope.offset !== offset || !Array.isArray(envelope.items) || envelope.items.length > AUDIT_SUMMARY_PAGE_SIZE || envelope.total !== envelope.items.length) return invalid();
+  if ((!Number.isInteger(limit) || limit < 1 || limit > 500) || envelope.limit !== limit || envelope.offset !== offset || !Array.isArray(envelope.items) || envelope.items.length > limit || envelope.total !== envelope.items.length) return invalid();
   const ids = new Set<string>(), users = new Set<string>();
   return envelope.items.map(value => {
     const row = normalizeAuditSummary(value);

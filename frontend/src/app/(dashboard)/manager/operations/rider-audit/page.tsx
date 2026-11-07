@@ -1,267 +1,60 @@
 'use client';
-
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Activity, AlertTriangle, Bike, CheckCircle, Download, Eye, MapPin, RefreshCw, Search, Truck, Wallet } from 'lucide-react';
-import { riderService, RiderAuditSummary } from '@/services/rider.service';
+import Link from 'next/link';
+import type { ReactNode } from 'react';
+import { RiderAuditAccess } from '@/components/audit/RiderAuditAccess';
+import { useRiderAuditCatalog } from '@/hooks/useRiderAuditCatalog';
+import { AUDIT_PAGE_SIZE, RIDER_AUDIT_STATUSES } from '@/lib/rider-audit-contract';
+import { auditCatalogMetrics, auditOnlineLabel } from '@/lib/rider-audit-catalog';
+import { transactionDateLabel } from '@/lib/transaction-contract';
+import { payoutAmountLabel } from '@/lib/payout-contract';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { formatCurrency } from '@/lib/formatters';
-import { downloadCSV } from '@/lib/csv-export';
 
-const STATUS_OPTIONS = ['ALL', 'ACTIVO', 'PENDIENTE', 'SUSPENDIDO', 'INACTIVO', 'OCUPADO'];
-const ONLINE_OPTIONS = [
-  { value: 'ALL', label: 'Todos' },
-  { value: 'true', label: 'Online' },
-  { value: 'false', label: 'Offline' },
-];
-
-const numberFormatter = new Intl.NumberFormat('es-CO');
-
-export default function ManagerRiderAuditPage() {
-  const router = useRouter();
-  const [items, setItems] = useState<RiderAuditSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL');
-  const [onlineFilter, setOnlineFilter] = useState('ALL');
-
-  const loadAudit = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await riderService.getAuditSummary({
-        status_filter: statusFilter !== 'ALL' ? statusFilter : undefined,
-        is_online: onlineFilter !== 'ALL' ? onlineFilter === 'true' : undefined,
-        limit: 250,
-      });
-      setItems(response.items || []);
-    } catch (err: any) {
-      console.error('Error loading rider audit summary:', err);
-      setError(err?.message || 'No se pudo cargar la auditoría por repartidor.');
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, onlineFilter]);
-
-  useEffect(() => {
-    loadAudit();
-  }, [loadAudit]);
-
-  const filteredItems = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-    if (!term) return items;
-
-    return items.filter((item) => [
-      item.full_name,
-      item.email,
-      item.phone || '',
-      item.vehicle_plate || '',
-      item.operating_zone || '',
-      item.status,
-    ].some((value) => String(value).toLowerCase().includes(term)));
-  }, [items, searchTerm]);
-
-  const totals = useMemo(() => filteredItems.reduce((acc, item) => ({
-    riders: acc.riders + 1,
-    online: acc.online + (item.is_online ? 1 : 0),
-    activeOrders: acc.activeOrders + item.orders_active,
-    completedDeliveries: acc.completedDeliveries + item.deliveries_completed,
-    failedDeliveries: acc.failedDeliveries + item.deliveries_failed,
-    earnings: acc.earnings + item.total_earned,
-    pendingPayouts: acc.pendingPayouts + item.pending_payouts,
-  }), {
-    riders: 0,
-    online: 0,
-    activeOrders: 0,
-    completedDeliveries: 0,
-    failedDeliveries: 0,
-    earnings: 0,
-    pendingPayouts: 0,
-  }), [filteredItems]);
-
-  const handleExport = () => {
-    downloadCSV(filteredItems.map((item) => ({
-      Rider: item.full_name,
-      Email: item.email,
-      Estado: item.status,
-      Online: item.is_online ? 'Sí' : 'No',
-      Vehiculo: [item.vehicle_type, item.vehicle_plate].filter(Boolean).join(' '),
-      Zona: item.operating_zone || '',
-      OrdenesAsignadas: item.orders_assigned,
-      OrdenesActivas: item.orders_active,
-      EntregasTotales: item.deliveries_total,
-      EntregasCompletadas: item.deliveries_completed,
-      EntregasFallidas: item.deliveries_failed,
-      SLA: `${item.sla_compliance_rate}%`,
-      Ganancias: item.total_earned,
-      RetirosPendientes: item.pending_payouts,
-      UltimaUbicacion: item.last_location_at || '',
-    })), 'auditoria_repartidores');
-  };
-
-  const getHealthBadge = (item: RiderAuditSummary) => {
-    if (item.deliveries_failed > 0) return 'bg-red-50 text-red-700 border-red-200';
-    if (item.orders_active > 0 || item.deliveries_in_progress > 0) return 'bg-blue-50 text-blue-700 border-blue-200';
-    if (item.is_online) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    return 'bg-gray-50 text-gray-700 border-gray-200';
-  };
-
-  return (
-    <div className="p-6 bg-gray-50 min-h-screen">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Auditoría por Repartidor</h1>
-            <p className="text-gray-500 mt-1">Resumen operativo y financiero agrupado por rider para managers.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={loadAudit} disabled={loading}>
-              <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Actualizar
-            </Button>
-            <Button variant="outline" onClick={handleExport} disabled={loading || filteredItems.length === 0}>
-              <Download className="w-4 h-4 mr-2" /> Exportar CSV
-            </Button>
-          </div>
-        </div>
-
-        {error && (
-          <Alert variant="destructive" className="bg-red-50 border-red-200">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <Bike className="w-8 h-8 text-blue-600" />
-              <div><p className="text-sm text-gray-500">Riders</p><p className="text-2xl font-bold">{numberFormatter.format(totals.riders)}</p></div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <Activity className="w-8 h-8 text-emerald-600" />
-              <div><p className="text-sm text-gray-500">Online</p><p className="text-2xl font-bold">{numberFormatter.format(totals.online)}</p></div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <Truck className="w-8 h-8 text-indigo-600" />
-              <div><p className="text-sm text-gray-500">Órdenes activas</p><p className="text-2xl font-bold">{numberFormatter.format(totals.activeOrders)}</p></div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <Wallet className="w-8 h-8 text-amber-600" />
-              <div><p className="text-sm text-gray-500">Ganancias / Retiros</p><p className="text-lg font-bold">{formatCurrency(totals.earnings)} / {formatCurrency(totals.pendingPayouts)}</p></div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardContent className="p-4 flex flex-col lg:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Buscar por rider, email, placa, zona o estado..."
-                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-            </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full lg:w-48"><SelectValue placeholder="Estado" /></SelectTrigger>
-              <SelectContent>
-                {STATUS_OPTIONS.map((status) => <SelectItem key={status} value={status}>{status === 'ALL' ? 'Todos los estados' : status}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={onlineFilter} onValueChange={setOnlineFilter}>
-              <SelectTrigger className="w-full lg:w-40"><SelectValue placeholder="Online" /></SelectTrigger>
-              <SelectContent>
-                {ONLINE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
+export default function RiderAuditPage() { return <RiderAuditAccess><Catalog /></RiderAuditAccess>; }
+function Catalog() {
+  const page = useRiderAuditCatalog(), data = page.data, metrics = auditCatalogMetrics(page.visibleRows);
+  return <div className="p-4 md:p-6 bg-gray-50 min-h-screen"><div className="max-w-7xl mx-auto space-y-5">
+    <div className="flex flex-wrap justify-between items-start gap-3">
+      <div className="min-w-0"><h1 className="text-2xl font-bold">Auditoría por repartidor</h1><p className="text-gray-600">Resumen operativo y contable en páginas de hasta 50 repartidores.</p></div>
+      <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => { void page.refresh(); }}>Actualizar consulta</Button><Button disabled={page.isLoading || !data || !!page.error || !page.visibleRows.length} onClick={page.exportPage}>Exportar página CSV</Button></div>
+    </div>
+    <Card><CardContent className="pt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="min-w-0"><label htmlFor="audit-search" className="block text-sm mb-1">Buscar solo en esta página</label><input id="audit-search" className="w-full min-w-0 rounded border p-2" placeholder="ID, nombre, email, teléfono, placa o zona" value={page.search} onChange={e => page.setSearch(e.target.value)} /></div>
+      <div className="min-w-0"><label htmlFor="audit-status" className="block text-sm mb-1">Estado en el servidor</label><select id="audit-status" className="w-full min-w-0 rounded border p-2" value={page.selected.status} onChange={e => { void page.setFilter('status', e.target.value); }}><option value="ALL">Todos los estados</option>{RIDER_AUDIT_STATUSES.map(status => <option key={status} value={status}>{status}</option>)}</select></div>
+      <div className="min-w-0"><label htmlFor="audit-online" className="block text-sm mb-1">Disponibilidad en el servidor</label><select id="audit-online" className="w-full min-w-0 rounded border p-2" value={page.selected.online} onChange={e => { void page.setFilter('online', e.target.value); }}><option value="ALL">Todos</option><option value="true">Online</option><option value="false">Offline</option></select></div>
+    </CardContent></Card>
+    {page.isLoading && <p role="status">Consultando auditoría…</p>}
+    {page.error && <div role="alert" className="rounded border bg-red-50 p-4 text-red-800 space-y-2"><p>{page.error}</p><Button variant="outline" disabled={page.isLoading} onClick={() => { void page.retry(); }}>Reintentar consulta</Button></div>}
+    {page.exportError && <p role="alert" className="rounded border bg-red-50 p-3 text-red-800">{page.exportError}</p>}
+    {data && <section aria-label="Página de auditoría confirmada" aria-busy={page.isLoading} className="space-y-5">
+      <div className="rounded border bg-white p-4 text-sm space-y-1"><p className="font-semibold">Consulta confirmada: estado {data.query.status}; disponibilidad {auditOnlineLabel(data.query.online)}.</p><p>Las métricas y el CSV solo abarcan las coincidencias de esta página. No se informa un total global de repartidores ni se suman importes de moneda desconocida.</p></div>
+      <section aria-label="Métricas de las coincidencias de esta página" className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        <Metric label="Filas cargadas en esta página" value={data.rows.length} /><Metric label="Coincidencias en esta página" value={page.visibleRows.length} />
+        <Metric label="Online informado en las coincidencias" value={`${metrics.online} · ${metrics.unknownOnline} sin información`} /><Metric label="Órdenes activas de las coincidencias" value={metrics.activeOrders ?? 'Cantidad no calculable'} />
+      </section>
+      {!data.rows.length ? <p className="rounded border bg-white p-6">No hay repartidores en esta página de la consulta.</p> : !page.visibleRows.length ? <p className="rounded border bg-white p-6">Sin coincidencias en esta página. Puedes navegar o cambiar la búsqueda.</p> : <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {page.visibleRows.map(item => <Card key={item.rider_id} role="article" aria-label={`Auditoría de ${item.rider_id}`} className="min-w-0">
+          <CardHeader><CardTitle className="break-words">{item.full_name ?? 'Nombre no informado'}</CardTitle><p className="text-sm break-all">{item.email ?? 'Email no informado'}</p><p className="text-sm font-mono break-all">ID rider: {item.rider_id}</p><p className="text-xs text-gray-600 font-mono break-all">ID usuario: {item.user_id}</p></CardHeader>
+          <CardContent className="space-y-4">
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3"><Field label="Estado registrado" value={item.status ?? 'No informado'} /><Field label="Disponibilidad informada" value={item.is_online === null ? 'No informada' : item.is_online ? 'Online' : 'Offline'} />
+              <Field label="Órdenes asignadas (acumulado)" value={item.orders_assigned} /><Field label="Órdenes activas (agregado)" value={item.orders_active} /><Field label="Entregas reales (acumulado)" value={item.deliveries_total} /><Field label="Entregas completadas (acumulado)" value={item.deliveries_completed} /><Field label="Entregas fallidas (acumulado)" value={item.deliveries_failed} />
+              <Field label="SLA informado" value={item.deliveries_total ? `${item.sla_compliance_rate}% · ${item.sla_compliant}/${item.deliveries_total} entregas` : 'Sin entregas en el denominador'} />
+              <Field label="Créditos PROCESADO (acumulado)" value={payoutAmountLabel(item.total_earned, item.currency ?? undefined)} /><Field label="Retiros PENDIENTE (agregado)" value={payoutAmountLabel(item.pending_payouts, item.currency ?? undefined)} />
+              <Field label="Tipo de vehículo" value={item.vehicle_type ?? 'No informado'} /><Field label="Placa" value={item.vehicle_plate ?? 'No informada'} /><Field label="Zona" value={item.operating_zone ?? 'No informada'} /><Field label="Teléfono" value={item.phone ?? 'No informado'} />
+              <Field label="Última ubicación informada" value={item.last_lat !== null && item.last_lng !== null ? `${item.last_lat}, ${item.last_lng}` : 'No informada'} /><Field label="Fecha de ubicación informada" value={transactionDateLabel(item.last_location_at)} />
+            </dl>
+            <Link className="inline-block text-blue-700 underline" aria-label={`Ver auditoría de ${item.rider_id}`} href={`/manager/operations/rider-audit/${encodeURIComponent(item.rider_id)}`}>Ver detalle de auditoría</Link>
           </CardContent>
-        </Card>
-
-        {loading ? (
-          <Card><CardContent className="p-10 text-center text-gray-500">Cargando auditoría...</CardContent></Card>
-        ) : filteredItems.length === 0 ? (
-          <Card><CardContent className="p-10 text-center text-gray-500">No se encontraron riders con los filtros seleccionados.</CardContent></Card>
-        ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            {filteredItems.map((item) => (
-              <Card key={item.rider_id} className="border-gray-100 shadow-sm">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <CardTitle className="text-lg">{item.full_name}</CardTitle>
-                      <p className="text-sm text-gray-500">{item.email}</p>
-                    </div>
-                    <Badge className={`${getHealthBadge(item)} border`}>{item.is_online ? 'Online' : 'Offline'} · {item.status}</Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                    <Metric label="Órdenes" value={item.orders_assigned} />
-                    <Metric label="Activas" value={item.orders_active} />
-                    <Metric label="Entregadas" value={item.deliveries_completed} />
-                    <Metric label="Fallidas" value={item.deliveries_failed} danger={item.deliveries_failed > 0} />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-                    <div className="bg-gray-50 rounded-lg p-3">
-                      <p className="text-gray-500">SLA cumplido</p>
-                      <p className="text-xl font-bold text-gray-900">{item.sla_compliance_rate}%</p>
-                      <p className="text-xs text-gray-500">{item.sla_compliant}/{item.deliveries_total} entregas</p>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-3">
-                      <p className="text-gray-500">Ganado</p>
-                      <p className="text-xl font-bold text-gray-900">{formatCurrency(item.total_earned)}</p>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-3">
-                      <p className="text-gray-500">Retiros pendientes</p>
-                      <p className="text-xl font-bold text-gray-900">{formatCurrency(item.pending_payouts)}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-3 text-xs text-gray-600 border-t pt-3">
-                    <span className="inline-flex items-center gap-1"><Truck className="w-3 h-3" /> {[item.vehicle_type, item.vehicle_plate].filter(Boolean).join(' ') || 'Vehículo no especificado'}</span>
-                    <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" /> {item.operating_zone || 'Zona no especificada'}</span>
-                    {item.current_order_id && <span className="inline-flex items-center gap-1"><CheckCircle className="w-3 h-3" /> Orden activa</span>}
-                  </div>
-
-                  <div className="border-t pt-3 flex justify-end">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => router.push(`/manager/operations/rider-audit/${item.rider_id}`)}
-                    >
-                      <Eye className="w-4 h-4 mr-2" /> Ver detalle
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+        </Card>)}
+      </div>}
+      <p className="text-xs text-gray-600">Cada tarjeta muestra agregados del servidor, con criterios distintos para créditos procesados y retiros pendientes. No son una confirmación bancaria ni un saldo disponible para retirar.</p>
+    </section>}
+    <nav aria-label="Páginas del catálogo de auditoría" className="flex flex-wrap items-center gap-3">
+      <Button variant="outline" disabled={page.isLoading} onClick={() => { void page.first(); }}>Volver al inicio</Button><Button variant="outline" disabled={page.isLoading || !data || data.query.offset === 0} onClick={() => { void page.navigate(-1); }}>Anterior</Button>
+      <span aria-live="polite">Página {(data?.query.offset ?? 0) / AUDIT_PAGE_SIZE + 1}</span><Button variant="outline" disabled={page.isLoading || !data?.hasNext} onClick={() => { void page.navigate(1); }}>Siguiente</Button>
+    </nav>
+    <p className="text-xs text-gray-600">La búsqueda y la exportación son de la página cargada. Los cambios de disponibilidad o nombre pueden mover filas entre páginas; si falla la navegación, vuelve al inicio.</p>
+  </div></div>;
 }
-
-function Metric({ label, value, danger = false }: { label: string; value: number; danger?: boolean }) {
-  return (
-    <div className={`rounded-lg p-3 ${danger ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-900'}`}>
-      <p className="text-gray-500 text-xs">{label}</p>
-      <p className="text-xl font-bold">{numberFormatter.format(value)}</p>
-    </div>
-  );
-}
+function Field({ label, value }: { label: string; value: ReactNode }) { return <div className="rounded border p-3 min-w-0"><dt className="text-xs text-gray-600">{label}</dt><dd className="font-semibold break-words">{value}</dd></div>; }
+function Metric({ label, value }: { label: string; value: ReactNode }) { return <Card><CardContent className="p-4"><p className="text-sm text-gray-600">{label}</p><p className="text-lg font-bold">{value}</p></CardContent></Card>; }

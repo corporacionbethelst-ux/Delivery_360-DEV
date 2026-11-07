@@ -2,10 +2,11 @@
 
 ## Alcance
 
-Esta entrega modifica exclusivamente `/manager/operations/rider-audit/[id]` y su
-nuevo servicio/controlador/contrato. El catálogo `/manager/operations/rider-audit`
-y los servicios genéricos de riders, órdenes y entregas conservan su comportamiento
-y requieren revisión propia. Los enlaces conducen a sus rutas existentes.
+El detalle `/manager/operations/rider-audit/[id]` utiliza el servicio, controlador
+y contrato de la entrega 70. Desde la entrega 71 el catálogo de auditoría tiene
+su contrato independiente en [RIDER_AUDIT_CATALOG.md](RIDER_AUDIT_CATALOG.md). Los servicios
+genéricos de riders, órdenes y entregas conservan su comportamiento. Los enlaces
+conducen a sus rutas existentes.
 
 ## Contratos reales y consultas acotadas
 
@@ -103,5 +104,6 @@ El navegador requiere Playwright Python y Chromium. Solo admite previews locales
 intercepta HTTP/WebSocket de negocio con datos sintéticos. Comprueba el resumen en
 segunda página, las tres tablas, órdenes de apoyo, fallos/reintentos, identidad,
 móvil y retiros de consultas por ruta/logout. La navegación por el catálogo usa
-sus enlaces existentes; esta prueba no corrige ese catálogo. La evidencia no
-sustituye E2E con backend real. Resultados nuevos: [ENTREGA_70.md](ENTREGA_70.md).
+sus enlaces reales por ID; su consulta y CSV se validan además con un script
+propio. La evidencia no sustituye E2E con backend real. Validación original del
+detalle: [ENTREGA_70.md](ENTREGA_70.md). Regresión y catálogo: [ENTREGA_71.md](ENTREGA_71.md).
