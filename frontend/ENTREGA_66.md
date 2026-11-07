@@ -108,6 +108,10 @@ no se presenta esta mejora de lectura como una integración bancaria homologada.
 
 ## Publicación
 
-Los identificadores de commit/PR y el estado observado del CI se registran al
-publicar y se cotejan con el árbol local validado. El gate pendiente impide declarar
-todo el CI aprobado o el sistema al 100 % para producción.
+- PR abierto, sin borrador: https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/307
+- Commit de implementación: `b55d0fee95ad64bbc9550b2f7b9cffaa8fa6fe2d`.
+- Árbol de implementación cotejado local/GitHub: `42e11b46d5ace55c6de6b7972789c0bcf996250b`.
+- La rama publicada conserva los 15 archivos validados. Un commit documental
+  posterior registra estos identificadores sin alterar la fuente probada.
+- La descripción del PR informa el CI observado del head final. El gate pendiente
+  impide declarar todo el CI aprobado o el sistema al 100 % para producción.

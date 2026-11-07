@@ -6652,6 +6652,9 @@ cuando existen. No se declara el sistema listo al 100 % para producción.
 **Fecha:** 6 de noviembre de 2026, America/Caracas. **Base:**
 `0f172f736529fe32905cbd0992eb152bf6431c27` (PR #306 fusionado).
 **Rama:** `fix/payout-cursor-pagination-v1`.
+**PR:** https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/307.
+**Implementación:** `b55d0fee95ad64bbc9550b2f7b9cffaa8fa6fe2d`;
+árbol local/GitHub `42e11b46d5ace55c6de6b7972789c0bcf996250b`.
 
 Esta ampliación continúa el trabajo nuevo recuperado en las entregas 63–65.
 La entrega 65 se conserva en `frontend/ENTREGA_65.md`; no se reutilizan los hashes
