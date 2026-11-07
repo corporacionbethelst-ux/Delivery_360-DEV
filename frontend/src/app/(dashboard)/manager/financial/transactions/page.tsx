@@ -1,294 +1,46 @@
 'use client';
-
-import React, { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import Link from 'next/link';
+import { useTransactionHistory, TRANSACTION_PAGE_SIZE } from '@/hooks/useTransactionHistory';
+import { TRANSACTION_STATUSES, TRANSACTION_TYPES, transactionDateLabel } from '@/lib/transaction-contract';
+import { TransactionAccess } from '@/components/financial/TransactionAccess';
+import { payoutAmountLabel } from '@/lib/payout-contract';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  CreditCard, Search, Filter, Download, ArrowUpRight, ArrowDownLeft,
-  DollarSign, Calendar, MoreHorizontal, CheckCircle, Clock, XCircle, AlertCircle, Loader2, RefreshCw // <--- MODIFICACIÓN: Importar ícono RefreshCw
-} from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { formatCurrency } from '@/lib/formatters';
-import { downloadCSV } from '@/lib/csv-export';
-import { transactionService, Transaction, TransactionType, TransactionStatus } from '@/services/transaction.service';
+import { Card, CardContent } from '@/components/ui/card';
 
-// Mapeo de colores para Tipos (Fase 3 - Todos los tipos soportados)
-const TYPE_COLORS: Record<TransactionType, string> = {
-  PAGO_ENTREGA: 'text-green-600 bg-green-50 border-green-200',
-  PAGO_INTENTO_FALLIDO: 'text-yellow-600 bg-yellow-50 border-yellow-200',
-  BONO_RENDIMIENTO: 'text-emerald-600 bg-emerald-50 border-emerald-200',
-  BONO: 'text-emerald-600 bg-emerald-50 border-emerald-200',
-  PENALIZACION: 'text-red-600 bg-red-50 border-red-200',
-  DESCUENTO: 'text-orange-600 bg-orange-50 border-orange-200',
-  AJUSTE_MANUAL: 'text-indigo-600 bg-indigo-50 border-indigo-200',
-  AJUSTE: 'text-purple-600 bg-purple-50 border-purple-200',
-  RETIRO: 'text-blue-600 bg-blue-50 border-blue-200',
-  INGRESO: 'text-cyan-600 bg-cyan-50 border-cyan-200',
-};
-
-// Mapeo de iconos para Estados reales del backend financiero
-const STATUS_CONFIG: Record<TransactionStatus, { icon: any; color: string }> = {
-  PROCESADO: { icon: CheckCircle, color: 'text-green-600' },
-  PAGADO: { icon: CheckCircle, color: 'text-green-600' },
-  PROCESANDO: { icon: Loader2, color: 'text-blue-600' },
-  APROBADA: { icon: CheckCircle, color: 'text-green-600' },
-  PENDIENTE: { icon: Clock, color: 'text-orange-600' },
-  RECHAZADO: { icon: XCircle, color: 'text-red-600' },
-};
-
-export default function TransactionsPage() {
-  const router = useRouter();
-
-  // Estados de Datos
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  
-  // <--- MODIFICACIÓN: Estado para controlar el spinner del botón de actualizar
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
-  // Estados de Filtros
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<string>('ALL');
-  const [filterStatus, setFilterStatus] = useState<string>('ALL');
-
-  // Carga inicial
-  useEffect(() => {
-    loadTransactions();
-  }, []);
-
-  const loadTransactions = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      // Aquí podrías pasar filtros al backend si lo soporta
-      const data = await transactionService.getAll();
-      setTransactions(data);
-    } catch (err: any) {
-      console.error('Error loading transactions:', err);
-      setError(err.message || 'No se pudieron cargar las transacciones.');
-    } finally {
-      setLoading(false);
-      // <--- MODIFICACIÓN: Asegurar que el spinner de refresh se detenga al finalizar la carga
-      setIsRefreshing(false);
-    }
-  };
-
-  // <--- MODIFICACIÓN: Función handler para el botón de actualizar
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    await loadTransactions();
-  };
-
-  // Filtrado en cliente (puede moverse al backend si hay muchos datos)
-  const filteredTransactions = useMemo(() => {
-    return transactions.filter(t => {
-      const searchLower = searchTerm.toLowerCase();
-      const matchesSearch =
-        t.description.toLowerCase().includes(searchLower) ||
-        t.reference_id?.toLowerCase().includes(searchLower) ||
-        t.user_id?.toLowerCase().includes(searchLower);
-
-      const matchesType = filterType === 'ALL' || t.type === filterType;
-      const matchesStatus = filterStatus === 'ALL' || t.status === filterStatus;
-
-      return matchesSearch && matchesType && matchesStatus;
-    });
-  }, [transactions, searchTerm, filterType, filterStatus]);
-
-  const handleExport = () => {
-    const data = filteredTransactions.map(t => ({
-      ID: t.id,
-      Fecha: t.created_at,
-      Descripción: t.description,
-      Tipo: t.type,
-      Monto: t.amount,
-      Estado: t.status,
-      Referencia: t.reference_id || 'N/A'
-    }));
-    downloadCSV(data, `transacciones_${new Date().toISOString().split('T')[0]}`);
-  };
-
-  if (loading && transactions.length === 0) {
-    return (
-      <div className="flex h-[60vh] items-center justify-center">
-        <Loader2 className="animate-spin h-10 w-10 text-indigo-600" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="p-6 bg-gray-50 min-h-screen">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <CreditCard className="w-6 h-6 text-indigo-600" />
-              Transacciones
-            </h1>
-            <p className="text-gray-500 mt-1">Historial detallado de movimientos financieros</p>
-          </div>
-          <div className="flex gap-2"> {/* <--- MODIFICACIÓN: Contenedor flex para los botones */}
-            {/* <--- MODIFICACIÓN: Botón Actualizar agregado aquí */}
-            <Button 
-              variant="outline" 
-              onClick={handleRefresh} 
-              disabled={isRefreshing || loading}
-              className="gap-2"
-            >
-              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-              Actualizar
-            </Button>
-            <Button variant="outline" onClick={handleExport} className="gap-2" disabled={loading}>
-              <Download className="w-4 h-4" /> Exportar CSV
-            </Button>
-          </div>
-        </div>
-
-        {error && (
-          <Card className="mb-6 border-red-200 bg-red-50">
-            <CardContent className="p-4 flex items-center justify-between text-red-800">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="w-5 h-5" />
-                <span className="font-medium">{error}</span>
-              </div>
-              <Button variant="ghost" size="sm" onClick={loadTransactions}>Reintentar</Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Filtros */}
-        <Card className="mb-6 shadow-sm border-l-4 border-l-indigo-500">
-          <CardContent className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <Input
-                placeholder="Buscar por descripción, ref o rider..."
-                className="pl-9 bg-gray-50 border-gray-200 focus:bg-white"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                disabled={loading}
-              />
-            </div>
-            <select
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-50"
-              disabled={loading}
-            >
-              <option value="ALL">Todos los tipos</option>
-              <option value="PAGO_ENTREGA">Pago por entrega</option>
-              <option value="PAGO_INTENTO_FALLIDO">Intento fallido</option>
-              <option value="BONO_RENDIMIENTO">Bono rendimiento</option>
-              <option value="BONO">Bonos (legacy)</option>
-              <option value="PENALIZACION">Penalizaciones</option>
-              <option value="DESCUENTO">Descuentos (legacy)</option>
-              <option value="AJUSTE_MANUAL">Ajuste manual</option>
-              <option value="AJUSTE">Ajustes (legacy)</option>
-              <option value="INGRESO">Ingresos/Depósitos</option>
-              <option value="RETIRO">Retiros</option>
-            </select>
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-50"
-              disabled={loading}
-            >
-              <option value="ALL">Todos los estados</option>
-              <option value="PROCESADO">Procesadas</option>
-              <option value="PAGADO">Pagadas</option>
-              <option value="PENDIENTE">Pendientes</option>
-              <option value="RECHAZADO">Rechazadas</option>
-            </select>
-          </CardContent>
-        </Card>
-
-        {/* Tabla */}
-        <Card className="shadow-sm">
-          <CardContent className="p-0 overflow-x-auto">
-            {loading ? (
-              <div className="p-8 flex justify-center"><Loader2 className="animate-spin h-8 w-8 text-indigo-600" /></div>
-            ) : (
-              <table className="w-full text-sm text-left">
-                <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b">
-                  <tr>
-                    <th className="px-6 py-3">Fecha / Ref</th>
-                    <th className="px-6 py-3">Descripción</th>
-                    <th className="px-6 py-3">Tipo</th>
-                    <th className="px-6 py-3">Estado</th>
-                    <th className="px-6 py-3 text-right">Monto</th>
-                    <th className="px-6 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredTransactions.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                        <CreditCard className="w-12 h-12 mx-auto mb-2 opacity-20" />
-                        No se encontraron transacciones con estos filtros.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredTransactions.map((t) => {
-                      const StatusIcon = STATUS_CONFIG[t.status].icon;
-                      const statusColor = STATUS_CONFIG[t.status].color;
-
-                      return (
-                        <tr key={t.id} className="bg-white border-b hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => router.push(`/manager/financial/transactions/${t.id}`)}>
-                          <td className="px-6 py-4">
-                            <div className="font-medium text-gray-900">{new Date(t.created_at).toLocaleDateString()}</div>
-                            <div className="text-xs text-gray-500">{new Date(t.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
-                            {t.reference_id && <div className="text-xs font-mono text-gray-400 mt-1">{t.reference_id}</div>}
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="font-medium text-gray-900">{t.description}</div>
-                            {t.rider_id && <div className="text-xs text-gray-500">Rider: {t.rider_id}</div>}
-                          </td>
-                          <td className="px-6 py-4">
-                            <Badge className={`border ${TYPE_COLORS[t.type]}`}>{t.type.replace('_', ' ')}</Badge>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <StatusIcon className={`w-4 h-4 ${statusColor}`} />
-                              <span className="text-gray-700 font-medium">{t.status}</span>
-                            </div>
-                          </td>
-                          <td className={`px-6 py-4 text-right font-bold ${t.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {t.amount >= 0 ? '+' : ''}{formatCurrency(t.amount)}
-                          </td>
-                          <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="hover:bg-gray-200">
-                                  <MoreHorizontal className="w-4 h-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => router.push(`/manager/financial/transactions/${t.id}`)}>
-                                  Ver detalles completos
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+export default function TransactionsPage() { return <TransactionAccess><History /></TransactionAccess>; }
+function History() {
+  const page = useTransactionHistory();
+  return <div className="p-4 md:p-6 bg-gray-50 min-h-screen"><div className="max-w-7xl mx-auto space-y-5">
+    <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="min-w-0 max-w-full"><h1 className="text-2xl font-bold">Transacciones</h1><p className="text-gray-600">Movimientos contables registrados, en páginas de hasta 50 filas.</p></div>
+      <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => { void page.refresh(); }}>Actualizar consulta</Button>
+        <Button disabled={page.isLoading || !page.loaded || !!page.error || !page.visibleRows.length} onClick={page.exportPage}>Exportar página CSV</Button></div>
     </div>
-  );
+    <Card><CardContent className="pt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div><label htmlFor="transaction-search" className="block text-sm mb-1">Buscar solo en esta página</label><input id="transaction-search" className="w-full min-w-0 rounded border p-2" value={page.search} onChange={e => page.setSearch(e.target.value)} placeholder="ID, descripción, referencia o rider" /></div>
+      <div><label htmlFor="transaction-type" className="block text-sm mb-1">Tipo en el servidor</label><select id="transaction-type" className="w-full min-w-0 rounded border p-2" value={page.selected.type} onChange={e => { void page.setFilter('type', e.target.value); }}><option value="ALL">Todos los tipos</option>{TRANSACTION_TYPES.map(type => <option key={type} value={type}>{type}</option>)}</select></div>
+      <div><label htmlFor="transaction-status" className="block text-sm mb-1">Estado en el servidor</label><select id="transaction-status" className="w-full min-w-0 rounded border p-2" value={page.selected.status} onChange={e => { void page.setFilter('status', e.target.value); }}><option value="ALL">Todos los estados</option>{TRANSACTION_STATUSES.map(status => <option key={status} value={status}>{status}</option>)}</select></div>
+    </CardContent></Card>
+    {page.error && <div role="alert" className="rounded border bg-red-50 p-4 text-red-800 space-y-2"><p>{page.error}</p><Button variant="outline" disabled={page.isLoading} onClick={() => { void page.retry(); }}>Reintentar consulta</Button></div>}
+    {page.exportError && <p role="alert" className="rounded border bg-red-50 p-3 text-red-800">{page.exportError}</p>}
+    {page.isLoading && <p role="status" className="text-sm text-blue-700">Consultando transacciones…</p>}
+    {page.loaded ? <section aria-label="Página confirmada" aria-busy={page.isLoading} className="space-y-4">
+      <div className="rounded border bg-white p-4 text-sm text-gray-600 space-y-1">
+        <p className="font-semibold text-gray-900">Consulta confirmada: tipo {page.type}; estado {page.status}.</p>
+        <p>{page.rows.length} filas cargadas; {page.visibleRows.length} coincidencias visibles. La búsqueda y el CSV solo abarcan esta página.</p>
+        <p>El importe conserva su signo registrado; un retiro positivo no se convierte en ingreso. El estado contable no certifica una transferencia bancaria.</p>
+      </div>
+      <Card><CardContent className="p-0 overflow-x-auto">
+        {!page.rows.length ? <p className="p-6">No hay transacciones en esta página de la consulta.</p> : !page.visibleRows.length ? <p className="p-6">Sin coincidencias en esta página. Puedes navegar o cambiar la búsqueda.</p> : <table className="w-full text-sm"><caption className="text-left p-3 text-gray-600">Movimientos de la página confirmada; fechas en UTC</caption><thead><tr className="border-b text-left"><th className="p-3">Transacción</th><th className="p-3">Fecha registrada</th><th className="p-3">Tipo / estado</th><th className="p-3">Importe registrado</th><th className="p-3">Detalle</th></tr></thead>
+          <tbody>{page.visibleRows.map(row => <tr key={row.id} className="border-b"><td className="p-3"><p className="font-mono break-all">{row.id}</p><p>{row.description ?? 'Descripción no informada'}</p><p className="text-xs text-gray-600">Rider: {row.rider_id ?? 'No informado'}</p>{row.reference_id && <p className="text-xs text-gray-600">Ref: {row.reference_id}</p>}</td><td className="p-3 whitespace-nowrap">{transactionDateLabel(row.created_at)}</td><td className="p-3"><p>{row.type}</p><p className="font-semibold">{row.status}</p></td><td className="p-3 font-semibold whitespace-nowrap">{payoutAmountLabel(row.amount, row.currency ?? undefined)}</td><td className="p-3"><Link className="text-blue-700 underline whitespace-nowrap" aria-label={`Ver transacción ${row.id}`} href={`/manager/financial/transactions/${encodeURIComponent(row.id)}`}>Ver detalle</Link></td></tr>)}</tbody></table>}
+      </CardContent></Card>
+    </section> : !page.isLoading && <p>No se pudo comprobar el historial. No hay movimientos confirmados para mostrar.</p>}
+    <nav aria-label="Paginación de transacciones" className="flex flex-wrap items-center gap-3 text-sm">
+      <Button variant="outline" disabled={page.isLoading || !page.loaded && !page.error || page.offset === 0 && !page.error} onClick={() => { void page.first(); }}>Volver al inicio</Button>
+      <Button variant="outline" disabled={page.isLoading || page.offset === 0} onClick={() => { void page.previous(); }}>Anterior</Button>
+      <span aria-live="polite">Página {page.offset / TRANSACTION_PAGE_SIZE + 1}</span>
+      <Button variant="outline" disabled={page.isLoading || !page.hasNext} onClick={() => { void page.next(); }}>Siguiente</Button>
+    </nav>
+    <p className="text-xs text-gray-600">El servidor usa desplazamientos: cambios concurrentes pueden mover filas. Si el historial cambia, vuelve al inicio. No se informa un total global ni se exporta el historial completo.</p>
+  </div></div>;
 }
