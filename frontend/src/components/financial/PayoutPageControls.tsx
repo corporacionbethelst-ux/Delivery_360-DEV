@@ -15,8 +15,9 @@ export function PayoutPageControls({ page }: { page: PayoutPages }) {
       <Button variant="outline" onClick={() => { void page.previous(); }} disabled={page.isLoading || page.offset === 0}>Anterior</Button>
       <span aria-live="polite">Página {page.offset / PAYOUT_PAGE_SIZE + 1}</span>
       <Button variant="outline" onClick={() => { void page.next(); }} disabled={page.isLoading || !page.hasNext}>Siguiente</Button>
-      {page.loaded && <span>{page.rows.length ? `Posiciones ${page.offset + 1}–${page.offset + page.rows.length} de esta consulta` : 'Sin registros en esta página'}</span>}
+      {page.loaded && <span>{page.rows.length ? `${page.rows.length} ${page.rows.length === 1 ? 'registro' : 'registros'} en esta página` : 'Sin registros en esta página'}</span>}
       {page.isLoading && <span role="status">Actualizando historial…</span>}
     </nav>
+    <p className="text-xs text-muted-foreground">El historial puede cambiar mientras lo consultas. Vuelve al inicio para ver los retiros más recientes.</p>
   </div>;
 }

@@ -25,6 +25,7 @@ from app.models.order import Order, OrderStatus
 from app.api.v1.auth import get_current_user, require_role
 from app.models.rider import utc_now_naive
 from app.models.audit_log import ActionType
+from app.services.payout_cursor import encode_cursor, decode_cursor
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/payouts", tags=["Payouts"])
@@ -295,6 +296,25 @@ def _add_status_history(
     )
 
 
+async def _payout_list_scope(
+    db: AsyncSession, current_user: User, rider_id: str | None
+):
+    """Reapply authorization on every page, independently of its cursor."""
+    target_rider_id = None
+    if current_user.role == UserRole.REPARTIDOR:
+        rider = await _get_rider_from_user(db, current_user)
+        target_rider_id = rider.id
+    elif current_user.role in [UserRole.GERENTE, UserRole.SUPERADMIN]:
+        if rider_id:
+            target_rider_id = _parse_uuid(rider_id)
+    else:
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+    stmt = select(Payout)
+    if target_rider_id is not None:
+        stmt = stmt.where(Payout.rider_id == target_rider_id)
+    return stmt, target_rider_id
+
+
 @router.get("")
 @router.get("/")
 async def list_payouts(
@@ -305,25 +325,69 @@ async def list_payouts(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Listar retiros reales. Riders ven solo sus retiros; gerentes/superadmins ven todos."""
-    if current_user.role == UserRole.REPARTIDOR:
-        rider = await _get_rider_from_user(db, current_user)
-        stmt = select(Payout).where(Payout.rider_id == rider.id)
-    elif current_user.role in [UserRole.GERENTE, UserRole.SUPERADMIN]:
-        stmt = select(Payout)
-        if rider_id:
-            stmt = stmt.where(Payout.rider_id == _parse_uuid(rider_id))
-    else:
-        raise HTTPException(status_code=403, detail="Acceso denegado")
+    """Legacy array/offset contract. Prefer /page for continued navigation."""
+    stmt, _ = await _payout_list_scope(db, current_user, rider_id)
 
     if status_filter:
         stmt = stmt.where(Payout.status == status_filter)
 
-    stmt = stmt.order_by(Payout.requested_at.desc()).offset(offset).limit(limit)
+    stmt = (
+        stmt.order_by(Payout.requested_at.desc().nullslast(), Payout.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
     result = await db.execute(stmt)
     payouts = result.scalars().all()
 
     return [_serialize_payout(p) for p in payouts]
+
+
+@router.get("/page")
+async def get_payout_page(
+    rider_id: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    cursor: Optional[str] = Query(None, min_length=1, max_length=2048),
+    status_filter: Optional[PayoutStatus] = Query(None, alias="status"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Continue after (requested_at, id), including historical NULL dates last.
+
+    Newer inserts/deletes do not shift the continuation. Statuses and rows remain
+    live: this is not a transaction snapshot across HTTP requests.
+    """
+    stmt, target_rider_id = await _payout_list_scope(db, current_user, rider_id)
+    if status_filter:
+        stmt = stmt.where(Payout.status == status_filter)
+    scope = [
+        str(current_user.id),
+        _enum_value(current_user.role),
+        str(target_rider_id) if target_rider_id is not None else None,
+        _enum_value(status_filter),
+        limit,
+    ]
+    if cursor is not None:
+        at, payout_id = decode_cursor(cursor, scope)
+        if at is None:
+            stmt = stmt.where(Payout.requested_at.is_(None), Payout.id < payout_id)
+        else:
+            stmt = stmt.where(
+                or_(
+                    Payout.requested_at < at,
+                    and_(Payout.requested_at == at, Payout.id < payout_id),
+                    Payout.requested_at.is_(None),
+                )
+            )
+    stmt = stmt.order_by(
+        Payout.requested_at.desc().nullslast(), Payout.id.desc()
+    ).limit(limit + 1)
+    rows = (await db.execute(stmt)).scalars().all()
+    items = rows[:limit]
+    next_cursor = None
+    if len(rows) > limit:
+        last = items[-1]
+        next_cursor = encode_cursor(scope, last.requested_at, last.id)
+    return {"items": [_serialize_payout(p) for p in items], "next_cursor": next_cursor}
 
 
 @router.get("/balance")

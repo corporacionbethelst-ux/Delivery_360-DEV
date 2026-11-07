@@ -67,6 +67,25 @@ export interface PayoutFilters {
   status?: PayoutStatus | 'ALL' | 'all';
 }
 
+export interface PayoutPageFilters extends Omit<PayoutFilters, 'offset'> { cursor?: string | null }
+export interface PayoutPage { items: Payout[]; next_cursor: string | null }
+const pageLimit = (limit?: number) => Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit!), 1), 200) : 50;
+const validCursor = (value: unknown): value is string => typeof value === 'string' && value.length <= 2048 && /^[A-Za-z0-9_-]+\.[0-9a-f]{64}$/.test(value);
+function normalizeList(response: unknown, query?: Readonly<PayoutFilters>): Payout[] {
+  if (!Array.isArray(response)) throw new Error('Historial de retiros mal formado');
+  if (response.length > pageLimit(query?.limit)) throw new Error('La respuesta excedió la página de retiros solicitada');
+  const ids = new Set<string>();
+  return response.map(value => {
+    const p = normalizePayout(value);
+    if (ids.has(p.id) || query?.rider_id?.trim() && p.rider_id !== query.rider_id.trim() ||
+        query?.status && !['ALL', 'all'].includes(query.status) && p.status !== query.status) {
+      throw new Error('El historial contiene identidades duplicadas o datos fuera del filtro');
+    }
+    ids.add(p.id);
+    return p;
+  });
+}
+
 async function privateRequest<T>(request: () => Promise<T>): Promise<T> {
   const task = capturePrivateTask();
   try {
@@ -137,19 +156,23 @@ export const payoutService = {
     const query = params ? { ...params } : undefined;
     return privateRequest(async () => {
       const response = await api.get<unknown>(`/payouts${buildQuery(query)}`);
-      if (!Array.isArray(response)) throw new Error('Historial de retiros mal formado');
-      const limit = Number.isFinite(query?.limit) ? Math.min(Math.max(Math.trunc(query!.limit!), 1), 200) : 50;
-      if (response.length > limit) throw new Error('La respuesta excedió la página de retiros solicitada');
-      const ids = new Set<string>();
-      return response.map(value => {
-        const p = normalizePayout(value);
-        if (ids.has(p.id) || query?.rider_id?.trim() && p.rider_id !== query.rider_id.trim() ||
-            query?.status && !['ALL', 'all'].includes(query.status) && p.status !== query.status) {
-          throw new Error('El historial contiene identidades duplicadas o datos fuera del filtro');
-        }
-        ids.add(p.id);
-        return p;
-      });
+      return normalizeList(response, query);
+    });
+  },
+
+  /** Opaque continuation from the server. Never fall back to offset after a failed cursor. */
+  getPage: async (params?: Readonly<PayoutPageFilters>): Promise<PayoutPage> => {
+    const query = { ...params, limit: pageLimit(params?.limit) };
+    if ('offset' in query) throw new Error('La continuación de retiros no admite offset');
+    if (query.cursor != null && !validCursor(query.cursor)) throw new Error('Continuación de retiros inválida');
+    return privateRequest(async () => {
+      const base = buildQuery(query);
+      const response = await api.get<unknown>(`/payouts/page${base}${query.cursor ? `&cursor=${encodeURIComponent(query.cursor)}` : ''}`);
+      if (!response || typeof response !== 'object' || Array.isArray(response)) throw new Error('Página de retiros mal formada');
+      const page = response as Record<string, unknown>;
+      const items = normalizeList(page.items, query);
+      if (page.next_cursor !== null && (!validCursor(page.next_cursor) || page.next_cursor === query.cursor || items.length !== query.limit)) throw new Error('Continuación de retiros contradictoria');
+      return { items, next_cursor: page.next_cursor as string | null };
     });
   },
 

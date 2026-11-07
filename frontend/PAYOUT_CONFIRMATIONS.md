@@ -1,4 +1,4 @@
-# Confirmación y recuperación de retiros — entregas 64–65
+# Confirmación y recuperación de retiros — entregas 64–66
 
 La API actual registra solicitudes y decisiones contables. Aprobar mediante
 `PATCH /payouts/{id}/approve` registra un débito y devuelve `EN_PROCESO`.
@@ -62,23 +62,35 @@ repartidores, gerencia vuelve a verificar la sesión de la lectura original.
 - La página de retiro respeta la moneda informada por balance (hoy COP).
   Cuando la respuesta no informa moneda, las vistas lo indican y conservan los
   decimales; no asumen USD ni deducen moneda del método de pago.
-- Los listados muestran páginas de 50 retiros. Cada lectura pide 51 filas:
-  la adicional permite habilitar Siguiente sin inventar total o número de páginas.
-  Los offsets avanzan de 50 en 50; la fila adicional pasa a la página siguiente,
-  no se presenta anticipadamente ni provoca consultas de su rider.
-- El estado se filtra en el servidor y vuelve a offset 0. Buscar por ID/nombre/email
-  sigue siendo local a la página visible y se indica así. Las métricas de gerencia
-  resumen esa página, antes de la búsqueda local; no son totales globales.
+- Los listados usan GET /payouts/page con limit=50 y cursor opcional. El servidor
+  lee una fila adicional y devuelve items (máximo 50) y next_cursor explícito,
+  null al observar el final. No se inventan totales ni número total de páginas.
+  La fila adicional no viaja al navegador ni provoca consultas de su rider.
+- La continuación se firma y liga a usuario, rol, rider efectivo, estado y tamaño.
+  Cada lectura vuelve a autorizar. Un cursor no sustituye la sesión ni permite
+  ampliar el acceso. Un cursor inválido devuelve 400; no hay fallback a offset.
+- El orden es requested_at DESC NULLS LAST, id DESC. Las fechas repetidas usan
+  el UUID para desempatar; las fechas históricas vacías se recorren al final.
+  Insertar filas más recientes o borrar filas anteriores/al límite ya leído no
+  desplaza la siguiente página. Los datos/estados siguen siendo lecturas vivas.
+- El estado se filtra en el servidor y vuelve al inicio sin cursor. Buscar por
+  ID/nombre/email sigue siendo local a la página visible y se indica así. Las
+  métricas de gerencia resumen esa página, antes de la búsqueda local.
 - Si falla una página o filtro, se conserva la última página confirmada con su
-  estado/offset reales; Reintentar consulta repite el intento que falló. Una
-  consulta anterior no puede sustituir una posterior, tampoco sus errores.
+  estado y número local de página; Reintentar consulta repite el cursor/filtro
+  que falló. Una consulta anterior no sustituye una posterior ni sus errores.
 - Si dos páginas contiguas repiten un ID visible, se conserva la anterior y se
   solicita volver al inicio. No se deduplican filas para disimular el cambio.
-  Esto detecta algunos cambios, no todas las omisiones concurrentes de offset.
-- getAll conserva su contrato de una página limit/offset; ahora copia los filtros
-  del caller para validar la misma consulta que envió aunque el objeto se modifique.
-  Las etiquetas históricas PROCESADO/CANCELADO siguen visibles, pero solo se ofrecen
-  los seis estados canónicos como filtros de servidor.
+  Esto detecta algunas contradicciones, sin certificar una instantánea global.
+- Anterior reutiliza las continuaciones guardadas en memoria; Actualizar repite
+  el límite de la página actual. Volver al inicio lee de nuevo sin cursor. El número
+  de página representa el recorrido, no posiciones absolutas en un conjunto fijo.
+  Cambiar de cuenta/rol/filtro descarta las continuaciones anteriores.
+- getAll y GET /payouts conservan el contrato anterior de array con limit/offset
+  para otros consumidores, ahora con el mismo desempate y fechas vacías al final.
+  Ambos métodos copian filtros antes del HTTP y validan identidades/estados/tamaño.
+  PROCESADO/CANCELADO siguen visibles en respuestas históricas, pero solo se
+  ofrecen los seis estados canónicos como filtros de servidor.
 
 ## Recuperación de decisiones administrativas — entrega 65
 
@@ -109,11 +121,15 @@ ni exclusión mutua entre dispositivos. Los datos guardados no autorizan nada.
 
 El serializer backend sigue publicando algunos placeholders (por ejemplo
 orders_count=0) y no incluye moneda en cada retiro. No se reconstruyen datos
-omitidos. La consulta paginada por offset tampoco ofrece una instantánea estable.
+omitidos. El cursor tampoco congela estados ni crea un snapshot entre peticiones:
+filas borradas, cambios de estado/fecha o inserciones con fecha anterior pueden
+alterar lo observado. Volver al inicio permite consultar las novedades. Rotar la
+clave de firma invalida las continuaciones existentes. Backend y frontend de esta
+entrega deben estar disponibles juntos; el cliente no degrada a paginación por offset.
 
 La homologación real necesita un contrato de proveedor, estados/recibos durables,
 idempotencia de envío, verificación de firma y deduplicación de webhooks,
 conciliación y pruebas sandbox. Debe mantenerse separada de la aprobación contable
 actual. Quedan también E2E completos y el gate de cobertura del 50 %.
 
-Detalle y validación de esta ampliación: [ENTREGA_65.md](ENTREGA_65.md).
+Detalle y validación: [ENTREGA_65.md](ENTREGA_65.md) y [ENTREGA_66.md](ENTREGA_66.md).
