@@ -6691,6 +6691,9 @@ pagos, mensajes, facturas o migraciones productivas, ni se fusiona o despliega.
 **Fecha:** 6 de noviembre de 2026, America/Caracas. **Base:**
 `2212aaabb74d76a0452fc1e8f43f4cc685a3b192` (PR #307 fusionado).
 **Rama:** `fix/financial-summary-validation-and-api-surface-v1`.
+**PR:** https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/308.
+**Implementación:** `80d4425916fe453489c652b9f8346b7c7e3de0ab`;
+árbol local/GitHub `13ae145b0a60e013211b162f9c0f607a3ed6df03`.
 
 El CI de la entrega 66 detectó cuatro fallos nuevos de inventario al incorporar
 /payouts/page. Se reproducen y corrigen preservando los inventarios históricos,

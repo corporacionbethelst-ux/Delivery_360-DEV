@@ -110,3 +110,13 @@ El gate global del 50 % y la homologación sandbox de fase 7 siguen pendientes.
 No se modifican dependencias, workflows, migraciones o umbrales; no se envían pagos,
 mensajes o facturas reales ni se fusiona o despliega. El sistema no se declara al
 100 % para producción. La publicación y el CI se registran por separado.
+
+## Publicación verificada
+
+- PR abierto sin borrador: https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/308
+- Implementación: `80d4425916fe453489c652b9f8346b7c7e3de0ab`.
+- Árbol local/GitHub de esa implementación: `13ae145b0a60e013211b162f9c0f607a3ed6df03`.
+- Los 19 archivos de la implementación se conservan en la rama publicada. Un
+  segundo commit únicamente documental registra estos identificadores.
+- La descripción del PR informa el estado observado del CI de su head final.
+  Los resultados locales no se presentan como comprobaciones remotas aprobadas.
