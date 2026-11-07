@@ -1,6 +1,7 @@
 import { api } from '@/lib/api';
 import { capturePrivateTask } from '@/lib/private-task';
 import { normalizeFinancialSummary, prepareSummaryQuery } from '@/lib/financial-summary-contract';
+import { normalizeOrdersReport, normalizeReconciliation, prepareReportQuery } from '@/lib/financial-report-contract';
 
 export type FinancialPeriod = 'today' | 'week' | 'month';
 
@@ -82,7 +83,7 @@ export interface FinancialReconciliation {
   total_costs: number;
   net_margin_after_rider_costs: number;
   payout_count: number;
-  currency?: string;
+  currency?: string | null;
 }
 
 export interface FinancialOrderReportRow {
@@ -107,6 +108,7 @@ export interface FinancialOrderReportRow {
 }
 
 export interface FinancialOrdersReport {
+  currency?: string | null;
   period_start?: string | null;
   period_end?: string | null;
   total_revenue: number;
@@ -210,22 +212,24 @@ export const financialService = {
   /**
    * Obtener reporte real de órdenes para estadísticas y exportación CSV.
    */
-  getOrdersReport: async (params?: FinancialReportParams): Promise<FinancialOrdersReport> => {
+  getOrdersReport: async (params?: Readonly<FinancialReportParams>): Promise<FinancialOrdersReport> => {
+    const task = capturePrivateTask();
+    const captured = prepareReportQuery(params);
     const queryParams = new URLSearchParams();
 
-    if (params?.date_from) queryParams.append('date_from', params.date_from);
-    if (params?.date_to) queryParams.append('date_to', params.date_to);
-    if (params?.limit !== undefined) queryParams.append('limit', String(boundedLimit(params.limit, 5000, 1000)));
-    if (Number.isFinite(params?.offset) && Number(params?.offset) >= 0) {
-      queryParams.append('offset', String(Math.trunc(Number(params?.offset))));
-    }
+    if (captured.date_from) queryParams.append('date_from', captured.date_from);
+    if (captured.date_to) queryParams.append('date_to', captured.date_to);
+    queryParams.append('limit', String(captured.limit));
+    if (params?.offset !== undefined) queryParams.append('offset', String(captured.offset));
 
     const query = queryParams.toString() ? `?${queryParams}` : '';
 
     try {
-      return await api.get<FinancialOrdersReport>(`/financial/reports/orders${query}`);
+      const response = await api.get<unknown>(`/financial/reports/orders${query}`);
+      task.assertCurrent();
+      return normalizeOrdersReport(response, captured);
     } catch (error) {
-      console.error('[FinancialService] Error fetching orders report:', error);
+      task.assertCurrent();
       throw error;
     }
   },
@@ -233,17 +237,21 @@ export const financialService = {
   /**
    * Obtener conciliación financiera real para gerencia.
    */
-  getReconciliation: async (params?: FinancialReportParams): Promise<FinancialReconciliation> => {
+  getReconciliation: async (params?: Readonly<Pick<FinancialReportParams, 'date_from' | 'date_to'>>): Promise<FinancialReconciliation> => {
+    const task = capturePrivateTask();
+    const captured = prepareReportQuery(params, false);
     const queryParams = new URLSearchParams();
-    if (params?.date_from) queryParams.append('date_from', params.date_from);
-    if (params?.date_to) queryParams.append('date_to', params.date_to);
+    if (captured.date_from) queryParams.append('date_from', captured.date_from);
+    if (captured.date_to) queryParams.append('date_to', captured.date_to);
 
     const query = queryParams.toString() ? `?${queryParams}` : '';
 
     try {
-      return await api.get<FinancialReconciliation>(`/financial/reconciliation${query}`);
+      const response = await api.get<unknown>(`/financial/reconciliation${query}`);
+      task.assertCurrent();
+      return normalizeReconciliation(response, captured);
     } catch (error) {
-      console.error('[FinancialService] Error fetching reconciliation:', error);
+      task.assertCurrent();
       throw error;
     }
   },

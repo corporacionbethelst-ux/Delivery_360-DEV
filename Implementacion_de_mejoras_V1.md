@@ -6721,3 +6721,37 @@ El siguiente bloque concreto es Reportes/CSV con filtros confirmados y datos
 verificados. Permanecen pendientes E2E de backend real y homologación sandbox de
 pagos; no se envían pagos, mensajes, facturas o migraciones productivas, ni se
 fusiona o despliega. Los identificadores públicos y el CI se anotan al publicar.
+
+
+## Entrega 68 — Reportes y CSV con filtros confirmados
+
+**Fecha:** 7 de noviembre de 2026, America/Caracas. **Base:**
+`759b7958aa44df56b2ffb043e36c9afdebe4f293` (PR #308 fusionado).
+**Rama:** `fix/financial-report-snapshots-and-csv-v1`.
+
+El CI final de la entrega 67 aprobó backend y seguridad. La entrega 68 continúa
+con el reporte/CSV: separa fechas en edición y rango confirmado, valida las dos
+respuestas y conserva órdenes/conciliación como un par. Una exportación vuelve a
+leer el rango confirmado, exige todas sus filas y no descarga un CSV truncado si
+supera 5000 órdenes. Cambios de fechas, cuenta/rol, consultas nuevas y desmontaje
+retiran preparaciones anteriores. No se inventan ceros, moneda o métodos de pago.
+
+El CSV conserva ID real/referencia, fechas UTC, ceros y ausencias; escapa comillas
+y saltos de línea, incluye BOM UTF-8 y CRLF y neutraliza fórmulas en texto. Se
+limpian enlaces/URLs temporales. La UI distingue órdenes de todos los estados y
+conciliación/estados internos de retiro, sin certificar transferencias bancarias.
+
+Validación nueva: **1351 pruebas frontend / 77 suites** aprobadas, 125 casos netos
+nuevos; tipos, lint y build con Inter real y 48 páginas aprobados. Chromium completa
+**siete comprobaciones** y verifica una descarga CSV real con datos sintéticos;
+cero escrituras HTTP o excepciones pageerror. Cobertura de líneas **38,98 %**:
+el gate global del 50 % continúa fallando sin modificar umbrales o exclusiones.
+No se modifica backend ni se atribuyen sus resultados anteriores a esta fuente.
+
+Contrato: [frontend/FINANCIAL_REPORTS.md](frontend/FINANCIAL_REPORTS.md). Registro
+y validación: [frontend/ENTREGA_68.md](frontend/ENTREGA_68.md). Los endpoints son
+lecturas independientes, sin snapshot entre consultas. Quedan pendientes rangos
+mayores, E2E de backend real, cobertura global y homologación sandbox de pagos.
+La siguiente mejora concreta es el historial/detalle de transacciones financieras.
+No se envían pagos, mensajes, facturas o migraciones productivas, ni se fusiona
+o despliega. Commit, PR y CI se registran al publicar y verificar la rama.
