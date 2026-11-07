@@ -6803,3 +6803,44 @@ Implementación `70045ba78cfdf8b853e10f3641682a66bca4ff1e`, árbol local/GitHub
 `9d8e0c8e80858b55efa3ea5e6e225a64d2bd1748`. Un segundo commit exclusivamente
 documental registra estos identificadores. El PR distingue CI remoto del head
 final y resultados locales, sin afirmar todos los controles aprobados.
+
+
+## Entrega 70 — Detalle de auditoría con consultas confirmadas
+
+**Fecha:** 7 de noviembre de 2026, America/Caracas. **Base:**
+`8a46bfb26f3a3c9a7724c5aa9511f96c287065a8` (PR #310 fusionado).
+**Rama:** `fix/rider-audit-confirmed-reads-v1`.
+
+El detalle valida los contratos reales de resumen, órdenes, entregas y transacciones.
+Los cuatro bloques se publican como un conjunto confirmado; un fallo conserva el
+anterior y ofrece reintentar. Servicio/controlador/frontera retiran respuestas de
+otra cuenta, rol, ruta o lectura antigua. Se preserva el refresh de la misma cuenta.
+
+Cada tabla tiene páginas de 50 con una fila extra como señal y filtro rider_id en
+servidor. La búsqueda de resumen recorre como máximo cinco páginas de 100: total
+en ese endpoint es la cantidad de filas de la página, no global. No localizar el
+rider dentro del límite no se presenta como inexistencia. Las órdenes de apoyo
+sin registro de entrega, añadidas por el backend hasta 50 en offset cero, quedan
+separadas de entregas reales y de sus cantidades/completadas/paginación.
+
+No se inventan moneda, ceros, fechas o pago pendiente para bonos ausentes. Se
+conservan IDs, campos HTTP reales, coordenadas cero, Offline y trazabilidad. Los
+agregados del servidor se distinguen de las cantidades de cada página. El SLA
+respeta el redondeo Python y su denominador; los estados no certifican transferencias.
+
+Validación nueva: **1600 pruebas frontend / 87 suites** aprobadas, 125 casos netos
+nuevos. TypeScript, lint y build con Inter real y 48 páginas aprobados. Cobertura
+de líneas **41,15 %**; el gate global del 50 % sigue fallando con umbrales intactos.
+Chromium verifica siete escenarios y 53 lecturas interceptadas con datos
+sintéticos, cero escrituras y cero excepciones pageerror. Se revisan escritorio
+y móvil, conservación conjunta, navegación, rutas y logout.
+
+Contrato: [frontend/RIDER_AUDIT_DETAIL.md](frontend/RIDER_AUDIT_DETAIL.md). Registro:
+[frontend/ENTREGA_70.md](frontend/ENTREGA_70.md). Sin snapshot entre endpoints ni
+cursor/desempate estable; las búsquedas y páginas tienen alcance acotado y algunos
+NULL ya llegan sustituidos desde el backend. No se modifican backend, dependencias,
+workflows, autorización o migraciones. El catálogo de auditoría queda fuera de
+este bloque y es la próxima prioridad para sesión, métricas, filtros y CSV. Siguen
+pendientes cobertura global, E2E con backend real y sandbox de pagos. No se envían
+pagos, mensajes o facturas reales, ni se fusiona o despliega. Commit/árbol/PR y CI
+observado se registran después de publicar.
