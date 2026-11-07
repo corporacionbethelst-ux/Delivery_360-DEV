@@ -6728,6 +6728,9 @@ fusiona o despliega. Los identificadores públicos y el CI se anotan al publicar
 **Fecha:** 7 de noviembre de 2026, America/Caracas. **Base:**
 `759b7958aa44df56b2ffb043e36c9afdebe4f293` (PR #308 fusionado).
 **Rama:** `fix/financial-report-snapshots-and-csv-v1`.
+**PR:** https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/309.
+**Implementación:** `a7844e2c2a15ce3f93730ef4035036fd211c4b95`;
+árbol local/GitHub `e7a7ae9ead99a8de41abf803fb93c849c9f8ae01`.
 
 El CI final de la entrega 67 aprobó backend y seguridad. La entrega 68 continúa
 con el reporte/CSV: separa fechas en edición y rango confirmado, valida las dos

@@ -93,3 +93,13 @@ no se ejecutan migraciones productivas ni se fusiona o despliega.
 
 La publicación coteja commit/árbol y registra el PR y el CI observado por separado;
 no se declara todo aprobado ni el sistema al 100 % para producción.
+
+## Publicación verificada
+
+- PR abierto sin borrador: https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/309
+- Implementación: `a7844e2c2a15ce3f93730ef4035036fd211c4b95`.
+- Árbol de implementación cotejado local/GitHub: `e7a7ae9ead99a8de41abf803fb93c849c9f8ae01`.
+- Se conservan los 16 archivos de implementación publicados. Un segundo commit
+  únicamente documental registra los identificadores de publicación.
+- La descripción del PR informa el CI observado del head final; los resultados
+  locales no se presentan como verificaciones remotas aprobadas.
