@@ -1,0 +1,20 @@
+import { api } from '@/lib/api';
+import { readAuditCatalogPage } from '@/services/rider-audit-catalog.service';
+import { initialAuditCatalogQuery as initial } from '@/lib/rider-audit-catalog';
+import { RIDER_AUDIT_STATUSES } from '@/lib/rider-audit-contract';
+import { clearStoredTokens, storeTokens } from '@/lib/auth-session';
+import { auditCatalogHttpResponse, auditCatalogResponse } from '../../test-fixtures/rider-audit-catalog';
+jest.mock('@/lib/api', () => ({ api: { get: jest.fn() } }));
+const get = jest.mocked(api.get);
+beforeEach(() => { jest.resetAllMocks(); storeTokens({ access_token: 'a', refresh_token: 'ra' }); get.mockImplementation(async url => auditCatalogHttpResponse(url)); });
+afterEach(() => clearStoredTokens());
+it('reads one bounded page with explicit limit and offset, without treating page.total as global', async () => { const result = await readAuditCatalogPage(); expect(get).toHaveBeenCalledWith('/riders/audit/summary?limit=51&offset=0'); expect(result.rows).toHaveLength(50); expect(result.hasNext).toBe(true); });
+it.each(RIDER_AUDIT_STATUSES)('sends the exact backend status_filter parameter for %s', async status => { const result = await readAuditCatalogPage({ ...initial, status, offset: 50 }); expect(get).toHaveBeenCalledWith(`/riders/audit/summary?status_filter=${status}&limit=51&offset=50`); expect(result.rows[0].status).toBe(status); });
+it.each(['ALL', 'true', 'false'] as const)('sends availability %s faithfully, including explicit Offline', async online => {
+  const result = await readAuditCatalogPage({ ...initial, online }); expect(get).toHaveBeenCalledWith(`/riders/audit/summary?${online === 'ALL' ? '' : `is_online=${online}&`}limit=51&offset=0`); if (online !== 'ALL') expect(result.rows[0].is_online).toBe(online === 'true');
+});
+it('captures filters/offset before awaiting the response', async () => { const input = { ...initial, status: 'ACTIVO' as const }; const pending = readAuditCatalogPage(input); Object.assign(input, { status: 'SUSPENDIDO', offset: 50 }); const result = await pending; expect(result.query).toEqual({ ...initial, status: 'ACTIVO' }); });
+it.each(['success', 'failure'])('fences an old credential continuation after HTTP %s', async mode => { get.mockImplementation(async () => { storeTokens({ access_token: 'b', refresh_token: 'rb' }); if (mode === 'failure') throw new Error('old'); return auditCatalogResponse(); }); await expect(readAuditCatalogPage(initial)).rejects.toThrow(/sesión cambió/); });
+it('validates malformed responses instead of allowing a synthetic empty catalog', async () => { get.mockResolvedValue({ items: null }); await expect(readAuditCatalogPage()).rejects.toThrow(); });
+it('rejects unsupported filters before any HTTP', async () => { await expect(readAuditCatalogPage({ ...initial, online: 'off' } as never)).rejects.toThrow(); expect(get).not.toHaveBeenCalled(); });
+it('does not read private data without credentials', async () => { clearStoredTokens(); await expect(readAuditCatalogPage()).rejects.toThrow(); expect(get).not.toHaveBeenCalled(); });
