@@ -325,7 +325,7 @@ async def list_payouts(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Legacy array/offset contract. Prefer /page for continued navigation."""
+    """Listar retiros reales. Riders ven solo sus retiros; gerentes/superadmins ven todos."""
     stmt, _ = await _payout_list_scope(db, current_user, rider_id)
 
     if status_filter:

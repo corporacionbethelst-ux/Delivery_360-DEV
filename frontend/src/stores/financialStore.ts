@@ -3,6 +3,8 @@ import { capturePrivateTask, resetOnSessionChange } from '@/lib/private-task';
 import { create } from 'zustand';
 import type { Transaction, FinancialReportDetailed, FinancialFilters } from '@/types/financial';
 import { api } from '@/lib/api'; // ✅ IMPORTANTE: Usar el export named 'api' de api.ts
+import { financialService, type FinancialPeriod } from '@/services/financial.service';
+import { FINANCIAL_PERIODS } from '@/lib/financial-summary-contract';
 
 // Resumen simplificado para el dashboard
 export interface FinancialSummary {
@@ -10,10 +12,11 @@ export interface FinancialSummary {
   totalCosts: number;
   netProfit: number;
   riderPayments: number;
-  netCommission: number;
-  pendingPayouts: number;
-  activeDeliveries: number;
-  pendingPayments: number;
+  netCommission: number | null;
+  pendingPayouts: number | null;
+  activeDeliveries: number | null;
+  pendingPayments: number | null;
+  period: FinancialPeriod;
 }
 
 export interface PaymentRule {
@@ -49,6 +52,7 @@ interface FinancialState {
   updatePaymentRule: (id: string, data: Partial<PaymentRule>) => Promise<void>;
 }
 
+let summarySequence = 0;
 export const useFinancialStore = create<FinancialState>((set, get) => ({
   summary: null,
   report: null,
@@ -60,32 +64,7 @@ export const useFinancialStore = create<FinancialState>((set, get) => ({
 
   // Fetch resumen general
   fetchSummary: async () => {
-    const task = capturePrivateTask();
-    set({ isLoading: true, error: null });
-    try {
-      // ✅ CORRECCIÓN: api.get ya devuelve los datos directos (T), no AxiosResponse
-      const data = await api.get<FinancialSummary>('/financial/summary');
-      task.assertCurrent();
-      set({ summary: data, isLoading: false });
-    } catch (error: any) {
-      task.assertCurrent();
-      console.error('[FinancialStore] Error fetching summary:', error);
-      set({ 
-        error: error.message || 'Error al obtener resumen financiero', 
-        isLoading: false,
-        // Fallback seguro en caso de error crítico
-        summary: {
-          totalRevenue: 0,
-          totalCosts: 0,
-          netProfit: 0,
-          riderPayments: 0,
-          netCommission: 0,
-          pendingPayouts: 0,
-          activeDeliveries: 0,
-          pendingPayments: 0,
-        }
-      });
-    }
+    await get().getDailySummary('today');
   },
 
   // Obtener reporte detallado
@@ -114,38 +93,29 @@ export const useFinancialStore = create<FinancialState>((set, get) => ({
     }
   },
 
-  // ALIAS EXPLÍCITO: getDailySummary
+  // Both summary entry points use the same real HTTP contract and read sequence.
   getDailySummary: async (period: string) => {
     const task = capturePrivateTask();
-    const now = new Date();
-    let dateFrom = new Date();
-    
-    if (period === 'today') {
-      dateFrom.setHours(0, 0, 0, 0);
-    } else if (period === 'week') {
-      dateFrom.setDate(now.getDate() - 7);
-    } else if (period === 'month') {
-      dateFrom.setMonth(now.getMonth() - 1);
+    const ticket = ++summarySequence;
+    set({ isLoading: true, error: null });
+    try {
+      if (!FINANCIAL_PERIODS.includes(period as FinancialPeriod)) throw new Error('Período financiero inválido');
+      const data = await financialService.getSummary({ period: period as FinancialPeriod });
+      task.assertCurrent();
+      if (ticket !== summarySequence) return null;
+      const summary: FinancialSummary = {
+        period: period as FinancialPeriod,
+        totalRevenue: data.total_revenue, totalCosts: data.total_costs,
+        netProfit: data.net_margin, riderPayments: data.total_rider_payouts,
+        netCommission: null, pendingPayouts: null, activeDeliveries: null, pendingPayments: null,
+      };
+      set({ summary, isLoading: false });
+      return summary;
+    } catch (error) {
+      task.assertCurrent();
+      if (ticket === summarySequence) set({ error: 'No se pudo comprobar el resumen financiero. Se conservan los últimos datos disponibles.', isLoading: false });
+      return null;
     }
-
-    const report = await get().getFinancialReport({ dateFrom, dateTo: now });
-    task.assertCurrent();
-    
-    if (!report) return null;
-
-    const adaptedSummary: FinancialSummary = {
-      totalRevenue: report.totalRevenue,
-      totalCosts: report.totalExpenses,
-      netProfit: report.netProfit,
-      riderPayments: report.totalRiderPayments,
-      netCommission: report.netProfit, 
-      pendingPayouts: 0, 
-      activeDeliveries: 0,
-      pendingPayments: 0,
-    };
-
-    set({ summary: adaptedSummary });
-    return adaptedSummary;
   },
 
   // Obtener transacciones

@@ -55,7 +55,10 @@ ALIASES = (
     "payouts",
 )
 PREVIOUS = Path(__file__).parent / "fixtures/api_surface_before_bootstrap.json"
-EXPECTED = Path(__file__).parent / "fixtures/api_surface_after_reconciliation.json"
+RECONCILIATION = (
+    Path(__file__).parent / "fixtures/api_surface_after_reconciliation.json"
+)
+EXPECTED = Path(__file__).parent / "fixtures/api_surface_after_payout_pagination.json"
 BACKEND = Path(__file__).resolve().parents[1]
 
 
@@ -80,7 +83,7 @@ def test_compatibility_router_is_the_canonical_object(name):
 
 def test_exact_route_order_auth_dependencies_and_openapi_are_preserved():
     expected = json.loads(EXPECTED.read_text())
-    assert len(expected["routes"]) == 202
+    assert len(expected["routes"]) == 203
     assert api_surface(app) == expected
 
 
@@ -89,13 +92,16 @@ def test_reconciliation_addition_preserves_all_preexisting_routes_and_openapi():
     current = api_surface(app)
     prefix = "/api/v1/reconciliation"
     assert [
-        row for row in current["routes"] if not row["path"].startswith(prefix)
+        row
+        for row in current["routes"]
+        if not row["path"].startswith(prefix) and row["path"] != "/api/v1/payouts/page"
     ] == previous["routes"]
     assert all(
         current["dependencies"].get(key) == value
         for key, value in previous["dependencies"].items()
     )
     schema = deepcopy(app.openapi())
+    del schema["paths"]["/api/v1/payouts/page"]
     new_paths = {
         prefix + path
         for path in (
@@ -121,6 +127,29 @@ def test_reconciliation_addition_preserves_all_preexisting_routes_and_openapi():
         "RiderStatus",
     ):
         del schema["components"]["schemas"][name]
+    canonical = json.dumps(
+        schema, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    assert hashlib.sha256(canonical.encode()).hexdigest() == previous["openapi_sha256"]
+
+
+def test_payout_pagination_preserves_existing_routes_dependencies_and_openapi():
+    previous = json.loads(RECONCILIATION.read_text())
+    current = api_surface(app)
+    path = "/api/v1/payouts/page"
+    added = [row for row in current["routes"] if row["path"] == path]
+    assert len(added) == 1 and added[0]["methods"] == ["GET"]
+    assert [row for row in current["routes"] if row["path"] != path] == previous[
+        "routes"
+    ]
+    assert all(
+        current["dependencies"].get(key) == value
+        for key, value in previous["dependencies"].items()
+    )
+    paths = [row["path"] for row in current["routes"]]
+    assert paths.index(path) < paths.index("/api/v1/payouts/{payout_id}")
+    schema = deepcopy(app.openapi())
+    del schema["paths"][path]
     canonical = json.dumps(
         schema, sort_keys=True, separators=(",", ":"), ensure_ascii=True
     )

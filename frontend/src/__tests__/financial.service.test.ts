@@ -1,12 +1,15 @@
 import { api } from '@/lib/api';
 import { financialService } from '@/services/financial.service';
+import { clearStoredTokens, storeTokens } from '@/lib/auth-session';
+import { summaryResponse } from '../../test-fixtures/financial-summary';
 jest.mock('@/lib/api', () => ({ api: { get: jest.fn() } }));
 const get = jest.mocked(api.get);
 beforeEach(() => {
   jest.resetAllMocks();
+  clearStoredTokens(); storeTokens({ access_token: 'a', refresh_token: 'ra' });
   jest.spyOn(console, 'error').mockImplementation(() => undefined);
 });
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => { clearStoredTokens(); jest.restoreAllMocks(); });
 
 it.each([[0, 1], [-2, 1], [2.9, 2], [999, 500], [NaN, 20], [Infinity, 20]])('bounds transaction pagination %s to %s', async (limit, expected) => {
   get.mockResolvedValueOnce([]);
@@ -14,9 +17,9 @@ it.each([[0, 1], [-2, 1], [2.9, 2], [999, 500], [NaN, 20], [Infinity, 20]])('bou
   expect(get).toHaveBeenCalledWith(`/financial/transactions?limit=${expected}`);
 });
 it('keeps the real summary response and date filters', async () => {
-  const response = { total_revenue: 42, total_costs: 7 };
+  const response = summaryResponse('custom');
   get.mockResolvedValueOnce(response);
-  expect(await financialService.getSummary({ period: 'month', start_date: '2026-10-01', end_date: '2026-10-24' })).toBe(response);
+  expect(await financialService.getSummary({ period: 'month', start_date: '2026-10-01', end_date: '2026-10-24' })).toMatchObject({ total_revenue: 100, total_costs: 40, period: 'custom', period_start: '2026-10-01T00:00:00Z' });
   expect(get).toHaveBeenCalledWith('/financial/summary?period=month&start_date=2026-10-01&end_date=2026-10-24');
 });
 it('distinguishes personal earnings from filtered administrative earnings', async () => {
