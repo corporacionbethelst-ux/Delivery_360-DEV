@@ -84,3 +84,13 @@ no se aplica con búsqueda vacía. También quedan pendientes cursor/orden estab
 cobertura global del 50 %, E2E real y homologación sandbox de fase 7. No se envían
 pagos, mensajes o facturas reales, ni migraciones productivas, merge o deploy.
 Publicación y CI observado se registran por separado.
+
+## Publicación verificada
+
+- PR sin borrador: https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/312
+- Implementación: `c56fb8673e4f6543d0df4f6758a8e02e34450f77`.
+- Árbol de implementación cotejado local/GitHub: `a77869569a55922a7098aad438582c43826c59e2`.
+- Se publican 18 archivos de implementación/pruebas/documentación. Un segundo
+  commit exclusivamente documental registra estos identificadores.
+- El PR informa el CI observado del head final por separado de los resultados
+  locales. La publicación no fusiona ni despliega la rama.

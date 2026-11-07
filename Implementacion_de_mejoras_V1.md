@@ -6890,3 +6890,10 @@ gerencia, contratos de apoyo/páginas, filtros —Sin asignar—, sesión y dato
 Siguen pendientes cobertura global, E2E con backend real, cursor estable y sandbox
 de pagos. No se envían pagos, mensajes o facturas, ni se fusiona o despliega.
 Commit/árbol/PR y CI observado se registran después de publicar.
+
+Publicación verificada de la entrega 71: PR sin borrador
+https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/312.
+Implementación `c56fb8673e4f6543d0df4f6758a8e02e34450f77`, árbol local/GitHub
+`a77869569a55922a7098aad438582c43826c59e2`. Un segundo commit exclusivamente
+documental registra estos identificadores. El PR distingue CI del head final y
+validación local, sin afirmar todos los controles aprobados.
