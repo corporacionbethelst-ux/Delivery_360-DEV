@@ -1,276 +1,65 @@
 'use client';
-
-import React, { useEffect, useMemo, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Bike, Clock, CreditCard, Eye, Package, RefreshCw, Truck, Wallet } from 'lucide-react';
-import { riderService, RiderAuditSummary } from '@/services/rider.service';
-import { orderService, Order } from '@/services/order.service';
-import { deliveryService } from '@/services/delivery.service';
-import type { Delivery } from '@/types/delivery';
-import { transactionService, Transaction } from '@/services/transaction.service';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import type { ReactNode } from 'react';
+import { RiderAuditAccess } from '@/components/audit/RiderAuditAccess';
+import { useRiderAudit } from '@/hooks/useRiderAudit';
+import { AUDIT_PAGE_SIZE, type AuditPage } from '@/lib/rider-audit-contract';
+import { transactionDateLabel } from '@/lib/transaction-contract';
+import { payoutAmountLabel } from '@/lib/payout-contract';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { formatCurrency } from '@/lib/formatters';
-import { payoutAmountLabel } from '@/lib/payout-contract';
-import { transactionDateLabel } from '@/lib/transaction-contract';
 
-const numberFormatter = new Intl.NumberFormat('es-CO');
-
-export default function ManagerRiderAuditDetailPage() {
-  const params = useParams();
-  const router = useRouter();
-  const riderId = Array.isArray(params.id) ? params.id[0] : params.id;
-
-  const [summary, setSummary] = useState<RiderAuditSummary | null>(null);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadDetail = async () => {
-    if (!riderId) return;
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const [summaryResult, ordersResult, deliveriesResult, transactionsResult] = await Promise.allSettled([
-        riderService.getAuditSummary({ limit: 500 }),
-        orderService.getAll({ rider_id: riderId, limit: 100 }),
-        deliveryService.getAll({ rider_id: riderId, limit: 100 }),
-        transactionService.getAll({ rider_id: riderId, limit: 100 }),
-      ]);
-
-      if (summaryResult.status === 'fulfilled') {
-        setSummary(summaryResult.value.items.find((item) => item.rider_id === riderId) || null);
-      } else {
-        console.warn('No se pudo cargar resumen del rider:', summaryResult.reason);
-        setSummary(null);
-      }
-
-      setOrders(ordersResult.status === 'fulfilled'
-        ? (Array.isArray(ordersResult.value) ? ordersResult.value : (ordersResult.value as any).items || [])
-        : []);
-
-      setDeliveries(deliveriesResult.status === 'fulfilled'
-        ? (Array.isArray(deliveriesResult.value) ? deliveriesResult.value : (deliveriesResult.value as any).items || [])
-        : []);
-
-      setTransactions(transactionsResult.status === 'fulfilled'
-        ? (Array.isArray(transactionsResult.value) ? transactionsResult.value : (transactionsResult.value as any).items || [])
-        : []);
-
-      if (ordersResult.status === 'rejected' || deliveriesResult.status === 'rejected' || transactionsResult.status === 'rejected') {
-        setError('Algunos bloques no pudieron cargarse. Se muestra la información disponible.');
-      }
-    } catch (err: any) {
-      console.error('Error loading rider audit detail:', err);
-      setError(err?.message || 'No se pudo cargar el detalle del repartidor.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadDetail();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [riderId]);
-
-  const totals = useMemo(() => ({
-    ordersTotal: orders.length,
-    ordersDelivered: orders.filter((order) => order.status === 'ENTREGADO').length,
-    deliveriesCompleted: deliveries.filter((delivery) => delivery.status === 'COMPLETADA').length,
-    transactionsCount: transactions.length,
-  }), [orders, deliveries, transactions]);
-
-  const riderName = summary?.full_name || 'Repartidor';
-
-  return (
-    <div className="p-6 bg-gray-50 min-h-screen">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <Button variant="ghost" size="icon" onClick={() => router.push('/manager/operations/rider-audit')}>
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Detalle de auditoría · {riderName}</h1>
-              <p className="text-gray-500 mt-1">Órdenes, entregas y transacciones vinculadas al repartidor.</p>
-            </div>
-          </div>
-          <Button variant="outline" onClick={loadDetail} disabled={loading}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Actualizar
-          </Button>
-        </div>
-
-        {error && (
-          <Alert className="border-amber-200 bg-amber-50 text-amber-900">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <MetricCard icon={Bike} label="Estado" value={summary ? `${summary.status} · ${summary.is_online ? 'Online' : 'Offline'}` : 'Sin resumen'} />
-          <MetricCard icon={Package} label="Órdenes" value={`${numberFormatter.format(totals.ordersDelivered)}/${numberFormatter.format(totals.ordersTotal)} entregadas`} />
-          <MetricCard icon={Truck} label="Entregas completadas" value={numberFormatter.format(totals.deliveriesCompleted)} />
-          <MetricCard icon={Wallet} label="Transacciones cargadas" value={numberFormatter.format(totals.transactionsCount)} />
-        </div>
-
-        {summary && (
-          <Card>
-            <CardHeader><CardTitle>Resumen operativo</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3 text-sm">
-              <SummaryBox label="Órdenes activas" value={summary.orders_active} />
-              <SummaryBox label="Entregas totales" value={summary.deliveries_total} />
-              <SummaryBox label="Fallidas" value={summary.deliveries_failed} danger={summary.deliveries_failed > 0} />
-              <SummaryBox label="SLA" value={`${summary.sla_compliance_rate}%`} />
-              <SummaryBox label="Ganado" value={formatCurrency(summary.total_earned)} />
-              <SummaryBox label="Retiros pendientes" value={formatCurrency(summary.pending_payouts)} />
-            </CardContent>
-          </Card>
-        )}
-
-        <Section title="Órdenes del repartidor" icon={Package} empty={!loading && orders.length === 0}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b"><tr><Th>Orden</Th><Th>Cliente</Th><Th>Estado</Th><Th>Total</Th><Th>Creada</Th><Th>Acciones</Th></tr></thead>
-              <tbody className="divide-y">
-                {orders.map((order) => (
-                  <tr key={order.id} className="hover:bg-gray-50">
-                    <Td>#{order.external_id}</Td>
-                    <Td>{order.customer_name || 'Cliente'}</Td>
-                    <Td><Badge variant="outline">{order.status}</Badge></Td>
-                    <Td>{formatCurrency(order.total_amount ?? order.total ?? 0)}</Td>
-                    <Td>{formatDate(order.created_at)}</Td>
-                    <Td>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 text-xs"
-                        title="Ver detalle"
-                        onClick={() => router.push(`/manager/operations/orders/${order.id}`)}
-                      >
-                        <Eye className="w-3.5 h-3.5 mr-1" />
-                        Ver
-                      </Button>
-                    </Td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Section>
-
-        <Section title="Entregas del repartidor" icon={Truck} empty={!loading && deliveries.length === 0}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b"><tr><Th>Entrega</Th><Th>Orden</Th><Th>Cliente</Th><Th>Estado</Th><Th>Bono</Th><Th>Actualizada</Th></tr></thead>
-              <tbody className="divide-y">
-                {deliveries.map((delivery) => {
-                  // Validación defensiva de IDs
-                  const deliveryIdShort = delivery.id ? delivery.id.slice(0, 8) + '...' : 'N/A';
-                  const orderRef = delivery.deliveryNumber
-                    ? `#${delivery.deliveryNumber}`
-                    : delivery.orderId
-                      ? '#' + delivery.orderId.slice(0, 8)
-                      : delivery.order?.id
-                        ? '#' + delivery.order.id.slice(0, 8)
-                        : 'N/A';
-
-                  const customerName = delivery.order?.customer_name || delivery.customer_name || 'Cliente';
-
-                  // CORRECCIÓN: El tipo ahora permite ReactNode para manejar el span de alerta
-                  let bonusDisplay: string | React.ReactNode = '-';
-                  
-                  if (delivery.locked_bonus_amount !== undefined && delivery.locked_bonus_amount !== null) {
-                    const amount = typeof delivery.locked_bonus_amount === 'string'
-                      ? parseFloat(delivery.locked_bonus_amount)
-                      : delivery.locked_bonus_amount;
-                    bonusDisplay = formatCurrency(amount);
-                  } else if (delivery.status === 'COMPLETADA' || delivery.status === 'FALLIDA') {
-                    // Aquí retornamos un JSX, por eso el tipo debe ser ReactNode
-                    bonusDisplay = (
-                      <span className="text-xs text-orange-500 font-medium bg-orange-50 px-2 py-1 rounded">
-                        Pendiente
-                      </span>
-                    );
-                  }
-
-                  const updatedAt = delivery.updatedAt || delivery.createdAt;
-                  const dateDisplay = updatedAt ? new Date(updatedAt).toLocaleString() : 'N/A';
-
-                  return (
-                    <tr key={delivery.id} className="hover:bg-gray-50">
-                      <Td>{deliveryIdShort}</Td>
-                      <Td>{orderRef}</Td>
-                      <Td>{customerName}</Td>
-                      <Td><Badge variant="outline">{delivery.status || 'DESCONOCIDO'}</Badge></Td>
-                      <Td className="font-medium">{bonusDisplay}</Td>
-                      <Td>{dateDisplay}</Td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Section>
-
-        <Section title="Transacciones del repartidor" icon={CreditCard} empty={!loading && transactions.length === 0}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b"><tr><Th>Tipo</Th><Th>Estado</Th><Th>Monto</Th><Th>Balance</Th><Th>Referencia</Th><Th>Fecha</Th></tr></thead>
-              <tbody className="divide-y">
-                {transactions.map((transaction) => (
-                  <tr key={transaction.id} className="hover:bg-gray-50">
-                    <Td>{transaction.transaction_type}</Td>
-                    <Td><Badge variant="outline">{transaction.status}</Badge></Td>
-                    <Td>{payoutAmountLabel(transaction.amount, transaction.currency ?? undefined)}</Td>
-                    <Td>{payoutAmountLabel(transaction.balance_after, transaction.currency ?? undefined)}</Td>
-                    <Td>{transaction.reference_id ?? transaction.description ?? 'No informada'}</Td>
-                    <Td>{transactionDateLabel(transaction.created_at)}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Section>
-      </div>
+export default function RiderAuditDetailPage() {
+  const params = useParams(), id = typeof params.id === 'string' ? params.id : '';
+  return <RiderAuditAccess riderId={id}><Detail riderId={id} /></RiderAuditAccess>;
+}
+function Detail({ riderId }: { riderId: string }) {
+  const page = useRiderAudit(riderId), data = page.data, summary = data?.summary.row;
+  return <div className="p-4 md:p-6 bg-gray-50 min-h-screen"><div className="max-w-7xl mx-auto space-y-5">
+    <div className="flex flex-wrap justify-between items-start gap-3">
+      <div className="min-w-0"><h1 className="text-2xl font-bold">Detalle de auditoría de repartidor</h1><p className="font-mono text-sm break-all">ID solicitado: {riderId || 'No informado'}</p></div>
+      <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => { void page.refresh(); }}>Actualizar auditoría</Button><Button variant="outline" disabled={page.isLoading} onClick={() => { void page.first(); }}>Volver al inicio</Button></div>
     </div>
-  );
+    <Link className="inline-block text-blue-700 underline" href="/manager/operations/rider-audit">Volver al catálogo de auditoría</Link>
+    {page.isLoading && <p role="status">Consultando el conjunto de auditoría…</p>}
+    {page.error && <div role="alert" className="rounded border bg-red-50 p-4 text-red-800 space-y-2"><p>{page.error}</p><Button variant="outline" disabled={page.isLoading} onClick={() => { void page.retry(); }}>Reintentar auditoría</Button></div>}
+    {data && <section aria-label="Auditoría confirmada" aria-busy={page.isLoading} className="space-y-5">
+      <div className="rounded border bg-white p-4 space-y-2 text-sm"><p className="font-mono break-all">Repartidor de la consulta confirmada: {data.riderId}</p><p>Órdenes, entregas y transacciones se confirman juntas en esta pantalla. Son lecturas independientes del servidor; pueden cambiar entre consultas.</p><p>Cada tabla muestra hasta 50 filas por página. Sus cantidades corresponden a la página cargada y no al historial completo.</p></div>
+      <Card><CardHeader><CardTitle>Resumen agregado informado por el servidor</CardTitle></CardHeader><CardContent>
+        {summary ? <div className="space-y-4">
+          <p className="font-semibold break-all">{summary.full_name ?? 'Nombre no informado'}</p><p className="break-all">{summary.email ?? 'Email no informado'}</p>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">{[
+            ['Estado registrado', summary.status ?? 'No informado'], ['Disponibilidad informada', summary.is_online === null ? 'No informada' : summary.is_online ? 'Online' : 'Offline'],
+            ['Órdenes asignadas (acumulado)', summary.orders_assigned], ['Órdenes entregadas (acumulado)', summary.orders_delivered], ['Órdenes activas (agregado)', summary.orders_active],
+            ['Entregas reales (acumulado)', summary.deliveries_total], ['Entregas completadas (acumulado)', summary.deliveries_completed], ['Entregas fallidas (acumulado)', summary.deliveries_failed],
+            ['SLA informado', summary.deliveries_total ? `${summary.sla_compliance_rate}% · ${summary.sla_compliant}/${summary.deliveries_total} entregas` : 'Sin entregas en el denominador'],
+            ['Créditos PROCESADO (acumulado)', payoutAmountLabel(summary.total_earned, summary.currency ?? undefined)], ['Retiros PENDIENTE (agregado)', payoutAmountLabel(summary.pending_payouts, summary.currency ?? undefined)],
+            ['Última ubicación informada', summary.last_lat !== null && summary.last_lng !== null ? `${summary.last_lat}, ${summary.last_lng}` : 'No informada'],
+            ['Fecha de ubicación informada', transactionDateLabel(summary.last_location_at)],
+          ].map(([label, value]) => <div key={label} className="rounded border p-3 min-w-0"><dt className="text-sm text-gray-600">{label}</dt><dd className="font-semibold break-words">{value}</dd></div>)}</dl>
+          <p className="text-xs text-gray-600">Los agregados no se calculan desde estas páginas. Créditos procesados y retiros pendientes tienen criterios distintos; no acreditan una transferencia bancaria ni un saldo disponible para retirar.</p>
+        </div> : <p role="status">Resumen no localizado en {data.summary.scanned} registros consultados{data.summary.limitReached ? ' (límite de búsqueda de 500 alcanzado)' : ''}. Esto no confirma que el repartidor no exista. Las tablas corresponden al ID solicitado.</p>}
+      </CardContent></Card>
+      <Panel title="Órdenes del repartidor" page={data.orders} loading={page.isLoading} navigate={direction => page.navigate('orders', direction)}>
+        <table className="w-full text-sm"><caption className="text-left p-3">Órdenes de la página confirmada; fechas UTC</caption><thead><tr><Th>ID / referencia</Th><Th>Cliente</Th><Th>Estado</Th><Th>Importe informado</Th><Th>Creación registrada</Th><Th>Detalle</Th></tr></thead><tbody>{data.orders.rows.map(row => <tr key={row.id} className="border-t"><Td><p className="font-mono break-all">{row.id}</p><p>{row.external_id ?? 'Referencia no informada'}</p></Td><Td>{row.customer_name ?? 'No informado'}</Td><Td>{row.status}</Td><Td>{payoutAmountLabel(row.amount, row.currency ?? undefined)}</Td><Td>{transactionDateLabel(row.created_at)}</Td><Td><Link className="text-blue-700 underline" aria-label={`Ver orden ${row.id}`} href={`/manager/operations/orders/${encodeURIComponent(row.id)}`}>Ver orden</Link></Td></tr>)}</tbody></table>
+      </Panel>
+      <Panel title="Entregas registradas del repartidor" page={data.deliveries} loading={page.isLoading} navigate={direction => page.navigate('deliveries', direction)}>
+        <table className="w-full text-sm"><caption className="text-left p-3">Solo registros de entregas; fechas UTC</caption><thead><tr><Th>ID de entrega</Th><Th>ID de orden</Th><Th>Cliente</Th><Th>Estado</Th><Th>Bono congelado informado</Th><Th>Actualización registrada</Th></tr></thead><tbody>{data.deliveries.rows.map(row => <tr key={row.id} className="border-t"><Td><p className="font-mono break-all">{row.id}</p></Td><Td><Link className="text-blue-700 underline break-all" aria-label={`Ver orden de entrega ${row.id}`} href={`/manager/operations/orders/${encodeURIComponent(row.order_id)}`}>{row.order_id}</Link></Td><Td>{row.customer_name ?? 'No informado'}</Td><Td>{row.status}</Td><Td>{payoutAmountLabel(row.locked_bonus_amount, row.currency ?? undefined)}</Td><Td>{transactionDateLabel(row.updated_at)}</Td></tr>)}</tbody></table>
+      </Panel>
+      <Card><CardHeader><CardTitle>Órdenes sin registro de entrega</CardTitle></CardHeader><CardContent className="space-y-3">
+        <p className="text-sm text-gray-600">El servidor añade hasta 50 órdenes de apoyo solo en la primera página de entregas. Su estado es derivado de la orden; no son entregas registradas ni se cuentan como completadas.</p>
+        {data.deliveries.offset > 0 ? <p>Vuelve al inicio para consultar este bloque.</p> : !data.deliveries.fallback.length ? <p>El servidor no informó órdenes de apoyo en esta lectura.</p> : <><p>{data.deliveries.fallback.length} órdenes de apoyo cargadas; alcance acotado, sin total global.</p><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr><Th>ID de orden</Th><Th>Estado derivado</Th></tr></thead><tbody>{data.deliveries.fallback.map(row => <tr key={row.id} className="border-t"><Td><Link className="text-blue-700 underline break-all" aria-label={`Ver orden de apoyo ${row.order_id}`} href={`/manager/operations/orders/${encodeURIComponent(row.order_id)}`}>{row.order_id}</Link></Td><Td>{row.status}</Td></tr>)}</tbody></table></div></>}
+      </CardContent></Card>
+      <Panel title="Transacciones del repartidor" page={data.transactions} loading={page.isLoading} navigate={direction => page.navigate('transactions', direction)}>
+        <table className="w-full text-sm"><caption className="text-left p-3">Registros contables de la página; signo almacenado y fechas UTC</caption><thead><tr><Th>ID / referencia</Th><Th>Tipo / estado</Th><Th>Importe registrado</Th><Th>Saldo posterior informado</Th><Th>Creación registrada</Th><Th>Detalle</Th></tr></thead><tbody>{data.transactions.rows.map(row => <tr key={row.id} className="border-t"><Td><p className="font-mono break-all">{row.id}</p><p>{row.reference_id ?? row.description ?? 'Referencia no informada'}</p></Td><Td>{row.type}<p>{row.status}</p></Td><Td>{payoutAmountLabel(row.amount, row.currency ?? undefined)}</Td><Td>{payoutAmountLabel(row.balance_after, row.currency ?? undefined)}</Td><Td>{transactionDateLabel(row.created_at)}</Td><Td><Link className="text-blue-700 underline" aria-label={`Ver transacción ${row.id}`} href={`/manager/financial/transactions/${encodeURIComponent(row.id)}`}>Ver transacción</Link></Td></tr>)}</tbody></table>
+      </Panel>
+      <p className="text-xs text-gray-600">Las páginas usan desplazamientos. Cambios concurrentes pueden mover filas; si falla la navegación, vuelve al inicio. No se informa un total global de estas tablas ni se suman monedas desconocidas.</p>
+    </section>}
+  </div></div>;
 }
-
-function MetricCard({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
-  return (
-    <Card><CardContent className="p-4 flex items-center gap-3"><Icon className="w-8 h-8 text-blue-600" /><div><p className="text-sm text-gray-500">{label}</p><p className="text-lg font-bold text-gray-900">{value}</p></div></CardContent></Card>
-  );
+function Panel({ title, page, loading, navigate, children }: { title: string; page: AuditPage<{ id: string }>; loading: boolean; navigate: (direction: -1 | 1) => unknown; children: ReactNode }) {
+  return <Card><CardHeader><CardTitle>{title}</CardTitle></CardHeader><CardContent className="space-y-3"><section aria-label={title} aria-busy={loading}><p className="text-sm text-gray-600 mb-3">{page.rows.length} filas cargadas en la página {page.offset / AUDIT_PAGE_SIZE + 1}.</p><div className="overflow-x-auto">{page.rows.length ? children : <p>No hay registros en esta página confirmada.</p>}</div><nav aria-label={`Páginas de ${title}`} className="flex flex-wrap items-center gap-3 mt-4"><Button variant="outline" disabled={loading || page.offset === 0} onClick={() => { void navigate(-1); }}>Anterior</Button><span>Página {page.offset / AUDIT_PAGE_SIZE + 1}</span><Button variant="outline" disabled={loading || !page.hasNext} onClick={() => { void navigate(1); }}>Siguiente</Button></nav></section></CardContent></Card>;
 }
-
-function SummaryBox({ label, value, danger = false }: { label: string; value: string | number; danger?: boolean }) {
-  return <div className={`rounded-lg p-3 ${danger ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-900'}`}><p className="text-xs text-gray-500">{label}</p><p className="font-bold text-lg">{value}</p></div>;
-}
-
-function Section({ title, icon: Icon, children, empty }: { title: string; icon: any; children: React.ReactNode; empty: boolean }) {
-  return (
-    <Card>
-      <CardHeader><CardTitle className="flex items-center gap-2"><Icon className="w-5 h-5 text-blue-600" /> {title}</CardTitle></CardHeader>
-      <CardContent>{empty ? <p className="text-center py-8 text-gray-500">No hay registros para mostrar.</p> : children}</CardContent>
-    </Card>
-  );
-}
-
-function Th({ children }: { children: React.ReactNode }) {
-  return <th className="px-4 py-3 text-left font-semibold text-gray-600 uppercase text-xs">{children}</th>;
-}
-
-function Td({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <td className={`px-4 py-3 text-gray-700 align-top ${className || ''}`}>{children}</td>;
-}
-
-function formatDate(value?: string | null) {
-  if (!value) return 'N/A';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 'N/A' : date.toLocaleString();
-}
+function Th({ children }: { children: ReactNode }) { return <th className="p-3 text-left">{children}</th>; }
+function Td({ children }: { children: ReactNode }) { return <td className="p-3 align-top">{children}</td>; }
