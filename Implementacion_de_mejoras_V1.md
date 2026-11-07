@@ -6645,3 +6645,42 @@ La publicación coteja todos los blobs y el árbol local con GitHub y abre un PR
 listo para revisión. El transporte git del terminal sigue sin conectar al proxy;
 se usa el conector autorizado. Commit, PR y estado observado del CI se registran
 cuando existen. No se declara el sistema listo al 100 % para producción.
+
+
+## Entrega 66 — Historial de retiros con continuación por cursor
+
+**Fecha:** 6 de noviembre de 2026, America/Caracas. **Base:**
+`0f172f736529fe32905cbd0992eb152bf6431c27` (PR #306 fusionado).
+**Rama:** `fix/payout-cursor-pagination-v1`.
+**PR:** https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/307.
+**Implementación:** `b55d0fee95ad64bbc9550b2f7b9cffaa8fa6fe2d`;
+árbol local/GitHub `42e11b46d5ace55c6de6b7972789c0bcf996250b`.
+
+Esta ampliación continúa el trabajo nuevo recuperado en las entregas 63–65.
+La entrega 65 se conserva en `frontend/ENTREGA_65.md`; no se reutilizan los hashes
+ni las validaciones de la implementación local perdida. El historial anterior
+permanece intacto.
+
+Se confirma que offset y requested_at sin desempate permitían desplazamientos
+concurrentes y orden ambiguo. Se añade GET /payouts/page, con orden por fecha/UUID,
+fechas vacías al final y continuación firmada ligada a usuario/rol/filtros/tamaño.
+Gerencia y repartidor consumen ese contrato, conservan la última consulta válida
+y vuelven al inicio deliberadamente. El endpoint anterior conserva su array.
+El cursor identifica únicamente una posición de lectura: cada request mantiene
+la autenticación y permisos del servidor. No es una instantánea transaccional.
+
+Validación nueva: **1133 tests frontend / 68 suites** y **107 tests del bloque
+financiero backend** aprobados, incluidos dos casos nuevos con PostgreSQL real.
+TypeScript, lint, Mypy, Black, Flake8 y build Next con Inter real (48 páginas)
+aprobados. Cobertura: statements 37,24 %, ramas 33,81 %, funciones 33,33 %, líneas
+**36,89 %**. El gate del 50 % sigue fallando; no se reducen umbrales ni se excluyen
+fuentes. El CI de esta publicación se observa e informa por separado.
+
+Detalle de problemas, implementación, fixtures, comandos, limitaciones y
+publicación: [frontend/ENTREGA_66.md](frontend/ENTREGA_66.md). Contrato vigente:
+[frontend/PAYOUT_CONFIRMATIONS.md](frontend/PAYOUT_CONFIRMATIONS.md).
+
+Quedan pendientes cobertura y E2E completos, medición de índices con datos masivos
+y homologación sandbox de pagos de fase 7 (proveedor, recibos durables, envío
+idempotente, firmas/deduplicación de webhooks y conciliación). No se ejecutan
+pagos, mensajes, facturas o migraciones productivas, ni se fusiona o despliega.
