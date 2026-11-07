@@ -137,3 +137,13 @@ it('rejects an oversized server page rather than presenting it as the requested 
   jest.mocked(api.get).mockResolvedValue([row, { ...row, id: 'second' }]);
   await expect(payoutService.getAll({ limit: 1 })).rejects.toThrow(/página/);
 });
+it('binds response validation to the query that was sent even if a caller mutates its filter object while waiting', async () => {
+  let resolve!: (value: unknown) => void;
+  jest.mocked(api.get).mockReturnValueOnce(new Promise(done => { resolve = done; }));
+  const params = { status: 'PENDIENTE' as const, limit: 51, offset: 0 };
+  const work = payoutService.getAll(params);
+  (params as { status: string }).status = 'COMPLETADO'; params.limit = 1; params.offset = 100;
+  resolve([row, { ...row, id: 'second' }]);
+  expect(await work).toHaveLength(2);
+  expect(api.get).toHaveBeenCalledWith('/payouts?status=PENDIENTE&limit=51&offset=0');
+});

@@ -133,22 +133,25 @@ export const payoutService = {
   },
 
   /** One explicit server page, without claiming a total or a complete catalog. */
-  getAll: async (params?: Readonly<PayoutFilters>): Promise<Payout[]> => privateRequest(async () => {
-    const response = await api.get<unknown>(`/payouts${buildQuery(params)}`);
-    if (!Array.isArray(response)) throw new Error('Historial de retiros mal formado');
-    const limit = Number.isFinite(params?.limit) ? Math.min(Math.max(Math.trunc(params!.limit!), 1), 200) : 50;
-    if (response.length > limit) throw new Error('La respuesta excedió la página de retiros solicitada');
-    const ids = new Set<string>();
-    return response.map(value => {
-      const p = normalizePayout(value);
-      if (ids.has(p.id) || params?.rider_id?.trim() && p.rider_id !== params.rider_id.trim() ||
-          params?.status && !['ALL', 'all'].includes(params.status) && p.status !== params.status) {
-        throw new Error('El historial contiene identidades duplicadas o datos fuera del filtro');
-      }
-      ids.add(p.id);
-      return p;
+  getAll: async (params?: Readonly<PayoutFilters>): Promise<Payout[]> => {
+    const query = params ? { ...params } : undefined;
+    return privateRequest(async () => {
+      const response = await api.get<unknown>(`/payouts${buildQuery(query)}`);
+      if (!Array.isArray(response)) throw new Error('Historial de retiros mal formado');
+      const limit = Number.isFinite(query?.limit) ? Math.min(Math.max(Math.trunc(query!.limit!), 1), 200) : 50;
+      if (response.length > limit) throw new Error('La respuesta excedió la página de retiros solicitada');
+      const ids = new Set<string>();
+      return response.map(value => {
+        const p = normalizePayout(value);
+        if (ids.has(p.id) || query?.rider_id?.trim() && p.rider_id !== query.rider_id.trim() ||
+            query?.status && !['ALL', 'all'].includes(query.status) && p.status !== query.status) {
+          throw new Error('El historial contiene identidades duplicadas o datos fuera del filtro');
+        }
+        ids.add(p.id);
+        return p;
+      });
     });
-  }),
+  },
 
   /** Callers must retain this key before sending so ambiguous retries cannot create a new request. */
   requestPayout: async (data: PayoutRequestInput): Promise<Payout> => {

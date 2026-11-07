@@ -1,14 +1,14 @@
 'use client';
 
 import { PayoutSessionBoundary } from '@/components/financial/PayoutSessionBoundary';
-import { usePayoutRead } from '@/hooks/usePayoutRead';
-import { capturePrivateTask } from '@/lib/private-task';
+import { usePayoutPages, PAYOUT_FILTER_STATUSES } from '@/hooks/usePayoutPages';
+import { PayoutPageControls } from '@/components/financial/PayoutPageControls';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { payoutDateLabel, payoutAmountLabel } from '@/lib/payout-contract';
-import { payoutService, Payout, PayoutMethod, PayoutStatus } from '@/services/payout.service';
+import { PayoutMethod, PayoutStatus } from '@/services/payout.service';
 import { formatDate } from '@/lib/formatters';
 import { ArrowLeft, Clock, CheckCircle, XCircle, Ban, Wallet, Loader2, AlertCircle, FileText } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -32,55 +32,22 @@ const METHOD_LABELS: Record<PayoutMethod, string> = {
   BILLETERA_DIGITAL: 'Billetera Digital',
 };
 
-const getErrorMessage = (error: unknown): string => {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === 'object' && error !== null && 'detail' in error) {
-    const detail = (error as { detail?: unknown }).detail;
-    if (typeof detail === 'string') return detail;
-  }
-  return 'No se pudo cargar el historial.';
-};
-
 export default function RiderPayoutsPage() {
   return <PayoutSessionBoundary><PayoutContent /></PayoutSessionBoundary>;
 }
 
 function PayoutContent() {
-  const beginRead = usePayoutRead();
   const router = useRouter();
   const { user, isAuthenticated } = useAuthStore();
-  const [payouts, setPayouts] = useState<Payout[]>([]);
-  const [loadingData, setLoadingData] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
-
-  const loadPayouts = useCallback(async () => {
-    const current = beginRead();
-    if (!current()) return;
-    setLoadingData(true);
-    setError(null);
-    try {
-      const data = await payoutService.getAll({ limit: 50 });
-      if (current()) setPayouts(data);
-    } catch (err) {
-      if (!current()) return;
-      console.error('Error loading rider payouts:', err);
-      setError(getErrorMessage(err));
-    } finally {
-      if (current()) setLoadingData(false);
-    }
-  }, [beginRead]);
-
+  const page = usePayoutPages(isMounted && isAuthenticated && user?.role === 'REPARTIDOR');
+  const payouts = page.rows;
   useEffect(() => { setIsMounted(true); }, []);
-
   useEffect(() => {
-    if (!isMounted || !isAuthenticated || !user) return;
-    if (user.role !== 'REPARTIDOR') { router.push('/rider'); return; }
-    void loadPayouts();
-  }, [isAuthenticated, user, router, isMounted, loadPayouts]);
+    if (isMounted && isAuthenticated && user && user.role !== 'REPARTIDOR') router.push('/rider');
+  }, [isMounted, isAuthenticated, user, router]);
 
-
-  if (!isMounted || !isAuthenticated || !user || loadingData) {
+  if (!isMounted || !isAuthenticated || !user || (!page.loaded && page.isLoading)) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
         <Loader2 className="animate-spin h-10 w-10 text-blue-600 mb-4" />
@@ -102,21 +69,19 @@ function PayoutContent() {
               <FileText className="w-6 h-6 text-blue-600" />
               Historial de Retiros
             </h1>
-            <p className="text-gray-500 text-sm">Últimas 50 solicitudes como máximo. Este listado no representa el historial completo.</p>
+            <p className="text-gray-500 text-sm">Consulta tus retiros por estado y navega entre las páginas del historial.</p>
           </div>
         </div>
 
-        {error && (
-          <Card className="border-red-200 bg-red-50">
-            <CardContent className="p-4 flex items-center justify-between text-red-800">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="w-5 h-5" />
-                <span className="font-medium">{error}</span>
-              </div>
-              <Button variant="outline" size="sm" onClick={loadPayouts} className="bg-white border-red-200 hover:bg-red-100">Reintentar</Button>
-            </CardContent>
-          </Card>
-        )}
+        <div className="flex flex-wrap gap-3 items-center">
+          <label htmlFor="payout-status">Estado del retiro</label>
+          <select id="payout-status" className="rounded border p-2" value={page.selectedStatus} onChange={event => { void page.setStatus(event.target.value); }}>
+            <option value="ALL">Todos los estados</option>
+            {PAYOUT_FILTER_STATUSES.map(status => <option key={status} value={status}>{STATUS_CONFIG[status].label}</option>)}
+          </select>
+          <Button variant="outline" onClick={() => { void page.refresh(); }} disabled={page.isLoading}>Actualizar historial</Button>
+        </div>
+        <PayoutPageControls page={page} />
 
         {/* Lista */}
         <div className="space-y-4">
@@ -126,11 +91,11 @@ function PayoutContent() {
                 <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
                   <Wallet className="w-8 h-8 text-gray-400" />
                 </div>
-                <h3 className="text-lg font-bold text-gray-900">Sin retiros registrados</h3>
-                <p className="text-gray-500 max-w-sm mt-2 mb-6">Aún no has solicitado ningún retiro. Comienza retirando tus ganancias disponibles.</p>
-                <Button onClick={() => router.push('/rider/earnings/withdraw')} className="bg-blue-600 hover:bg-blue-700 shadow-md">
-                  Solicitar primer retiro
-                </Button>
+                <h3 className="text-lg font-bold text-gray-900">{!page.loaded ? 'No se pudo comprobar el historial' : 'Sin retiros en esta página'}</h3>
+                <p className="text-gray-500 max-w-sm mt-2 mb-6">{page.loaded ? 'Puedes consultar otro estado o volver al inicio del historial.' : 'Vuelve a consultar antes de crear otra solicitud.'}</p>
+                {page.loaded && !page.error && page.offset === 0 && page.status === 'ALL' && <Button onClick={() => router.push('/rider/earnings/withdraw')} className="bg-blue-600 hover:bg-blue-700 shadow-md">
+                  Solicitar retiro
+                </Button>}
               </CardContent>
             </Card>
           ) : (

@@ -1,10 +1,11 @@
 'use client';
 
 import { PayoutSessionBoundary } from '@/components/financial/PayoutSessionBoundary';
-import { usePayoutRead } from '@/hooks/usePayoutRead';
+import { usePayoutPages, PAYOUT_FILTER_STATUSES } from '@/hooks/usePayoutPages';
+import { PayoutPageControls } from '@/components/financial/PayoutPageControls';
 import { capturePrivateTask } from '@/lib/private-task';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -35,124 +36,60 @@ import {
   XCircle,
   RefreshCw, // MODIFICACIÓN: Importar ícono de actualizar
 } from 'lucide-react';
-import { payoutAmountLabel } from '@/lib/payout-contract';
+import { payoutAmountLabel, payoutCents } from '@/lib/payout-contract';
 import { payoutService } from '@/services/payout.service';
 import { riderService } from '@/services/rider.service';
 import type { PayoutWithRider } from '@/types/payout';
 import type { Rider } from '@/types/user';
 import Link from 'next/link';
 
-// Tipos locales para estados derivados
-interface PayoutMetrics {
-  totalPaidMonth: number;
-  pendingCount: number;
-  processedCount: number;
-  rejectedCount: number;
-}
-
 export default function ManagerPayoutsPage() {
   return <PayoutSessionBoundary><PayoutContent /></PayoutSessionBoundary>;
 }
 
 function PayoutContent() {
-  const beginRead = usePayoutRead();
-  const [payouts, setPayouts] = useState<PayoutWithRider[]>([]);
-  const [ridersMap, setRidersMap] = useState<Record<string, Rider>>({});
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false); // MODIFICACIÓN: Estado para refresh manual
+  const page = usePayoutPages();
+  const payouts = page.rows;
+  const [riderNames, setRiderNames] = useState<{ revision: number; data: Record<string, Rider>; missing: boolean }>({ revision: -1, data: {}, missing: false });
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [metrics, setMetrics] = useState<PayoutMetrics>({
-    totalPaidMonth: 0,
-    pendingCount: 0,
-    processedCount: 0,
-    rejectedCount: 0,
-  });
 
-  // Cargar datos iniciales
   useEffect(() => {
-    loadPayouts();
-  }, []);
-
-  // MODIFICACIÓN: Función de carga actualizada para soportar refresh manual
-  const loadPayouts = async (isRefresh: boolean = false) => {
-    const current = beginRead();
-    if (!current()) return;
-    setError(null);
-    if (isRefresh) {
-      setIsRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    
-    try {
-      const data = await payoutService.getAll();
-      
+    if (!page.loaded) return;
+    let active = true;
+    let task: ReturnType<typeof capturePrivateTask>;
+    try { task = capturePrivateTask(); } catch { return; }
+    const current = () => active && task.isCurrent();
+    void (async () => {
+      const ids = Array.from(new Set(payouts.map(p => p.rider_id)));
+      const rows = await Promise.all(ids.map(async id => {
+        try {
+          task.assertCurrent();
+          const rider = await riderService.getById(id);
+          return rider?.id === id ? { id, rider } : null;
+        } catch { return null; }
+      }));
       if (!current()) return;
-      const riderIds = Array.from(new Set(data.map((p) => p.rider_id)));
+      const data: Record<string, Rider> = {};
+      rows.forEach(row => { if (row) data[row.id] = row.rider; });
+      setRiderNames({ revision: page.revision, data, missing: rows.some(row => row === null) });
+    })();
+    return () => { active = false; };
+  }, [page.loaded, page.revision, payouts]);
 
-      const ridersData = await Promise.all(
-        riderIds.map((id) => riderService.getById(id).catch(() => null))
-      );
-
-      const ridersMapTemp: Record<string, Rider> = {};
-      ridersData.forEach((rider) => {
-        if (rider) {
-          ridersMapTemp[rider.id] = rider;
-        }
-      });
-
-      if (!current()) return;
-      setRidersMap(ridersMapTemp);
-      const mappedData: PayoutWithRider[] = data.map((p) => ({ ...p }));
-
-      setPayouts(mappedData);
-      calculateMetrics(mappedData);
-    } catch (error) {
-      if (current()) setError('No se pudieron actualizar los retiros. Se conservan los últimos datos disponibles.');
-    } finally {
-      if (!current()) return;
-      setLoading(false);
-      setIsRefreshing(false); // MODIFICACIÓN: Resetear estado de refresh
-    }
-  };
-
-  // MODIFICACIÓN: Handler para el botón de actualizar
-  const handleRefresh = () => {
-    loadPayouts(true);
-  };
-
-  const calculateMetrics = (data: PayoutWithRider[]) => {
-    const currentMonth = new Date().getMonth();
-    const currentYear = new Date().getFullYear();
-
-    const paidThisMonth = data
-      .filter((p) => {
-        if (!p.created_at) return false;
-        const payoutDate = new Date(p.created_at);
-        return (
-          p.status === 'COMPLETADO' &&
-          payoutDate.getMonth() === currentMonth &&
-          payoutDate.getFullYear() === currentYear
-        );
-      })
-      .reduce((sum, p) => sum + (p.total_amount || 0), 0);
-
-    setMetrics({
-      totalPaidMonth: paidThisMonth,
-      pendingCount: data.filter((p) => p.status === 'PENDIENTE').length,
-      processedCount: data.filter((p) => p.status === 'COMPLETADO').length,
-      rejectedCount: data.filter((p) => p.status === 'RECHAZADO').length,
-    });
-  };
+  const ridersMap = riderNames.revision === page.revision ? riderNames.data : {};
+  const metrics = useMemo(() => ({
+    completedAmount: payouts.filter(p => p.status === 'COMPLETADO').reduce((cents, p) => cents + payoutCents(p.amount), 0) / 100,
+    pendingCount: payouts.filter(p => p.status === 'PENDIENTE').length,
+    processedCount: payouts.filter(p => p.status === 'COMPLETADO').length,
+    rejectedCount: payouts.filter(p => p.status === 'RECHAZADO').length,
+  }), [payouts]);
 
   const filteredPayouts = payouts.filter((payout) => {
     const rider = ridersMap[payout.rider_id];
 
     const firstName = rider?.first_name || '';
     const lastName = rider?.last_name || '';
-    const riderName = `${firstName} ${lastName}`.trim() || 'Desconocido';
+    const riderName = `${firstName} ${lastName}`.trim() || `ID: ${payout.rider_id}`;
     const riderEmail = rider?.email || '';
 
     const matchesSearch =
@@ -161,9 +98,7 @@ function PayoutContent() {
       riderName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       riderEmail.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesStatus = statusFilter === 'all' || payout.status === statusFilter;
-
-    return matchesSearch && matchesStatus;
+    return matchesSearch;
   });
 
   const getStatusBadge = (status: string) => {
@@ -202,7 +137,7 @@ function PayoutContent() {
     });
   };
 
-  if (loading) {
+  if (!page.loaded && page.isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
@@ -215,8 +150,9 @@ function PayoutContent() {
 
   return (
     <div className="space-y-6">
-      {error && <p role="alert" className="text-red-700">{error}</p>}
-      <p className="text-sm text-muted-foreground">Últimos 50 retiros como máximo. Filtros y métricas corresponden a este lote, no al historial completo.</p>
+      <PayoutPageControls page={page} />
+      <p className="text-sm text-muted-foreground">El estado se aplica a todo el historial. La búsqueda y las cifras corresponden a esta página.</p>
+      {riderNames.revision === page.revision && riderNames.missing && <p role="status">Algunos datos de repartidores no están disponibles; puedes revisar sus IDs en el detalle.</p>}
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -227,11 +163,11 @@ function PayoutContent() {
           {/* MODIFICACIÓN: Botón Actualizar agregado */}
           <Button 
             variant="outline" 
-            onClick={handleRefresh} 
-            disabled={isRefreshing}
+            onClick={() => { void page.refresh(); }}
+            disabled={page.isLoading}
             className="gap-2"
           >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${page.isLoading ? 'animate-spin' : ''}`} />
             Actualizar
           </Button>
           <Button variant="outline" onClick={() => window.print()}>
@@ -245,12 +181,12 @@ function PayoutContent() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Completados del lote (mes)</CardTitle>
+            <CardTitle className="text-sm font-medium">Completados en esta página</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(metrics.totalPaidMonth)}</div>
-            <p className="text-xs text-muted-foreground">Según estado del servidor, por fecha de solicitud</p>
+            <div className="text-2xl font-bold">{page.loaded ? formatCurrency(metrics.completedAmount) : 'No disponible'}</div>
+            <p className="text-xs text-muted-foreground">Importe de los retiros con estado completado</p>
           </CardContent>
         </Card>
 
@@ -260,7 +196,7 @@ function PayoutContent() {
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{metrics.pendingCount}</div>
+            <div className="text-2xl font-bold">{page.loaded ? metrics.pendingCount : 'No disponible'}</div>
             <p className="text-xs text-muted-foreground">Solicitudes por revisar</p>
           </CardContent>
         </Card>
@@ -271,7 +207,7 @@ function PayoutContent() {
             <CheckCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{metrics.processedCount}</div>
+            <div className="text-2xl font-bold">{page.loaded ? metrics.processedCount : 'No disponible'}</div>
             <p className="text-xs text-muted-foreground">Retiros completados</p>
           </CardContent>
         </Card>
@@ -282,7 +218,7 @@ function PayoutContent() {
             <XCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{metrics.rejectedCount}</div>
+            <div className="text-2xl font-bold">{page.loaded ? metrics.rejectedCount : 'No disponible'}</div>
             <p className="text-xs text-muted-foreground">Con incidencias</p>
           </CardContent>
         </Card>
@@ -301,26 +237,19 @@ function PayoutContent() {
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
               <Input
-                placeholder="Buscar por ID, nombre o email..."
+                placeholder="Buscar en esta página por ID, nombre o email..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
               />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={page.selectedStatus} onValueChange={value => { setSearchTerm(''); void page.setStatus(value); }}>
               <SelectTrigger className="w-[200px]">
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Todos los estados</SelectItem>
-                <SelectItem value="PENDIENTE">Pendientes</SelectItem>
-                <SelectItem value="APROBADO">Aprobados</SelectItem>
-                <SelectItem value="EN_PROCESO">En proceso</SelectItem>
-                <SelectItem value="COMPLETADO">Completados</SelectItem>
-                <SelectItem value="FALLIDO">Fallidos</SelectItem>
-                <SelectItem value="PROCESADO">Procesados (histórico)</SelectItem>
-                <SelectItem value="RECHAZADO">Rechazados</SelectItem>
-                <SelectItem value="CANCELADO">Cancelados</SelectItem>
+                <SelectItem value="ALL">Todos los estados</SelectItem>
+                {PAYOUT_FILTER_STATUSES.map(status => <SelectItem key={status} value={status}>{status.replaceAll('_', ' ')}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -336,7 +265,7 @@ function PayoutContent() {
           {filteredPayouts.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <DollarSign className="w-12 h-12 mx-auto mb-4 opacity-20" />
-              <p>No se encontraron pagos con los filtros actuales</p>
+              <p>{!page.loaded ? 'No se pudo comprobar el historial.' : searchTerm ? 'Sin coincidencias en esta página. Puedes cambiar de página o limpiar la búsqueda.' : 'No hay retiros en esta página con el estado elegido.'}</p>
             </div>
           ) : (
             <Table>
@@ -359,7 +288,7 @@ function PayoutContent() {
                   // ✅ Construir nombre completo correctamente
                   const firstName = rider?.first_name || '';
                   const lastName = rider?.last_name || '';
-                  const riderName = `${firstName} ${lastName}`.trim() || 'Desconocido';
+                  const riderName = `${firstName} ${lastName}`.trim() || `ID: ${payout.rider_id}`;
                   const riderInitial = riderName.charAt(0).toUpperCase();
 
                   return (
@@ -381,7 +310,7 @@ function PayoutContent() {
                         </div>
                       </TableCell>
                       <TableCell className="font-semibold">
-                        {formatCurrency(payout.total_amount || 0)}
+                        {formatCurrency(payout.amount)}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{payout.orders_count === undefined ? 'Cantidad no informada' : `${payout.orders_count} órdenes`}</Badge>
