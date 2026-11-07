@@ -2,6 +2,7 @@ import { api } from '@/lib/api';
 import { financialService } from '@/services/financial.service';
 import { clearStoredTokens, storeTokens } from '@/lib/auth-session';
 import { summaryResponse } from '../../test-fixtures/financial-summary';
+import { ordersResponse, reconciliationResponse, emptyOrders } from '../../test-fixtures/financial-reports';
 jest.mock('@/lib/api', () => ({ api: { get: jest.fn() } }));
 const get = jest.mocked(api.get);
 beforeEach(() => {
@@ -33,14 +34,16 @@ it('bounds breakdown and order report pagination', async () => {
   get.mockResolvedValue({ items: [] });
   await financialService.getMyEarningsBreakdown({ type: 'INGRESO', date_from: '2026-10-01', date_to: '2026-10-24', limit: NaN, offset: -1 });
   expect(get).toHaveBeenLastCalledWith('/financial/riders/me/earnings?type=INGRESO&date_from=2026-10-01&date_to=2026-10-24&limit=100');
+  get.mockResolvedValue(ordersResponse({}, emptyOrders));
   await financialService.getOrdersReport({ limit: 99999, offset: 2.7 });
   expect(get).toHaveBeenLastCalledWith('/financial/reports/orders?limit=5000&offset=2');
   await financialService.getOrdersReport({ limit: Infinity });
   expect(get).toHaveBeenLastCalledWith('/financial/reports/orders?limit=1000');
 });
 it('retrieves reconciliation using date filters only', async () => {
-  get.mockResolvedValueOnce({ ledger_transactions: 2 });
-  expect(await financialService.getReconciliation({ date_from: '2026-10-01', date_to: '2026-10-24', limit: 20 })).toEqual({ ledger_transactions: 2 });
+  const range = { date_from: '2026-10-01', date_to: '2026-10-24' };
+  get.mockResolvedValueOnce(reconciliationResponse(range));
+  expect(await financialService.getReconciliation(range)).toMatchObject({ ledger_transactions: 3 });
   expect(get).toHaveBeenCalledWith('/financial/reconciliation?date_from=2026-10-01&date_to=2026-10-24');
 });
 it('propagates failures without replacing data with a fake empty report', async () => {

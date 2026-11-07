@@ -1,286 +1,107 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuthStore } from '@/stores/authStore';
+import { getCredentialGeneration, onCredentialsChanged } from '@/lib/auth-session';
+import { useFinancialReports } from '@/hooks/useFinancialReports';
+import { REPORT_EXPORT_LIMIT, type ReportRange } from '@/lib/financial-report-contract';
+import { payoutAmountLabel } from '@/lib/payout-contract';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Download, Calendar, DollarSign, Package, Users, AlertCircle, Loader2, ShieldCheck } from 'lucide-react';
-import { downloadCSV } from '@/lib/csv-export';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { formatCurrency } from '@/lib/formatters';
-import { financialService, FinancialOrdersReport, FinancialReconciliation } from '@/services/financial.service';
 
-const getErrorMessage = (error: unknown, fallback: string): string =>
-  error instanceof Error ? error.message : fallback;
+function rangeLabel(range: ReportRange) {
+  return `${range.date_from ?? 'sin límite inicial'} → ${range.date_to ?? 'sin límite final'} (UTC)`;
+}
 
 export default function ReportsPage() {
-  const [dateRange, setDateRange] = useState({ start: '', end: '' });
-  const [loading, setLoading] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [report, setReport] = useState<FinancialOrdersReport | null>(null);
-  const [reconciliation, setReconciliation] = useState<FinancialReconciliation | null>(null);
+  const router = useRouter();
+  const { user, isAuthenticated } = useAuthStore();
+  const generation = useSyncExternalStore(onCredentialsChanged, getCredentialGeneration, () => 0);
+  const allowed = isAuthenticated && !!user && ['GERENTE', 'SUPERADMIN'].includes(user.role);
+  useEffect(() => { if (!allowed) router.replace('/login'); }, [allowed, router]);
+  return allowed ? <ReportsView key={JSON.stringify([generation, user.id, user.role])} /> : <div role="status" className="p-6">Verificando acceso a reportes…</div>;
+}
 
-  const loadReport = async () => {
-    setLoading(true);
-    setError(null);
+function ReportsView() {
+  const page = useFinancialReports(), snapshot = page.snapshot;
+  const orders = snapshot?.orders, reconciliation = snapshot?.reconciliation;
+  const orderMoney = (value: number) => payoutAmountLabel(value, orders?.currency ?? undefined);
+  const reconciledMoney = (value: number) => payoutAmountLabel(value, reconciliation?.currency ?? undefined);
 
-    try {
-      const filters = {
-        date_from: dateRange.start || undefined,
-        date_to: dateRange.end || undefined,
-      };
-      const [ordersData, reconciliationData] = await Promise.all([
-        financialService.getOrdersReport({ ...filters, limit: 1000 }),
-        financialService.getReconciliation(filters),
-      ]);
-      setReport(ordersData);
-      setReconciliation(reconciliationData);
-    } catch (err: unknown) {
-      console.error('Error loading financial report:', err);
-      setError(getErrorMessage(err, 'No se pudo cargar el reporte financiero.'));
-      setReport(null);
-      setReconciliation(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadReport();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleExportOrders = async () => {
-    setExporting(true);
-    setError(null);
-
-    try {
-      const data = await financialService.getOrdersReport({
-        date_from: dateRange.start || undefined,
-        date_to: dateRange.end || undefined,
-        limit: 5000,
-      });
-
-      if (data.rows.length === 0) {
-        setError('No hay órdenes disponibles para exportar en este rango.');
-        return;
-      }
-
-      const csvData = data.rows.map((order) => ({
-        id_orden: order.external_id || order.id,
-        fecha_creacion: order.created_at ? new Date(order.created_at).toLocaleString() : 'N/A',
-        fecha_entrega: order.delivered_at ? new Date(order.delivered_at).toLocaleString() : 'N/A',
-        cliente: order.customer_name || 'N/A',
-        telefono: order.customer_phone || 'N/A',
-        email: order.customer_email || 'N/A',
-        direccion_recogida: order.pickup_address || 'N/A',
-        direccion_entrega: order.delivery_address || 'N/A',
-        estado: order.status,
-        prioridad: order.priority || 'N/A',
-        subtotal: order.subtotal || 0,
-        tarifa_entrega: order.delivery_fee || 0,
-        total: order.total || 0,
-        metodo_pago: order.payment_method || 'No especificado',
-        estado_pago: order.payment_status || 'No especificado',
-        rider_id: order.rider_id || 'No asignado',
-      }));
-
-      const today = new Date().toISOString().split('T')[0];
-      const filename = `reporte_ordenes_${dateRange.start || 'inicio'}_${dateRange.end || today}`;
-      downloadCSV(csvData, filename);
-      setReport(data);
-    } catch (err: unknown) {
-      console.error('Error al exportar:', err);
-      setError(getErrorMessage(err, 'No se pudo generar el reporte. Intente nuevamente.'));
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const stats = {
-    totalRevenue: report?.total_revenue || 0,
-    completedOrders: report?.completed_orders || 0,
-    activeCustomers: report?.active_customers || 0,
-    pendingPayouts: reconciliation?.pending_payouts || 0,
-    netMarginAfterRiderCosts: reconciliation?.net_margin_after_rider_costs || 0,
-  };
-
-  return (
-    <div className="p-6 bg-gray-50 min-h-screen">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Reportes y Exportación</h1>
-            <p className="text-gray-500">Genera informes reales de rendimiento y descárgalos en CSV.</p>
-          </div>
-        </div>
-
-        {/* Tarjetas de Estadísticas Rápidas */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Ingresos por Entrega</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{loading ? '...' : formatCurrency(stats.totalRevenue)}</div>
-              <p className="text-xs text-muted-foreground">Según filtros seleccionados</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Órdenes Completadas</CardTitle>
-              <Package className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{loading ? '...' : stats.completedOrders}</div>
-              <p className="text-xs text-muted-foreground">Total exitosas en el período</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Clientes Únicos</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{loading ? '...' : stats.activeCustomers}</div>
-              <p className="text-xs text-muted-foreground">Por email/teléfono/nombre</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Margen Conciliado</CardTitle>
-              <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{loading ? '...' : formatCurrency(stats.netMarginAfterRiderCosts)}</div>
-              <p className="text-xs text-muted-foreground">Después de costos y reservas rider</p>
-            </CardContent>
-          </Card>
-        </div>
-
-
-        <Card className="mb-8 border-t-4 border-t-emerald-500">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-emerald-600" /> Conciliación Financiera
-            </CardTitle>
-            <CardDescription>
-              Cruce de ingresos reales, obligaciones rider, retiros pendientes/procesados y margen operativo.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-              <div className="bg-emerald-50 p-3 rounded border border-emerald-100">
-                <span className="block text-emerald-700 font-semibold">Ganancias riders</span>
-                <span className="text-lg font-bold text-emerald-900">{formatCurrency(reconciliation?.rider_earnings || 0)}</span>
-              </div>
-              <div className="bg-yellow-50 p-3 rounded border border-yellow-100">
-                <span className="block text-yellow-700 font-semibold">Retiros pendientes</span>
-                <span className="text-lg font-bold text-yellow-900">{formatCurrency(stats.pendingPayouts)}</span>
-              </div>
-              <div className="bg-blue-50 p-3 rounded border border-blue-100">
-                <span className="block text-blue-700 font-semibold">Retiros procesados</span>
-                <span className="text-lg font-bold text-blue-900">{formatCurrency(reconciliation?.processed_payouts || 0)}</span>
-              </div>
-              <div className="bg-gray-50 p-3 rounded border">
-                <span className="block text-gray-700 font-semibold">Pasivo disponible</span>
-                <span className="text-lg font-bold text-gray-900">{formatCurrency(reconciliation?.available_liability || 0)}</span>
-              </div>
-              <div className="bg-gray-50 p-3 rounded border">
-                <span className="block text-gray-700 font-semibold">Transacciones ledger</span>
-                <span className="text-lg font-bold text-gray-900">{reconciliation?.ledger_transactions || 0}</span>
-              </div>
-              <div className="bg-gray-50 p-3 rounded border">
-                <span className="block text-gray-700 font-semibold">Solicitudes payout</span>
-                <span className="text-lg font-bold text-gray-900">{reconciliation?.payout_count || 0}</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Sección de Exportación */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Calendar className="w-5 h-5" /> Generar Reporte de Órdenes
-            </CardTitle>
-            <CardDescription>
-              Descarga un detalle real de órdenes desde la base de datos en formato CSV compatible con Excel.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {error && (
-              <Alert variant="destructive" className="bg-red-50 border-red-200">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white p-4 rounded-lg border">
-              <div>
-                <label className="text-sm font-medium mb-1 block text-gray-700">Fecha Inicio</label>
-                <input
-                  type="date"
-                  className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                  value={dateRange.start}
-                  onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block text-gray-700">Fecha Fin</label>
-                <input
-                  type="date"
-                  className="w-full border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                  value={dateRange.end}
-                  onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                />
-              </div>
-              <div className="flex items-end">
-                <Button
-                  onClick={loadReport}
-                  disabled={loading || exporting}
-                  variant="outline"
-                  className="w-full font-medium"
-                >
-                  {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Calendar className="w-4 h-4 mr-2" />}
-                  Actualizar
-                </Button>
-              </div>
-              <div className="flex items-end">
-                <Button
-                  onClick={handleExportOrders}
-                  disabled={loading || exporting}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium"
-                >
-                  {exporting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Procesando...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-4 h-4 mr-2" /> Exportar CSV
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
-              <div className="bg-gray-50 p-3 rounded border">
-                <span className="font-semibold text-gray-800">Total de órdenes:</span> {report?.total_orders || 0}
-              </div>
-              <div className="bg-gray-50 p-3 rounded border">
-                <span className="font-semibold text-gray-800">Valor bruto de órdenes:</span> {formatCurrency(report?.gross_order_value || 0)}
-              </div>
-            </div>
-
-            <p className="text-xs text-gray-500 mt-2">
-              * El reporte incluirá: ID, cliente, teléfonos, direcciones, estado, subtotal, tarifa de entrega, total, método de pago y rider asignado.
-            </p>
-          </CardContent>
-        </Card>
+  return <div className="p-4 md:p-6 bg-gray-50 min-h-screen">
+    <div className="max-w-7xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Reportes y Exportación</h1>
+        <p className="text-gray-600">Consulta un rango y exporta sus órdenes verificadas.</p>
       </div>
+      <Card><CardHeader><CardTitle>Rango de consulta</CardTitle>
+        <CardDescription>Las fechas incluyen el día completo según el calendario UTC. Editarlas no cambia los datos confirmados hasta aplicar la consulta.</CardDescription>
+      </CardHeader><CardContent className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div><label htmlFor="report-start" className="block text-sm font-medium mb-1">Fecha inicio</label>
+            <input id="report-start" type="date" value={page.draft.start} onChange={event => page.setDraft('start', event.target.value)} className="w-full min-w-0 rounded border p-2" /></div>
+          <div><label htmlFor="report-end" className="block text-sm font-medium mb-1">Fecha fin</label>
+            <input id="report-end" type="date" value={page.draft.end} onChange={event => page.setDraft('end', event.target.value)} className="w-full min-w-0 rounded border p-2" /></div>
+          <div className="flex items-end"><Button variant="outline" className="w-full" onClick={() => { void page.apply(); }}>Aplicar consulta</Button></div>
+          <div className="flex items-end"><Button className="w-full" disabled={!page.canExport} onClick={() => { void page.exportCsv(); }}>Exportar CSV</Button></div>
+        </div>
+        {page.dirty && <p className="text-sm text-amber-800">Hay fechas sin aplicar. Se mantienen los datos del rango confirmado; aplica la consulta antes de exportar.</p>}
+        <p className="text-xs text-gray-600">Máximo {REPORT_EXPORT_LIMIT} órdenes por archivo. Para exportar un rango mayor, reduce las fechas; no se descarga un CSV truncado.</p>
+      </CardContent></Card>
+      {page.pending && <p role="status" className="text-sm text-blue-700">{page.pending === 'export' ? 'Verificando el rango confirmado y preparando el CSV…' : 'Consultando reporte y conciliación…'}</p>}
+      {page.error && <div role="alert" className="rounded border border-red-200 bg-red-50 p-4 space-y-2 text-red-800">
+        <p>{page.error.message}</p>
+        {page.error.retry && <Button variant="outline" disabled={page.retryDisabled} onClick={() => { void page.retry(); }}>{page.error.retry.mode === 'export' ? 'Reintentar exportación' : 'Reintentar consulta'}</Button>}
+      </div>}
+      {page.notice && <p role="status" className="rounded border bg-blue-50 p-3 text-sm text-blue-900">{page.notice}</p>}
+      {!snapshot && !page.pending && <p className="text-gray-600">No se pudo comprobar el reporte. No hay cifras confirmadas para mostrar.</p>}
+      {snapshot && orders && reconciliation && <section aria-label="Reporte confirmado" aria-busy={!!page.pending} className="space-y-6">
+        <div className="rounded border bg-white p-4 text-sm text-gray-600 space-y-1">
+          <p className="font-semibold text-gray-900">Rango confirmado: {rangeLabel(snapshot.range)}</p>
+          <p>Ambos reportes corresponden al rango indicado. Las lecturas pueden cambiar mientras consultas.</p>
+        </div>
+        <Card><CardHeader><CardTitle>Órdenes del rango</CardTitle>
+          <CardDescription>Incluye todos los estados. Los importes de órdenes no equivalen a ingresos cobrados.</CardDescription>
+        </CardHeader><CardContent className="space-y-4">
+          <p className="text-sm text-gray-600">{orders.currency ? `Moneda informada: ${orders.currency}` : 'Moneda no informada para órdenes'}</p>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            {[
+              { label: 'Total de órdenes', value: orders.total_orders.toLocaleString('es-VE') },
+              { label: 'Órdenes entregadas', value: orders.completed_orders.toLocaleString('es-VE') },
+              { label: 'Tarifas de todas las órdenes', value: orderMoney(orders.total_revenue) },
+              { label: 'Valor bruto de órdenes', value: orderMoney(orders.gross_order_value) },
+              { label: 'Clientes distintos informados', value: orders.active_customers.toLocaleString('es-VE') },
+            ].map(item => <div key={item.label} className="rounded border bg-gray-50 p-3 min-w-0"><dt className="text-sm text-gray-600">{item.label}</dt><dd className="font-bold text-lg break-words">{item.value}</dd></div>)}
+          </dl>
+          <p className="text-sm text-gray-600">Filas cargadas: {orders.rows.length} de {orders.total_orders}. Se muestran hasta 10 como vista previa.</p>
+          {orders.total_orders > REPORT_EXPORT_LIMIT && <p className="text-sm text-amber-800">Este rango supera el máximo de {REPORT_EXPORT_LIMIT} órdenes por CSV. Reduce las fechas para exportar el conjunto completo.</p>}
+          {!orders.rows.length ? <p>No hay órdenes en el rango confirmado.</p> : <div className="overflow-x-auto">
+            <table className="w-full text-sm"><caption className="text-left text-xs text-gray-600 mb-2">Vista previa de las órdenes cargadas</caption>
+              <thead><tr className="border-b text-left"><th className="p-2">Orden</th><th className="p-2">Estado</th><th className="p-2">Total</th><th className="p-2">Método de pago</th></tr></thead>
+              <tbody>{orders.rows.slice(0, 10).map(row => <tr key={row.id} className="border-b"><td className="p-2 break-all"><div>{row.external_id ?? 'Sin referencia externa'}</div><div className="text-xs text-gray-500 font-mono">{row.id}</div></td><td className="p-2">{row.status}</td><td className="p-2 whitespace-nowrap">{orderMoney(row.total)}</td><td className="p-2">{row.payment_method ?? 'No informado'}</td></tr>)}</tbody>
+            </table>
+          </div>}
+        </CardContent></Card>
+        <Card><CardHeader><CardTitle>Conciliación del rango</CardTitle>
+          <CardDescription>Entregas cobradas, ledger y estados internos de retiros. Su criterio contable puede diferir del reporte de todas las órdenes.</CardDescription>
+        </CardHeader><CardContent className="space-y-4">
+          <p className="text-sm text-gray-600">{reconciliation.currency ? `Moneda informada: ${reconciliation.currency}` : 'Moneda no informada para conciliación'}</p>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {[
+              { label: 'Ingresos por entregas cobradas', value: reconciledMoney(reconciliation.delivery_revenue) },
+              { label: 'Margen según conciliación', value: reconciledMoney(reconciliation.net_margin_after_rider_costs) },
+              { label: 'Ganancias devengadas de riders', value: reconciledMoney(reconciliation.rider_earnings) },
+              { label: 'Retiros pendientes', value: reconciledMoney(reconciliation.pending_payouts) },
+              { label: 'Retiros en proceso o completados', value: reconciledMoney(reconciliation.processed_payouts) },
+              { label: 'Obligación disponible informada', value: reconciledMoney(reconciliation.available_liability) },
+              { label: 'Transacciones ledger', value: reconciliation.ledger_transactions.toLocaleString('es-VE') },
+              { label: 'Solicitudes de retiro', value: reconciliation.payout_count.toLocaleString('es-VE') },
+            ].map(item => <div key={item.label} className="rounded border bg-gray-50 p-3 min-w-0"><dt className="text-sm text-gray-600">{item.label}</dt><dd className="font-bold text-lg break-words">{item.value}</dd></div>)}
+          </dl>
+          <p className="text-xs text-gray-600">Los estados de retiros no certifican transferencias bancarias. El CSV contiene las órdenes, sin mezclar los agregados de conciliación.</p>
+        </CardContent></Card>
+      </section>}
     </div>
-  );
+  </div>;
 }
