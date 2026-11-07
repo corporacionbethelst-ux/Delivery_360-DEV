@@ -99,3 +99,13 @@ Quedan pendientes el gate del 50 %, E2E completos y paginación estable de backe
 El siguiente bloque de homologación financiera necesita el contrato de proveedor
 sandbox, recibos durables, envío idempotente, verificación de webhooks y conciliación,
 manteniendo separada la aprobación contable de la ejecución bancaria.
+
+## Publicación verificada
+
+- PR listo para revisión: https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/306
+- Commit de implementación: `ef60bbf6b71e8eb715b45751aca64263746da8f3`.
+- Árbol validado local/remoto: `78281e61be2923723297917d9f5bbf0b89577b61`.
+- Se cotejaron los 13 blobs de implementación. Un commit posterior únicamente
+  documental añade estos identificadores, sin alterar la fuente probada.
+- La descripción del PR informa el estado observado del CI de su head final.
+  La publicación no equivale a aprobar el gate de cobertura ni a desplegar.
