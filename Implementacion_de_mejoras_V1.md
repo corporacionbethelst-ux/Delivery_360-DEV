@@ -6684,3 +6684,37 @@ Quedan pendientes cobertura y E2E completos, medición de índices con datos mas
 y homologación sandbox de pagos de fase 7 (proveedor, recibos durables, envío
 idempotente, firmas/deduplicación de webhooks y conciliación). No se ejecutan
 pagos, mensajes, facturas o migraciones productivas, ni se fusiona o despliega.
+
+
+## Entrega 67 — Resumen financiero verificable y contrato de arranque
+
+**Fecha:** 6 de noviembre de 2026, America/Caracas. **Base:**
+`2212aaabb74d76a0452fc1e8f43f4cc685a3b192` (PR #307 fusionado).
+**Rama:** `fix/financial-summary-validation-and-api-surface-v1`.
+
+El CI de la entrega 66 detectó cuatro fallos nuevos de inventario al incorporar
+/payouts/page. Se reproducen y corrigen preservando los inventarios históricos,
+la descripción del endpoint legacy y los contratos de las 202 rutas anteriores.
+El inventario vigente exige las 203 rutas con sus dependencias y OpenAPI exactos.
+
+El resumen de gerencia ahora valida período/rango e importes, conserva la última
+consulta confirmada ante errores, retira respuestas antiguas y datos de otra
+cuenta/rol y ofrece reintento/refresco explícitos. No supone USD ni convierte
+lecturas fallidas o campos omitidos en cifras cero. Un margen negativo se muestra
+correctamente en el gráfico; costo reconocido y devengos no se describen como
+transferencias bancarias confirmadas. El store adopta el endpoint HTTP real.
+
+Validación nueva: **1226 pruebas frontend / 72 suites** aprobadas, 93 casos netos
+nuevos; build con Inter real y 48 páginas, tipos y lint aprobados. Se ejecutan
+**seis controles Chromium** con datos sintéticos, escritorio/móvil y cero
+escrituras o errores JavaScript. Flake8, Black y Mypy aprobados. La suite backend
+completa termina con **2433 aprobados y dos omitidos** en PostGIS/Redis locales
+(766,88 s). Cobertura de líneas frontend **37,65 %**: el gate del 50 % continúa fallando
+sin modificar umbrales, exclusiones o CI.
+
+Registro y evidencias de validación: [frontend/ENTREGA_67.md](frontend/ENTREGA_67.md).
+Contrato y ejecución del navegador: [frontend/FINANCIAL_SUMMARY.md](frontend/FINANCIAL_SUMMARY.md).
+El siguiente bloque concreto es Reportes/CSV con filtros confirmados y datos
+verificados. Permanecen pendientes E2E de backend real y homologación sandbox de
+pagos; no se envían pagos, mensajes, facturas o migraciones productivas, ni se
+fusiona o despliega. Los identificadores públicos y el CI se anotan al publicar.

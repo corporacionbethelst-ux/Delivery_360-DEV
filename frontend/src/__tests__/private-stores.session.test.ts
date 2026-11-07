@@ -7,6 +7,7 @@ import { useDeliveriesStore } from '@/stores/deliveriesStore';
 import { useRidersStore } from '@/stores/ridersStore';
 import { useRiderPersonalStore } from '@/stores/riderPersonalStore';
 import { useFinancialStore } from '@/stores/financialStore';
+import { summaryResponse } from '../../test-fixtures/financial-summary';
 import { useNotificationStore } from '@/stores/notificationStore';
 import { useRealtimeStore } from '@/stores/realtimeStore';
 jest.mock('@/lib/api', () => ({
@@ -283,16 +284,12 @@ it('keeps current-session riders and earnings reads working', async () => {
     isLoading: false,
   });
 });
-it('keeps a current-session report adaptation and rule update chain working', async () => {
-  jest.mocked(api.get).mockResolvedValueOnce({
-    totalRevenue: 100,
-    totalExpenses: 40,
-    netProfit: 60,
-    totalRiderPayments: 20,
-  });
+it('keeps a current-session summary adaptation and rule update chain working', async () => {
+  jest.mocked(api.get).mockResolvedValueOnce(summaryResponse());
   expect(await useFinancialStore.getState().getDailySummary('today')).toMatchObject({
     totalRevenue: 100,
     netProfit: 60,
+    netCommission: null, pendingPayouts: null,
   });
   jest.mocked(api.put).mockResolvedValueOnce({});
   jest.mocked(api.get).mockResolvedValueOnce([{ id: 'rule' }]);

@@ -1,21 +1,26 @@
 import { api } from '@/lib/api';
+import { capturePrivateTask } from '@/lib/private-task';
+import { normalizeFinancialSummary, prepareSummaryQuery } from '@/lib/financial-summary-contract';
+
+export type FinancialPeriod = 'today' | 'week' | 'month';
 
 export interface FinancialSummary {
-  period: string;
-  period_start?: string;
-  period_end?: string;
+  period: FinancialPeriod | 'custom';
+  period_start?: string | null;
+  period_end?: string | null;
+  currency?: string | null;
   total_revenue: number;
-  gross_order_value?: number;
-  completed_deliveries?: number;
+  gross_order_value?: number | null;
+  completed_deliveries?: number | null;
   total_transactions: number;
   total_costs: number;
   net_margin: number;
   total_rider_payouts: number;
-  other_costs?: number;
+  other_costs?: number | null;
   avg_per_delivery: number;
-  cash_payouts_processed?: number;
-  rider_earnings_accrued?: number;
-  rider_deductions?: number;
+  cash_payouts_processed?: number | null;
+  rider_earnings_accrued?: number | null;
+  rider_deductions?: number | null;
 }
 
 export interface RiderEarnings {
@@ -29,7 +34,7 @@ export interface RiderEarnings {
 
 // Parámetros opcionales para resumen financiero
 export interface FinancialSummaryParams {
-  period?: 'today' | 'week' | 'month';
+  period?: FinancialPeriod;
   start_date?: string;
   end_date?: string;
 }
@@ -128,24 +133,24 @@ const boundedLimit = (value: number | undefined, maximum: number, fallback: numb
   Number.isFinite(value) ? Math.min(Math.max(Math.trunc(value as number), 1), maximum) : fallback;
 
 export const financialService = {
-  /**
-   * Obtener resumen financiero global o filtrado por fechas.
-   * CORREGIDO: Ahora devuelve response.data correctamente.
-   */
-  getSummary: async (params?: FinancialSummaryParams): Promise<FinancialSummary> => {
+  /** Validate the actual summary contract within the session and query that requested it. */
+  getSummary: async (params?: Readonly<FinancialSummaryParams>): Promise<FinancialSummary> => {
+    const task = capturePrivateTask();
+    const queryParamsSnapshot = prepareSummaryQuery(params);
     const queryParams = new URLSearchParams();
     
-    if (params?.period) queryParams.append('period', params.period);
-    if (params?.start_date) queryParams.append('start_date', params.start_date);
-    if (params?.end_date) queryParams.append('end_date', params.end_date);
+    if (queryParamsSnapshot.period) queryParams.append('period', queryParamsSnapshot.period);
+    if (queryParamsSnapshot.start_date) queryParams.append('start_date', queryParamsSnapshot.start_date);
+    if (queryParamsSnapshot.end_date) queryParams.append('end_date', queryParamsSnapshot.end_date);
 
     const query = queryParams.toString() ? `?${queryParams}` : '';
     
     try {
-      const response = await api.get<FinancialSummary>(`/financial/summary${query}`);
-      return response; // api.get ya retorna T (los datos), no la respuesta de axios completa
+      const response = await api.get<unknown>(`/financial/summary${query}`);
+      task.assertCurrent();
+      return normalizeFinancialSummary(response, queryParamsSnapshot);
     } catch (error) {
-      console.error('[FinancialService] Error fetching summary:', error);
+      task.assertCurrent();
       throw error;
     }
   },

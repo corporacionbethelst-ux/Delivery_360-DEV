@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useOrdersStore } from '@/stores/ordersStore';
 import { useFinancialStore } from '@/stores/financialStore';
 import { cacheUtils } from '@/lib/private-cache';
+import { summaryResponse } from '../../test-fixtures/financial-summary';
 const a = { access_token: 'a-access', refresh_token: 'a-refresh' },
   b = { access_token: 'b-access', refresh_token: 'b-refresh' };
 const oldAdapter = client.defaults.adapter,
@@ -49,7 +50,7 @@ it('logout through the real authStore clears received business data and query ca
   client.defaults.adapter = async (config) =>
     reply(
       config,
-      config.url?.startsWith('/orders') ? [{ id: 'a', status: 'PENDIENTE' }] : { totalRevenue: 99 }
+      config.url?.startsWith('/orders') ? [{ id: 'a', status: 'PENDIENTE' }] : summaryResponse()
     );
   await useOrdersStore.getState().fetchOrders();
   await useFinancialStore.getState().fetchSummary();
