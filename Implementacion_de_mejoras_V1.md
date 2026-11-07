@@ -6796,3 +6796,10 @@ métricas de las lecturas combinadas de auditoría de rider. Siguen pendientes
 cursor estable del ledger, cobertura global, E2E real y sandbox de pagos. No se
 envían pagos, mensajes, facturas o migraciones productivas, ni se fusiona/despliega.
 Los identificadores de commit/árbol/PR y el CI observado se registran al publicar.
+
+Publicación verificada de la entrega 69: PR sin borrador
+https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/310.
+Implementación `70045ba78cfdf8b853e10f3641682a66bca4ff1e`, árbol local/GitHub
+`9d8e0c8e80858b55efa3ea5e6e225a64d2bd1748`. Un segundo commit exclusivamente
+documental registra estos identificadores. El PR distingue CI remoto del head
+final y resultados locales, sin afirmar todos los controles aprobados.

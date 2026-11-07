@@ -79,3 +79,13 @@ También quedan pendientes cursor estable/snapshot del ledger, gate global del
 mensajes o facturas reales ni se ejecutan migraciones productivas, merge o deploy.
 La publicación y el CI observado se registran por separado; no se declara el
 sistema al 100 % de producción.
+
+## Publicación verificada
+
+- PR abierto sin borrador: https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/310
+- Implementación: `70045ba78cfdf8b853e10f3641682a66bca4ff1e`.
+- Árbol de implementación cotejado local/GitHub: `9d8e0c8e80858b55efa3ea5e6e225a64d2bd1748`.
+- Los 19 archivos publicados contienen la implementación, pruebas y documentación.
+  Un segundo commit exclusivamente documental registra estos identificadores.
+- La descripción del PR informa el CI observado del head final por separado de
+  los resultados locales. La publicación no fusiona ni despliega la rama.
