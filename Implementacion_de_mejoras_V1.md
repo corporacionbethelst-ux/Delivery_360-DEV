@@ -6758,3 +6758,41 @@ mayores, E2E de backend real, cobertura global y homologación sandbox de pagos.
 La siguiente mejora concreta es el historial/detalle de transacciones financieras.
 No se envían pagos, mensajes, facturas o migraciones productivas, ni se fusiona
 o despliega. Commit, PR y CI se registran al publicar y verificar la rama.
+
+
+## Entrega 69 — Historial y detalle de transacciones fieles
+
+**Fecha:** 7 de noviembre de 2026, America/Caracas. **Base:**
+`aae16c02b6b734882dec5f408863e7b13aaccbf0` (PR #309 fusionado).
+**Rama:** `fix/transaction-history-and-detail-contract-v1`.
+
+Se confirman 18 tipos reales del backend y se valida identidad, aliases, estados,
+importes, fechas y páginas. Desaparecen la moneda COP inventada y la equivalencia
+rider/usuario. El importe mantiene el signo guardado sin presentar retiros como
+ingresos; los estados del ledger no se presentan como prueba bancaria.
+
+El historial navega por páginas de 50 con una fila extra como señal, aplica tipo
+y estado en servidor y limita explícitamente búsqueda/CSV a la página cargada.
+El CSV incorpora consulta, offset y alcance parcial; conserva ceros y ausencias.
+Los errores mantienen la página y etiquetas confirmadas y permiten reintentar.
+El detalle comprueba el ID solicitado y muestra trazabilidad real, con datos
+faltantes desconocidos y recuperación de lecturas fallidas. Servicio y pantallas
+retiran respuestas de otra sesión/ruta y lecturas antiguas; imprimir exige un
+registro confirmado. Se adaptan las filas transaccionales de auditoría de rider.
+
+Validación nueva: **1475 pruebas frontend / 82 suites** aprobadas, 124 casos netos
+nuevos; tipos, lint y build con Inter real y 48 páginas aprobados. Cobertura de
+líneas **40,03 %**: el gate global del 50 % sigue fallando sin alterar umbrales,
+exclusiones o CI. Chromium completa siete comprobaciones y verifica un CSV de
+página descargado; cero escrituras HTTP o excepciones pageerror con datos
+sintéticos e interceptores. Se revisan escritorio y móvil.
+No se modifica backend ni se atribuyen resultados anteriores a esta fuente.
+
+Contrato: [frontend/FINANCIAL_TRANSACTIONS.md](frontend/FINANCIAL_TRANSACTIONS.md).
+Registro: [frontend/ENTREGA_69.md](frontend/ENTREGA_69.md). El backend usa offsets
+sin snapshot/desempate y algunos NULL llegan ya sustituidos por cero; no se
+promete un CSV de todo el ledger. Siguiente prioridad: contratos, sesión/ruta y
+métricas de las lecturas combinadas de auditoría de rider. Siguen pendientes
+cursor estable del ledger, cobertura global, E2E real y sandbox de pagos. No se
+envían pagos, mensajes, facturas o migraciones productivas, ni se fusiona/despliega.
+Los identificadores de commit/árbol/PR y el CI observado se registran al publicar.

@@ -13,6 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { formatCurrency } from '@/lib/formatters';
+import { payoutAmountLabel } from '@/lib/payout-contract';
+import { transactionDateLabel } from '@/lib/transaction-contract';
 
 const numberFormatter = new Intl.NumberFormat('es-CO');
 
@@ -81,7 +83,7 @@ export default function ManagerRiderAuditDetailPage() {
     ordersTotal: orders.length,
     ordersDelivered: orders.filter((order) => order.status === 'ENTREGADO').length,
     deliveriesCompleted: deliveries.filter((delivery) => delivery.status === 'COMPLETADA').length,
-    transactionsTotal: transactions.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0),
+    transactionsCount: transactions.length,
   }), [orders, deliveries, transactions]);
 
   const riderName = summary?.full_name || 'Repartidor';
@@ -114,7 +116,7 @@ export default function ManagerRiderAuditDetailPage() {
           <MetricCard icon={Bike} label="Estado" value={summary ? `${summary.status} · ${summary.is_online ? 'Online' : 'Offline'}` : 'Sin resumen'} />
           <MetricCard icon={Package} label="Órdenes" value={`${numberFormatter.format(totals.ordersDelivered)}/${numberFormatter.format(totals.ordersTotal)} entregadas`} />
           <MetricCard icon={Truck} label="Entregas completadas" value={numberFormatter.format(totals.deliveriesCompleted)} />
-          <MetricCard icon={Wallet} label="Transacciones" value={formatCurrency(totals.transactionsTotal)} />
+          <MetricCard icon={Wallet} label="Transacciones cargadas" value={numberFormatter.format(totals.transactionsCount)} />
         </div>
 
         {summary && (
@@ -225,10 +227,10 @@ export default function ManagerRiderAuditDetailPage() {
                   <tr key={transaction.id} className="hover:bg-gray-50">
                     <Td>{transaction.transaction_type}</Td>
                     <Td><Badge variant="outline">{transaction.status}</Badge></Td>
-                    <Td>{formatCurrency(transaction.amount)}</Td>
-                    <Td>{transaction.balance_after != null ? formatCurrency(transaction.balance_after) : 'N/A'}</Td>
-                    <Td>{transaction.reference_id || transaction.description}</Td>
-                    <Td>{formatDate(transaction.created_at)}</Td>
+                    <Td>{payoutAmountLabel(transaction.amount, transaction.currency ?? undefined)}</Td>
+                    <Td>{payoutAmountLabel(transaction.balance_after, transaction.currency ?? undefined)}</Td>
+                    <Td>{transaction.reference_id ?? transaction.description ?? 'No informada'}</Td>
+                    <Td>{transactionDateLabel(transaction.created_at)}</Td>
                   </tr>
                 ))}
               </tbody>
