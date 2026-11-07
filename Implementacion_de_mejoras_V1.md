@@ -6844,3 +6844,10 @@ este bloque y es la próxima prioridad para sesión, métricas, filtros y CSV. S
 pendientes cobertura global, E2E con backend real y sandbox de pagos. No se envían
 pagos, mensajes o facturas reales, ni se fusiona o despliega. Commit/árbol/PR y CI
 observado se registran después de publicar.
+
+Publicación verificada de la entrega 70: PR sin borrador
+https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/311.
+Implementación `63c5d16dc420e5fc9959d1ca183da107553abf89`, árbol local/GitHub
+`75ba6d7ae2e869f2d8633a829adfa94e7184cc51`. Un segundo commit exclusivamente
+documental registra estos identificadores. El PR distingue CI del head final y
+resultados locales, sin afirmar todos los controles aprobados.

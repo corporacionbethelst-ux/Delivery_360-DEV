@@ -79,3 +79,13 @@ pendientes filtro exacto/cursor estable en backend, cobertura global del 50 %, E
 con backend real y homologación sandbox de la fase 7. No se envían pagos, mensajes
 o facturas, no se ejecutan migraciones productivas, merge o deploy. La publicación
 y el estado observado del CI se registran por separado.
+
+## Publicación verificada
+
+- PR sin borrador: https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/311
+- Implementación: `63c5d16dc420e5fc9959d1ca183da107553abf89`.
+- Árbol de implementación cotejado local/GitHub: `75ba6d7ae2e869f2d8633a829adfa94e7184cc51`.
+- Se publican 15 archivos de implementación/pruebas/documentación. Un segundo
+  commit exclusivamente documental registra estos identificadores.
+- El PR informa el CI observado del head final por separado de las validaciones
+  locales. La publicación no fusiona ni despliega la rama.
