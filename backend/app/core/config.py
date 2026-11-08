@@ -1,7 +1,7 @@
 from pydantic_settings import BaseSettings
 from typing import List, Optional
 import json
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
@@ -77,6 +77,30 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    @field_validator("JWT_ALGORITHM", "ALGORITHM")
+    @classmethod
+    def validate_jwt_algorithm(cls, value: str) -> str:
+        if value not in {"HS256", "HS384", "HS512"}:
+            raise ValueError(
+                "Only explicitly configured HMAC JWT algorithms are supported"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def validate_production_auth(self):
+        minimum = {"HS256": 32, "HS384": 48, "HS512": 64}[self.JWT_ALGORITHM]
+        if self.ENVIRONMENT == "production" and (
+            len(self.SECRET_KEY.strip()) < minimum
+            or self.is_secret_key_default
+            or self.SECRET_KEY != self.SECRET_KEY.strip()
+        ):
+            raise ValueError(
+                "Production requires a non-default SECRET_KEY with sufficient length for its JWT algorithm"
+            )
+        if self.ACCESS_TOKEN_EXPIRE_MINUTES <= 0 or self.REFRESH_TOKEN_EXPIRE_DAYS <= 0:
+            raise ValueError("JWT lifetimes must be positive")
+        return self
 
     @property
     def jwt_algorithm_computed(self) -> str:
@@ -218,6 +242,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         case_sensitive = True
         extra = "ignore"
+        hide_input_in_errors = True
 
 
 settings = Settings()  # type: ignore[call-arg]

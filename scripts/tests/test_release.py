@@ -255,6 +255,8 @@ class ReleaseTests(unittest.TestCase):
                 "backend-test",
                 "frontend-test",
                 "frontend-security",
+                "backend-security",
+                "backend-container",
                 "release-contract",
                 "frontend-container",
                 "security-scan",

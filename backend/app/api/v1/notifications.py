@@ -15,7 +15,7 @@ Rutas REST (montadas en main.py con prefijo /api/v1):
 
 WebSocket (montado en main.py, UN solo pool manager — regla anti-error 6):
     WS /api/v1/notifications/ws?token=<jwt>
-       -> JWT manual (python-jose); inválido/expirado => close 1008
+       -> JWT canónico verificado; inválido/expirado => close 1008
        -> suscripción a Redis Pub/Sub `notifications:user:{id}` con fan-out único
        -> snapshot inicial {type: CONNECTED, unread_count} + NEW_NOTIFICATION push
 """

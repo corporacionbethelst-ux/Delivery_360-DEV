@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException, FastAPI
 from httpx import ASGITransport, AsyncClient
-from jose import jwt
+import jwt
 from sqlalchemy import select
 from tests.test_auth_contracts import auth_http  # noqa: F401
 from app.api.v1 import auth, users

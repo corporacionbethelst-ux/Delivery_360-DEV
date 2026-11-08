@@ -1,5 +1,12 @@
-# Reproducible CI tooling. Runtime and test dependencies stay pinned in requirements.txt.
+# Reproducible test/load tools; production installs requirements.txt only.
 -r requirements.txt
 black==26.10.1
 flake8==7.4.1
 mypy==2.4.0
+pytest==8.3.2
+pytest-asyncio==0.23.8
+pytest-cov==5.0.0
+faker==26.0.0
+locust==2.20.1
+memory-profiler==0.61.0
+py-spy==0.3.14

@@ -1,5 +1,15 @@
 # Bloqueos de seguridad observados — entrega 72
 
+**Actualización de entrega 73:** los seis avisos siguientes y tres avisos altos
+transitivos de Starlette se corrigen en la rama de continuidad. Los inventarios
+declarado e instalado ya escaneados no tienen HIGH/CRITICAL. Véanse el alcance y
+las limitaciones en [seguridad backend](../backend/SECURITY_AND_REQUEST_LIMITS.md).
+También se corrigen tres moderados SMTP/geopy encontrados en el SARIF remoto.
+El requirements runtime termina sin hallazgos de ninguna severidad; queda un
+moderado en pytest del entorno dev, fuera del contenedor de producción.
+La cobertura frontend y los demás requisitos de producción siguen pendientes.
+El inventario que sigue se conserva como evidencia histórica de la base 72.
+
 Continuidad: 7 de noviembre de 2026, America/Caracas. Escaneo ejecutado el
 8 de noviembre UTC, con Trivy **0.76.2**, binario oficial cuyo SHA256 se verificó,
 base de vulnerabilidades descargada en esa ejecución y severidades HIGH/CRITICAL.

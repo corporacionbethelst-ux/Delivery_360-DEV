@@ -2,7 +2,6 @@
 
 from fastapi import Request, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError
 from typing import Optional
 from app.core.security import decode_token as verify_token
 
@@ -16,11 +15,7 @@ async def get_current_user_from_request(request: Request) -> Optional[dict]:
     if not credentials:
         return None
 
-    try:
-        payload = verify_token(credentials.credentials)
-        return payload
-    except JWTError:
-        return None
+    return verify_token(credentials.credentials, verify_type="access")
 
 
 def require_auth():
@@ -36,16 +31,15 @@ def require_auth():
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        try:
-            payload = verify_token(credentials.credentials)
-            request.state.current_user = payload
-            return payload
-        except JWTError:
+        payload = verify_token(credentials.credentials, verify_type="access")
+        if payload is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+        request.state.current_user = payload
+        return payload
 
     return dependency
 

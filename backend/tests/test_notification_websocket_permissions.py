@@ -245,11 +245,11 @@ async def test_outgoing_notification_rechecks_live_account(inbox, change):
 
 @pytest.mark.asyncio
 async def test_expiration_is_rechecked_before_a_frame(inbox, monkeypatch):
-    from jose import jwt
+    import jwt
 
     client, _, ids, manager, broker = inbox
     token = create_access_token(ids["owner"], timedelta(minutes=5))
-    expires = jwt.get_unverified_claims(token)["exp"]
+    expires = jwt.decode(token, options={'verify_signature': False})["exp"]
 
     class Later(datetime):
         @classmethod
@@ -264,7 +264,7 @@ async def test_expiration_is_rechecked_before_a_frame(inbox, monkeypatch):
 
     with client.websocket_connect("/api/v1/notifications/ws?token=" + token) as ws:
         ws.receive_json()
-        monkeypatch.setattr(jwt, "datetime", Later)
+        monkeypatch.setattr(jwt.api_jwt, "datetime", Later)
         cid = manager.user_connections[str(ids["owner"])][0]
         ws.portal.call(manager.send_personal_message, {"type": "NEW_NOTIFICATION"}, cid)
         assert ws.receive()["code"] == 1008

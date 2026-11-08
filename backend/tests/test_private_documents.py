@@ -1,5 +1,7 @@
 """Document confidentiality: real HTTP, local files, ownership and DDL contracts."""
 
+from tests.api_surface_contract import effective_routes
+
 import json
 from datetime import datetime
 from pathlib import Path
@@ -223,7 +225,7 @@ async def test_metadata_uses_authenticated_route_instead_of_storage_url(document
 def test_application_mount_uses_document_excluding_static_handler():
     from app.main import app
 
-    mount = next(route for route in app.routes if route.path == "/uploads")
+    mount = next(route for route in effective_routes(app) if route.path == "/uploads")
     assert isinstance(mount.app, PublicUploads)
 
 
