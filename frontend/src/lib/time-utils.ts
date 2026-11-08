@@ -23,14 +23,8 @@ export function formatDate(date: Date | string, format: string = 'DD/MM/YYYY'): 
   const minutes = String(d.getMinutes()).padStart(2, '0');
   const seconds = String(d.getSeconds()).padStart(2, '0');
 
-  return format
-    .replace('DD', day)
-    .replace('MM', month)
-    .replace('YYYY', String(year))
-    .replace('YY', String(year).slice(-2))
-    .replace('HH', hours)
-    .replace('mm', minutes)
-    .replace('ss', seconds);
+  const tokens: Record<string,string> = { DD:day, MM:month, YYYY:String(year), YY:String(year).slice(-2), HH:hours, mm:minutes, ss:seconds };
+  return format.replace(/YYYY|YY|DD|MM|HH|mm|ss/g, token=>tokens[token]);
 }
 
 /**
@@ -155,30 +149,12 @@ export function getRelativeTime(date: Date | string): string {
 
   const now = new Date();
   const diffMs = d.getTime() - now.getTime();
-  const diffSeconds = Math.floor(diffMs / 1000);
-  const diffMinutes = Math.floor(diffSeconds / 60);
-  const diffHours = Math.floor(diffMinutes / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (Math.abs(diffDays) >= 1) {
-    return diffDays > 0 
-      ? `En ${diffDays} día${diffDays > 1 ? 's' : ''}` 
-      : `Hace ${Math.abs(diffDays)} día${Math.abs(diffDays) > 1 ? 's' : ''}`;
+  const seconds = Math.floor(Math.abs(diffMs) / 1000);
+  for (const [scale,label] of [[86400,'día'],[3600,'hora'],[60,'minuto']] as const) {
+    const count = Math.floor(seconds/scale);
+    if (count) return `${diffMs>=0?'En':'Hace'} ${count} ${label}${count>1?'s':''}`;
   }
-
-  if (Math.abs(diffHours) >= 1) {
-    return diffHours > 0 
-      ? `En ${diffHours} hora${diffHours > 1 ? 's' : ''}` 
-      : `Hace ${Math.abs(diffHours)} hora${Math.abs(diffHours) > 1 ? 's' : ''}`;
-  }
-
-  if (Math.abs(diffMinutes) >= 1) {
-    return diffMinutes > 0 
-      ? `En ${diffMinutes} minuto${diffMinutes > 1 ? 's' : ''}` 
-      : `Hace ${Math.abs(diffMinutes)} minuto${Math.abs(diffMinutes) > 1 ? 's' : ''}`;
-  }
-
-  return diffSeconds >= 0 ? 'Ahora mismo' : 'Hace un momento';
+  return diffMs >= 0 ? 'Ahora mismo' : 'Hace un momento';
 }
 
 /**
@@ -221,7 +197,7 @@ export function addTime(
   const d = new Date(date);
   
   if (isNaN(d.getTime())) {
-    return new Date();
+    return new Date(NaN);
   }
 
   switch (unit) {
@@ -274,17 +250,17 @@ export function endOfDay(date: Date | string = new Date()): Date {
 export function parseISODuration(isoDuration: string): number {
   if (!isoDuration) return 0;
   
-  const match = isoDuration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  const match = isoDuration.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/);
   
-  if (!match) {
+  if (!match || !match.slice(1).some(Boolean)) {
     return 0;
   }
 
   const hours = parseInt(match[1] || '0', 10);
   const minutes = parseInt(match[2] || '0', 10);
-  const seconds = parseInt(match[3] || '0', 10);
-
-  return hours * 3600 + minutes * 60 + seconds;
+  const seconds = Number(match[3] || '0');
+  const total = hours * 3600 + minutes * 60 + seconds;
+  return Number.isFinite(total) ? total : 0;
 }
 
 /**
@@ -316,16 +292,13 @@ export function getTimezoneOffset(date: Date = new Date()): number {
  * Convert local time to UTC
  */
 export function localToUTC(date: Date | string): Date {
-  const d = new Date(date);
-  if (isNaN(d.getTime())) return new Date();
-  return new Date(d.getTime() + d.getTimezoneOffset() * 60000);
+  // Date represents an instant already; formatting selects its display timezone.
+  return new Date(date);
 }
 
 /**
  * Convert UTC to local time
  */
 export function utcToLocal(date: Date | string): Date {
-  const d = new Date(date);
-  if (isNaN(d.getTime())) return new Date();
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return new Date(date);
 }

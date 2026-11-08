@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext } from 'react';
 import { useSocket } from '@/hooks/useSocket';
 
 interface NotificationContextType {
@@ -14,29 +14,14 @@ interface NotificationContextType {
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
-  const { isConnected, notifications, markAsRead, unreadCount } = useSocket();
-  const [localNotifications, setLocalNotifications] = useState(notifications);
-
-  useEffect(() => {
-    setLocalNotifications(notifications);
-  }, [notifications]);
-
-  const handleMarkAsRead = (id: string) => {
-    markAsRead(id);
-  };
-
-  const handleMarkAllAsRead = () => {
-    // Lógica para marcar todas como leídas localmente
-    // En producción, llamaría a la API
-    setLocalNotifications(prev => prev.map(n => ({ ...n, read: true })));
-  };
+  const {isConnected,notifications,markAsRead,markAllAsRead,unreadCount}=useSocket();
 
   return (
     <NotificationContext.Provider value={{
       unreadCount,
-      notifications: localNotifications,
-      markAsRead: handleMarkAsRead,
-      markAllAsRead: handleMarkAllAsRead,
+      notifications,
+      markAsRead,
+      markAllAsRead,
       isConnected
     }}>
       {children}

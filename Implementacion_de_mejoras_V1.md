@@ -6989,3 +6989,33 @@ validaba. Se prepara la revisión final contra main en
 Implementación acumulada `066ef2227f06281120b4e2acc2256bf77872dbce`, árbol
 `f9606d0591e2df77983b4ff7051b16f6b2d5943c`. El PR final identifica su CI por SHA;
 no se declara pipeline aprobado ni aptitud productiva por resultados anteriores.
+
+## Entrega 74 — Catálogo de entregas y cierre del gate frontend (08/11/2026)
+
+Base main `6fbb69d9055c8d43b044d719985166f44f805e2b` (PR #315 fusionado por el
+propietario), árbol `2d3228d9db1044373b35c47de00d601ab3a9c00b`.
+
+Nuevo GET de entregas registradas con conteo filtrado y desempate estable, roles
+canónicos y sin órdenes artificiales. Catálogo del gerente con filtros explícitos,
+páginas confirmadas, búsqueda local, reintento exacto y retiro de datos por sesión.
+204 operaciones; inventario previo de 203 y hash OpenAPI recuperados exactamente.
+Se conservan IDs, desconocidos, cero y SLA false. El modelo exige repartidor;
+Sin asignar no representa órdenes todavía sin entrega.
+
+508 pruebas frontend adicionales y correcciones de tiempo, autenticación,
+servicios, geolocalización, navegación, SDK WebSocket genérico y feed local legacy.
+Suite final: **2208 pruebas / 109 suites aprobadas**. Los cuatro mínimos globales
+50 % pasan sin alterar umbrales ni cobertura incluida: **54,78 % sentencias,
+50,64 % ramas, 50,23 % funciones y 53,39 % líneas**. Backend completo:
+**2566 aprobadas, 2 omitidas**, cobertura 72 %, con PostgreSQL/PostGIS y Redis de
+prueba. Tipos/lint/build, Black/flake8/mypy y 8 contratos release/actionlint pasan.
+Chromium verifica catálogo nuevo y regresión de auditoría con lecturas sintéticas,
+CSV y cero escrituras. Se incorpora el nuevo smoke al contenedor frontend de CI.
+
+Registro: [frontend/ENTREGA_74.md](frontend/ENTREGA_74.md).
+Contrato: [backend/DELIVERY_CATALOG.md](backend/DELIVERY_CATALOG.md).
+Se cierra el bloqueo local de cobertura frontend. Permanecen protecciones remotas,
+infraestructura, auditoría final de imágenes, E2E/carga/restauración y homologación
+bancaria/fiscal/proveedores. Los helpers financieros son estimaciones y el SDK
+WebSocket no certifica un transporte productivo nuevo. Sin merge/deploy ni
+operaciones productivas; el estado del CI se distingue por el SHA publicado.

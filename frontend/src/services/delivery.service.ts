@@ -6,7 +6,7 @@ import { isAxiosError } from 'axios';
 export type DeliveryStatusFilter = 'PENDIENTE' | 'INICIADA' | 'EN_ROUTE' | 'EN_RUTA' | 'COMPLETADA' | 'INCIDENCIA' | 'FALLIDA' | 'EN_PICKUP' | 'EN_DESTINO' | 'CANCELADA';
 
 // Nuevos tipos para las causas de falla estandarizadas
-export type FailureCause = 
+export type FailureCause =
   | 'CLIENTE_NO_ESTA'
   | 'CLIENTE_NO_CONTESTA'
   | 'DIRECCION_INCORRECTA'
@@ -76,7 +76,7 @@ export const deliveryService = {
   getAll: async (params?: Readonly<DeliveryFilters>): Promise<DeliveryListResponse> => {
     try {
       const queryParams = new URLSearchParams();
-      
+
       if (params?.rider_id) queryParams.append('rider_id', params.rider_id);
       if (params?.status) queryParams.append('status', params.status);
       if (params?.limit) queryParams.append('limit', String(params.limit));
@@ -85,10 +85,10 @@ export const deliveryService = {
 
       const query = queryParams.toString() ? `?${queryParams}` : '';
       const response = await api.get<DeliveryListResponse>(`/deliveries${query}`);
-      
+
       return response;
     } catch (error) {
-      console.error('[DeliveryService] Error fetching deliveries:', error);
+      console.error('[DeliveryService] Error fetching deliveries:');
       throw error;
     }
   },
@@ -120,7 +120,7 @@ export const deliveryService = {
 
       return response;
     } catch (error) {
-      console.error('[DeliveryService] Error fetching paginated deliveries:', error);
+      console.error('[DeliveryService] Error fetching paginated deliveries:');
       throw error;
     }
   },
@@ -130,9 +130,9 @@ export const deliveryService = {
       throw new Error('[DeliveryService] ID de entrega inválido');
     }
     try {
-      return await api.get<Delivery>(`/deliveries/${id}`);
+      return await api.get<Delivery>(`/deliveries/${encodeURIComponent(String(id))}`);
     } catch (error) {
-      console.error(`[DeliveryService] Error fetching delivery ${id}:`, error);
+      console.error(`[DeliveryService] Error fetching delivery ${encodeURIComponent(String(id))}:`);
       throw error;
     }
   },
@@ -142,12 +142,12 @@ export const deliveryService = {
       throw new Error('[DeliveryService] Order ID requerido');
     }
     try {
-      const response = await api.get<Delivery[]>(`/deliveries?order_id=${orderId}&limit=1`);
+      const response = await api.get<Delivery[]>(`/deliveries?order_id=${encodeURIComponent(orderId)}&limit=1`);
       const items = Array.isArray(response) ? response : (response as DeliveryListResponse).items || [];
       return items.length > 0 ? items[0] : null;
     } catch (error) {
-      console.error(`[DeliveryService] Error fetching delivery for order ${orderId}:`, error);
-      return null;
+      console.error(`[DeliveryService] Error fetching delivery for order ${encodeURIComponent(orderId)}:`);
+      throw error;
     }
   },
 
@@ -160,9 +160,9 @@ export const deliveryService = {
     }
     try {
       const deliveryId = String(id);
-      return await api.patch<Delivery>(`/deliveries/${deliveryId}/status`, payload);
+      return await api.patch<Delivery>(`/deliveries/${encodeURIComponent(deliveryId)}/status`, payload);
     } catch (error: unknown) {
-      console.error('[DeliveryService] Error updating status:', error);
+      console.error('[DeliveryService] Error updating status:');
       const axiosError = isAxiosError(error) ? error : null;
       throw new Error(axiosError?.response?.data?.detail || 'No se pudo actualizar el estado de la entrega');
     }
@@ -171,7 +171,7 @@ export const deliveryService = {
   start: async (orderId: string): Promise<{ otp_code: string; message: string }> => {
     if (!orderId) throw new Error('[DeliveryService] Order ID requerido');
     try {
-      return await api.post<{ otp_code: string; message: string }>(`/deliveries/${orderId}/start`);
+      return await api.post<{ otp_code: string; message: string }>(`/deliveries/${encodeURIComponent(orderId)}/start`);
     } catch (error: unknown) {
       const axiosError = isAxiosError(error) ? error : null;
       throw new Error(axiosError?.response?.data?.detail || 'No se pudo iniciar la entrega');
@@ -181,7 +181,7 @@ export const deliveryService = {
   complete: async (id: string, proof: DeliveryProofInput): Promise<Delivery> => {
     if (!id) throw new Error('[DeliveryService] ID requerido');
     try {
-      return await api.post<Delivery>(`/deliveries/${id}/complete`, proof);
+      return await api.post<Delivery>(`/deliveries/${encodeURIComponent(String(id))}/complete`, proof);
     } catch (error: unknown) {
       const axiosError = isAxiosError(error) ? error : null;
       throw new Error(axiosError?.response?.data?.detail || 'Error al completar');
@@ -191,14 +191,14 @@ export const deliveryService = {
   updateLocation: async (id: string, lat: number, lng: number): Promise<void> => {
     if (!id) throw new Error('[DeliveryService] ID requerido');
     try {
-      await api.patch(`/deliveries/${id}/location`, { 
+      await api.patch(`/deliveries/${encodeURIComponent(String(id))}/location`, {
         lat,
         lng,
         latitude: lat,
         longitude: lng,
       });
     } catch (error: unknown) {
-      console.error('[DeliveryService] Error updating location:', error);
+      console.error('[DeliveryService] Error updating location:');
       const axiosError = isAxiosError(error) ? error : null;
       throw new Error(axiosError?.response?.data?.detail || 'No se pudo actualizar la ubicación');
     }
@@ -211,15 +211,15 @@ export const deliveryService = {
    * @param notes - (Opcional) Notas adicionales del repartidor
    */
   failDelivery: async (
-    id: string, 
-    failure_cause: FailureCause, 
+    id: string,
+    failure_cause: FailureCause,
     notes?: string
   ): Promise<Delivery & { bonus_applied?: boolean; bonus_amount?: number; issue_analysis?: any }> => {
     if (!id) throw new Error('[DeliveryService] ID de entrega requerido');
     if (!failure_cause) throw new Error('[DeliveryService] Causa de falla requerida');
-    
+
     try {
-      // Enviamos failure_cause como campo principal. 
+      // Enviamos failure_cause como campo principal.
       // El backend puede usar notes como descripción secundaria si lo soporta.
       const payload: any = { failure_cause };
       if (notes && notes.trim()) {
@@ -227,11 +227,11 @@ export const deliveryService = {
       }
 
       return await api.post<Delivery & { bonus_applied?: boolean; bonus_amount?: number; issue_analysis?: any }>(
-        `/deliveries/${id}/fail`, 
+        `/deliveries/${encodeURIComponent(String(id))}/fail`,
         payload
       );
     } catch (error: unknown) {
-      console.error('[DeliveryService] Error reporting failed delivery:', error);
+      console.error('[DeliveryService] Error reporting failed delivery:');
       const axiosError = isAxiosError(error) ? error : null;
       throw new Error(axiosError?.response?.data?.detail || 'No se pudo reportar la entrega fallida');
     }
@@ -240,36 +240,36 @@ export const deliveryService = {
   getActiveTracking: async (): Promise<Delivery[]> => {
      try {
        const response = await api.get<Delivery[] | DeliveryListResponse>('/deliveries?status=EN_ROUTE&limit=100&include_total=true');
-       
+
        if (Array.isArray(response)) return response;
        return response.items || [];
      } catch (error) {
-       console.error('[DeliveryService] Error fetching active tracking:', error);
+       console.error('[DeliveryService] Error fetching active tracking:');
        throw error;
      }
   },
-  
+
   getLiveTracking: async (): Promise<Delivery[]> => {
     try {
       const response = await api.get<Delivery[] | DeliveryListResponse>('/deliveries?limit=100&status=EN_ROUTE&include_total=true');
 
-      const isValidCoordinate = (value: any): boolean => {
-        if (value === null || value === undefined || value === '') return false;
+      const isValidCoordinate = (value: unknown, bound: number): boolean => {
+        if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return false;
         const coordinate = Number(value);
-        return Number.isFinite(coordinate);
+        return Number.isFinite(coordinate) && Math.abs(coordinate) <= bound;
       };
-      
+
       const items = Array.isArray(response) ? response : (response.items || []);
 
       return items.filter((d: any) => {
         const lat = d.current_latitude ?? d.latitude;
         const lng = d.current_longitude ?? d.longitude;
-        
-        return isValidCoordinate(lat) && isValidCoordinate(lng) &&
+
+        return isValidCoordinate(lat,90) && isValidCoordinate(lng,180) &&
           [ 'INICIADA', 'EN_PICKUP', 'EN_ROUTE', 'EN_DESTINO' ].includes(d.status);
       });
     } catch (error) {
-      console.error('[DeliveryService] Error fetching live tracking:', error);
+      console.error('[DeliveryService] Error fetching live tracking:');
       throw error;
     }
   },

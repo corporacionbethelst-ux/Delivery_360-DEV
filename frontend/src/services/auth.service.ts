@@ -1,10 +1,10 @@
 import { SessionChangedError } from '@/lib/auth-session';
+import { apiDetail } from '@/lib/service-error';
 import { requireUserRevision } from '@/lib/user-revision';
 import { api, getStoredTokens } from '@/lib/api';
 import { validateDocumentSelection } from '@/lib/document-upload';
 import { User, AuthResponse } from '@/types/user';
 import { isAxiosError } from 'axios';
-import type { AxiosError } from 'axios';
 
 export interface MessageResponse {
   message: string;
@@ -34,7 +34,7 @@ export const authService = {
    */
   login: async (email: string, password: string): Promise<AuthResponse> => {
     const params = new URLSearchParams();
-    params.append('username', email); 
+    params.append('username', email);
     params.append('password', password);
 
     try {
@@ -43,17 +43,14 @@ export const authService = {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
       });
-      
-      return response; 
+
+      return response;
     } catch (error: unknown) {
       if (error instanceof SessionChangedError) throw error;
       // Never log request configs: they contain passwords and bearer credentials.
-      
-      const axiosError = error as AxiosError<{ detail?: string; message?: string }>;
-      const errorMsg = axiosError.response?.data?.detail 
-        || axiosError.response?.data?.message 
-        || 'Credenciales inválidas o error de conexión';
-        
+
+      const errorMsg = apiDetail(isAxiosError(error) ? error.response?.data : undefined) || 'Credenciales inválidas o error de conexión';
+
       throw new Error(errorMsg);
     }
   },
@@ -73,10 +70,10 @@ export const authService = {
       payload.append('email', data.email);
       payload.append('password', data.password);
       payload.append('phone', data.phone);
-      
+
       if (data.vehicle_type) payload.append('vehicle_type', data.vehicle_type);
       if (data.vehicle_plate) payload.append('vehicle_plate', data.vehicle_plate);
-      
+
       if ('license_file' in data && data.license_file) {
          payload.append('license_file', data.license_file);
       }
@@ -105,9 +102,9 @@ export const authService = {
       });
       return response;
     } catch (error: unknown) {
-      console.error('❌ Error en registro:', (error as AxiosError).response?.data);
-      const axiosError = error as AxiosError<{ detail?: string; message?: string }>;
-      const errorMsg = axiosError.response?.data?.detail || axiosError.response?.data?.message || 'Error al registrar usuario';
+      if (error instanceof SessionChangedError) throw error;
+      console.error('Error en registro de usuario');
+      const errorMsg = apiDetail(isAxiosError(error) ? error.response?.data : undefined) || 'Error al registrar usuario';
       throw new Error(errorMsg);
     }
   },
@@ -117,7 +114,7 @@ export const authService = {
    */
   getProfile: async (): Promise<User> => {
     try {
-      const response = await api.get<User>('/auth/me'); 
+      const response = await api.get<User>('/auth/me');
       return response;
     } catch (error: unknown) {
       // Only an absent compatibility route warrants a fallback with this session.
@@ -157,14 +154,14 @@ export const authService = {
     const response = await api.put<User>('/users/me', data);
     return response;
   },
-  
+
   /**
    * Cambiar contraseña
    */
   changePassword: async (currentPassword: string, newPassword: string): Promise<MessageResponse> => {
-    const response = await api.post<MessageResponse>('/auth/change-password', { 
+    const response = await api.post<MessageResponse>('/auth/change-password', {
       current_password: currentPassword,
-      new_password: newPassword 
+      new_password: newPassword
     });
     return response;
   },
@@ -177,8 +174,8 @@ export const authService = {
       const response = await api.post<MessageResponse>('/auth/forgot-password', { email });
       return response;
     } catch (error: unknown) {
-      const axiosError = error as AxiosError;
-      if (axiosError.response?.status === 404 || axiosError.response?.status === 400) {
+      const axiosError = isAxiosError(error) ? error : null;
+      if (axiosError?.response?.status === 404 || axiosError?.response?.status === 400) {
          return { message: 'Si el correo existe, recibirás instrucciones.' };
       }
       throw error;
@@ -189,9 +186,9 @@ export const authService = {
    * Restablecimiento de contraseña con token
    */
   resetPassword: async (token: string, newPassword: string): Promise<MessageResponse> => {
-    const response = await api.post<MessageResponse>('/auth/reset-password', { 
-      token, 
-      new_password: newPassword 
+    const response = await api.post<MessageResponse>('/auth/reset-password', {
+      token,
+      new_password: newPassword
     });
     return response;
   },

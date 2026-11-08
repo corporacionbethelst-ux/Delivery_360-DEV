@@ -62,13 +62,70 @@ PAYOUT_SURFACE = (
     Path(__file__).parent / "fixtures/api_surface_after_payout_pagination.json"
 )
 READINESS_SURFACE = Path(__file__).parent / "fixtures/api_surface_after_readiness.json"
-EXPECTED = Path(__file__).parent / "fixtures/api_surface_after_framework.json"
+FRAMEWORK_SURFACE = Path(__file__).parent / "fixtures/api_surface_after_framework.json"
+EXPECTED = Path(__file__).parent / "fixtures/api_surface_after_delivery_catalog.json"
 FRAMEWORK_DELTA = Path(__file__).parent / "fixtures/openapi_framework_delta.json"
 BACKEND = Path(__file__).resolve().parents[1]
 
 
-def before_framework_schema():
+def before_delivery_catalog_schema():
     schema = deepcopy(app.openapi())
+    operation = schema["paths"].pop("/api/v1/deliveries/page")
+    assert set(operation) == {"get"}
+    assert schema["components"]["schemas"].pop("DeliveryStatus")["enum"] == [
+        "PENDIENTE",
+        "INICIADA",
+        "EN_PICKUP",
+        "EN_ROUTE",
+        "EN_DESTINO",
+        "COMPLETADA",
+        "FALLIDA",
+        "CANCELADA",
+    ]
+    return schema
+
+
+def historical_surface():
+    current = api_surface(app)
+    current["routes"] = [
+        row for row in current["routes"] if row["path"] != "/api/v1/deliveries/page"
+    ]
+    reachable = set()
+
+    def visit(key):
+        if key in reachable:
+            return
+        reachable.add(key)
+        for child in current["dependencies"][key]["dependencies"]:
+            visit(child)
+
+    for row in current["routes"]:
+        if "dependency_contract" in row:
+            visit(row["dependency_contract"])
+    current["dependencies"] = {
+        key: value for key, value in current["dependencies"].items() if key in reachable
+    }
+    canonical = json.dumps(
+        before_delivery_catalog_schema(),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    current["openapi_sha256"] = hashlib.sha256(canonical.encode()).hexdigest()
+    return current
+
+
+def test_delivery_catalog_preserves_every_previous_route_dependency_and_schema():
+    assert historical_surface() == json.loads(FRAMEWORK_SURFACE.read_text())
+    routes = api_surface(app)["routes"]
+    paths = [row["path"] for row in routes]
+    assert paths.index("/api/v1/deliveries/page") < paths.index(
+        "/api/v1/deliveries/{delivery_id}"
+    )
+
+
+def before_framework_schema():
+    schema = before_delivery_catalog_schema()
     for pointer, before, after in json.loads(FRAMEWORK_DELTA.read_text()):
         keys = pointer.lstrip("/").split("/")
         parent = schema
@@ -88,7 +145,7 @@ def before_framework_schema():
 
 def test_framework_changes_only_the_reviewed_schema_fields():
     previous = json.loads(READINESS_SURFACE.read_text())
-    current = api_surface(app)
+    current = historical_surface()
     assert current["routes"] == previous["routes"]
     assert current["dependencies"] == previous["dependencies"]
     canonical = json.dumps(
@@ -109,7 +166,7 @@ def before_readiness_schema():
 
 def test_readiness_only_adds_the_explicit_unavailable_response():
     previous = json.loads(PAYOUT_SURFACE.read_text())
-    current = api_surface(app)
+    current = historical_surface()
     assert current["routes"] == previous["routes"]
     assert current["dependencies"] == previous["dependencies"]
     canonical = json.dumps(
@@ -142,13 +199,13 @@ def test_compatibility_router_is_the_canonical_object(name):
 
 def test_exact_route_order_auth_dependencies_and_openapi_are_preserved():
     expected = json.loads(EXPECTED.read_text())
-    assert len(expected["routes"]) == 203
+    assert len(expected["routes"]) == 204
     assert api_surface(app) == expected
 
 
 def test_reconciliation_addition_preserves_all_preexisting_routes_and_openapi():
     previous = json.loads(PREVIOUS.read_text())
-    current = api_surface(app)
+    current = historical_surface()
     prefix = "/api/v1/reconciliation"
     assert [
         row
@@ -194,7 +251,7 @@ def test_reconciliation_addition_preserves_all_preexisting_routes_and_openapi():
 
 def test_payout_pagination_preserves_existing_routes_dependencies_and_openapi():
     previous = json.loads(RECONCILIATION.read_text())
-    current = api_surface(app)
+    current = historical_surface()
     path = "/api/v1/payouts/page"
     added = [row for row in current["routes"] if row["path"] == path]
     assert len(added) == 1 and added[0]["methods"] == ["GET"]

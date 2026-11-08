@@ -1,7 +1,7 @@
 // src/hooks/geolocation.ts
-'use client';
+"use client";
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from "react";
 
 export interface GeoPosition {
   latitude: number;
@@ -35,184 +35,170 @@ const defaultOptions: Required<UseGeolocationOptions> = {
 };
 
 export const useGeolocation = (options: UseGeolocationOptions = {}) => {
-  // Fusionar opciones
-  const mergedOptions = { ...defaultOptions, ...options };
-  
-  // Extraer primitivas para dependencias estables
-  const { autoStart, watchPosition, enableHighAccuracy, timeout, maximumAge } = mergedOptions;
-
-  const [position, setPosition] = useState<GeoPosition | null>(null);
-  const [error, setError] = useState<GeoError | null>(null);
-  const [loading, setLoading] = useState<boolean>(false); 
-  const [isSupported, setIsSupported] = useState<boolean>(true);
-  
-  const watchId = useRef<number | null>(null);
-  const callbackRef = useRef<((pos: GeoPosition) => void) | null>(null);
-
-  // 1. Verificar soporte del navegador (solo una vez)
-  useEffect(() => {
-    if (typeof window === 'undefined' || !('geolocation' in navigator)) {
+  const { autoStart, watchPosition, enableHighAccuracy, timeout, maximumAge } =
+    { ...defaultOptions, ...options };
+  const [position, setPosition] = useState<GeoPosition | null>(null),
+    [error, setError] = useState<GeoError | null>(null),
+    [loading, setLoading] = useState(false),
+    [isSupported, setIsSupported] = useState(true);
+  const alive = useRef(false),
+    sequence = useRef(0),
+    watchId = useRef<number | null>(null),
+    timer = useRef<ReturnType<typeof setTimeout> | null>(null),
+    callbackRef = useRef<((position: GeoPosition) => void) | null>(null);
+  const cancel = useCallback(() => {
+    sequence.current++;
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    if (watchId.current !== null) {
+      navigator.geolocation?.clearWatch(watchId.current);
+      watchId.current = null;
+    }
+  }, []);
+  const startWatching = useCallback(() => {
+    cancel();
+    if (!alive.current) return;
+    const geo =
+      typeof navigator === "undefined" ? undefined : navigator.geolocation;
+    if (!geo) {
       setIsSupported(false);
       setError({
         code: 0,
-        message: 'La geolocalización no es soportada por este navegador/dispositivo.',
+        message:
+          "La geolocalización no es soportada por este navegador/dispositivo.",
       });
       setLoading(false);
+      return;
     }
-  }, []);
-
-  // 2. Auto-start seguro después del montaje
-  useEffect(() => {
-    if (autoStart && isSupported) {
-      startWatchingInternal();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStart, isSupported]);
-
-  // 3. Limpieza global al desmontar el componente que usa el hook
-  useEffect(() => {
-    return () => {
-      if (watchId.current !== null) {
-        navigator.geolocation.clearWatch(watchId.current);
-        watchId.current = null;
-      }
-    };
-  }, []);
-
-  // Lógica interna de obtención de posición
-  const startWatchingInternal = useCallback(() => {
-    if (!isSupported) return;
-
+    setIsSupported(true);
     setLoading(true);
     setError(null);
-
-    const successCallback = (geoPosition: GeolocationPosition) => {
-      const pos: GeoPosition = {
-        latitude: geoPosition.coords.latitude,
-        longitude: geoPosition.coords.longitude,
-        accuracy: geoPosition.coords.accuracy,
-        altitude: geoPosition.coords.altitude,
-        heading: geoPosition.coords.heading,
-        speed: geoPosition.coords.speed,
-        timestamp: new Date(geoPosition.timestamp),
+    const ticket = sequence.current,
+      current = () => alive.current && ticket === sequence.current;
+    const fail = (code: number, message: string) => {
+      if (current()) {
+        setError({ code, message });
+        setLoading(false);
+      }
+    };
+    const success = (value: GeolocationPosition) => {
+      if (!current()) return;
+      const coords = value.coords;
+      if (
+        !Number.isFinite(coords.latitude) ||
+        Math.abs(coords.latitude) > 90 ||
+        !Number.isFinite(coords.longitude) ||
+        Math.abs(coords.longitude) > 180 ||
+        !Number.isFinite(coords.accuracy) ||
+        coords.accuracy < 0 ||
+        !Number.isFinite(new Date(value.timestamp).getTime())
+      ) {
+        fail(0, "Coordenadas GPS inválidas.");
+        return;
+      }
+      const optional = (number: number | null) =>
+        number !== null && Number.isFinite(number) ? number : null;
+      const result: GeoPosition = {
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        accuracy: coords.accuracy,
+        altitude: optional(coords.altitude),
+        heading:
+          coords.heading !== null &&
+          coords.heading >= 0 &&
+          coords.heading <= 360
+            ? optional(coords.heading)
+            : null,
+        speed:
+          coords.speed !== null && coords.speed >= 0
+            ? optional(coords.speed)
+            : null,
+        timestamp: new Date(value.timestamp),
       };
-
-      setPosition(pos);
+      setPosition(result);
       setError(null);
       setLoading(false);
-
-      // Ejecutar callback externo si existe
-      if (callbackRef.current) {
-        try {
-          callbackRef.current(pos);
-        } catch (e) {
-          console.error('Error en callback de geolocalización:', e);
-        }
+      try {
+        callbackRef.current?.(result);
+      } catch {
+        console.error("Error en callback de geolocalización");
       }
     };
-
-    const errorCallback = (geoError: GeolocationPositionError) => {
-      let msg = 'Error desconocido de geolocalización.';
-      
-      switch (geoError.code) {
-        case geoError.PERMISSION_DENIED:
-          msg = 'Permiso denegado. Por favor habilita el acceso a la ubicación.';
-          break;
-        case geoError.POSITION_UNAVAILABLE:
-          msg = 'Ubicación no disponible. Verifica tu conexión GPS/Internet.';
-          break;
-        case geoError.TIMEOUT:
-          msg = 'Tiempo de espera agotado al obtener ubicación.';
-          break;
-      }
-
-      const err: GeoError = {
-        code: geoError.code,
-        message: msg,
+    const failure = (value: GeolocationPositionError) => {
+      const messages: Record<number, string> = {
+        1: "Permiso denegado. Por favor habilita el acceso a la ubicación.",
+        2: "Ubicación no disponible. Verifica tu conexión GPS/Internet.",
+        3: "Tiempo de espera agotado al obtener ubicación.",
       };
-
-      setError(err);
-      setLoading(false);
-      
-      // No detenemos el watch automáticamente en error transitorio (como timeout),
-      // el navegador reintentará en el siguiente ciclo de watchPosition.
-    };
-
-    const config: PositionOptions = {
-      enableHighAccuracy,
-      timeout,
-      maximumAge,
-    };
-
-    // Limpiar anterior si existe antes de iniciar nuevo
-    if (watchId.current !== null) {
-      navigator.geolocation.clearWatch(watchId.current);
-    }
-
-    if (watchPosition) {
-      watchId.current = navigator.geolocation.watchPosition(
-        successCallback,
-        errorCallback,
-        config
+      fail(
+        value.code,
+        messages[value.code] ?? "Error desconocido de geolocalización.",
       );
-    } else {
-      // getCurrentPosition no devuelve ID para limpiar, pero se maneja con el ref null
-      navigator.geolocation.getCurrentPosition(
-        successCallback,
-        errorCallback,
-        config
-      );
+    };
+    try {
+      const config = { enableHighAccuracy, timeout, maximumAge };
+      if (watchPosition)
+        watchId.current = geo.watchPosition(success, failure, config);
+      else geo.getCurrentPosition(success, failure, config);
+    } catch {
+      fail(0, "No se pudo iniciar la geolocalización.");
     }
-  }, [isSupported, watchPosition, enableHighAccuracy, timeout, maximumAge]);
-
-  // Funciones públicas expuestas
-  const startWatching = useCallback(() => {
-    startWatchingInternal();
-  }, [startWatchingInternal]);
-
+  }, [cancel, enableHighAccuracy, timeout, maximumAge, watchPosition]);
+  useEffect(() => {
+    alive.current = true;
+    setIsSupported(typeof navigator !== "undefined" && !!navigator.geolocation);
+    return () => {
+      alive.current = false;
+      cancel();
+    };
+  }, [cancel]);
+  useEffect(() => {
+    if (autoStart) startWatching();
+    return cancel;
+  }, [autoStart, startWatching, cancel]);
   const stopWatching = useCallback(() => {
-    if (watchId.current !== null) {
-      navigator.geolocation.clearWatch(watchId.current);
-      watchId.current = null;
-    }
-    setLoading(false);
-  }, []);
-
+    cancel();
+    if (alive.current) setLoading(false);
+  }, [cancel]);
   const refreshPosition = useCallback(() => {
     stopWatching();
-    // Pequeño delay para asegurar liberación de recursos GPS
-    setTimeout(() => {
+    timer.current = setTimeout(() => {
+      timer.current = null;
       startWatching();
     }, 200);
-  }, [startWatching, stopWatching]);
-
-  const setCallback = useCallback((callback: (pos: GeoPosition) => void) => {
-    callbackRef.current = callback;
-  }, []);
-
-  const calculateDistance = useCallback((toLatitude: number, toLongitude: number): number => {
-    if (!position) return -1;
-
-    const R = 6371e3; // Radio tierra en metros
-    const φ1 = (position.latitude * Math.PI) / 180;
-    const φ2 = (toLatitude * Math.PI) / 180;
-    const Δφ = ((toLatitude - position.latitude) * Math.PI) / 180;
-    const Δλ = ((toLongitude - position.longitude) * Math.PI) / 180;
-
-    const a =
-      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-    return R * c;
-  }, [position]);
-
-  const getBearing = useCallback((): number | null => {
-    if (!position || position.heading === null) return null;
-    return position.heading;
-  }, [position]);
-
+  }, [stopWatching, startWatching]);
+  const setCallback = useCallback(
+    (callback: (position: GeoPosition) => void) => {
+      callbackRef.current = callback;
+    },
+    [],
+  );
+  const calculateDistance = useCallback(
+    (latitude: number, longitude: number) => {
+      if (
+        !position ||
+        !Number.isFinite(latitude) ||
+        Math.abs(latitude) > 90 ||
+        !Number.isFinite(longitude) ||
+        Math.abs(longitude) > 180
+      )
+        return -1;
+      const radians = (value: number) => (value * Math.PI) / 180;
+      const a =
+        Math.sin(radians(latitude - position.latitude) / 2) ** 2 +
+        Math.cos(radians(position.latitude)) *
+          Math.cos(radians(latitude)) *
+          Math.sin(radians(longitude - position.longitude) / 2) ** 2;
+      const bounded = Math.max(0, Math.min(1, a));
+      return (
+        6371000 * 2 * Math.atan2(Math.sqrt(bounded), Math.sqrt(1 - bounded))
+      );
+    },
+    [position],
+  );
+  const getBearing = useCallback(() => position?.heading ?? null, [position]);
   return {
     position,
     error,
@@ -224,7 +210,6 @@ export const useGeolocation = (options: UseGeolocationOptions = {}) => {
     setCallback,
     calculateDistance,
     getBearing,
-    // Accesores directos para conveniencia
     latitude: position?.latitude ?? null,
     longitude: position?.longitude ?? null,
     accuracy: position?.accuracy ?? null,
@@ -232,5 +217,4 @@ export const useGeolocation = (options: UseGeolocationOptions = {}) => {
     heading: position?.heading ?? null,
   };
 };
-
 export default useGeolocation;

@@ -17,7 +17,8 @@ export function useSidebar() {
         setIsCollapsed(true); // En móvil siempre empieza cerrado (offcanvas)
       } else {
         // En desktop, recuperar preferencia guardada
-        const saved = localStorage.getItem('sidebar-collapsed');
+        let saved: string|null = null;
+        try { saved = localStorage.getItem('sidebar-collapsed'); } catch { /* Optional display preference. */ }
         setIsCollapsed(saved === 'true');
       }
     };
@@ -28,14 +29,11 @@ export function useSidebar() {
   }, []);
 
   const toggle = () => {
-    if (!isMobile) {
-      const newState = !isCollapsed;
-      setIsCollapsed(newState);
-      localStorage.setItem('sidebar-collapsed', String(newState));
-    } else {
-      // En móvil, toggle abre/cierra el offcanvas
-      setIsCollapsed(!isCollapsed);
-    }
+    setIsCollapsed(previous => {
+      const next = !previous;
+      if (!isMobile) { try { localStorage.setItem('sidebar-collapsed',String(next)); } catch { /* Storage denial must not block navigation. */ } }
+      return next;
+    });
   };
 
   return { isCollapsed, isMobile, toggle, isMounted };

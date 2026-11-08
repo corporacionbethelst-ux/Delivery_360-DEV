@@ -91,11 +91,11 @@ export const useRole = () => {
   const { user, isAuthenticated, isLoading } = useAuthStore();
 
   const currentRole = useMemo<Role | null>(() => {
-    if (!user?.role) return null;
+    if (!isAuthenticated || isLoading || !user?.role) return null;
     // Validación explícita para asegurar que el rol existe en nuestras configs
     const role = user.role.toUpperCase() as Role;
     return ROLE_CONFIGURATIONS[role] ? role : null;
-  }, [user?.role]);
+  }, [user?.role,isAuthenticated,isLoading]);
 
   const roleConfig = useMemo<RoleConfig | null>(() => {
     if (!currentRole) return null;
@@ -116,6 +116,7 @@ export const useRole = () => {
 
   const hasAnyPermission = (module: string, actions: string[]): boolean => {
     if (!roleConfig || !isAuthenticated) return false;
+    if (currentRole === 'SUPERADMIN') return actions.length > 0;
     const permission = roleConfig.permissions.find(p => p.module === module);
     if (!permission) return false;
     return actions.some(action => permission.actions.includes(action));

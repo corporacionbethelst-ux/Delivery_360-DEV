@@ -1,8 +1,9 @@
 import { resetOnSessionChange } from '@/lib/private-task';
+import { isDeliveryTerminal } from '@/lib/delivery-status';
 // Realtime Store - Zustand para actualizaciones en tiempo real (WebSocket)
 import { create } from 'zustand';
 import type { Order, OrderStatus } from '@/types/order';
-import type { Delivery, DeliveryStatus, DeliveryStatusLegacy } from '@/types/delivery';
+import type { Delivery } from '@/types/delivery';
 import type { Rider, RiderStatus } from '@/types/user';
 import type { Alert } from '@/types/alerts';
  
@@ -108,12 +109,12 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       
       // ✅ CORRECCIÓN: Usando los valores EXACTOS del enum DeliveryStatus
       // INICIADA, EN_PICKUP, EN_ROUTE, COMPLETE, FAILED
-      const finalStatuses: (DeliveryStatus | DeliveryStatusLegacy)[] = ['ENTREGADO', 'FALLIDO', 'CANCELADO'];
+      const terminal = isDeliveryTerminal(delivery.status);
       
       if (existingIndex >= 0) {
         const updatedDeliveries = [...state.activeDeliveries];
         
-        if (finalStatuses.includes(delivery.status)) {
+        if (terminal) {
           // Si la entrega finalizó (Completa o Fallida), la removemos de "activas"
           updatedDeliveries.splice(existingIndex, 1);
         } else {
@@ -124,7 +125,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
         return { activeDeliveries: updatedDeliveries };
       } else {
         // Nueva entrega activa (solo si no es final)
-        if (!finalStatuses.includes(delivery.status)) {
+        if (!terminal) {
           return { activeDeliveries: [...state.activeDeliveries, delivery] };
         }
       }
@@ -184,7 +185,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   setConnected: (connected: boolean) => {
     set({ 
       isConnected: connected, 
-      isConnecting: !connected,
+      isConnecting: false,
       lastMessageAt: connected ? new Date() : null
     });
   },

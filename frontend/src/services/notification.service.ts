@@ -50,7 +50,7 @@ const toNotification = (alert: ApiAlert): Notification => ({
   message: alert.description,
   related_entity_id: alert.orderId ?? alert.riderId ?? null,
   created_at: alert.createdAt,
-  read_at: alert.isRead ? alert.createdAt : null,
+  read_at: null, // Alert creation is not evidence of the time it was read.
 });
 
 export const notificationService = {
@@ -70,7 +70,7 @@ export const notificationService = {
       const alerts = await api.get<ApiAlert[]>(`/alerts${query}`);
       return alerts.map(toNotification);
     } catch (error) {
-      console.error('[NotificationService] Error fetching alerts:', error);
+      console.error('[NotificationService] Error fetching alerts:');
       throw error;
     }
   },
@@ -80,7 +80,7 @@ export const notificationService = {
     if (!id) throw new Error('[NotificationService] ID de notificación requerido');
 
     try {
-      await api.patch<{ message: string; id: string }>(`/alerts/${id}/read`);
+      await api.patch<{ message: string; id: string }>(`/alerts/${encodeURIComponent(String(id))}/read`);
       return {
         id,
         type: 'OPERATIONAL',
@@ -91,7 +91,7 @@ export const notificationService = {
         read_at: new Date().toISOString(),
       };
     } catch (error) {
-      console.error(`[NotificationService] Error marking alert ${id} as read:`, error);
+      console.error(`[NotificationService] Error marking alert ${encodeURIComponent(String(id))} as read:`);
       throw error;
     }
   },
@@ -101,19 +101,19 @@ export const notificationService = {
     try {
       await api.post('/alerts/read-all');
     } catch (error) {
-      console.error('[NotificationService] Error marking all alerts as read:', error);
+      console.error('[NotificationService] Error marking all alerts as read:');
       throw error;
     }
   },
 
-  /** Obtener conteo de alertas no leídas. */
+  /** Bounded page count (up to 200), not a global total. Outages are not zero. */
   getUnreadCount: async (): Promise<{ count: number }> => {
     try {
       const alerts = await api.get<ApiAlert[]>('/alerts?status=UNREAD&limit=200');
       return { count: alerts.length };
     } catch (error) {
-      console.error('[NotificationService] Error fetching unread alerts:', error);
-      return { count: 0 };
+      console.error('[NotificationService] Error fetching unread alerts:');
+      throw error;
     }
   },
 };

@@ -10,6 +10,7 @@ export interface TokenPayload {
   userId: string;
   email: string;
   role: string;
+  sub?: string;
   iat?: number;
   exp?: number;
 }
@@ -24,8 +25,8 @@ export function saveTokens(tokens: AuthTokens): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(TOKEN_KEY, JSON.stringify(tokens));
-  } catch (error) {
-    console.error('Error saving tokens:', error);
+  } catch {
+    console.error('Error saving tokens:');
   }
 }
 
@@ -37,9 +38,11 @@ export function getTokens(): AuthTokens | null {
   try {
     const tokensStr = localStorage.getItem(TOKEN_KEY);
     if (!tokensStr) return null;
-    return JSON.parse(tokensStr);
-  } catch (error) {
-    console.error('Error getting tokens:', error);
+    const parsed: unknown = JSON.parse(tokensStr);
+    if (!parsed || typeof parsed !== 'object' || !('access_token' in parsed) || typeof parsed.access_token !== 'string' || !('refresh_token' in parsed) || typeof parsed.refresh_token !== 'string') return null;
+    return parsed as AuthTokens;
+  } catch {
+    console.error('Error getting tokens:');
     return null;
   }
 }
@@ -51,8 +54,8 @@ export function clearTokens(): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.removeItem(TOKEN_KEY);
-  } catch (error) {
-    console.error('Error clearing tokens:', error);
+  } catch {
+    console.error('Error clearing tokens:');
   }
 }
 
@@ -79,9 +82,11 @@ export function decodeToken(token: string): TokenPayload | null {
         .join('')
     );
     
-    return JSON.parse(jsonPayload);
-  } catch (error) {
-    console.error('Error decoding token:', error);
+    const payload: unknown = JSON.parse(jsonPayload);
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+    return payload as TokenPayload;
+  } catch {
+    console.error('Error decoding token:');
     return null;
   }
 }
@@ -91,10 +96,10 @@ export function decodeToken(token: string): TokenPayload | null {
  */
 export function isTokenExpired(token: string): boolean {
   const payload = decodeToken(token);
-  if (!payload || !payload.exp) return true;
+  if (!payload || typeof payload.exp !== 'number' || !Number.isFinite(payload.exp)) return true;
   
   const now = Date.now() / 1000;
-  return payload.exp < now;
+  return payload.exp <= now;
 }
 
 /**
@@ -102,7 +107,7 @@ export function isTokenExpired(token: string): boolean {
  */
 export function needsRefresh(token: string): boolean {
   const payload = decodeToken(token);
-  if (!payload || !payload.exp) return true;
+  if (!payload || typeof payload.exp !== 'number' || !Number.isFinite(payload.exp)) return true;
   
   const expirationTime = payload.exp * 1000;
   const now = Date.now();
@@ -115,7 +120,7 @@ export function needsRefresh(token: string): boolean {
  * Validate token structure and expiration
  */
 export function validateToken(token: string): boolean {
-  if (!token || token.split('.').length !== 3) return false;
+  if (typeof token !== 'string' || !token || token.split('.').length !== 3) return false;
   return !isTokenExpired(token);
 }
 
@@ -144,7 +149,7 @@ export function getUserFromToken(token: string): Partial<User> | null {
   if (!payload) return null;
   
   return {
-    id: payload.userId,
+    id: payload.sub || payload.userId,
     email: payload.email,
     role: payload.role as User['role'],
   };
@@ -164,8 +169,10 @@ export function hasRole(user: User | null, requiredRole: string): boolean {
     SUPERADMIN: 4,
   };
   
-  const userRoleLevel = roleHierarchy[user.role] || 0;
-  const requiredRoleLevel = roleHierarchy[requiredRole] || 0;
+  if (['CLIENTE','AUDITOR'].includes(requiredRole)) return user.role === requiredRole;
+  const userRoleLevel = roleHierarchy[user.role];
+  const requiredRoleLevel = roleHierarchy[requiredRole];
+  if (!userRoleLevel || !requiredRoleLevel) return false;
   
   return userRoleLevel >= requiredRoleLevel;
 }
@@ -182,7 +189,7 @@ export function hasAnyRole(user: User | null, roles: string[]): boolean {
  */
 export function getTokenExpiration(token: string): Date | null {
   const payload = decodeToken(token);
-  if (!payload || !payload.exp) return null;
+  if (!payload || typeof payload.exp !== 'number' || !Number.isFinite(payload.exp) || !Number.isFinite(new Date(payload.exp*1000).getTime())) return null;
   return new Date(payload.exp * 1000);
 }
 
@@ -245,10 +252,8 @@ export function validatePassword(password: string): {
  * Safe for browser environment
  */
 export function generateSecureToken(length: number = 32): string {
-  if (typeof window === 'undefined' || !crypto.getRandomValues) {
-    // Fallback para SSR si es necesario (menos seguro)
-    return Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
-  }
+  if (!Number.isInteger(length) || length < 1 || length > 65536) throw new Error('Invalid secure token length');
+  if (typeof crypto === 'undefined' || !crypto.getRandomValues) throw new Error('Crypto API not available');
   
   const array = new Uint8Array(length);
   crypto.getRandomValues(array);

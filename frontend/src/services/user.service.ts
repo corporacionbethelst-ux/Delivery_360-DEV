@@ -55,7 +55,7 @@ export const userService = {
   getAll: async (params?: Readonly<UserFilters>): Promise<User[]> => {
     try {
       const queryParams = new URLSearchParams();
-      
+
       if (params?.role) queryParams.append('role', params.role);
       if (params?.is_active !== undefined) queryParams.append('is_active', String(params.is_active));
       if (params?.search) queryParams.append('search', params.search);
@@ -64,7 +64,7 @@ export const userService = {
       if (params?.page) queryParams.append('page', String(params.page));
 
       const query = queryParams.toString() ? `?${queryParams}` : '';
-      
+
       const users = await api.get<ApiUser[]>(`/users${query}`);
       return users.map(normalizeUser);
     } catch (error) {
@@ -83,9 +83,9 @@ export const userService = {
     }
 
     try {
-      return normalizeUser(await api.get<ApiUser>(`/users/${id}`));
+      return normalizeUser(await api.get<ApiUser>(`/users/${encodeURIComponent(String(id))}`));
     } catch (error) {
-      reportError(`[UserService] Error fetching user ${id}:`, error);
+      reportError(`[UserService] Error fetching user ${encodeURIComponent(String(id))}:`, error);
       throw error;
     }
   },
@@ -117,9 +117,9 @@ export const userService = {
 
     requireUserRevision(data.expected_user_revision);
     try {
-      return normalizeUser(await api.patch<ApiUser>(`/users/${id}`, data));
+      return normalizeUser(await api.patch<ApiUser>(`/users/${encodeURIComponent(String(id))}`, data));
     } catch (error) {
-      reportError(`[UserService] Error updating user ${id}:`, error);
+      reportError(`[UserService] Error updating user ${encodeURIComponent(String(id))}:`, error);
       throw error;
     }
   },
@@ -132,9 +132,9 @@ export const userService = {
     if (!id) throw new Error('[UserService] ID requerido para desactivar usuario');
 
     try {
-      await api.patch(`/users/${id}`, { is_active: false, expected_user_revision:requireUserRevision(revision) });
+      await api.patch(`/users/${encodeURIComponent(String(id))}`, { is_active: false, expected_user_revision:requireUserRevision(revision) });
     } catch (error) {
-      reportError(`[UserService] Error deactivating user ${id}:`, error);
+      reportError(`[UserService] Error deactivating user ${encodeURIComponent(String(id))}:`, error);
       throw error;
     }
   },
@@ -147,10 +147,10 @@ export const userService = {
     if (!password || password.length < 8) throw new Error('[UserService] La contraseña debe tener al menos 8 caracteres');
 
     try {
-      const response = await api.patch<{ user: ApiUser }>(`/users/${id}/password`, { password });
+      const response = await api.patch<{ user: ApiUser }>(`/users/${encodeURIComponent(String(id))}/password`, { password });
       return normalizeUser(response.user);
     } catch (error) {
-      reportError(`[UserService] Error updating password for user ${id}:`, error);
+      reportError(`[UserService] Error updating password for user ${encodeURIComponent(String(id))}:`, error);
       throw error;
     }
   },
@@ -163,9 +163,9 @@ export const userService = {
     if (!id) throw new Error('[UserService] ID requerido para eliminar usuario');
 
     try {
-      await api.delete(`/users/${id}`, { headers:{ 'If-Match':`"${requireUserRevision(revision)}"` } });
+      await api.delete(`/users/${encodeURIComponent(String(id))}`, { headers:{ 'If-Match':`"${requireUserRevision(revision)}"` } });
     } catch (error) {
-      reportError(`[UserService] Error deleting user ${id}:`, error);
+      reportError(`[UserService] Error deleting user ${encodeURIComponent(String(id))}:`, error);
       throw error;
     }
   }

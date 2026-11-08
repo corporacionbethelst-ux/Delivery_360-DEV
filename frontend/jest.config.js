@@ -12,6 +12,7 @@ module.exports = {
     '<rootDir>/node_modules/',
     '<rootDir>/.next/',
   ],
+  modulePathIgnorePatterns: ['<rootDir>/.next/'],
   transform: {
     '^.+\\.(js|jsx|ts|tsx)$': ['babel-jest', { configFile: './babel.config.jest.js' }],
   },

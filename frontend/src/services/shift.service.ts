@@ -41,7 +41,7 @@ export const shiftService = {
   getAll: async (params?: Readonly<ShiftFilters>): Promise<Shift[]> => {
     try {
       const queryParams = new URLSearchParams();
-      
+
       if (params?.status) queryParams.append('status', params.status);
       if (params?.rider_id) queryParams.append('rider_id', params.rider_id);
       if (params?.limit) queryParams.append('limit', String(params.limit));
@@ -49,11 +49,11 @@ export const shiftService = {
       if (params?.date_to) queryParams.append('date_to', params.date_to);
 
       const query = queryParams.toString() ? `?${queryParams}` : '';
-      
+
       // CORRECCIÓN: api.get ya devuelve Shift[] directamente, no hay que acceder a .data
       return await api.get<Shift[]>(`/shifts${query}`);
     } catch (error) {
-      console.error('[ShiftService] Error fetching shifts:', error);
+      console.error('[ShiftService] Error fetching shifts:');
       throw error;
     }
   },
@@ -69,9 +69,9 @@ export const shiftService = {
 
     try {
       // CORRECCIÓN: Retorno directo
-      return await api.get<Shift>(`/shifts/${id}`);
+      return await api.get<Shift>(`/shifts/${encodeURIComponent(String(id))}`);
     } catch (error) {
-      console.error(`[ShiftService] Error fetching shift ${id}:`, error);
+      console.error(`[ShiftService] Error fetching shift ${encodeURIComponent(String(id))}:`);
       throw error;
     }
   },
@@ -90,7 +90,7 @@ export const shiftService = {
       // CORRECCIÓN: Retorno directo
       return await api.post<Shift>('/shifts', data);
     } catch (error) {
-      console.error('[ShiftService] Error creating shift:', error);
+      console.error('[ShiftService] Error creating shift:');
       throw error;
     }
   },
@@ -104,9 +104,9 @@ export const shiftService = {
 
     try {
       // CORRECCIÓN: Retorno directo
-      return await api.patch<Shift>(`/shifts/${id}/start`);
+      return await api.patch<Shift>(`/shifts/${encodeURIComponent(String(id))}/start`);
     } catch (error) {
-      console.error(`[ShiftService] Error starting shift ${id}:`, error);
+      console.error(`[ShiftService] Error starting shift ${encodeURIComponent(String(id))}:`);
       throw error;
     }
   },
@@ -120,13 +120,13 @@ export const shiftService = {
 
     try {
       // CORRECCIÓN: Retorno directo
-      return await api.patch<Shift>(`/shifts/${id}/end`);
+      return await api.patch<Shift>(`/shifts/${encodeURIComponent(String(id))}/end`);
     } catch (error) {
-      console.error(`[ShiftService] Error ending shift ${id}:`, error);
+      console.error(`[ShiftService] Error ending shift ${encodeURIComponent(String(id))}:`);
       throw error;
     }
   },
-  
+
   /**
    * Cancelar un turno (cambiar estado a CANCELADO).
    * PATCH /shifts/{id}/cancel
@@ -136,9 +136,9 @@ export const shiftService = {
 
     try {
       // CORRECCIÓN: Retorno directo
-      return await api.patch<Shift>(`/shifts/${id}/cancel`);
+      return await api.patch<Shift>(`/shifts/${encodeURIComponent(String(id))}/cancel`);
     } catch (error) {
-      console.error(`[ShiftService] Error cancelling shift ${id}:`, error);
+      console.error(`[ShiftService] Error cancelling shift ${encodeURIComponent(String(id))}:`);
       throw error;
     }
   },

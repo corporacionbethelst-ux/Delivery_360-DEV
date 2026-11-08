@@ -1,13 +1,7 @@
 'use client';
-import { Fragment, useEffect, useSyncExternalStore, type PropsWithChildren } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore';
-import { getCredentialGeneration, onCredentialsChanged } from '@/lib/auth-session';
+import { type PropsWithChildren } from 'react';
+import { ManagerPageBoundary } from '@/components/layout/ManagerPageBoundary';
 
 export function RiderAuditAccess({ children, riderId = 'catalog' }: PropsWithChildren<{ riderId?: string }>) {
-  const router = useRouter(), { user, isAuthenticated } = useAuthStore();
-  const generation = useSyncExternalStore(onCredentialsChanged, getCredentialGeneration, () => 0);
-  const allowed = isAuthenticated && !!user && ['GERENTE', 'SUPERADMIN'].includes(user.role);
-  useEffect(() => { if (!allowed) router.replace('/login'); }, [allowed, router]);
-  return allowed ? <Fragment key={JSON.stringify([generation, user.id, user.role, riderId])}>{children}</Fragment> : <p role="status" className="p-6">Verificando acceso a auditoría…</p>;
+  return <ManagerPageBoundary scope={`audit:${riderId}`} pending="Verificando acceso a auditoría…">{children}</ManagerPageBoundary>;
 }
