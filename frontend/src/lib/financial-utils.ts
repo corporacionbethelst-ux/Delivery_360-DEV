@@ -146,7 +146,7 @@ export function processPaymentTransaction(
 ): PaymentTransaction {
   return {
     ...transaction,
-    id: `txn_${Date.now}_${Math.random().toString(36).substr(2, 9)}`,
+    id: generateTransactionId(),
     createdAt: new Date().toISOString(),
     status: 'PENDIENTE' as PaymentStatus, 
   };
@@ -292,7 +292,7 @@ export function validatePaymentAmount(amount: number): {
 } {
   const errors: string[] = [];
 
-  if (isNaN(amount)) {
+  if (!Number.isFinite(amount)) {
     errors.push('El monto debe ser un número válido');
   } else if (amount <= 0) {
     errors.push('El monto debe ser mayor a cero');
@@ -400,11 +400,11 @@ export function calculateInstallments(
  * Generate transaction ID
  */
 export function generateTransactionId(prefix: string = 'txn'): string {
-  const randomPart = typeof window !== 'undefined' && crypto.randomUUID 
+  const randomPart = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID() 
     : Math.random().toString(36).substr(2, 9);
     
-  return `${prefix}_${Date.now}_${randomPart}`;
+  return `${prefix}_${Date.now()}_${randomPart}`;
 }
 
 /**

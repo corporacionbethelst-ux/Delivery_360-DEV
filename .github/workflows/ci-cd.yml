@@ -284,12 +284,13 @@ jobs:
         run: |
           pip install playwright==1.56.0
           python -m playwright install --with-deps chromium
-      - name: Verify production assets, form validation and audit regressions
+      - name: Verify production assets, form validation and catalog regressions
         run: |
           chromium=$(python -c 'from playwright.sync_api import sync_playwright; p = sync_playwright().start(); print(p.chromium.executable_path); p.stop()')
           python frontend/e2e/production-smoke.browser.py --chromium "$chromium" --artifacts-dir browser-artifacts/production
           python frontend/e2e/rider-audit-catalog.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/catalog
           python frontend/e2e/rider-audit.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/detail
+          python frontend/e2e/delivery-catalog.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/deliveries
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && hashFiles('browser-artifacts/**') != '' }}
         with:

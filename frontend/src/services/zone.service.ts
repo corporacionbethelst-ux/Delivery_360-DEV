@@ -1,3 +1,4 @@
+import { apiDetail as formatApiDetail } from '@/lib/service-error';
 import { api } from '@/lib/api';
 import { AxiosError } from 'axios';
 import { Zone, ZoneCreateInput, ZoneFilters, ZoneUpdateInput } from '@/types/zone';
@@ -17,28 +18,8 @@ class ZoneServiceError extends Error {
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
-const formatApiDetail = (data: any): string | undefined => {
-  if (!data) return undefined;
-  if (typeof data.detail === 'string') return data.detail;
-  if (Array.isArray(data.detail)) {
-    return data.detail
-      .map((item: any) => `${Array.isArray(item.loc) ? item.loc.join('.') : 'campo'}: ${item.msg || item.message || 'inválido'}`)
-      .join('; ');
-  }
-  if (typeof data.message === 'string') {
-    if (Array.isArray(data.details) && data.details.length > 0) {
-      const details = data.details
-        .map((item: any) => `${item.field || 'campo'}: ${item.message || item.msg || 'inválido'}`)
-        .join('; ');
-      return `${data.message}: ${details}`;
-    }
-    return data.message;
-  }
-  return undefined;
-};
-
 const handleApiError = (error: unknown, context: string): never => {
-  console.error(`[ZoneService] ${context}:`, error);
+  console.error(`[ZoneService] ${context}:`, { status: error instanceof AxiosError ? error.response?.status : undefined });
 
   if (error instanceof AxiosError) {
     const message = formatApiDetail(error.response?.data) || error.message || 'Error desconocido';
@@ -88,13 +69,13 @@ const validateZonePayload = (data: ZoneCreateInput | ZoneUpdateInput, requireReq
     throw new ZoneServiceError('Nombre y código son requeridos', 400);
   }
 
-  if (data.delivery_fee_base !== undefined && data.delivery_fee_base < 0) {
+  if (data.delivery_fee_base !== undefined && (!Number.isFinite(data.delivery_fee_base) || data.delivery_fee_base < 0)) {
     throw new ZoneServiceError('La tarifa base no puede ser negativa', 400);
   }
-  if (data.cost_per_km !== undefined && data.cost_per_km < 0) {
+  if (data.cost_per_km !== undefined && (!Number.isFinite(data.cost_per_km) || data.cost_per_km < 0)) {
     throw new ZoneServiceError('El costo por kilómetro no puede ser negativo', 400);
   }
-  if (data.estimated_time_min !== undefined && data.estimated_time_min < 1) {
+  if (data.estimated_time_min !== undefined && (!Number.isInteger(data.estimated_time_min) || data.estimated_time_min < 1)) {
     throw new ZoneServiceError('El tiempo estimado debe ser mayor a cero', 400);
   }
   if (data.color_hex && !HEX_COLOR_RE.test(data.color_hex)) {

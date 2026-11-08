@@ -457,6 +457,55 @@ async def list_deliveries(
     return {"items": items, "total": final_total, "limit": limit, "offset": offset}
 
 
+@router.get("/page")
+async def delivery_catalog_page(
+    status: Optional[DeliveryStatus] = Query(None),
+    rider_id: Optional[uuid.UUID] = Query(None),
+    unassigned: Optional[bool] = Query(None),
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.GERENTE, UserRole.SUPERADMIN)),
+):
+    """Real delivery rows only; no synthetic order fallbacks or unbounded extras."""
+    if unassigned is True and rider_id is not None:
+        raise HTTPException(
+            status_code=400, detail="Filtros de asignación incompatibles"
+        )
+    delivery, rider, user, order = (
+        aliased(Delivery),
+        aliased(Rider),
+        aliased(User),
+        aliased(Order),
+    )
+    statement = (
+        select(delivery, rider, user, order)
+        .outerjoin(rider, delivery.rider_id == rider.id)
+        .outerjoin(user, rider.user_id == user.id)
+        .outerjoin(order, delivery.order_id == order.id)
+    )
+    if status is not None:
+        statement = statement.where(delivery.status == status)
+    if rider_id is not None:
+        statement = statement.where(delivery.rider_id == rider_id)
+    if unassigned is not None:
+        statement = statement.where(
+            delivery.rider_id.is_(None) if unassigned else delivery.rider_id.isnot(None)
+        )
+    total = await db.scalar(select(func.count()).select_from(statement.subquery()))
+    result = await db.execute(
+        statement.order_by(delivery.created_at.desc(), delivery.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return {
+        "items": [_serialize_delivery(*row) for row in result.all()],
+        "total": total or 0,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
 @router.get("/{delivery_id}")
 async def get_delivery(
     delivery_id: str,

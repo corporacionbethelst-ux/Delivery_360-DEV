@@ -30,6 +30,10 @@ export class WebSocketClient {
   private messageQueue: WSMessage[] = [];
   private subscribers: Map<string, Set<(data: any) => void>> = new Map();
   private statusListeners: Set<(status: WSConnectionStatus) => void> = new Set();
+  private generation = 0;
+  private manualDisconnect = false;
+  private connectionPromise: Promise<void>|null = null;
+  private cancelConnection: (()=>void)|null = null;
 
   constructor(config: WSConfig) {
     this.config = {
@@ -45,7 +49,12 @@ export class WebSocketClient {
    * SSR Safe: Only runs in browser
    */
   connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
+    if (this.isConnected()) return Promise.resolve();
+    if (this.connectionPromise) return this.connectionPromise;
+    this.manualDisconnect = false;
+    const generation = ++this.generation;
+    const promise = new Promise<void>((resolve, reject) => {
+      this.cancelConnection = ()=>reject(new Error('WebSocket connection cancelled'));
       // Seguridad SSR: Verificar si estamos en el navegador
       if (typeof window === 'undefined') {
         const error = new Error('WebSocket is not available in server-side rendering');
@@ -67,47 +76,63 @@ export class WebSocketClient {
         this.ws = new WebSocket(this.config.url);
 
         this.ws.onopen = () => {
+          if (generation !== this.generation) return;
           console.log('✅ WebSocket connected');
           this.setStatus('connected');
           this.reconnectAttempts = 0;
           this.startHeartbeat();
           this.flushMessageQueue();
           resolve();
+          this.cancelConnection = null;
         };
 
         this.ws.onmessage = (event) => {
+          if (generation !== this.generation) return;
           this.handleMessage(event.data);
         };
 
         this.ws.onerror = (error) => {
-          console.error('❌ WebSocket error:', error);
+          if (generation !== this.generation) return;
+          console.error('WebSocket connection error');
           this.setStatus('error');
+          reject(new Error('WebSocket connection error'));
           // No rechazamos la promesa aquí para permitir reconexión, 
           // pero notificamos el estado de error
         };
 
         this.ws.onclose = (event) => {
-          console.log(`🔌 WebSocket closed: ${event.code} - ${event.reason || 'Sin razón'}`);
+          if (generation !== this.generation) return;
+          reject(new Error('WebSocket closed before connection completed'));
+          this.ws = null;
           this.setStatus('disconnected');
           this.stopHeartbeat();
           this.attemptReconnect();
         };
       } catch (error) {
-        console.error('💥 Exception creating WebSocket:', error);
+        console.error('Exception creating WebSocket');
         this.setStatus('error');
-        reject(error);
+        reject(new Error('WebSocket connection failed'));
       }
     });
+    this.connectionPromise = promise;
+    const settle = ()=>{if (this.connectionPromise===promise) this.connectionPromise=null;};
+    void promise.then(settle,settle);
+    return promise;
   }
 
   /**
    * Disconnect from WebSocket server
    */
   disconnect(): void {
+    this.manualDisconnect = true;
+    this.generation++;
+    this.cancelConnection?.(); this.cancelConnection=null; this.connectionPromise=null;
+    this.messageQueue=[];
     this.stopHeartbeat();
     this.clearReconnectTimer();
     
     if (this.ws) {
+      this.ws.onopen=null;this.ws.onclose=null;this.ws.onmessage=null;this.ws.onerror=null;
       this.ws.close(1000, 'Client disconnect');
       this.ws = null;
     }
@@ -119,6 +144,7 @@ export class WebSocketClient {
    * Send message through WebSocket
    */
   send(message: WSMessage): void {
+    if (this.manualDisconnect) return;
     const enrichedMessage = {
       ...message,
       timestamp: Date.now(),
@@ -129,7 +155,7 @@ export class WebSocketClient {
       try {
         this.ws.send(JSON.stringify(enrichedMessage));
       } catch (error) {
-        console.error('Error sending message:', error);
+        console.error('Error sending WebSocket message');
         this.messageQueue.push(enrichedMessage);
       }
     } else {
@@ -137,6 +163,7 @@ export class WebSocketClient {
       this.messageQueue.push(enrichedMessage);
       console.warn('⚠️ WebSocket not connected, message queued');
     }
+    if (this.messageQueue.length>100) this.messageQueue.shift();
   }
 
   /**
@@ -162,7 +189,7 @@ export class WebSocketClient {
     this.statusListeners.add(callback);
     
     // Notify immediately with current status
-    callback(this.status);
+    try {callback(this.status);} catch {console.error('Error in status listener');}
     
     return () => {
       this.statusListeners.delete(callback);
@@ -188,7 +215,8 @@ export class WebSocketClient {
    */
   private handleMessage(data: string): void {
     try {
-      const message: WSMessage = JSON.parse(data);
+      const message = parseWSMessage(data);
+      if (!message) return;
       
       // Notify subscribers for this message type
       const subscribers = this.subscribers.get(message.type);
@@ -197,7 +225,7 @@ export class WebSocketClient {
           try {
             callback(message.data);
           } catch (err) {
-            console.error(`Error in subscriber for ${message.type}:`, err);
+            console.error('Error in WebSocket subscriber');
           }
         });
       }
@@ -209,7 +237,7 @@ export class WebSocketClient {
           try {
             callback(message);
           } catch (err) {
-            console.error('Error in generic subscriber:', err);
+            console.error('Error in generic subscriber');
           }
         });
       }
@@ -222,6 +250,7 @@ export class WebSocketClient {
    * Attempt to reconnect with exponential backoff
    */
   private attemptReconnect(): void {
+    if (this.manualDisconnect) return;
     if (this.reconnectAttempts >= this.config.maxReconnectAttempts!) {
       console.error('🚫 Max reconnection attempts reached. Giving up.');
       return;
@@ -235,7 +264,7 @@ export class WebSocketClient {
 
     this.clearReconnectTimer();
     this.reconnectTimer = setTimeout(() => {
-      this.connect().catch(console.error);
+      this.connect().catch(()=>console.error('WebSocket reconnect failed'));
     }, delay);
   }
 
@@ -254,6 +283,7 @@ export class WebSocketClient {
    */
   private startHeartbeat(): void {
     this.stopHeartbeat();
+    if (!this.config.heartbeatInterval || this.config.heartbeatInterval<0) return;
     
     this.heartbeatTimer = setInterval(() => {
       if (this.isConnected()) {
@@ -301,7 +331,7 @@ export class WebSocketClient {
       try {
         listener(status);
       } catch (err) {
-        console.error('Error in status listener:', err);
+        console.error('Error in status listener');
       }
     });
   }
@@ -310,7 +340,7 @@ export class WebSocketClient {
    * Generate unique correlation ID
    */
   private generateCorrelationId(): string {
-    return `msg_${Date.now}_${Math.random().toString(36).substr(2, 9)}`;
+    return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 }
 
@@ -338,7 +368,7 @@ export function getWebSocketUrl(): string {
   }
 
   const isProduction = process.env.NODE_ENV === 'production';
-  const protocol = isProduction ? 'wss:' : 'ws:';
+  const protocol = isProduction || window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   // Usar variable de entorno específica si existe, o fallback al host actual
   const host = process.env.NEXT_PUBLIC_WS_HOST || window.location.host;
   
@@ -350,9 +380,10 @@ export function getWebSocketUrl(): string {
  */
 export function parseWSMessage(data: string): WSMessage | null {
   try {
-    return JSON.parse(data);
+    const value:unknown=JSON.parse(data);
+    return value && typeof value==='object' && !Array.isArray(value) && 'type' in value && typeof value.type==='string' && value.type.trim() ? value as WSMessage : null;
   } catch (error) {
-    console.error('Error parsing WebSocket message:', error);
+    console.error('Error parsing WebSocket message');
     return null;
   }
 }
@@ -365,7 +396,7 @@ export function formatWSMessage(type: string, data: any, correlationId?: string)
     type,
     data,
     timestamp: Date.now(),
-    correlationId: correlationId || `msg_${Date.now}_${Math.random().toString(36).substr(2, 9)}`,
+    correlationId: correlationId || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
   };
 }
 

@@ -1,3 +1,4 @@
+import { apiDetail as formatApiDetail } from '@/lib/service-error';
 import { requireVehicleEditRevision } from '@/lib/vehicle-revision';
 import { api } from '@/lib/api';
 import { AxiosError } from 'axios';
@@ -70,27 +71,6 @@ class ServiceError extends Error {
 }
 
 // --- Helpers Internos ---
-
-const formatApiDetail = (data: any): string | undefined => {
-  if (!data) return undefined;
-  if (typeof data.detail === 'string') return data.detail;
-  if (data.detail && typeof data.detail === 'object' && typeof data.detail.message === 'string') return data.detail.message;
-  if (Array.isArray(data.detail)) {
-    return data.detail
-      .map((item: any) => `${Array.isArray(item.loc) ? item.loc.join('.') : 'campo'}: ${item.msg || item.message || 'inválido'}`)
-      .join('; ');
-  }
-  if (typeof data.message === 'string') {
-    if (Array.isArray(data.details) && data.details.length > 0) {
-      const detailText = data.details
-        .map((item: any) => `${item.field || 'campo'}: ${item.message || item.msg || 'inválido'}`)
-        .join('; ');
-      return `${data.message}: ${detailText}`;
-    }
-    return data.message;
-  }
-  return undefined;
-};
 
 const handleApiError = (error: unknown, context: string): never => {
   console.error(`[VehicleService] ${context}:`, {
@@ -191,13 +171,13 @@ export const vehicleService = {
     if (!data.plate || !data.model || !data.year) {
       throw new ServiceError('Placa, Modelo y Año son requeridos', 400);
     }
-    
+
     const cleanPlate = data.plate.trim().toUpperCase();
     if (!/^[A-Z0-9-]+$/.test(cleanPlate)) {
       throw new ServiceError('Formato de placa inválido. Solo letras, números y guiones.', 400);
     }
 
-    if (data.year < 1900 || data.year > new Date().getFullYear() + 1) {
+    if (!Number.isInteger(data.year) || data.year < 1900 || data.year > new Date().getFullYear() + 1) {
       throw new ServiceError('Año del vehículo inválido', 400);
     }
 
@@ -218,7 +198,7 @@ export const vehicleService = {
     if (!id || !isValidUuid(id)) {
       throw new ServiceError('ID de vehículo inválido', 400);
     }
-    
+
     const revision = requireVehicleEditRevision(expectedRevision);
     const payload: any = { ...data };
     if (payload.plate) {
