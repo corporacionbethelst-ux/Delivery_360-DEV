@@ -6,6 +6,11 @@ import json
 from enum import Enum
 from fastapi.routing import APIRoute, APIWebSocketRoute
 
+try:
+    from fastapi.routing import iter_route_contexts
+except ImportError:  # Read historical surfaces under the previous framework too.
+    iter_route_contexts = None
+
 
 def callable_name(value):
     if inspect.isfunction(value) or inspect.ismethod(value):
@@ -18,7 +23,15 @@ def dependency_contract(dependant, definitions):
         "call": callable_name(dependant.call),
         "name": dependant.name,
         "use_cache": dependant.use_cache,
-        "security_scopes": dependant.security_scopes or [],
+        "security_scopes": (
+            getattr(dependant, "security_scopes", None)
+            or list(
+                dict.fromkeys(
+                    (getattr(dependant, "parent_oauth_scopes", None) or [])
+                    + (getattr(dependant, "own_oauth_scopes", None) or [])
+                )
+            )
+        ),
     }
     # Only the public role allowlist is inspected, not arbitrary closure state.
     call = dependant.call
@@ -42,22 +55,24 @@ def dependency_contract(dependant, definitions):
 def api_surface(app):
     routes = []
     definitions = {}
-    for route in app.routes:
+    contexts = iter_route_contexts(app.routes) if iter_route_contexts else app.routes
+    for context in contexts:
+        route = getattr(context, "original_route", context)
         row = {
-            "path": route.path,
-            "name": route.name,
+            "path": context.path,
+            "name": context.name,
             "route_class": type(route).__name__,
-            "methods": sorted(getattr(route, "methods", ()) or ()),
+            "methods": sorted(getattr(context, "methods", ()) or ()),
         }
         if isinstance(route, (APIRoute, APIWebSocketRoute)):
             row["dependency_contract"] = dependency_contract(
-                route.dependant, definitions
+                context.dependant, definitions
             )
         if isinstance(route, APIRoute):
             row.update(
-                status_code=route.status_code,
-                tags=route.tags,
-                include_in_schema=route.include_in_schema,
+                status_code=context.status_code,
+                tags=context.tags,
+                include_in_schema=context.include_in_schema,
             )
         routes.append(row)
     schema = json.dumps(
@@ -68,3 +83,8 @@ def api_surface(app):
         "dependencies": definitions,
         "openapi_sha256": hashlib.sha256(schema.encode()).hexdigest(),
     }
+
+
+def effective_routes(app):
+    """Inspect prefixed routes through the framework's public route contexts."""
+    return list(iter_route_contexts(app.routes)) if iter_route_contexts else app.routes

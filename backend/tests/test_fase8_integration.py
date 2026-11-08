@@ -16,13 +16,15 @@ MANUALES de la aplicación van a funcionar:
 Se mockea SOLO la capa de persistencia (AsyncSession) e infraestructura
 (Redis); TrackingService, Pydantic, JWT y FastAPI se ejecutan reales.
 """
+
+from tests.api_surface_contract import effective_routes
 import uuid
 from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from jose import jwt
+import jwt
 import pytest
 from fastapi.testclient import TestClient
 
@@ -219,7 +221,7 @@ def test_smoke_app_boots_and_tracking_routes_mounted(client):
         assert p in spec, f"Ruta REST Fase 8 ausente en OpenAPI: {p}"
     from app.main import app
 
-    ws_paths = [r.path for r in app.routes if type(r).__name__ == "APIWebSocketRoute"]
+    ws_paths = [r.path for r in effective_routes(app) if type(getattr(r, "original_route", r)).__name__ == "APIWebSocketRoute"]
     # Ruta WS REAL montada en main.py: /api/v1/tracking/ws/{channel}
     assert any(p.startswith("/api/v1/tracking/ws") for p in ws_paths), f"WS tracking ausente: {ws_paths}"
 

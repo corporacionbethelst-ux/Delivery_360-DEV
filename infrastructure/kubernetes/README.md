@@ -52,6 +52,9 @@ Un administrador debe preparar y verificar, antes de cualquier apply:
   para esos recursos y namespace. Nunca incluirlo en el repositorio o los logs.
 - Secret `delivery360-runtime` con `DATABASE_URL`, `REDIS_URL` y `SECRET_KEY` reales;
   agregar por canal seguro las demás opciones de proveedores necesarias.
+  Desde la entrega 73, el backend rechaza en producción el secreto predeterminado,
+  espacios extremos o longitud insuficiente: 32/48/64 caracteres para HS256/384/512.
+  JWT_ALGORITHM debe ser uno de esos algoritmos y las duraciones, positivas.
 - Secret TLS `delivery360-tls`, DNS y controlador ingressClass `nginx` funcionales.
 - PVC `delivery360-uploads` en estado Bound y escribible por UID/grupo 10001.
   Producción exige `ReadWriteMany` para las dos réplicas; staging usa una réplica,
@@ -92,6 +95,11 @@ solo mediante `kubectl rollout undo`.
 
 El preflight y dry-run no son transaccionales. Las protecciones de GitHub solo
 están activas si un administrador las configura en el servicio.
+
+La entrega 73 agrega auditoría del runtime Python instalado y smoke del contenedor
+backend como requisitos del gate. Los cuerpos HTTP y tiempos de recepción tienen
+límites explícitos; comprobarlos con tráfico y conectividad reales antes de apply.
+Contrato: [SECURITY_AND_REQUEST_LIMITS.md](../../backend/SECURITY_AND_REQUEST_LIMITS.md).
 
 ## Validación local sin clúster
 

@@ -8,7 +8,8 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.core.token_version import valid_token_version, token_version_matches
-from jose import JWTError, jwt
+import jwt
+from jwt import InvalidTokenError
 from passlib.context import CryptContext
 from app.core.config import settings
 import secrets
@@ -155,11 +156,33 @@ def decode_token(token: str, verify_type: Optional[str] = None) -> Optional[dict
         3. Valida tipo de token si se especificó
         4. Verifica presencia de jti (unique token ID)
     """
+    if (
+        not isinstance(token, str)
+        or len(token) > 8192
+        or settings.JWT_ALGORITHM not in {"HS256", "HS384", "HS512"}
+    ):
+        return None
     try:
         # Decodificar token verificando firma y expiración automáticamente
         payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.JWT_ALGORITHM],
+            options={"require": ["sub", "exp", "iat", "jti", "type"]},
         )
+
+        # All first-party tokens carry integer NumericDates and non-empty IDs.
+        # Reject booleans, numeric strings and non-finite/coerced claims.
+        if (
+            any(type(payload[field]) is not int for field in ("exp", "iat"))
+            or not 0 <= payload["iat"] <= payload["exp"] <= 253402300799
+            or any(
+                not isinstance(payload[field], str) or not payload[field].strip()
+                for field in ("sub", "jti")
+            )
+            or payload["type"] not in ("access", "refresh")
+        ):
+            return None
 
         # Verificar que el tipo de token coincida si se especificó uno esperado
         if verify_type and payload.get("type") != verify_type:
@@ -174,7 +197,7 @@ def decode_token(token: str, verify_type: Optional[str] = None) -> Optional[dict
 
         # Retornar payload completo con todos los claims
         return payload
-    except JWTError:
+    except (InvalidTokenError, ValueError, TypeError, OverflowError):
         # Capturar cualquier error de decodificación (firma inválida, expirado, malformado)
         return None
 
