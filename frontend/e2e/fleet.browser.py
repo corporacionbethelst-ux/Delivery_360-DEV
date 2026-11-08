@@ -55,7 +55,13 @@ def main():
     artifacts = Path(args.artifacts_dir)
     artifacts.mkdir(parents=True, exist_ok=True)
     requests, writes, errors, checks = [], [], [], []
-    state = {"failure": False}
+    state = {
+        "failure": False,
+        "vehicle_detail_failure": True,
+        "zone_detail_failure": True,
+        "wrong_vehicle": False,
+        "profile_missing": False,
+    }
     rows = [
         vehicle(1),
         vehicle(2, type="AUTO", status="MANTENIMIENTO"),
@@ -120,6 +126,41 @@ def main():
                         )
                     ]
                 )
+                route.fulfill(json=data, headers=headers)
+            elif path.startswith(("/api/v1/vehicles/", "/api/v1/zones/")):
+                requests.append({"path": path, "query": query})
+                kind = "vehicle" if "/vehicles/" in path else "zone"
+                if state[kind + "_detail_failure"]:
+                    route.fulfill(
+                        status=503,
+                        json={"detail": "Fallo de lectura de " + kind},
+                        headers=headers,
+                    )
+                    return
+                if kind == "vehicle":
+                    data = vehicle(
+                        2 if state["wrong_vehicle"] else 1,
+                        rider_id="123e4567-e89b-42d3-a456-000000000700",
+                        rider_profile_id=(
+                            None
+                            if state["profile_missing"]
+                            else "123e4567-e89b-42d3-a456-000000000701"
+                        ),
+                        rider_name=(
+                            None if state["profile_missing"] else "Ana Repartidora"
+                        ),
+                        notes="Mantenimiento preventivo",
+                    )
+                else:
+                    data = {
+                        **zone(0),
+                        "cost_per_km": 0.75,
+                        "bonus_multiplier": 1.25,
+                        "description": "Zona registrada",
+                        "center_lat": None,
+                        "center_lng": None,
+                        "riders_count": None,
+                    }
                 route.fulfill(json=data, headers=headers)
             elif path.endswith(("/auth/me", "/users/me")):
                 route.fulfill(
@@ -294,6 +335,173 @@ def main():
         )
         passed(
             "new vehicle keeps its fields, accessible type selection and local validation"
+        )
+
+        page.goto(
+            base + "/manager/fleet/vehicles/" + vehicle(1)["id"],
+            wait_until="domcontentloaded",
+        )
+        expect(
+            page.get_by_role("alert").filter(has_text="Fallo de lectura de vehicle")
+        ).to_be_visible()
+        expect(
+            page.get_by_role("button", name="Guardar Cambios", exact=True)
+        ).to_have_count(0)
+        state["vehicle_detail_failure"] = False
+        page.get_by_role("button", name="Recargar ficha", exact=True).click()
+        plate = page.get_by_label("Placa / Matrícula *", exact=True)
+        expect(plate).to_have_value("ABC-001")
+        expect(page.get_by_label("Tipo de Vehículo *", exact=True)).to_be_visible()
+        expect(page.get_by_label("Estado Operativo *", exact=True)).to_be_visible()
+        expect(
+            page.get_by_text("Fallo de lectura de vehicle", exact=True)
+        ).to_have_count(0)
+        passed(
+            "vehicle editor hides default drafts on read failure and reloads its actual record"
+        )
+
+        page.get_by_label("Año *", exact=True).fill("2025.5")
+        page.get_by_role("button", name="Guardar Cambios", exact=True).click()
+        expect(
+            page.get_by_role("alert").filter(has_text="Año del vehículo inválido.")
+        ).to_be_visible()
+        page.get_by_label("Año *", exact=True).fill("2026")
+        state["profile_missing"] = True
+        page.get_by_role("button", name="Recargar ficha", exact=True).click()
+        expect(
+            page.get_by_text("Nombre de repartidor no informado", exact=True)
+        ).to_be_visible()
+        expect(page.get_by_role("button", name="Ver Rider", exact=True)).to_have_count(
+            0
+        )
+        state["profile_missing"] = False
+        page.get_by_role("button", name="Recargar ficha", exact=True).click()
+        expect(page.get_by_role("button", name="Ver Rider", exact=True)).to_be_visible()
+        passed(
+            "vehicle editor rejects fractional years and does not invent a profile from a user ID"
+        )
+
+        state["wrong_vehicle"] = True
+        page.get_by_role("button", name="Recargar ficha", exact=True).click()
+        expect(
+            page.get_by_role("alert").filter(has_text="La ficha no coincide")
+        ).to_be_visible()
+        expect(
+            page.get_by_role("button", name="Guardar Cambios", exact=True)
+        ).to_have_count(0)
+        state["wrong_vehicle"] = False
+        page.get_by_role("button", name="Recargar ficha", exact=True).click()
+        expect(plate).to_have_value("ABC-001")
+        expect(
+            page.get_by_text(
+                "La ficha no coincide con el vehículo solicitado.", exact=True
+            )
+        ).to_have_count(0)
+        page.screenshot(
+            path=str(artifacts / "vehicle-editor-desktop.png"),
+            full_page=True,
+            animations="disabled",
+        )
+        passed(
+            "vehicle editor refuses a response for another record before enabling edits"
+        )
+
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.wait_for_function(
+            "document.querySelector('aside').getBoundingClientRect().right <= 1"
+        )
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        page.screenshot(
+            path=str(artifacts / "vehicle-editor-mobile.png"), animations="disabled"
+        )
+        passed("vehicle editor and its controls fit mobile without document overflow")
+
+        page.set_viewport_size({"width": 1440, "height": 1100})
+        page.goto(
+            base + "/manager/fleet/zones/" + zone(0)["id"],
+            wait_until="domcontentloaded",
+        )
+        expect(
+            page.get_by_role("alert").filter(has_text="Fallo de lectura de zone")
+        ).to_be_visible()
+        expect(
+            page.get_by_role("button", name="Guardar Cambios", exact=True)
+        ).to_have_count(0)
+        expect(
+            page.get_by_role("button", name="Eliminar Zona", exact=True)
+        ).to_have_count(0)
+        state["zone_detail_failure"] = False
+        page.get_by_role("button", name="Recargar ficha", exact=True).click()
+        expect(page.get_by_label("Nombre de la Zona *", exact=True)).to_have_value(
+            "Centro 0"
+        )
+        latitude = page.get_by_label("Latitud", exact=True)
+        expect(latitude).to_have_value("")
+        expect(page.get_by_label("Longitud", exact=True)).to_have_value("")
+        expect(page.get_by_text("No informado", exact=True)).to_be_visible()
+        expect(page.get_by_label("Multiplicador de Bono", exact=True)).to_have_value(
+            "1.25"
+        )
+        expect(page.get_by_text(re.compile("unidades × 1.25 ≈"))).to_be_visible()
+        passed(
+            "zone editor requires a loaded record and preserves unknown coordinates and multiplier precision"
+        )
+
+        latitude.fill("91")
+        page.get_by_role("button", name="Guardar Cambios", exact=True).click()
+        expect(
+            page.get_by_role("alert").filter(has_text="Comprueba las coordenadas")
+        ).to_be_visible()
+        latitude.fill("0")
+        expect(latitude).to_have_value("0")
+        latitude.fill("")
+        minutes = page.get_by_label("Tiempo Est. (min)", exact=True)
+        minutes.fill("1.5")
+        page.get_by_role("button", name="Guardar Cambios", exact=True).click()
+        expect(
+            page.get_by_role("alert").filter(
+                has_text="El tiempo estimado debe ser un entero"
+            )
+        ).to_be_visible()
+        minutes.fill("30")
+        expect(
+            page.get_by_role("button", name="Ajustar en Mapa", exact=True)
+        ).to_have_count(0)
+        page.evaluate(
+            "document.querySelector('main > div.overflow-auto').scrollTo({top:0,behavior:'instant'})"
+        )
+        page.screenshot(
+            path=str(artifacts / "zone-editor-desktop.png"),
+            full_page=True,
+            animations="disabled",
+        )
+        passed(
+            "zone editor validates coordinates and time locally with no unsupported map action"
+        )
+
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.wait_for_function(
+            "document.querySelector('aside').getBoundingClientRect().right <= 1"
+        )
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        expect(
+            page.get_by_role("button", name="Guardar Cambios", exact=True)
+        ).to_be_visible()
+        page.screenshot(
+            path=str(artifacts / "zone-editor-mobile.png"), animations="disabled"
+        )
+        page.get_by_label("Nombre de la Zona *", exact=True).fill("Nombre sin guardar")
+        page.get_by_role("button", name="Eliminar Zona", exact=True).click()
+        dialog = page.get_by_role("dialog")
+        expect(dialog).to_contain_text("Centro 0")
+        expect(dialog).not_to_contain_text("Nombre sin guardar")
+        page.screenshot(
+            path=str(artifacts / "zone-delete-mobile.png"), animations="disabled"
+        )
+        dialog.get_by_role("button", name="Cancelar", exact=True).click()
+        expect(dialog).to_have_count(0)
+        passed(
+            "mobile zone editor retains its save bar and cancelable delete confirmation"
         )
         assert writes == [], writes
         assert errors == [], errors

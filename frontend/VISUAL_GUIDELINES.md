@@ -48,6 +48,13 @@ observaciones/cobertura. Las acciones de fila deben permanecer visibles en móvi
 y teclado; las paletas de color deben ofrecer nombres accesibles y selección
 explícita. Los esquemas de zonas se identifican como esquemas y muestran su límite.
 
+La entrega 77 extiende la línea a las fichas de edición de vehículo y zona. Una
+ficha sin lectura confirmada debe mostrar error y recarga, no campos con valores
+iniciales editables. Conservar el registro identificado durante las operaciones,
+bloquear el borrador pendiente y mostrar la identidad cargada en las confirmaciones.
+Los campos de coordenadas distinguen vacío de cero; los ejemplos de bonos se
+identifican como ilustrativos y no sustituyen importes reales.
+
 Antes de publicar una actualización visual, comprobar el build real en escritorio y
 móvil, revisar capturas y ejecutar las regresiones relevantes. Las pruebas Chromium
 existentes de entregas y auditoría interceptan datos de negocio: permiten revisar
