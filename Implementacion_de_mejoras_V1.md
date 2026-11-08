@@ -7075,3 +7075,32 @@ sin cambios en este delta. CI nuevo observado por SHA, sin merge ni deploy.
 
 Registro: [frontend/ENTREGA_76.md](frontend/ENTREGA_76.md).
 Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
+
+## Entrega 77 — Fichas de flota y edición fiable (08/11/2026)
+
+Base main `5d6b63c3e7c5d8e376743180a2e2a189427f6f79`, árbol
+`b1157a63480aee591d6def161b0f037689ddb5a4`; entrega 76 integrada por el
+propietario y CI completo aprobado.
+
+Fichas de vehículo y zona con la misma línea visual, selectores etiquetados,
+controles bloqueados durante operaciones y barra de acciones móvil. Lecturas
+fallidas o de otro ID no habilitan formularios iniciales. Respuestas y timers
+retirados al cambiar de ficha; guardados fallidos conservan el borrador.
+
+Coordenadas nulas no se convierten en cero; campos reales sustituyen el botón
+sin acción de ajuste en mapa. Validaciones sin redondeo de años/minutos,
+multiplicador completo en el ejemplo y vencimiento de seguro por día calendario.
+Los enlaces a repartidor usan su ID de perfil, conservando el ID de usuario como
+dominio distinto. Eliminar zona confirma el nombre cargado, no el borrador.
+Las revisiones de vehículo se conservan; no se añade concurrencia entre operadores
+al backend de zonas.
+
+**37 casos nuevos**; suite final **2257 pruebas / 111 suites aprobadas**. Cobertura
+**56,79 % sentencias, 52,45 % ramas, 52,45 % funciones y 55,74 % líneas** sin
+cambiar mínimos o exclusiones. Tipos, lint y build de 48 páginas aprobados.
+Chromium: **40 comprobaciones** sobre el build final, cero escrituras de negocio
+y excepciones. Backend, servicios, dependencias y formulario original de orden
+sin cambios. CI observado por SHA; sin merge, deploy u operaciones productivas.
+
+Registro: [frontend/ENTREGA_77.md](frontend/ENTREGA_77.md).
+Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
