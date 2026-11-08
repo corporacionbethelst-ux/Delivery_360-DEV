@@ -221,10 +221,31 @@ def main():
         )
         page.screenshot(
             path=str(artifacts / "deliveries-mobile.png"),
-            full_page=True,
+            full_page=False,
             animations="disabled",
         )
         passed("desktop and mobile render with table-local horizontal scrolling")
+        scroll = page.get_by_role(
+            "region", name="Tabla de entregas, desplazamiento horizontal", exact=True
+        )
+        scroll.focus()
+        expect(scroll).to_be_focused()
+        page.keyboard.press("ArrowRight")
+        page.wait_for_function(
+            "document.querySelector('[aria-label=\"Tabla de entregas, desplazamiento horizontal\"]').scrollLeft > 0"
+        )
+        scroll.evaluate(
+            "el => el.scrollIntoView({behavior: 'instant', block: 'start'})"
+        )
+        page.evaluate(
+            "() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))"
+        )
+        page.screenshot(
+            path=str(artifacts / "deliveries-mobile-table.png"),
+            full_page=False,
+            animations="disabled",
+        )
+        passed("delivery table supports horizontal scrolling from the keyboard")
         assert writes == [], writes
         assert errors == [], errors
         passed("zero business mutations and zero browser exceptions")

@@ -7019,3 +7019,29 @@ infraestructura, auditoría final de imágenes, E2E/carga/restauración y homolo
 bancaria/fiscal/proveedores. Los helpers financieros son estimaciones y el SDK
 WebSocket no certifica un transporte productivo nuevo. Sin merge/deploy ni
 operaciones productivas; el estado del CI se distingue por el SHA publicado.
+
+## Entrega 75 — Identidad visual de operaciones (08/11/2026)
+
+Se continúa desde main `99310d91c548b1cfddb191b216c543aa44910174`, con la entrega
+74 integrada por el propietario y su CI completo aprobado. Se toma el formulario
+de nueva orden como referencia visual, conservando su código y estructura.
+
+Entregas, catálogo y detalle de auditoría incorporan encabezados azul/cian o
+índigo/violeta, iconos por sección, indicadores con alcance claro, etiquetas de
+estado, tarjetas y tablas más legibles, acciones uniformes y adaptación móvil.
+Presentación compartida sin alterar hooks, permisos, datos, filtros, CSV o
+reintentos. Desconocidos neutros; cero, false e IDs preservados. Contenedores de
+tablas con foco visible y desplazamiento por teclado. La guía visual documenta
+este criterio para las próximas actualizaciones del frontend.
+
+Validación nueva: **2208 pruebas / 109 suites aprobadas**; cobertura global
+**54,82 % sentencias, 50,80 % ramas, 50,32 % funciones y 53,46 % líneas**, sin
+cambiar mínimos o exclusiones. Tipos, lint y build de 48 páginas aprobados.
+Chromium: **25 comprobaciones** sobre el build final, capturas de escritorio/móvil,
+CSV real de datos sintéticos, reintentos, retiro por logout y teclado; cero
+escrituras de negocio y excepciones. Backend y dependencias sin cambios en este
+delta; no se atribuye una corrida backend local nueva.
+
+Registro: [frontend/ENTREGA_75.md](frontend/ENTREGA_75.md).
+Criterio visual: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
+El CI se observa por SHA en el PR. Sin merge, deploy ni operaciones productivas.

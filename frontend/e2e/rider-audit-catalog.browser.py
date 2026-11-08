@@ -308,7 +308,9 @@ def main():
         ).to_be_visible()
         expect(page.get_by_role("button", name="Exportar página CSV")).to_be_enabled()
         page.screenshot(
-            path=str(artifacts / "audit-catalog-desktop.png"), full_page=True
+            path=str(artifacts / "audit-catalog-desktop.png"),
+            full_page=True,
+            animations="disabled",
         )
         passed("rapid_filters_combine_and_old_response_cannot_replace_new_query")
 
@@ -325,7 +327,9 @@ def main():
             box = page.get_by_label(label, exact=True).bounding_box()
             assert box["x"] >= 0 and box["x"] + box["width"] <= 390
         page.screenshot(
-            path=str(artifacts / "audit-catalog-mobile.png"), full_page=True
+            path=str(artifacts / "audit-catalog-mobile.png"),
+            full_page=False,
+            animations="disabled",
         )
         passed("mobile_filters_and_cards_fit_viewport")
 
