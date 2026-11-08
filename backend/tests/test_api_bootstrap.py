@@ -58,8 +58,32 @@ PREVIOUS = Path(__file__).parent / "fixtures/api_surface_before_bootstrap.json"
 RECONCILIATION = (
     Path(__file__).parent / "fixtures/api_surface_after_reconciliation.json"
 )
-EXPECTED = Path(__file__).parent / "fixtures/api_surface_after_payout_pagination.json"
+PAYOUT_SURFACE = (
+    Path(__file__).parent / "fixtures/api_surface_after_payout_pagination.json"
+)
+EXPECTED = Path(__file__).parent / "fixtures/api_surface_after_readiness.json"
 BACKEND = Path(__file__).resolve().parents[1]
+
+
+def before_readiness_schema():
+    schema = deepcopy(app.openapi())
+    response = schema["paths"]["/health/ready"]["get"]["responses"].pop("503")
+    assert response == {"description": "Database or Redis unavailable"}
+    return schema
+
+
+def test_readiness_only_adds_the_explicit_unavailable_response():
+    previous = json.loads(PAYOUT_SURFACE.read_text())
+    current = api_surface(app)
+    assert current["routes"] == previous["routes"]
+    assert current["dependencies"] == previous["dependencies"]
+    canonical = json.dumps(
+        before_readiness_schema(),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    assert hashlib.sha256(canonical.encode()).hexdigest() == previous["openapi_sha256"]
 
 
 @pytest.mark.parametrize("name", MODULES)
@@ -100,7 +124,7 @@ def test_reconciliation_addition_preserves_all_preexisting_routes_and_openapi():
         current["dependencies"].get(key) == value
         for key, value in previous["dependencies"].items()
     )
-    schema = deepcopy(app.openapi())
+    schema = before_readiness_schema()
     del schema["paths"]["/api/v1/payouts/page"]
     new_paths = {
         prefix + path
@@ -148,7 +172,7 @@ def test_payout_pagination_preserves_existing_routes_dependencies_and_openapi():
     )
     paths = [row["path"] for row in current["routes"]]
     assert paths.index(path) < paths.index("/api/v1/payouts/{payout_id}")
-    schema = deepcopy(app.openapi())
+    schema = before_readiness_schema()
     del schema["paths"][path]
     canonical = json.dumps(
         schema, sort_keys=True, separators=(",", ":"), ensure_ascii=True

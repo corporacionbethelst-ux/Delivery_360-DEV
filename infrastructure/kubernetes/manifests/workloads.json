@@ -1,0 +1,384 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "backend",
+        "namespace": "__NAMESPACE__"
+      },
+      "spec": {
+        "replicas": "__REPLICAS__",
+        "revisionHistoryLimit": 3,
+        "strategy": {
+          "type": "RollingUpdate",
+          "rollingUpdate": {
+            "maxUnavailable": 0,
+            "maxSurge": 1
+          }
+        },
+        "selector": {
+          "matchLabels": {
+            "app": "backend"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "backend"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 10001,
+              "runAsGroup": 10001,
+              "fsGroup": 10001,
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "containers": [
+              {
+                "name": "backend",
+                "image": "__BACKEND_IMAGE__",
+                "ports": [
+                  {
+                    "containerPort": 8000,
+                    "name": "http"
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "256Mi"
+                  },
+                  "limits": {
+                    "cpu": "2",
+                    "memory": "1Gi"
+                  }
+                },
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "readOnlyRootFilesystem": true,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "startupProbe": {
+                  "httpGet": {
+                    "path": "/health/live",
+                    "port": "http",
+                    "httpHeaders": [
+                      {
+                        "name": "Host",
+                        "value": "__HOST__"
+                      }
+                    ]
+                  },
+                  "failureThreshold": 30,
+                  "periodSeconds": 10
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/health/live",
+                    "port": "http",
+                    "httpHeaders": [
+                      {
+                        "name": "Host",
+                        "value": "__HOST__"
+                      }
+                    ]
+                  },
+                  "timeoutSeconds": 5,
+                  "periodSeconds": 15
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health/ready",
+                    "port": "http",
+                    "httpHeaders": [
+                      {
+                        "name": "Host",
+                        "value": "__HOST__"
+                      }
+                    ]
+                  },
+                  "timeoutSeconds": 5,
+                  "periodSeconds": 10
+                },
+                "volumeMounts": [
+                  {
+                    "name": "tmp",
+                    "mountPath": "/tmp"
+                  },
+                  {
+                    "name": "uploads",
+                    "mountPath": "/app/uploads"
+                  }
+                ],
+                "envFrom": [
+                  {
+                    "secretRef": {
+                      "name": "delivery360-runtime"
+                    }
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "ENVIRONMENT",
+                    "value": "__ENVIRONMENT__"
+                  },
+                  {
+                    "name": "DEBUG",
+                    "value": "false"
+                  },
+                  {
+                    "name": "FRONTEND_URL",
+                    "value": "__ORIGIN__"
+                  },
+                  {
+                    "name": "BACKEND_CORS_ORIGINS",
+                    "value": "__CORS__"
+                  }
+                ]
+              }
+            ],
+            "volumes": [
+              {
+                "name": "tmp",
+                "emptyDir": {}
+              },
+              {
+                "name": "uploads",
+                "persistentVolumeClaim": {
+                  "claimName": "delivery360-uploads"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "backend",
+        "namespace": "__NAMESPACE__"
+      },
+      "spec": {
+        "type": "ClusterIP",
+        "selector": {
+          "app": "backend"
+        },
+        "ports": [
+          {
+            "name": "http",
+            "port": 8000,
+            "targetPort": "http"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "frontend",
+        "namespace": "__NAMESPACE__"
+      },
+      "spec": {
+        "replicas": "__REPLICAS__",
+        "revisionHistoryLimit": 3,
+        "strategy": {
+          "type": "RollingUpdate",
+          "rollingUpdate": {
+            "maxUnavailable": 0,
+            "maxSurge": 1
+          }
+        },
+        "selector": {
+          "matchLabels": {
+            "app": "frontend"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "frontend"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 1000,
+              "runAsGroup": 1000,
+              "fsGroup": 1000,
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "containers": [
+              {
+                "name": "frontend",
+                "image": "__FRONTEND_IMAGE__",
+                "ports": [
+                  {
+                    "containerPort": 3000,
+                    "name": "http"
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "256Mi"
+                  },
+                  "limits": {
+                    "cpu": "2",
+                    "memory": "1Gi"
+                  }
+                },
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "readOnlyRootFilesystem": true,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "startupProbe": {
+                  "httpGet": {
+                    "path": "/login",
+                    "port": "http"
+                  },
+                  "failureThreshold": 30,
+                  "periodSeconds": 10
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/login",
+                    "port": "http"
+                  },
+                  "timeoutSeconds": 5,
+                  "periodSeconds": 15
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/login",
+                    "port": "http"
+                  },
+                  "timeoutSeconds": 5,
+                  "periodSeconds": 10
+                },
+                "volumeMounts": [
+                  {
+                    "name": "tmp",
+                    "mountPath": "/tmp"
+                  },
+                  {
+                    "name": "cache",
+                    "mountPath": "/app/.next/cache"
+                  }
+                ]
+              }
+            ],
+            "volumes": [
+              {
+                "name": "tmp",
+                "emptyDir": {}
+              },
+              {
+                "name": "cache",
+                "emptyDir": {}
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "frontend",
+        "namespace": "__NAMESPACE__"
+      },
+      "spec": {
+        "type": "ClusterIP",
+        "selector": {
+          "app": "frontend"
+        },
+        "ports": [
+          {
+            "name": "http",
+            "port": 3000,
+            "targetPort": "http"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "networking.k8s.io/v1",
+      "kind": "Ingress",
+      "metadata": {
+        "name": "delivery360",
+        "namespace": "__NAMESPACE__",
+        "annotations": {
+          "nginx.ingress.kubernetes.io/proxy-read-timeout": "3600"
+        }
+      },
+      "spec": {
+        "ingressClassName": "nginx",
+        "tls": [
+          {
+            "hosts": [
+              "__HOST__"
+            ],
+            "secretName": "delivery360-tls"
+          }
+        ],
+        "rules": [
+          {
+            "host": "__HOST__",
+            "http": {
+              "paths": [
+                {
+                  "path": "/api",
+                  "pathType": "Prefix",
+                  "backend": {
+                    "service": {
+                      "name": "backend",
+                      "port": {
+                        "number": 8000
+                      }
+                    }
+                  }
+                },
+                {
+                  "path": "/",
+                  "pathType": "Prefix",
+                  "backend": {
+                    "service": {
+                      "name": "frontend",
+                      "port": {
+                        "number": 3000
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

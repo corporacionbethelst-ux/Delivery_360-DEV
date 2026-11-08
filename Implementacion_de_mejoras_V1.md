@@ -6897,3 +6897,49 @@ Implementación `c56fb8673e4f6543d0df4f6758a8e02e34450f77`, árbol local/GitHub
 `a77869569a55922a7098aad438582c43826c59e2`. Un segundo commit exclusivamente
 documental registra estos identificadores. El PR distingue CI del head final y
 validación local, sin afirmar todos los controles aprobados.
+
+## Entrega 72 — Seguridad de dependencias y publicación verificable
+
+Continuidad del 7 de noviembre de 2026 (America/Caracas), sobre PR #312 fusionado,
+base `2cd9226162b623495f6a604483bf2e671ce09ef2`. La auditoría de producción orienta
+este bloque a dependencias, contenedores y controles de release.
+
+Next 15.5.29/Node 24, axios y Zod/resolver actualizados; auditoría npm del árbol de
+producción pasa de ocho entradas vulnerables a cero. La auditoría completa aún
+reporta 12 avisos dev bajos/moderados. Formularios conservan defaults y validación.
+Frontend standalone y backend con usuarios no root, TLS verificado, sin reload ni
+migraciones automáticas. Readiness comprueba PostgreSQL y Redis con tiempo acotado,
+HTTP 503 ante falla y recursos liberados; liveness independiente. El fixture de
+API agrega explícitamente solo el contrato 503, preservando la historia.
+
+CI exige backend, frontend/cobertura, npm audit, Trivy HIGH/CRITICAL, contratos de
+release y build/navegador del contenedor frontend antes de publicar. Tags de SHA
+completo en minúsculas, dos digests registrados y planes Kubernetes por digest,
+validados offline. Deploy exclusivamente manual con plan inicial sin apply,
+identidad de CI, contexto, namespace, secretos/TLS/PVC y dry-run; no ejecuta
+migraciones. Ruleset main listo para revisión, pendiente de activación por admin.
+
+Frontend: 1700 pruebas/92 suites aprobadas; cobertura de líneas 41,78 %, aún falla
+el 50 % en las cuatro métricas, sin bajar umbrales. Tipos/lint/build de 48 páginas
+aprobados. Navegador: 3 controles nuevos + 7 catálogo + 7 detalle, CSV real, móvil,
+cero escrituras/excepciones, todo con datos sintéticos. Readiness/bootstrap: 98
+pruebas; release: 8 pruebas y 10 recursos de dos planes con schema estricto.
+Backend completo: **2446 aprobadas, 2 omitidas**, cobertura 72 %. Readiness real
+con PostgreSQL/Redis de prueba: 200 con ambos, 503 sin Redis y liveness 200.
+CI remoto aprueba auditoría npm, contratos y build/navegador de imagen frontend
+con raíz de solo lectura y usuario no root. Frontend falla solo cobertura, y
+Trivy backend confirma seis avisos bloqueantes (2 críticos JWT, 4 altos multipart).
+
+Registro: [frontend/ENTREGA_72.md](frontend/ENTREGA_72.md).
+Operación: [infrastructure/kubernetes/README.md](infrastructure/kubernetes/README.md).
+Persisten bloqueos de cobertura, seguridad backend/imágenes, infraestructura,
+protecciones remotas, E2E real/carga/restauración y homologación de proveedores.
+No se envían pagos, mensajes o facturas, ni se fusiona o despliega.
+
+Publicación verificada: PR abierto sin borrador
+https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/313.
+Implementación acumulada `d286a70d03f76da744de8c1193adbb9cecf2619e`, árbol
+`e21ca0c4ed52cffdfe6669b69e6169a7a13d1c38`. El registro documental posterior
+distingue CI observado de implementación y head final; backend remoto seguía
+ejecutándose al registrar la observación. Inventario de seguridad:
+[infrastructure/SECURITY_RELEASE_STATUS.md](infrastructure/SECURITY_RELEASE_STATUS.md).

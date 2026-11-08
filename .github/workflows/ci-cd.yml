@@ -14,7 +14,10 @@ env:
   IMAGE_NAME_BACKEND: ${{ github.repository }}/backend
   IMAGE_NAME_FRONTEND: ${{ github.repository }}/frontend
   PYTHON_VERSION: '3.11'
-  NODE_VERSION: '20'
+  NODE_VERSION: '24'
+
+permissions:
+  contents: read
 
 jobs:
   # Backend Tests
@@ -95,9 +98,9 @@ jobs:
       
       - name: Upload coverage reports
         if: ${{ !cancelled() && hashFiles('backend/coverage.xml') != '' }}
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         with:
-          file: ./backend/coverage.xml
+          files: ./backend/coverage.xml
           flags: backend
           fail_ci_if_error: false
 
@@ -148,228 +151,225 @@ jobs:
           NEXT_PUBLIC_API_URL: https://api-test.delivery360.com
           NEXT_PUBLIC_MAPBOX_TOKEN: ${{ secrets.MAPBOX_TOKEN }}
 
-  # Build and Push Backend Image
-  build-backend:
-    needs: [backend-test]
+  frontend-security:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm audit --omit=dev --audit-level=moderate
+        working-directory: frontend
+
+  release-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r scripts/requirements-release.txt
+      - run: python -m unittest discover -s scripts/tests -v
+      - run: |
+          python scripts/release.py manifest --repository "$GITHUB_REPOSITORY" --revision "$GITHUB_SHA" --backend-digest "sha256:$(printf 'a%.0s' {1..64})" --frontend-digest "sha256:$(printf 'b%.0s' {1..64})" --output sample-images.json
+          python scripts/release.py render --repository "$GITHUB_REPOSITORY" --revision "$GITHUB_SHA" --input sample-images.json --environment staging --host staging.example.invalid --output staging-plan.json
+          python scripts/release.py render --repository "$GITHUB_REPOSITORY" --revision "$GITHUB_SHA" --input sample-images.json --environment production --host app.delivery360.com --output production-plan.json
+      - run: python scripts/validate_manifest.py staging-plan.json production-plan.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-plan-examples
+          path: '*-plan.json'
+
+  frontend-container:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build production image without publishing
+        run: docker build --build-arg NEXT_PUBLIC_API_URL=/api/v1 -t delivery360-frontend:ci frontend
+      - name: Smoke test non-root production server
+        run: |
+          docker run -d --name frontend-ci --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,nosuid,nodev,size=64m,uid=1000,gid=1000 \
+            --tmpfs /app/.next/cache:rw,nosuid,nodev,size=64m,uid=1000,gid=1000 \
+            -p 127.0.0.1:3072:3000 delivery360-frontend:ci
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:3072/login > /dev/null; then
+              docker exec frontend-ci node -e "if(process.getuid()===0||process.env.NODE_ENV!=='production')process.exit(1)"
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+      - name: Install browser test dependencies
+        run: |
+          pip install playwright==1.56.0
+          python -m playwright install --with-deps chromium
+      - name: Verify production assets, form validation and audit regressions
+        run: |
+          chromium=$(python -c 'from playwright.sync_api import sync_playwright; p = sync_playwright().start(); print(p.chromium.executable_path); p.stop()')
+          python frontend/e2e/production-smoke.browser.py --chromium "$chromium" --artifacts-dir browser-artifacts/production
+          python frontend/e2e/rider-audit-catalog.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/catalog
+          python frontend/e2e/rider-audit.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/detail
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && hashFiles('browser-artifacts/**') != '' }}
+        with:
+          name: production-browser-checks
+          path: browser-artifacts
+      - name: Stop local test container
+        if: always()
+        run: docker rm -f frontend-ci || true
+
+  security-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan backend and fail on high or critical findings
+        uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec
+        with:
+          scan-type: fs
+          scan-ref: ./backend
+          format: sarif
+          output: trivy-backend-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+      - name: Scan frontend even if backend reports findings
+        if: ${{ !cancelled() }}
+        uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec
+        with:
+          scan-type: fs
+          scan-ref: ./frontend
+          format: sarif
+          output: trivy-frontend-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+      - uses: github/codeql-action/upload-sarif@v3
+        if: ${{ !cancelled() && hashFiles('trivy-backend-results.sarif') != '' && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) }}
+        with:
+          sarif_file: trivy-backend-results.sarif
+          category: trivy-backend
+      - uses: github/codeql-action/upload-sarif@v3
+        if: ${{ !cancelled() && hashFiles('trivy-frontend-results.sarif') != '' && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) }}
+        with:
+          sarif_file: trivy-frontend-results.sarif
+          category: trivy-frontend
+
+  release-readiness:
+    if: always()
+    needs: [backend-test, frontend-test, frontend-security, release-contract, frontend-container, security-scan]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every release check to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PY'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          if any(job['result'] != 'success' for job in results.values()):
+              raise SystemExit('Release blocked: one or more required checks did not pass')
+          PY
+
+  build-backend:
+    needs: release-readiness
     if: github.event_name == 'push'
-    
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Login to Container Registry
-        uses: docker/login-action@v3
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-      
-      - name: Build and push
-        uses: docker/build-push-action@v5
+      - name: Compute the canonical immutable image tag
+        id: image
+        env:
+          COMPONENT: backend
+        run: |
+          python - <<'PY'
+          import os
+          from scripts.release import image_names
+          names = image_names(os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_SHA'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('image=' + names[os.environ['COMPONENT']] + '\n')
+          PY
+      - uses: docker/build-push-action@v5
+        id: build
         with:
           context: ./backend
           file: ./backend/Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ steps.image.outputs.image }}
           platforms: linux/amd64,linux/arm64
-
-  # Build and Push Frontend Image
   build-frontend:
-    needs: [frontend-test]
-    runs-on: ubuntu-latest
+    needs: release-readiness
     if: github.event_name == 'push'
-    
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Login to Container Registry
-        uses: docker/login-action@v3
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-      
-      - name: Build and push
-        uses: docker/build-push-action@v5
+      - name: Compute the canonical immutable image tag
+        id: image
+        env:
+          COMPONENT: frontend
+        run: |
+          python - <<'PY'
+          import os
+          from scripts.release import image_names
+          names = image_names(os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_SHA'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('image=' + names[os.environ['COMPONENT']] + '\n')
+          PY
+      - uses: docker/build-push-action@v5
+        id: build
         with:
           context: ./frontend
           file: ./frontend/Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ steps.image.outputs.image }}
           platforms: linux/amd64,linux/arm64
           build-args: |
-            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
-            NEXT_PUBLIC_MAPBOX_TOKEN=${{ secrets.MAPBOX_TOKEN }}
+            NEXT_PUBLIC_API_URL=/api/v1
 
-  # Deploy to Staging
-  deploy-staging:
+  release-images:
     needs: [build-backend, build-frontend]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/develop'
-    environment: staging
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.28.0'
-      
-      - name: Configure kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.STAGING_KUBECONFIG }}" | base64 -d > ~/.kube/config
-      
-      - name: Deploy to Kubernetes
-        run: |
-          cd infrastructure/kubernetes/manifests
-          kustomize edit set image delivery360/backend=${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.sha }}
-          kustomize edit set image delivery360/frontend=${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.sha }}
-          kubectl apply -k .
-          kubectl rollout restart deployment/backend -n delivery360-staging
-          kubectl rollout restart deployment/frontend -n delivery360-staging
-      
-      - name: Verify deployment
-        run: |
-          kubectl rollout status deployment/backend -n delivery360-staging --timeout=300s
-          kubectl rollout status deployment/frontend -n delivery360-staging --timeout=300s
-
-  # Deploy to Production
-  deploy-production:
-    needs: [build-backend, build-frontend]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    environment: production
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.28.0'
-      
-      - name: Configure kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.PRODUCTION_KUBECONFIG }}" | base64 -d > ~/.kube/config
-      
-      - name: Deploy to Kubernetes
-        run: |
-          cd infrastructure/kubernetes/manifests
-          kustomize edit set image delivery360/backend=${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:${{ github.ref_name }}
-          kustomize edit set image delivery360/frontend=${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:${{ github.ref_name }}
-          kubectl apply -k .
-          kubectl rollout restart deployment/backend -n delivery360
-          kubectl rollout restart deployment/frontend -n delivery360
-      
-      - name: Verify deployment
-        run: |
-          kubectl rollout status deployment/backend -n delivery360 --timeout=600s
-          kubectl rollout status deployment/frontend -n delivery360 --timeout=600s
-      
-      - name: Run smoke tests
-        run: |
-          curl -f https://api.delivery360.com/health || exit 1
-          curl -f https://app.delivery360.com || exit 1
-      
-      - name: Create Sentry release
-        uses: getsentry/action-release@v1
+      - uses: actions/checkout@v4
+      - name: Record both published digests for this exact commit
         env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: delivery360
-          SENTRY_PROJECT: backend
+          BACKEND_DIGEST: ${{ needs.build-backend.outputs.digest }}
+          FRONTEND_DIGEST: ${{ needs.build-frontend.outputs.digest }}
+        run: python scripts/release.py manifest --repository "$GITHUB_REPOSITORY" --revision "$GITHUB_SHA" --backend-digest "$BACKEND_DIGEST" --frontend-digest "$FRONTEND_DIGEST" --output release-images.json
+      - uses: actions/upload-artifact@v4
         with:
-          environment: production
-          version: ${{ github.ref_name }}
-
-  # Security Scan
-  security-scan:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
-      security-events: write
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Run Trivy vulnerability scanner (Backend)
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: './backend'
-          format: 'sarif'
-          output: 'trivy-backend-results.sarif'
-          severity: 'CRITICAL,HIGH'
-      
-      - name: Run Trivy vulnerability scanner (Frontend)
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: './frontend'
-          format: 'sarif'
-          output: 'trivy-frontend-results.sarif'
-          severity: 'CRITICAL,HIGH'
-      
-      - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: 'trivy-backend-results.sarif'
-          category: 'trivy-backend'
-      
-      - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: 'trivy-frontend-results.sarif'
-          category: 'trivy-frontend'
+          name: release-images
+          path: release-images.json
+          retention-days: 30
