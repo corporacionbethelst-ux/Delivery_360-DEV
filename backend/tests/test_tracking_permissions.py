@@ -332,11 +332,11 @@ async def test_revoked_access_closes_before_the_next_outgoing_position(sockets, 
 
 @pytest.mark.asyncio
 async def test_token_expiration_is_rechecked_before_outgoing_data(sockets, monkeypatch):
-    from jose import jwt
+    import jwt
 
     client, _, ids, manager = sockets
     token = create_access_token(ids["owner"], timedelta(minutes=5))
-    expires = jwt.get_unverified_claims(token)["exp"]
+    expires = jwt.decode(token, options={'verify_signature': False})["exp"]
 
     class Later(datetime):
         @classmethod
@@ -353,7 +353,7 @@ async def test_token_expiration_is_rechecked_before_outgoing_data(sockets, monke
         f"/api/v1/tracking/ws/rider:{ids['rider']}?token={token}"
     ) as ws:
         ws.receive_json()
-        monkeypatch.setattr(jwt, "datetime", Later)
+        monkeypatch.setattr(jwt.api_jwt, "datetime", Later)
         ws.portal.call(
             manager.broadcast_to_topic,
             {"type": "POSITION_UPDATE"},
@@ -400,12 +400,12 @@ async def test_order_and_rider_alias_unsubscribe_keeps_the_other_binding(sockets
 
 @pytest.mark.asyncio
 async def test_signed_role_claim_does_not_replace_live_database_role(sockets):
-    from jose import jwt
+    import jwt
     from app.core.config import settings
 
     client, _, ids, manager = sockets
     token = create_access_token(ids["customer"])
-    claims = jwt.get_unverified_claims(token)
+    claims = jwt.decode(token, options={'verify_signature': False})
     claims["role"] = "SUPERADMIN"
     token = jwt.encode(claims, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     with pytest.raises(WebSocketDisconnect) as error:

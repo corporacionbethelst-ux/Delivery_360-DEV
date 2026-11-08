@@ -7,7 +7,6 @@ on:
     branches: [main, develop]
     tags: ['v*.*.*']
   pull_request:
-    branches: [main, develop]
 
 env:
   REGISTRY: ghcr.io
@@ -93,7 +92,7 @@ jobs:
           TEST_DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
           REDIS_URL: redis://localhost:6379/0
           TEST_NOTIFICATION_REDIS_URL: redis://localhost:6379/15
-          SECRET_KEY: test-secret-key-for-ci
+          SECRET_KEY: ci-only-synthetic-signing-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
           ENVIRONMENT: testing
       
       - name: Upload coverage reports
@@ -164,6 +163,80 @@ jobs:
         working-directory: frontend
       - run: npm audit --omit=dev --audit-level=moderate
         working-directory: frontend
+
+  backend-security:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install and inventory the resolved runtime dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip check
+          mkdir -p resolved-backend
+          pip freeze > resolved-backend/requirements.txt
+      - name: Scan installed packages, including transitive dependencies
+        uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec
+        with:
+          scan-type: fs
+          scan-ref: ./resolved-backend
+          scanners: vuln
+          format: json
+          output: backend-installed-audit.json
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && hashFiles('backend-installed-audit.json') != '' }}
+        with:
+          name: backend-installed-audit
+          path: |
+            backend-installed-audit.json
+            resolved-backend/requirements.txt
+
+  backend-container:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build the production backend without publishing
+        run: docker build -t delivery360-backend:ci backend
+      - name: Start isolated database and Redis test containers
+        run: |
+          docker network create backend-ci
+          docker run -d --name backend-db-ci --network backend-ci -e POSTGRES_USER=ci_user -e POSTGRES_PASSWORD=ci-test-only-password -e POSTGRES_DB=test_container postgis/postgis:16-3.4
+          docker run -d --name backend-redis-ci --network backend-ci redis:7-alpine
+          for attempt in {1..30}; do
+            if docker exec backend-db-ci pg_isready -U ci_user -d test_container && docker exec backend-redis-ci redis-cli ping; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Run the backend with production filesystem and permission restrictions
+        run: |
+          docker run -d --name backend-api-ci --network backend-ci --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,nosuid,nodev,size=64m,uid=10001,gid=10001 \
+            --tmpfs /app/uploads:rw,nosuid,nodev,size=64m,uid=10001,gid=10001 \
+            -e ENVIRONMENT=production -e SECRET_KEY=ci-only-synthetic-signing-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+            -e DATABASE_URL=postgresql://ci_user:ci-test-only-password@backend-db-ci:5432/test_container \
+            -e REDIS_URL=redis://backend-redis-ci:6379/0 -p 127.0.0.1:8073:8000 delivery360-backend:ci
+          docker exec backend-api-ci python -c "import os, importlib.util; assert os.getuid() == 10001; assert importlib.util.find_spec('jose') is None; assert importlib.util.find_spec('pytest') is None"
+      - name: Verify live dependencies, anonymous API boundary and raw body limits
+        run: |
+          python scripts/smoke_backend.py --base-url http://127.0.0.1:8073
+          schema_absent=$(docker exec backend-db-ci psql -U ci_user -d test_container -Atc "SELECT to_regclass('public.users') IS NULL")
+          test "$schema_absent" = t
+      - name: Verify readiness fails without restarting for Redis outages
+        run: |
+          docker stop backend-redis-ci
+          python scripts/smoke_backend.py --base-url http://127.0.0.1:8073 --redis-down
+      - name: Stop only the test containers and network
+        if: always()
+        run: |
+          docker rm -f -v backend-api-ci backend-db-ci backend-redis-ci || true
+          docker network rm backend-ci || true
 
   release-contract:
     runs-on: ubuntu-latest
@@ -265,7 +338,7 @@ jobs:
 
   release-readiness:
     if: always()
-    needs: [backend-test, frontend-test, frontend-security, release-contract, frontend-container, security-scan]
+    needs: [backend-test, frontend-test, frontend-security, backend-security, backend-container, release-contract, frontend-container, security-scan]
     runs-on: ubuntu-latest
     steps:
       - name: Require every release check to pass

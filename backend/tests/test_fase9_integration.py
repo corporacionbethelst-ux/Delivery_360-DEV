@@ -14,13 +14,15 @@ Cubre:
 7. dedupe: segunda llamada idéntica <5min -> sin logs nuevos (skip).
 8. NOTIFICATIONS_ENABLED=false -> solo IN_APP, sin excepciones.
 """
+
+from tests.api_surface_contract import effective_routes
 import asyncio
 import uuid
 from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from jose import jwt
+import jwt
 import pytest
 from fastapi.testclient import TestClient
 
@@ -187,7 +189,7 @@ def client(monkeypatch):
 
 # ------------------------------------------------------------------ 1. SMOKE
 def test_smoke_notifications_routes_mounted(client):
-    paths = {r.path for r in client.app.routes}
+    paths = {r.path for r in effective_routes(client.app)}
     expected = [
         "/api/v1/notifications/register-device",
         "/api/v1/notifications/inbox",

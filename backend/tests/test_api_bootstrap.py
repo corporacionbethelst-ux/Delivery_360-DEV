@@ -61,12 +61,47 @@ RECONCILIATION = (
 PAYOUT_SURFACE = (
     Path(__file__).parent / "fixtures/api_surface_after_payout_pagination.json"
 )
-EXPECTED = Path(__file__).parent / "fixtures/api_surface_after_readiness.json"
+READINESS_SURFACE = Path(__file__).parent / "fixtures/api_surface_after_readiness.json"
+EXPECTED = Path(__file__).parent / "fixtures/api_surface_after_framework.json"
+FRAMEWORK_DELTA = Path(__file__).parent / "fixtures/openapi_framework_delta.json"
 BACKEND = Path(__file__).resolve().parents[1]
 
 
-def before_readiness_schema():
+def before_framework_schema():
     schema = deepcopy(app.openapi())
+    for pointer, before, after in json.loads(FRAMEWORK_DELTA.read_text()):
+        keys = pointer.lstrip("/").split("/")
+        parent = schema
+        for key in keys[:-1]:
+            parent = parent[key]
+        key = keys[-1]
+        if after is None:
+            assert key not in parent
+        else:
+            assert parent[key] == after
+        if before is None:
+            del parent[key]
+        else:
+            parent[key] = before
+    return schema
+
+
+def test_framework_changes_only_the_reviewed_schema_fields():
+    previous = json.loads(READINESS_SURFACE.read_text())
+    current = api_surface(app)
+    assert current["routes"] == previous["routes"]
+    assert current["dependencies"] == previous["dependencies"]
+    canonical = json.dumps(
+        before_framework_schema(),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    assert hashlib.sha256(canonical.encode()).hexdigest() == previous["openapi_sha256"]
+
+
+def before_readiness_schema():
+    schema = before_framework_schema()
     response = schema["paths"]["/health/ready"]["get"]["responses"].pop("503")
     assert response == {"description": "Database or Redis unavailable"}
     return schema

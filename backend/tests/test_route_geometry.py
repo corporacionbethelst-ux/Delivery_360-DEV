@@ -1,5 +1,7 @@
 """Physical route geometry and evidence-based metrics; no external providers."""
 
+from tests.api_surface_contract import effective_routes
+
 import json
 import math
 from datetime import datetime, timedelta, timezone
@@ -199,7 +201,7 @@ def test_real_mounted_routes_and_legacy_alias_use_one_router():
     from app.api.v1 import routes, routers_combined
 
     assert routes.router is routers_combined.routes_router
-    paths = {r.path for r in app.routes}
+    paths = {r.path for r in effective_routes(app)}
     assert "/api/v1/routes/{rider_id}/track" in paths
     assert "/api/v1/routes/routes/{rider_id}/track" in paths
     assert "/api/v1/routes/{route_id}/metrics" in paths

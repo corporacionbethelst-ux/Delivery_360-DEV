@@ -1,5 +1,7 @@
 """Persisted contracts and shared internal workflows; no alternative HTTP API."""
 
+from tests.api_surface_contract import effective_routes
+
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -42,7 +44,7 @@ def test_only_canonical_operator_shift_router_is_available():
     assert not hasattr(routers_combined, "checkin")
     assert not hasattr(routers_combined, "checkout")
     paths = [
-        route.path for route in app.routes if route.path.startswith("/api/v1/shifts")
+        route.path for route in effective_routes(app) if route.path.startswith("/api/v1/shifts")
     ]
     assert len(paths) == 6 and len(set(paths)) == 5  # GET + POST at the collection
     assert not any(

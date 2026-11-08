@@ -6943,3 +6943,35 @@ Implementación acumulada `d286a70d03f76da744de8c1193adbb9cecf2619e`, árbol
 distingue CI observado de implementación y head final; backend remoto seguía
 ejecutándose al registrar la observación. Inventario de seguridad:
 [infrastructure/SECURITY_RELEASE_STATUS.md](infrastructure/SECURITY_RELEASE_STATUS.md).
+
+## Entrega 73 — Seguridad backend, parser y frontera HTTP
+
+Continuidad del 7 de noviembre de 2026, America/Caracas. Base limpia de entrega
+72: `c02e625a4cd6eb0d074b3b41b5a628dbaa93280c`; PR #313 todavía abierto. Nueva
+rama dependiente `fix/jwt-parser-and-request-boundaries-v1`, sin merge previo.
+
+Bloque ampliado: PyJWT 2.15.1 sustituye jose con claims/algoritmos estrictos y
+compatibilidad de los JWT propios anteriores; multipart 0.0.33. El inventario
+instalado descubre tres avisos altos Starlette adicionales a los seis conocidos,
+corregidos con FastAPI 0.162.2/Starlette 1.10.0/Pydantic 2.9.2. Cryptography 50.0.2
+se declara directamente para firmas fiscales y TLS. Trivy HIGH/CRITICAL: cero
+en requirements y cero en freeze instalado; no certifica imágenes ni otras
+severidades. Herramientas de pruebas/carga/perfilado salen del runtime.
+
+Límites previos a parsing para cuerpos generales/login/uploads, conteo real de
+chunked requests, framing estricto, tiempo de recepción y cleanup del spool.
+Validación de secretos/algoritmos/duraciones al configurar producción sin imprimir
+inputs. El CI agrega auditoría del runtime resuelto y smoke real de imagen backend
+con PostgreSQL/Redis, readonly, usuario no root, 503 ante pérdida de Redis y
+liveness independiente; ambos requisitos del gate. CI abarca PR dependientes.
+
+203 rutas, orden y permisos idénticos. Se revisan 24 cambios concretos OpenAPI
+causados por el framework y se comprueba el hash anterior al revertir solo ellos.
+94 pruebas netas nuevas; suite integral final en curso. Black, flake8 crítico,
+mypy y contratos release/actionlint aprobados. Sin cambios frontend en este delta.
+
+Registro: [frontend/ENTREGA_73.md](frontend/ENTREGA_73.md).
+Contrato: [backend/SECURITY_AND_REQUEST_LIMITS.md](backend/SECURITY_AND_REQUEST_LIMITS.md).
+Persisten cobertura frontend, protecciones/infraestructura reales, imagen OS,
+E2E/carga/restauración y homologación de proveedores. Sin pagos, mensajes,
+facturas o migraciones productivas, merge ni deploy.

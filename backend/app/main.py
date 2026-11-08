@@ -105,7 +105,9 @@ def create_app() -> FastAPI:
     )
 
     from app.middleware.document_upload_limit import DocumentUploadLimitMiddleware
+    from app.middleware.request_body_limit import RequestBodyLimitMiddleware
 
+    app.add_middleware(RequestBodyLimitMiddleware)
     app.add_middleware(DocumentUploadLimitMiddleware)
 
     # --- SEGURIDAD Y MIDDLEWARES ---
