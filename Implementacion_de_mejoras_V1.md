@@ -6967,7 +6967,8 @@ liveness independiente; ambos requisitos del gate. CI abarca PR dependientes.
 
 203 rutas, orden y permisos idénticos. Se revisan 24 cambios concretos OpenAPI
 causados por el framework y se comprueba el hash anterior al revertir solo ellos.
-94 pruebas netas nuevas; suite integral final en curso. Black, flake8 crítico,
+94 pruebas netas nuevas; suite integral con **2540 aprobadas, 2 omitidas**, 72 %
+de cobertura. Black, flake8 crítico,
 mypy y contratos release/actionlint aprobados. Sin cambios frontend en este delta.
 
 Registro: [frontend/ENTREGA_73.md](frontend/ENTREGA_73.md).
@@ -6975,3 +6976,16 @@ Contrato: [backend/SECURITY_AND_REQUEST_LIMITS.md](backend/SECURITY_AND_REQUEST_
 Persisten cobertura frontend, protecciones/infraestructura reales, imagen OS,
 E2E/carga/restauración y homologación de proveedores. Sin pagos, mensajes,
 facturas o migraciones productivas, merge ni deploy.
+
+Cierre del bloque: se corrigen también tres avisos moderados SMTP/geopy del SARIF
+remoto con aiosmtplib 5.1.3/geopy 2.5.0 y se verifican después 115 pruebas específicas
+aprobadas. Runtime declarado sin hallazgos en todas las severidades; el entorno dev
+mantiene un moderado pytest, fuera de producción. El contenedor backend inicial
+aprobó en GitHub con dependencias reales y caída Redis 503/liveness 200.
+
+El propietario fusionó #313 en main y #314 en la rama anterior mientras se
+validaba. Se prepara la revisión final contra main en
+`fix/backend-security-finalization-v1`, sin ejecutar merges desde el agente.
+Implementación acumulada `066ef2227f06281120b4e2acc2256bf77872dbce`, árbol
+`f9606d0591e2df77983b4ff7051b16f6b2d5943c`. El PR final identifica su CI por SHA;
+no se declara pipeline aprobado ni aptitud productiva por resultados anteriores.

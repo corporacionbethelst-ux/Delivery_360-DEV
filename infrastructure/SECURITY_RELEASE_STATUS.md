@@ -4,6 +4,9 @@
 transitivos de Starlette se corrigen en la rama de continuidad. Los inventarios
 declarado e instalado ya escaneados no tienen HIGH/CRITICAL. Véanse el alcance y
 las limitaciones en [seguridad backend](../backend/SECURITY_AND_REQUEST_LIMITS.md).
+También se corrigen tres moderados SMTP/geopy encontrados en el SARIF remoto.
+El requirements runtime termina sin hallazgos de ninguna severidad; queda un
+moderado en pytest del entorno dev, fuera del contenedor de producción.
 La cobertura frontend y los demás requisitos de producción siguen pendientes.
 El inventario que sigue se conserva como evidencia histórica de la base 72.
 

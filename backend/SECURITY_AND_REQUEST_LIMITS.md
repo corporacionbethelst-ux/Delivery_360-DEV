@@ -17,6 +17,14 @@ del entorno limpio instalado— terminan con **cero hallazgos HIGH/CRITICAL**.
 Ese resultado no acredita ausencia de avisos moderados/bajos, vulnerabilidades
 del sistema operativo de las imágenes o integraciones homologadas.
 
+El informe SARIF remoto reveló además tres avisos moderados: CVE-2026-53533 y
+CVE-2026-55558 de aiosmtplib, y CVE-2026-77387 de geopy. Se corrigen con
+**aiosmtplib 5.1.3 y geopy 2.5.0**, manteniendo TLS/certificados activos y verificando
+SMTP/recuperación/notificaciones con servidores locales. El escaneo final del
+requirements runtime ya no tiene hallazgos en ninguna severidad. El freeze del
+entorno dev conserva un moderado en pytest 8.3.2 (CVE-2025-71176, corrección indicada
+9.0.3); pytest está fuera de la imagen de producción y su migración queda pendiente.
+
 Pytest, Faker, herramientas de carga y perfiladores pasan a requirements-dev.txt.
 Producción instala solamente requirements.txt. CI comprueba consistencia con
 `pip check`, registra las versiones resueltas y escanea dependencias transitivas.
