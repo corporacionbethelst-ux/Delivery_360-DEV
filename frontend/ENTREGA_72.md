@@ -52,7 +52,8 @@ Operación y límites: [guía Kubernetes](../infrastructure/kubernetes/README.md
 | Tipos, lint y build frontend | Aprobados; 22 advertencias lint existentes, 48 páginas, Inter real |
 | Formularios específicos | 29 pruebas aprobadas |
 | Readiness + bootstrap API | 98 pruebas aprobadas, 12 nuevas de readiness y delta OpenAPI explícito |
-| Backend completo | Validación final en curso; se registra al finalizar |
+| Readiness con PostgreSQL/Redis reales de prueba | 200 con ambos; Redis inaccesible produce 503, liveness conserva 200 |
+| Backend completo | **2446 aprobadas, 2 omitidas**, 708,05 s; cobertura de aplicación 72 % |
 | Black / flake8 crítico / mypy backend | Aprobados, 194 archivos de aplicación |
 | Contratos de release | 8 pruebas unittest, con subcasos de identidad, seguridad y prerrequisitos |
 | Kubernetes offline | 5 recursos staging + 5 producción, schema 1.34 estricto; digests sintéticos |
@@ -63,14 +64,18 @@ Operación y límites: [guía Kubernetes](../infrastructure/kubernetes/README.md
 
 El primer backend completo terminó con 2445 aprobadas, 2 omitidas y un error
 `DiskFullError` al crear tablas. Liberado el caché Docker generado, las 65 pruebas
-de cancelación aprobaron. Se repite el completo con espacio disponible para dejar
-evidencia limpia. No se cambia la lógica de negocio por ese incidente.
+de cancelación aprobaron. La repetición completa terminó limpia con **2446
+aprobadas y 2 omitidas**. Persiste una advertencia de configuración pytest existente.
+No se cambia la lógica de negocio por ese incidente.
 
 La construcción Docker frontend local encontró la cuota de disco del driver vfs;
 no se atribuye un build Docker completo local exitoso. Sí se construyó y ejecutó
 el bundle standalone real y se validó en Chromium. CI tiene un job independiente
 que construye el Dockerfile completo y ejecuta las mismas pruebas sobre su imagen;
-su resultado remoto se registra por separado. Arrancar el standalone manualmente
+ese job **aprobó en GitHub**, incluyendo usuario no root, raíz de solo lectura,
+capacidades retiradas y las 17 comprobaciones Chromium. Se fija Ubuntu 24.04
+porque el instalador Playwright seleccionado no admite el nuevo ubuntu-latest
+26.04. Arrancar el standalone manualmente
 requiere copiar public y `.next/static` antes de iniciar server.js; el Dockerfile
 incluye ambas copias.
 
@@ -80,8 +85,9 @@ incluye ambas copias.
 observados y prepara controles verificables; no representa una certificación de
 seguridad del sistema ni un despliegue realizado.
 
-Siguen pendientes cobertura frontend >=50 % en las cuatro métricas; revisión de
-los hallazgos de seguridad backend/imágenes que informe el nuevo gate; activación
+Siguen pendientes cobertura frontend >=50 % en las cuatro métricas; corrección de
+los seis hallazgos backend observados (2 críticos python-jose, 4 altos multipart)
+y escaneo de imágenes; activación
 administrativa de main/environments; infraestructura real, E2E integrado, carga y
 restauración ensayada. Los 12 avisos dev requieren seguimiento separado.
 La aprobación contable de payout no demuestra liquidación bancaria; el worker
@@ -93,4 +99,25 @@ La siguiente prioridad es resolver hallazgos reales del CI y ampliar cobertura
 con escenarios de negocio útiles; luego retomar los contratos del listado de
 entregas de gerencia descritos en la entrega 71.
 
-Publicación y resultados remotos se registran al verificar la rama y el PR.
+Inventario concreto: [SECURITY_RELEASE_STATUS.md](../infrastructure/SECURITY_RELEASE_STATUS.md).
+
+## Publicación verificada y CI observado
+
+- PR abierto sin borrador: https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/313
+- Implementación acumulada: `d286a70d03f76da744de8c1193adbb9cecf2619e`.
+- Árbol de implementación: `e21ca0c4ed52cffdfe6669b69e6169a7a13d1c38`.
+- La primera implementación `1207c06625c3699d1c861e8511247b0003239dd9` y su árbol
+  `40614253432255515ab7c40901839a4b1ae7ab60` se cotejaron local/GitHub.
+- [CI de la implementación final](https://github.com/corporacionbethelst-ux/Delivery_360-DEV/actions/runs/42430614896):
+  `frontend-security`, `release-contract` y **`frontend-container` aprobados**.
+  `frontend-test` falla por cobertura, con las 1700 pruebas aprobadas y build/tipos/
+  lint aprobados; sus líneas son 41,77 % en ese runner (41,78 % local).
+  `security-scan` falla por backend y aprueba frontend. Backend remoto todavía
+  ejecutándose al registrar esta observación; el completo local sí está aprobado.
+- Un commit documental posterior registra estos resultados y el inventario de
+  seguridad. Su CI se distingue de la ejecución anterior y se informa en el PR;
+  no se heredan estados verdes de otro SHA.
+
+No se ha publicado una release ni aplicado manifiestos. Bundle incremental,
+patch, ZIP de fuentes versionadas y manifest SHA256 se generan y verifican para
+el head documental final en `/workspace/work/entrega72`.

@@ -6924,10 +6924,22 @@ el 50 % en las cuatro métricas, sin bajar umbrales. Tipos/lint/build de 48 pág
 aprobados. Navegador: 3 controles nuevos + 7 catálogo + 7 detalle, CSV real, móvil,
 cero escrituras/excepciones, todo con datos sintéticos. Readiness/bootstrap: 98
 pruebas; release: 8 pruebas y 10 recursos de dos planes con schema estricto.
-Resultado backend completo y CI remoto se registran al concluir su validación.
+Backend completo: **2446 aprobadas, 2 omitidas**, cobertura 72 %. Readiness real
+con PostgreSQL/Redis de prueba: 200 con ambos, 503 sin Redis y liveness 200.
+CI remoto aprueba auditoría npm, contratos y build/navegador de imagen frontend
+con raíz de solo lectura y usuario no root. Frontend falla solo cobertura, y
+Trivy backend confirma seis avisos bloqueantes (2 críticos JWT, 4 altos multipart).
 
 Registro: [frontend/ENTREGA_72.md](frontend/ENTREGA_72.md).
 Operación: [infrastructure/kubernetes/README.md](infrastructure/kubernetes/README.md).
 Persisten bloqueos de cobertura, seguridad backend/imágenes, infraestructura,
 protecciones remotas, E2E real/carga/restauración y homologación de proveedores.
 No se envían pagos, mensajes o facturas, ni se fusiona o despliega.
+
+Publicación verificada: PR abierto sin borrador
+https://github.com/corporacionbethelst-ux/Delivery_360-DEV/pull/313.
+Implementación acumulada `d286a70d03f76da744de8c1193adbb9cecf2619e`, árbol
+`e21ca0c4ed52cffdfe6669b69e6169a7a13d1c38`. El registro documental posterior
+distingue CI observado de implementación y head final; backend remoto seguía
+ejecutándose al registrar la observación. Inventario de seguridad:
+[infrastructure/SECURITY_RELEASE_STATUS.md](infrastructure/SECURITY_RELEASE_STATUS.md).
