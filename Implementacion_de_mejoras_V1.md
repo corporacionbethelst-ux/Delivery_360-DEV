@@ -7136,3 +7136,38 @@ por SHA. Sin merge, deploy u operaciones productivas desde el agente.
 
 Registro: [frontend/ENTREGA_78.md](frontend/ENTREGA_78.md).
 Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
+
+## Entrega 79 — Perfil y documentación de repartidores (08/11/2026)
+
+Base main `5109fc040fdf4f301342149b15674dc580ae04cd`, árbol
+`277bad3bd204971bfe663bdaf86d0aad7b936769`; entrega 78 con CI completo aprobado.
+PR #320 integrado por el propietario; rama actualizada sobre main antes de publicar,
+con el mismo árbol base utilizado en las pruebas locales.
+
+Ficha y documentos con encabezados y secciones de color siguiendo la referencia
+de orden, controles visibles y diálogos adaptados a móvil. Se retiran saldos cero,
+moneda COP, nivel Bronce, bonos y fechas actuales que no estaban informados.
+Ubicación histórica con ambos valores finitos y rangos válidos, preservando cero
+y desconexión; vehículo de empresa vinculado a su asignación real.
+
+Lecturas confirmadas por identidad y retiradas al cambiar ruta/cuenta; los errores
+conservan los últimos datos y ofrecen reintento. Cambios de estado identificados,
+sin duplicados y con nueva lectura del perfil, porque el PATCH devuelve un acuse.
+Documentos conserva revisiones al aprobar/rechazar/eliminar/descargar. Operaciones
+bloqueadas mientras guardan; errores normales conservan motivo o archivo/tipo.
+Subida limitada a los cuatro tipos del backend, archivos válidos hasta 10 MiB y
+motivo de rechazo no vacío de hasta 2000 caracteres. Operador con lectura; gerencia
+con mutaciones y autorización del servidor intacta.
+
+**52 casos nuevos**; suite final **2341 pruebas / 113 suites aprobadas**. Cobertura
+**58,53 % sentencias, 54,83 % ramas, 54,32 % funciones y 57,70 % líneas**, sin
+cambiar mínimos o exclusiones. Tipos y build con lint de 48 páginas aprobados.
+Chromium: **65 comprobaciones**, incluida descarga autenticada con revisión;
+cero escrituras reales y excepciones JavaScript. Nuevo smoke integrado al CI
+requerido. Backend, servicios, dependencias y formulario original de orden sin
+cambios. Publicación de esta entrega y apertura del PR autorizadas explícitamente
+por el propietario; CI remoto observado por SHA. Sin merge, deploy u operaciones
+productivas desde el agente.
+
+Registro: [frontend/ENTREGA_79.md](frontend/ENTREGA_79.md).
+Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
