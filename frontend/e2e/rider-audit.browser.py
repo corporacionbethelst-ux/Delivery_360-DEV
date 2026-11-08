@@ -257,7 +257,11 @@ def main():
         expect(
             page.get_by_role("region", name="Entregas registradas del repartidor")
         ).to_contain_text("50 filas cargadas")
-        page.screenshot(path=str(artifacts / "rider-audit-desktop.png"), full_page=True)
+        page.screenshot(
+            path=str(artifacts / "rider-audit-desktop.png"),
+            full_page=True,
+            animations="disabled",
+        )
         passed(
             "bounded_first_pages_second_summary_page_zero_values_and_separate_fallback"
         )
@@ -331,7 +335,11 @@ def main():
         page.get_by_role(
             "heading", name="Detalle de auditoría de repartidor"
         ).scroll_into_view_if_needed()
-        page.screenshot(path=str(artifacts / "rider-audit-mobile.png"), full_page=True)
+        page.screenshot(
+            path=str(artifacts / "rider-audit-mobile.png"),
+            full_page=False,
+            animations="disabled",
+        )
         passed("mobile_content_fits_with_locally_scrollable_tables")
 
         state["mode"] = "defer_summary"
