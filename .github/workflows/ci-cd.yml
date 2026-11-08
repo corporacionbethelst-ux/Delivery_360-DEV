@@ -195,7 +195,10 @@ jobs:
         run: docker build --build-arg NEXT_PUBLIC_API_URL=/api/v1 -t delivery360-frontend:ci frontend
       - name: Smoke test non-root production server
         run: |
-          docker run -d --name frontend-ci -p 127.0.0.1:3072:3000 delivery360-frontend:ci
+          docker run -d --name frontend-ci --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,nosuid,nodev,size=64m,uid=1000,gid=1000 \
+            --tmpfs /app/.next/cache:rw,nosuid,nodev,size=64m,uid=1000,gid=1000 \
+            -p 127.0.0.1:3072:3000 delivery360-frontend:ci
           for attempt in {1..30}; do
             if curl -fsS http://127.0.0.1:3072/login > /dev/null; then
               docker exec frontend-ci node -e "if(process.getuid()===0||process.env.NODE_ENV!=='production')process.exit(1)"
