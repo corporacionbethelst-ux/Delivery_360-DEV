@@ -37,12 +37,14 @@ export function OperationsHeader({
   icon: Icon,
   actions,
   audit = false,
+  eyebrow,
 }: {
   title: string;
   description: ReactNode;
   icon: LucideIcon;
   actions?: ReactNode;
   audit?: boolean;
+  eyebrow?: string;
 }) {
   return (
     <header
@@ -59,7 +61,7 @@ export function OperationsHeader({
             <p
               className={`text-xs font-bold uppercase tracking-widest ${audit ? "text-violet-700" : "text-blue-700"}`}
             >
-              Operaciones · {audit ? "Auditoría" : "Entregas"}
+              {eyebrow ?? `Operaciones · ${audit ? "Auditoría" : "Entregas"}`}
             </p>
             <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
               {title}

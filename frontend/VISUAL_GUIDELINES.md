@@ -41,6 +41,13 @@ de operaciones. Es presentación: los hooks, servicios y reglas de negocio conse
 la responsabilidad sobre datos y acciones. No imponer estos estilos globalmente a
 formularios o módulos que todavía no se han revisado.
 
+La entrega 76 aplica estos componentes también al inventario y registro de
+vehículos y al catálogo de zonas, con una etiqueta de sección propia de flota.
+Se mantienen azules para identificación, ámbar para seguro y violeta para
+observaciones/cobertura. Las acciones de fila deben permanecer visibles en móvil
+y teclado; las paletas de color deben ofrecer nombres accesibles y selección
+explícita. Los esquemas de zonas se identifican como esquemas y muestran su límite.
+
 Antes de publicar una actualización visual, comprobar el build real en escritorio y
 móvil, revisar capturas y ejecutar las regresiones relevantes. Las pruebas Chromium
 existentes de entregas y auditoría interceptan datos de negocio: permiten revisar

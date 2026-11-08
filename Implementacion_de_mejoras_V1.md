@@ -7045,3 +7045,33 @@ delta; no se atribuye una corrida backend local nueva.
 Registro: [frontend/ENTREGA_75.md](frontend/ENTREGA_75.md).
 Criterio visual: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
 El CI se observa por SHA en el PR. Sin merge, deploy ni operaciones productivas.
+
+## Entrega 76 — Flota clara, colorida y accesible (08/11/2026)
+
+Base main `8a77eab2c0d34d962227047d551c480cc5337e64`, árbol
+`e40079c6188a85c6dd378c417831354cf08bacd7`. La entrega 75 está integrada por
+el propietario y su CI completo aprobó.
+
+Inventario y registro de vehículos, y catálogo de zonas, adoptan la línea visual
+del formulario de orden: encabezados, tarjetas, iconos y controles por sección,
+sin alterar el formulario original. Acciones visibles, selector etiquetado,
+contraste de datos ausentes, tabla accesible por teclado y diálogos adaptados a
+móvil. La vista de zonas es un esquema acotado, con enlaces y nombres de colores.
+
+Se retiran lecturas anteriores de flota, se identifica la consulta confirmada de
+vehículos y se distinguen fallos de catálogos vacíos. Datos ausentes no se presentan
+como cero o Sin asignar; tarifas sin símbolo monetario inventado y decimales
+preservados. El borrador de zona se bloquea al guardar y se restablece el estado
+pendiente al terminar una eliminación. Confirmaciones y revisiones de baja se
+conservan; sin escrituras reales de negocio.
+
+**12 pruebas nuevas**; suite final **2220 aprobadas / 110 suites**. Cobertura
+**56,00 % sentencias, 51,55 % ramas, 51,73 % funciones y 54,84 % líneas**, sin
+alterar mínimos o selección. Tipos, lint y build de 48 páginas aprobados.
+Chromium: **33 comprobaciones** sobre el build final, incluyendo flota y los
+cuatro smokes anteriores; cero escrituras y excepciones JavaScript.
+8 contratos release y actionlint aprobados. Backend, servicios y dependencias
+sin cambios en este delta. CI nuevo observado por SHA, sin merge ni deploy.
+
+Registro: [frontend/ENTREGA_76.md](frontend/ENTREGA_76.md).
+Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
