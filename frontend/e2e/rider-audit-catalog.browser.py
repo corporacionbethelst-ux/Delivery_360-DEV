@@ -108,7 +108,9 @@ def main():
             }
             if route.request.method == "OPTIONS":
                 route.fulfill(status=204, headers=headers)
-            elif target.netloc != urlparse(base).netloc and path.endswith(
+            elif (
+                target.netloc != urlparse(base).netloc or path.startswith("/api/v1/")
+            ) and path.endswith(
                 (
                     "/riders/audit/summary",
                     "/orders",
@@ -154,6 +156,13 @@ def main():
                         "last_name": "Local",
                         "created_at": "2026-11-01T00:00:00Z",
                     },
+                    headers=headers,
+                )
+            elif path.startswith("/api/v1/"):
+                if route.request.method != "GET":
+                    writes.append(path)
+                route.fulfill(
+                    json=[] if "alerts" in path else {"items": [], "unread_count": 0},
                     headers=headers,
                 )
             elif route.request.url.startswith(base + "/"):

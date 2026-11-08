@@ -37,7 +37,7 @@ export default function RiderRegistrationForm({ onSuccess, onCancel }: RiderRegi
   const [isLoadingVehicles, setIsLoadingVehicles] = useState(false);
   const { createRider } = useRidersStore();
 
-  const form = useForm<RiderFormValues>({
+  const form = useForm<z.input<typeof riderFormSchema>, unknown, RiderFormValues>({
     resolver: zodResolver(riderFormSchema),
     defaultValues: {
       fullName: '',

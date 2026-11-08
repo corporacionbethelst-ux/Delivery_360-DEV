@@ -1,0 +1,114 @@
+name: Manual verified deployment
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [staging, production]
+        default: staging
+        required: true
+      commit:
+        description: Full SHA with a successful publication CI and release-images artifact
+        required: true
+        type: string
+      public_host:
+        description: DNS hostname with an existing TLS certificate and ingress configuration
+        required: true
+        type: string
+      apply:
+        description: Apply the reviewed plan to the selected environment
+        type: boolean
+        default: false
+      migrations_ready:
+        description: Backup, database schema and rollback plan have been verified separately
+        type: boolean
+        default: false
+      confirmation:
+        description: 'For apply: APPLY delivery360-staging or APPLY delivery360'
+        type: string
+        required: false
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REVISION: ${{ inputs.commit }}
+      TARGET_ENVIRONMENT: ${{ inputs.environment }}
+      PUBLIC_HOST: ${{ inputs.public_host }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r scripts/requirements-release.txt
+      - name: Require the latest successful publication workflow for this SHA
+        run: |
+          python scripts/release.py images --repository "$GITHUB_REPOSITORY" --revision "$REVISION"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$REVISION&event=push&per_page=100" > runs.json
+          run_id=$(python scripts/release.py select-run --repository "$GITHUB_REPOSITORY" --revision "$REVISION" --environment "$TARGET_ENVIRONMENT" --input runs.json)
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name release-images
+          python scripts/release.py render --repository "$GITHUB_REPOSITORY" --revision "$REVISION" --environment "$TARGET_ENVIRONMENT" --host "$PUBLIC_HOST" --input release-images.json --output release-plan.json
+      - run: python scripts/validate_manifest.py release-plan.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-release-plan
+          path: release-plan.json
+
+  apply:
+    needs: plan
+    if: ${{ inputs.apply }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      TARGET_ENVIRONMENT: ${{ inputs.environment }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+      EXPECTED_CONTEXT: ${{ vars.KUBE_CONTEXT }}
+      MIGRATIONS_READY: ${{ inputs.migrations_ready }}
+      KUBECONFIG_B64: ${{ secrets.KUBECONFIG }}
+      PUBLIC_HOST: ${{ inputs.public_host }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: reviewed-release-plan
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.34.1
+      - name: Require explicit migration and recovery preparation
+        run: test "$MIGRATIONS_READY" = true
+      - name: Load environment kubeconfig without exposing its content
+        run: |
+          python - <<'PY'
+          import base64, os
+          from pathlib import Path
+          path = Path(os.environ['RUNNER_TEMP']) / 'delivery360-kubeconfig'
+          try:
+              data = base64.b64decode(os.environ['KUBECONFIG_B64'], validate=True)
+              if not data: raise ValueError()
+          except ValueError:
+              raise SystemExit('Environment kubeconfig is missing or invalid') from None
+          descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+          with os.fdopen(descriptor, 'wb') as output: output.write(data)
+          with open(os.environ['GITHUB_ENV'], 'a') as output: output.write('KUBECONFIG=' + str(path) + '\n')
+          PY
+      - name: Verify context, namespace, secrets, storage and server schema before applying
+        run: |
+          namespace=$(python scripts/release.py preflight --environment "$TARGET_ENVIRONMENT" --confirmation "$CONFIRMATION" --context "$EXPECTED_CONTEXT")
+          kubectl apply --dry-run=server -f release-plan.json
+          kubectl apply -f release-plan.json
+          kubectl rollout status deployment/backend -n "$namespace" --timeout=600s
+          kubectl rollout status deployment/frontend -n "$namespace" --timeout=600s
+      - name: Verify public login and unauthenticated API boundary
+        run: |
+          curl --fail --silent --show-error --max-time 30 "https://$PUBLIC_HOST/login" > /dev/null
+          status=$(curl --silent --show-error --max-time 30 --output /dev/null --write-out '%{http_code}' "https://$PUBLIC_HOST/api/v1/auth/me")
+          test "$status" = 401
+      - name: Remove the temporary kubeconfig
+        if: always()
+        run: rm -f "$RUNNER_TEMP/delivery360-kubeconfig"
