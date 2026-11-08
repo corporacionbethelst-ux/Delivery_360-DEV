@@ -118,7 +118,6 @@ def main():
         page.get_by_label("Email", exact=True).fill("valid@example.test")
         page.get_by_label("Teléfono", exact=True).fill("12")
         page.get_by_label("CPF / Documento", exact=True).fill("123")
-        page.get_by_label("Fecha de Nacimiento", exact=True).fill("1990-01-01")
         page.get_by_label("Zona de Operación", exact=True).fill("Centro")
         page.get_by_label("Contraseña Temporal", exact=True).fill("a")
         page.get_by_role("button", name="Registrar Repartidor", exact=True).click()
@@ -128,7 +127,7 @@ def main():
         expect(page.get_by_text("Teléfono inválido", exact=True)).to_be_visible()
         expect(
             page.get_by_text(
-                "La contraseña debe tener al menos 6 caracteres", exact=True
+                "La contraseña debe tener al menos 8 caracteres", exact=True
             )
         ).to_be_visible()
         assert not writes

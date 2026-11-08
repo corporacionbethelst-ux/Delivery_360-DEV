@@ -52,7 +52,6 @@ it('registration requires an explicit reload after conflict before using the new
   fireEvent.change(screen.getByPlaceholderText('juan@ejemplo.com'), { target:{ value:'test@example.test' } });
   fireEvent.change(screen.getByPlaceholderText('+55 11 99999-9999'), { target:{ value:'+584121234567' } });
   fireEvent.change(screen.getByPlaceholderText('000.000.000-00'), { target:{ value:'123456789' } });
-  fireEvent.change(container.querySelector('input[type=date]')!, { target:{ value:'1990-01-01' } });
   fireEvent.change(screen.getByPlaceholderText('Ej. Centro, Norte, Sur...'), { target:{ value:'Centro' } });
   fireEvent.change(screen.getByPlaceholderText('******'), { target:{ value:'ValidPassword123!' } });
   fireEvent.change(screen.getAllByRole('combobox')[0], { target:{ value:'EMPRESA' } });
@@ -87,7 +86,6 @@ it('registration can correct a duplicate email while keeping the selected vehicl
  fireEvent.change(screen.getByPlaceholderText('juan@ejemplo.com'),{ target:{ value:'taken@example.com' } });
  fireEvent.change(screen.getByPlaceholderText('+55 11 99999-9999'),{ target:{ value:'+584121234567' } });
  fireEvent.change(screen.getByPlaceholderText('000.000.000-00'),{ target:{ value:'123456789' } });
- fireEvent.change(container.querySelector('input[type=date]')!,{ target:{ value:'1990-01-01' } });
  fireEvent.change(screen.getByPlaceholderText('Ej. Centro, Norte, Sur...'),{ target:{ value:'Centro' } });
  fireEvent.change(screen.getByPlaceholderText('******'),{ target:{ value:'ValidPassword123!' } });
  fireEvent.change(screen.getAllByRole('combobox')[0],{ target:{ value:'EMPRESA' } });

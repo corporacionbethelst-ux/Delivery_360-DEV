@@ -1,450 +1,329 @@
-'use client';
+"use client";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import {
+  Bike,
+  FileText,
+  Mail,
+  Phone,
+  RefreshCw,
+  Search,
+  UserPlus,
+  UserRound,
+  Users,
+} from "lucide-react";
+import { useAuthStore } from "@/stores/authStore";
+import { ManagerPageBoundary } from "@/components/layout/ManagerPageBoundary";
+import {
+  OperationEmpty,
+  OperationNotice,
+  OperationPill,
+  OperationsHeader,
+  SectionHeading,
+  operationStyles,
+  type OperationTone,
+} from "@/components/operations/OperationsUI";
+import { riderService } from "@/services/rider.service";
+import type { Rider } from "@/types/user";
 
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore';
-import { riderService } from '@/services/rider.service'; 
-import { vehicleService } from '@/services/vehicle.service';
-import { Rider } from '@/types/user'; 
-import { Vehicle } from '@/services/vehicle.service';
-import { 
-  Users, Search, Filter, MoreVertical, Edit, FileText, Bike, Phone, Mail, 
-  CheckCircle, XCircle, AlertCircle, Plus, ShieldAlert, Loader2, UserPlus,
-  Clock // Icono para el estado OCUPADO
-} from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { toast } from 'sonner';
-import RiderList from '@/components/riders/RiderList';
-import RiderEditModal from '@/components/riders/RiderEditModal';
-import type { RiderUpdateInput } from '@/types/rider';
-
-// --- Constantes y Configuración ---
-const ALLOWED_ROLES = ['SUPERADMIN', 'GERENTE', 'OPERADOR'];
-
-// CORRECCIÓN: Agregado el estado OCUPADO con su configuración visual
-const STATUS_CONFIG: Record<string, { label: string; colorClass: string; icon: React.ReactNode }> = {
-  ACTIVO: { label: 'Activo', colorClass: 'bg-green-100 text-green-800 border-green-200', icon: <CheckCircle className="w-3.5 h-3.5 mr-1.5" /> },
-  PENDIENTE: { label: 'Pendiente', colorClass: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: <AlertCircle className="w-3.5 h-3.5 mr-1.5" /> },
-  SUSPENDIDO: { label: 'Suspendido', colorClass: 'bg-red-100 text-red-800 border-red-200', icon: <XCircle className="w-3.5 h-3.5 mr-1.5" /> },
-  INACTIVO: { label: 'Inactivo', colorClass: 'bg-gray-100 text-gray-800 border-gray-200', icon: null },
-  OCUPADO: { label: 'Ocupado', colorClass: 'bg-blue-100 text-blue-800 border-blue-200', icon: <Clock className="w-3.5 h-3.5 mr-1.5" /> },
+const readRoles = ["SUPERADMIN", "GERENTE", "OPERADOR"];
+const states: Record<string, { label: string; tone: OperationTone }> = {
+  ACTIVO: { label: "Activo", tone: "emerald" },
+  PENDIENTE: { label: "Pendiente", tone: "amber" },
+  SUSPENDIDO: { label: "Suspendido", tone: "rose" },
+  INACTIVO: { label: "Inactivo", tone: "slate" },
+  OCUPADO: { label: "Ocupado", tone: "blue" },
 };
-
+const normalize = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 export default function ManagerRidersPage() {
-  const router = useRouter();
-  const { user, isAuthenticated } = useAuthStore();
-  
-  // Estados
-  const [riders, setRiders] = useState<Rider[]>([]);
-  const [companyVehicles, setCompanyVehicles] = useState<Vehicle[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [isMounted, setIsMounted] = useState(false);
-  
-  // Estados para el modal de edición
-  const [editingRider, setEditingRider] = useState<Rider | null>(null);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-
-  // Hidratación y Montaje
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  // Carga de Datos
-  const loadRiders = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setIsRefreshing(true);
-    else setIsLoading(true);
-    
+  return (
+    <ManagerPageBoundary scope="rider-catalog" roles={readRoles}>
+      <Catalog />
+    </ManagerPageBoundary>
+  );
+}
+function Catalog() {
+  const { user } = useAuthStore();
+  const canCreate = !!user && ["GERENTE", "SUPERADMIN"].includes(user.role);
+  const [riders, setRiders] = useState<Rider[] | null>(null),
+    [loading, setLoading] = useState(false),
+    [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState(""),
+    [status, setStatus] = useState("ALL");
+  const sequence = useRef(0);
+  const load = useCallback(async () => {
+    const ticket = ++sequence.current;
+    setLoading(true);
     setError(null);
     try {
-      const response = await riderService.getAll();
-      setRiders(response);
-    } catch (err: any) {
-      console.error('Error loading riders:', err);
-      const msg = err.response?.status === 403 
-        ? 'No tienes permisos para ver esta sección.' 
-        : 'No se pudieron cargar los repartidores. Verifica tu conexión.';
-      setError(msg);
-      toast.error(msg);
+      const data = await riderService.getAll();
+      if (ticket === sequence.current) setRiders(data);
+    } catch {
+      if (ticket === sequence.current)
+        setError(
+          "No se pudieron cargar los repartidores. Se conserva la última consulta confirmada.",
+        );
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (ticket === sequence.current) setLoading(false);
     }
   }, []);
-  
-  // Carga de vehículos de empresa
-  const loadCompanyVehicles = useCallback(async () => {
-    try {
-      const vehicles = await vehicleService.getAvailableCompanyVehicles();
-      setCompanyVehicles(vehicles);
-    } catch (err: any) {
-      console.error('Error loading company vehicles:', err);
-      // No mostrar error, simplemente usar lista vacía
-    }
-  }, []);
-
-  // Verificación de Seguridad y Carga Inicial
   useEffect(() => {
-    if (!isMounted || !isAuthenticated || !user) return;
-
-    if (!ALLOWED_ROLES.includes(user.role)) {
-      router.push('/login');
-      return;
-    }
-    
-    loadRiders();
-    loadCompanyVehicles();
-  }, [isMounted, isAuthenticated, user, router, loadRiders, loadCompanyVehicles]);
-
-  // Filtrado Optimizado (Memoizado)
-  const filteredRiders = useMemo(() => {
-    return riders.filter((rider) => {
-      const searchLower = searchTerm.toLowerCase();
-      const fullName = `${rider.first_name} ${rider.last_name}`.toLowerCase();
-      
-      const matchesSearch = 
-        fullName.includes(searchLower) || 
-        rider.email?.toLowerCase().includes(searchLower) ||
-        (rider.vehicle_plate || '').toLowerCase().includes(searchLower);
-      
-      const riderStatus = rider.status || 'PENDIENTE';
-      const matchesStatus = statusFilter === 'ALL' || riderStatus === statusFilter;
-      
-      return matchesSearch && matchesStatus;
-    });
-  }, [riders, searchTerm, statusFilter]);
-
-  // Handlers
-  const handleRefresh = () => loadRiders(true);
-
-  const handleUpdateRider = async (riderId: string, data: RiderUpdateInput) => {
-    try {
-      await riderService.updateRider(riderId, data);
-
-      // Actualización optimista del estado local
-      setRiders(prev => prev.map(r => 
-        r.id === riderId 
-          ? { 
-              ...r, 
-              vehicle_ownership_type: data.vehicleOwnershipType || r.vehicle_ownership_type,
-              assigned_vehicle_id: data.assignedVehicleId || null,
-              vehicle_type: 'vehicleType' in data && data.vehicleType ? (data as any).vehicleType : r.vehicle_type,
-              vehicle_plate: 'vehiclePlate' in data && data.vehiclePlate ? (data as any).vehiclePlate : r.vehicle_plate,
-              vehicle_model: 'vehicleModel' in data && data.vehicleModel ? (data as any).vehicleModel : r.vehicle_model,
-              phone: data.phone || r.phone
-            }
-          : r
-      ));
-
-      // Recargar vehículos por si hubo asignación/liberación
-      await loadCompanyVehicles();
-
-      toast.success('Repartidor actualizado correctamente');
-      setIsEditModalOpen(false);
-    } catch (error) {
-      console.error('Error updating rider:', error);
-      toast.error('Error al actualizar repartidor');
-      throw error;
-    }
-  };
-
-  const handleEditRider = (rider: Rider) => {
-    setEditingRider(rider);
-    setIsEditModalOpen(true);
-  };
-
-  if (!isMounted || !isAuthenticated || !user) {
-    return null;
-  }
-
+    const requests = sequence;
+    void load();
+    return () => {
+      requests.current++;
+    };
+  }, [load]);
+  const visible = useMemo(() => {
+    const term = normalize(search);
+    return (riders ?? []).filter(
+      (row) =>
+        (status === "ALL" || row.status === status) &&
+        normalize(
+          [
+            row.id,
+            row.first_name,
+            row.last_name,
+            row.full_name,
+            row.email,
+            row.phone,
+            row.vehicle_ownership_type === "EMPRESA"
+              ? row.assigned_vehicle?.plate
+              : row.vehicle_plate,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        ).includes(term),
+    );
+  }, [riders, search, status]);
   return (
-    <div className="min-h-screen bg-slate-50/50 p-6 space-y-6">
-      
-      {/* Header Principal */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 max-w-7xl mx-auto">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Gestión de Flota</h1>
-          <p className="text-slate-500 mt-1">Administra repartidores, documentos y estados operativos.</p>
-        </div>
-        <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            onClick={handleRefresh} 
-            disabled={isRefreshing}
-            className="gap-2"
-          >
-            <Loader2 className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            Actualizar
-          </Button>
-          <Button 
-            onClick={() => router.push('/manager/fleet/riders/new')} 
-            className="bg-blue-600 hover:bg-blue-700 text-white shadow-md gap-2"
-          >
-            <UserPlus className="w-4 h-4" /> Nuevo Repartidor
-          </Button>
-        </div>
-      </div>
-
-      {/* Panel de Filtros */}
-      <Card className="max-w-7xl mx-auto shadow-sm border-slate-200">
-        <CardContent className="p-4 flex flex-col md:flex-row gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
-            <Input
-              placeholder="Buscar por nombre, email o placa..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 h-10 focus-visible:ring-blue-500 bg-white"
+    <main className={operationStyles.page}>
+      <OperationsHeader
+        icon={Users}
+        eyebrow="Flota · Repartidores"
+        title="Gestión de Repartidores"
+        description="Administra perfiles, documentos y estados operativos."
+        actions={
+          <>
+            <button
+              className={operationStyles.button}
+              disabled={loading}
+              onClick={() => void load()}
+            >
+              <RefreshCw
+                aria-hidden="true"
+                className={`h-4 w-4 ${loading ? "animate-spin motion-reduce:animate-none" : ""}`}
+              />
+              Actualizar
+            </button>
+            {canCreate && (
+              <Link
+                className={operationStyles.primaryButton}
+                href="/manager/fleet/riders/new"
+              >
+                <UserPlus aria-hidden="true" className="h-4 w-4" />
+                Nuevo Repartidor
+              </Link>
+            )}
+          </>
+        }
+      />
+      <section
+        className={`${operationStyles.panel} space-y-4 p-5`}
+        aria-label="Filtros de repartidores"
+      >
+        <SectionHeading
+          icon={Search}
+          title="Buscar en los repartidores cargados"
+          description="La búsqueda y el estado filtran solo los registros de la última consulta confirmada."
+        />
+        <div className="grid gap-4 md:grid-cols-3">
+          <label className="space-y-2 text-sm font-medium text-slate-700 md:col-span-2">
+            Buscar por nombre, contacto, placa o ID
+            <input
+              className={operationStyles.field}
+              placeholder="Nombre, email, teléfono, placa o ID"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
             />
-          </div>
-          <div className="flex items-center gap-2 w-full md:w-auto">
-            <div className="hidden md:flex items-center justify-center w-8 h-10 bg-slate-100 rounded-lg text-slate-500">
-              <Filter className="w-4 h-4" />
-            </div>
+          </label>
+          <label className="space-y-2 text-sm font-medium text-slate-700">
+            Estado registrado
             <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="h-10 px-4 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white outline-none cursor-pointer hover:border-slate-400 transition-colors text-sm font-medium text-slate-700"
+              className={operationStyles.field}
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
             >
               <option value="ALL">Todos los estados</option>
-              <option value="ACTIVO">Activos</option>
-              <option value="PENDIENTE">Pendientes</option>
-              <option value="OCUPADO">Ocupados</option> {/* CORRECCIÓN: Agregada opción al filtro */}
-              <option value="SUSPENDIDO">Suspendidos</option>
-              <option value="INACTIVO">Inactivos</option>
+              {Object.entries(states).map(([key, state]) => (
+                <option key={key} value={key}>
+                  {state.label}
+                </option>
+              ))}
             </select>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Contenido Principal */}
-      <main className="max-w-7xl mx-auto">
-        {error ? (
-          <Card className="border-red-200 bg-red-50 shadow-sm">
-            <CardContent className="py-12 flex flex-col items-center justify-center text-red-800">
-              <ShieldAlert className="w-16 h-16 mb-4 text-red-500 opacity-80" />
-              <h3 className="text-lg font-semibold mb-2">Error de Carga</h3>
-              <p className="mb-6 text-center max-w-md">{error}</p>
-              <Button variant="destructive" onClick={handleRefresh} className="gap-2">
-                <Loader2 className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-                Reintentar Conexión
-              </Button>
-            </CardContent>
-          </Card>
-        ) : isLoading ? (
-          // Skeleton Loading
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[...Array(6)].map((_, i) => (
-              <Card key={i} className="h-64 animate-pulse bg-white border-slate-200">
-                <CardContent className="p-6 space-y-4">
-                  <div className="flex gap-4">
-                    <div className="w-14 h-14 bg-slate-200 rounded-full" />
-                    <div className="space-y-2 flex-1">
-                      <div className="h-4 bg-slate-200 rounded w-3/4" />
-                      <div className="h-3 bg-slate-200 rounded w-1/2" />
-                    </div>
-                  </div>
-                  <div className="space-y-2 pt-4">
-                    <div className="h-3 bg-slate-200 rounded w-full" />
-                    <div className="h-3 bg-slate-200 rounded w-5/6" />
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        ) : filteredRiders.length === 0 ? (
-          // Estado Vacío
-          <Card className="border-dashed border-2 border-slate-300 bg-transparent shadow-none">
-            <CardContent className="py-20 text-center text-slate-500">
-              <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Users className="w-10 h-10 text-slate-400" />
-              </div>
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">
-                {searchTerm || statusFilter !== 'ALL' ? 'No se encontraron resultados' : 'No hay repartidores registrados'}
-              </h3>
-              <p className="max-w-md mx-auto mb-8">
-                {searchTerm || statusFilter !== 'ALL' 
-                  ? 'Intenta ajustar los filtros de búsqueda para encontrar lo que necesitas.' 
-                  : 'Comienza agregando un nuevo repartidor a tu flota para gestionar sus entregas.'}
-              </p>
-              {!searchTerm && statusFilter === 'ALL' && (
-                <Button onClick={() => router.push('/manager/fleet/riders/new')} className="gap-2">
-                  <UserPlus className="w-4 h-4" /> Crear Primer Repartidor
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        ) : (
-          // Grid de Tarjetas
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredRiders.map((rider) => {
-              const riderStatus = rider.status || 'PENDIENTE';
-              const isOnline = rider.is_online || false;
-              // CORRECCIÓN: Ahora obtiene la config correcta para OCUPADO o usa PENDIENTE como fallback seguro
-              const config = STATUS_CONFIG[riderStatus] || STATUS_CONFIG.PENDIENTE;
-
-              return (
-                <Card key={rider.id} className="group hover:shadow-xl hover:-translate-y-1 transition-all duration-300 overflow-hidden border-slate-200 bg-white flex flex-col">
-                  {/* Barra de estado superior */}
-                  <div className={`h-1.5 w-full ${
-                    riderStatus === 'ACTIVO' ? 'bg-green-500' : 
-                    riderStatus === 'PENDIENTE' ? 'bg-yellow-500' : 
-                    riderStatus === 'SUSPENDIDO' ? 'bg-red-500' :
-                    riderStatus === 'OCUPADO' ? 'bg-blue-500' : // CORRECCIÓN: Color azul para ocupado
-                    'bg-slate-400'
-                  }`} />
-                  
-                  <div className="p-6 flex-1 flex flex-col">
-                    {/* Cabecera */}
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold text-white shadow-md ring-2 ring-white transition-transform group-hover:scale-105 ${
-                          isOnline ? 'bg-gradient-to-br from-green-400 to-green-600' : 'bg-slate-400'
-                        }`}>
-                          {(rider.first_name?.[0] || 'U')}{(rider.last_name?.[0] || 'S')}
-                        </div>
-                        <div>
-                          <h3 className="font-bold text-slate-900 text-lg leading-tight group-hover:text-blue-600 transition-colors">
-                            {rider.first_name} {rider.last_name}
-                          </h3>
-                          <div className="flex items-center gap-2 mt-1.5">
-                            <span className={`flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full transition-colors ${
-                              isOnline ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'
-                            }`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-green-500 animate-pulse' : 'bg-slate-400'}`}></span>
-                              {isOnline ? 'En línea' : 'Offline'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full">
-                        <MoreVertical className="w-4 h-4" />
-                      </Button>
-                    </div>
-
-                    {/* Badge de Estado */}
-                    <div className="mb-5">
-                      <Badge className={`${config.colorClass} border font-medium px-2.5 py-1 shadow-sm`}>
-                        {config.icon}
-                        {config.label}
-                      </Badge>
-                    </div>
-
-                    {/* Info Detalle */}
-                    <div className="space-y-3 text-sm text-slate-600 mb-6 flex-1">
-                      <div className="flex items-center gap-3 group/item">
-                        <Mail className="w-4 h-4 text-slate-400 group-hover/item:text-blue-500 transition-colors" />
-                        <span className="truncate font-medium" title={rider.email}>{rider.email}</span>
-                      </div>
-                      <div className="flex items-center gap-3 group/item">
-                        <Phone className="w-4 h-4 text-slate-400 group-hover/item:text-blue-500 transition-colors" />
-                        <span>{rider.phone || 'Sin teléfono'}</span>
-                      </div>
-                      <div className="flex items-center gap-3 pt-3 border-t border-dashed border-slate-100 group/item">
-                        <Bike className="w-4 h-4 text-slate-400 group-hover/item:text-blue-500 transition-colors" />
-                        <div className="flex flex-col">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-slate-800">
-                              {(() => {
-                                // Mostrar información correcta según tipo de propiedad
-                                if (rider.vehicle_ownership_type === 'EMPRESA' && rider.assigned_vehicle_id) {
-                                  const assignedVehicle = companyVehicles.find(v => v.id === rider.assigned_vehicle_id);
-                                  return assignedVehicle ? assignedVehicle.type : 'Vehículo Empresa';
-                                }
-                                return rider.vehicle_type || 'N/A';
-                              })()}
-                            </span>
-                            {rider.vehicle_ownership_type === 'EMPRESA' && (
-                              <Badge variant="outline" className="text-[9px] bg-blue-50 text-blue-700 border-blue-200 h-auto py-0 px-1">
-                                🏢 Empresa
-                              </Badge>
-                            )}
-                            {rider.vehicle_ownership_type === 'PROPIO' && (
-                              <Badge variant="outline" className="text-[9px] bg-green-50 text-green-700 border-green-200 h-auto py-0 px-1">
-                                🏠 Propio
-                              </Badge>
-                            )}
-                          </div>
-                          {(() => {
-                            // Mostrar placa correcta según tipo de propiedad
-                            if (rider.vehicle_ownership_type === 'EMPRESA' && rider.assigned_vehicle_id) {
-                              const assignedVehicle = companyVehicles.find(v => v.id === rider.assigned_vehicle_id);
-                              if (assignedVehicle?.plate) {
-                                return (
-                                  <span className="text-[10px] uppercase bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-mono tracking-wide">
-                                    {assignedVehicle.plate}
-                                  </span>
-                                );
-                              }
-                            }
-                            if (rider.vehicle_plate) {
-                              return (
-                                <span className="text-[10px] uppercase bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-mono tracking-wide">
-                                  {rider.vehicle_plate}
-                                </span>
-                              );
-                            }
-                            return null;
-                          })()}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Acciones */}
-                    <div className="pt-4 border-t border-slate-100 flex gap-2 mt-auto">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => router.push(`/manager/fleet/riders/${rider.id}/documents`)}
-                        className="flex-1 justify-center text-purple-700 border-purple-200 hover:bg-purple-50 hover:border-purple-300 transition-colors font-medium"
-                      >
-                        <FileText className="w-3.5 h-3.5 mr-1.5" /> Docs
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        onClick={() => router.push(`/manager/fleet/riders/${rider.id}`)}
-                        className="text-blue-700 hover:bg-blue-50 hover:text-blue-900 transition-colors"
-                        title="Ver perfil completo"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-        )}
-      </main>
-      
-      {/* Footer informativo */}
-      {!isLoading && !error && (
-        <div className="max-w-7xl mx-auto text-center text-xs text-slate-400 pb-8">
-          Mostrando {filteredRiders.length} de {riders.length} repartidores
+          </label>
         </div>
+      </section>
+      {loading && (
+        <OperationNotice role="status">
+          Consultando repartidores…
+        </OperationNotice>
       )}
-
-      {/* Modal de Edición */}
-      {isEditModalOpen && editingRider && (
-        <RiderEditModal
-          rider={editingRider}
-          open={isEditModalOpen}
-          onOpenChange={setIsEditModalOpen}
-          companyVehicles={companyVehicles}
-          onSuccess={() => {
-            loadRiders();
-            loadCompanyVehicles();
-          }}
-        />
+      {error && (
+        <OperationNotice role="alert" tone="warning">
+          <p>{error}</p>
+          <button
+            className={operationStyles.button}
+            disabled={loading}
+            onClick={() => void load()}
+          >
+            Reintentar consulta
+          </button>
+        </OperationNotice>
       )}
-    </div>
+      {riders !== null && (
+        <section
+          aria-label="Repartidores de la consulta confirmada"
+          aria-busy={loading}
+          className="space-y-4"
+        >
+          <p className="text-sm text-slate-600">
+            {visible.length} coincidencias de {riders.length} repartidores
+            cargados.
+          </p>
+          {!visible.length ? (
+            <OperationEmpty>
+              {riders.length
+                ? "No hay coincidencias en los registros cargados. Ajusta la búsqueda o el estado."
+                : "La consulta no devolvió repartidores."}
+            </OperationEmpty>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {visible.map((rider) => {
+                const name =
+                  [rider.first_name, rider.last_name]
+                    .filter(Boolean)
+                    .join(" ")
+                    .trim() ||
+                  rider.full_name?.trim() ||
+                  "Nombre no informado";
+                const state = states[rider.status ?? ""] ?? {
+                  label: rider.status || "Estado no informado",
+                  tone: "slate" as const,
+                };
+                const assigned =
+                  rider.vehicle_ownership_type === "EMPRESA"
+                    ? rider.assigned_vehicle
+                    : null;
+                const actualVehicle =
+                  assigned?.id === rider.assigned_vehicle_id ? assigned : null;
+                const type =
+                  rider.vehicle_ownership_type === "EMPRESA"
+                    ? actualVehicle?.type || "Vehículo de empresa"
+                    : rider.vehicle_type || "Tipo no informado";
+                const plate =
+                  rider.vehicle_ownership_type === "EMPRESA"
+                    ? actualVehicle?.plate
+                    : rider.vehicle_plate;
+                return (
+                  <article
+                    key={rider.id}
+                    aria-label={`Repartidor ${rider.id}`}
+                    className={`${operationStyles.panel} flex min-w-0 flex-col overflow-hidden transition-shadow hover:shadow-md`}
+                  >
+                    <div className="flex items-start gap-3 border-b border-blue-100 bg-gradient-to-br from-blue-50 via-white to-cyan-50 p-5">
+                      <span className="rounded-xl border border-blue-200 bg-white p-3 text-blue-700">
+                        <UserRound aria-hidden="true" className="h-5 w-5" />
+                      </span>
+                      <div className="min-w-0">
+                        <h2 className="break-words font-bold text-slate-900">
+                          {name}
+                        </h2>
+                        <p className="mt-1 break-all font-mono text-xs text-slate-600">
+                          ID repartidor: {rider.id}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-1 flex-col gap-4 p-5">
+                      <div className="flex flex-wrap gap-2">
+                        <OperationPill tone={state.tone}>
+                          {state.label}
+                        </OperationPill>
+                        <OperationPill
+                          tone={rider.is_online === true ? "emerald" : "slate"}
+                        >
+                          {rider.is_online === true
+                            ? "En línea"
+                            : rider.is_online === false
+                              ? "Desconectado"
+                              : "Disponibilidad no informada"}
+                        </OperationPill>
+                      </div>
+                      <p className="flex min-w-0 items-start gap-2 text-sm text-slate-600">
+                        <Mail
+                          aria-hidden="true"
+                          className="mt-0.5 h-4 w-4 shrink-0"
+                        />
+                        <span className="break-all">
+                          {rider.email || "Email no informado"}
+                        </span>
+                      </p>
+                      <p className="flex items-center gap-2 text-sm text-slate-600">
+                        <Phone
+                          aria-hidden="true"
+                          className="h-4 w-4 shrink-0"
+                        />
+                        {rider.phone || "Teléfono no informado"}
+                      </p>
+                      <div className="rounded-xl border border-violet-100 bg-violet-50/50 p-3">
+                        <p className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                          <Bike
+                            aria-hidden="true"
+                            className="h-4 w-4 shrink-0 text-violet-700"
+                          />
+                          {type}
+                        </p>
+                        <p className="mt-1 break-all font-mono text-xs text-slate-600">
+                          {plate || "Placa no informada"}
+                        </p>
+                        <p className="mt-2 text-xs text-slate-600">
+                          {rider.vehicle_ownership_type === "EMPRESA"
+                            ? "Empresa"
+                            : rider.vehicle_ownership_type === "PROPIO"
+                              ? "Propio"
+                              : "Propiedad no informada"}
+                        </p>
+                      </div>
+                      <div className="mt-auto flex flex-wrap gap-3 border-t border-slate-100 pt-4">
+                        <Link
+                          className={operationStyles.link}
+                          href={`/manager/fleet/riders/${encodeURIComponent(rider.id)}/documents`}
+                          aria-label={`Ver documentos de ${rider.id}`}
+                        >
+                          <FileText aria-hidden="true" className="h-4 w-4" />
+                          Documentos
+                        </Link>
+                        <Link
+                          className={operationStyles.link}
+                          href={`/manager/fleet/riders/${encodeURIComponent(rider.id)}`}
+                          aria-label={`Ver perfil de ${rider.id}`}
+                        >
+                          Ver perfil
+                        </Link>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+    </main>
   );
 }

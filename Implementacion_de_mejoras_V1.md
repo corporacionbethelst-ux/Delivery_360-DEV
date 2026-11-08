@@ -7104,3 +7104,35 @@ sin cambios. CI observado por SHA; sin merge, deploy u operaciones productivas.
 
 Registro: [frontend/ENTREGA_77.md](frontend/ENTREGA_77.md).
 Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
+
+## Entrega 78 — Repartidores y registro fiable (08/11/2026)
+
+Base main `ad8c214477ebcefde908a339be693a6d33e486f0`, árbol
+`f46f07a41e8781f95839ff782d0e44cfa7e7f413`; entrega 77 integrada por el
+propietario y CI completo aprobado.
+
+Catálogo y registro con encabezados y tarjetas azul/cian, identidad azul,
+vehículo violeta y zona/acceso ámbar. Búsqueda local con tildes, estado y alcance
+explícito; enlaces reales a perfil y documentos. Estado/disponibilidad ausentes
+no se inventan. Los vehículos asignados se leen desde su asignación confirmada,
+sin buscarlos entre los disponibles ni reutilizar una placa anterior.
+
+CPF incluido en el payload existente; documento limitado al almacenamiento real,
+nombre y apellido obligatorios y contraseña de ocho caracteres. Se retira la
+fecha de nacimiento que el backend no podía guardar. Lecturas antiguas retiradas,
+errores diferenciados de vacíos y selección de vehículo con revisión preservada
+al recargar opciones en Radix real. Se bloquean duplicados y se retiran resultados
+y temporizadores de pantallas anteriores. Lectura para los tres roles operativos;
+alta reservada a gerente/superadmin, sin alterar permisos del servidor.
+
+**32 casos nuevos**; suite final **2289 pruebas / 112 suites aprobadas**. Cobertura
+**57,67 % sentencias, 53,45 % ramas, 53,46 % funciones y 56,69 % líneas**, sin
+cambiar mínimos o exclusiones. Tipos, lint y build de 48 páginas aprobados.
+Chromium: **49 comprobaciones** sobre el build final, cero escrituras de negocio
+y excepciones JavaScript. Nuevo smoke integrado al CI requerido. Backend,
+servicios, dependencias y formulario original de orden sin cambios. Publicación
+de rama y PR autorizada explícitamente por el propietario; CI remoto observado
+por SHA. Sin merge, deploy u operaciones productivas desde el agente.
+
+Registro: [frontend/ENTREGA_78.md](frontend/ENTREGA_78.md).
+Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
