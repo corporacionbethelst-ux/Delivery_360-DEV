@@ -55,6 +55,14 @@ bloquear el borrador pendiente y mostrar la identidad cargada en las confirmacio
 Los campos de coordenadas distinguen vacío de cero; los ejemplos de bonos se
 identifican como ilustrativos y no sustituyen importes reales.
 
+La entrega 78 aplica esta línea al catálogo y registro de repartidores: identidad
+azul, vehículo/asignación violeta y zona/acceso ámbar. Las tarjetas mantienen
+visibles perfil y documentos; los filtros explican que actúan sobre datos cargados.
+Una asignación existente no se resuelve desde el catálogo de vehículos disponibles.
+Los formularios recogen datos que el contrato puede guardar y conservan candidato
+y revisión al reemplazar opciones. Probar también los selectores reales en el
+navegador: las simulaciones de controles nativos no cubren todas sus interacciones.
+
 Antes de publicar una actualización visual, comprobar el build real en escritorio y
 móvil, revisar capturas y ejecutar las regresiones relevantes. Las pruebas Chromium
 existentes de entregas y auditoría interceptan datos de negocio: permiten revisar

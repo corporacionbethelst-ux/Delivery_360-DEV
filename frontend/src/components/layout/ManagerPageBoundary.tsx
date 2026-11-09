@@ -16,7 +16,12 @@ export function ManagerPageBoundary({
   children,
   scope,
   pending = "Verificando acceso…",
-}: PropsWithChildren<{ scope: string; pending?: string }>) {
+  roles = ["GERENTE", "SUPERADMIN"],
+}: PropsWithChildren<{
+  scope: string;
+  pending?: string;
+  roles?: readonly string[];
+}>) {
   const router = useRouter(),
     { user, isAuthenticated } = useAuthStore();
   const generation = useSyncExternalStore(
@@ -24,8 +29,7 @@ export function ManagerPageBoundary({
     getCredentialGeneration,
     () => 0,
   );
-  const allowed =
-    isAuthenticated && !!user && ["GERENTE", "SUPERADMIN"].includes(user.role);
+  const allowed = isAuthenticated && !!user && roles.includes(user.role);
   useEffect(() => {
     if (!allowed) router.replace("/login");
   }, [allowed, router]);
