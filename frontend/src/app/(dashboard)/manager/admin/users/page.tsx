@@ -1,362 +1,606 @@
-'use client';
-
-import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore';
-import { isUserConflict } from '@/lib/user-revision';
-import { userService } from '@/services/user.service';
-import { User, UserRole } from '@/types/user';
-// MODIFICACIÓN: Se agregó RefreshCw a los imports
-import { Users, Search, Filter, Plus, Mail, Shield, Edit, Trash2, AlertCircle, UserPlus, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+"use client";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { RefreshCw, Search, Shield, UserPlus, Users } from "lucide-react";
+import { ManagerPageBoundary } from "@/components/layout/ManagerPageBoundary";
+import {
+  OperationsHeader,
+  OperationEmpty,
+  OperationMetric,
+  OperationNotice,
+  OperationPill,
+  SectionHeading,
+  operationStyles,
+  type OperationTone,
+} from "@/components/operations/OperationsUI";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useAuthStore } from "@/stores/authStore";
+import { userService, type UserFilters } from "@/services/user.service";
+import type { User, UserRole } from "@/types/user";
+import { requireUserRevision, isUserConflict } from "@/lib/user-revision";
+import { alertDate } from "@/lib/alert-date";
+import {
+  USER_PAGE_SIZE,
+  USER_ROLE_LABELS,
+  canManageAccount,
+  userDisplayName,
+} from "@/lib/user-administration";
 
-// Constantes para roles en tiempo de ejecución
-const ROLES = {
-  SUPERADMIN: 'SUPERADMIN',
-  GERENTE: 'GERENTE',
-  OPERADOR: 'OPERADOR',
-  REPARTIDOR: 'REPARTIDOR',
-  CLIENTE: 'CLIENTE',
-} as const;
-
+type Query = { role: string; active: string; skip: number };
+const sameQuery = (a: Query, b: Query) =>
+  a.role === b.role && a.active === b.active && a.skip === b.skip;
+const normalize = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 export default function ManagerUsersPage() {
-  const router = useRouter();
-  const { user, isAuthenticated } = useAuthStore(); 
-  
-  const [users, setUsers] = useState<User[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  // MODIFICACIÓN: Estado para controlar el spinner del botón de actualizar
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [roleFilter, setRoleFilter] = useState<string>('ALL');
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [error, setError] = useState<string | null>(null);
-  
-  // Estado para eliminación
-  const [userToDelete, setUserToDelete] = useState<User | null>(null);
-  const [deleteConflicted, setDeleteConflicted] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isAuthenticated || !user) return;
-
-    const allowedRoles = ['SUPERADMIN', 'GERENTE'];
-    if (!allowedRoles.includes(user.role as string)) {
-      router.push('/manager');
-      return;
-    }
-
-    loadUsers();
-  }, [isAuthenticated, user, router]);
-
-  const loadUsers = async () => {
-    // MODIFICACIÓN: Solo setIsLoading(true) si no es un refresh manual
-    if (!isRefreshing) setIsLoading(true);
-    
-    setError(null);
-    try {
-      const data = await userService.getAll({ limit: 500 });
-      setUsers(data);
-    } catch (err: any) {
-      console.error('Error loading users:', err);
-      setError(err.message || 'No se pudieron cargar los usuarios');
-    } finally {
-      setIsLoading(false);
-      // MODIFICACIÓN: Asegurar que el estado de refresh se apague
-      setIsRefreshing(false);
-    }
-  };
-
-  // MODIFICACIÓN: Función para manejar el click en Actualizar
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    await loadUsers();
-  };
-
-  const filteredUsers = users.filter(u => {
-    const fullName = (u.full_name || `${u.first_name || ''} ${u.last_name || ''}`).toLowerCase();
-    const term = searchTerm.toLowerCase();
-    const matchesSearch = fullName.includes(term) || u.email.toLowerCase().includes(term);
-    const matchesRole = roleFilter === 'ALL' || u.role === roleFilter;
-    const matchesStatus = statusFilter === 'ALL' || String(u.is_active) === statusFilter;
-    return matchesSearch && matchesRole && matchesStatus;
-  });
-
-  const getRoleColor = (role: string) => {
-    switch(role) {
-      case ROLES.SUPERADMIN: return 'bg-purple-100 text-purple-800 border-purple-200';
-      case ROLES.GERENTE: return 'bg-blue-100 text-blue-800 border-blue-200';
-      case ROLES.OPERADOR: return 'bg-orange-100 text-orange-800 border-orange-200';
-      case ROLES.REPARTIDOR: return 'bg-green-100 text-green-800 border-green-200';
-      case ROLES.CLIENTE: return 'bg-slate-100 text-slate-800 border-slate-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!userToDelete || deleteConflicted || isDeleting) return;
-    
-    // Seguridad: No permitir borrarse a uno mismo
-    if (userToDelete.id === user?.id) {
-      setError('No puedes desactivar tu propia cuenta.');
-      setUserToDelete(null);
-      return;
-    }
-
-    setIsDeleting(true);
-    try {
-      await userService.deactivate(userToDelete.id, userToDelete.user_revision);
-      setSuccessMessage(`El usuario ${userToDelete.email} ha sido desactivado correctamente.`);
-      setUserToDelete(null);
-      await loadUsers(); // Recargar lista
-      
-      setTimeout(() => setSuccessMessage(null), 4000);
-    } catch (err: any) {
-      if (isUserConflict(err)) setDeleteConflicted(true);
-      setError((typeof err.response?.data?.detail === 'string' ? err.response.data.detail : undefined) || err.message || 'Error al desactivar el usuario.');
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  if (!isAuthenticated) return null;
-
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Gestión de Usuarios</h1>
-            <p className="text-gray-500 mt-1">Administra accesos de gerentes, operadores y administradores.</p>
-          </div>
-          <div className="flex gap-2">
-            {/* MODIFICACIÓN: Botón Actualizar agregado aquí */}
-            <Button 
-              variant="outline" 
-              onClick={handleRefresh} 
-              disabled={isRefreshing}
-              className="gap-2"
+    <ManagerPageBoundary scope="user-administration">
+      <Catalog />
+    </ManagerPageBoundary>
+  );
+}
+function Catalog() {
+  const { user: actor } = useAuthStore();
+  const [query, setQuery] = useState<Query>({
+      role: "ALL",
+      active: "ALL",
+      skip: 0,
+    }),
+    queryRef = useRef(query);
+  const [snapshot, setSnapshot] = useState<{
+    rows: User[];
+    query: Query;
+    more: boolean;
+    at: Date;
+  } | null>(null);
+  const [loading, setLoading] = useState(false),
+    [pending, setPending] = useState(false),
+    [needsRefresh, setNeedsRefresh] = useState(false);
+  const [readError, setReadError] = useState<string | null>(null),
+    [error, setError] = useState<string | null>(null),
+    [success, setSuccess] = useState<string | null>(null);
+  const [search, setSearch] = useState(""),
+    [selected, setSelected] = useState<User | null>(null),
+    [conflicted, setConflicted] = useState(false);
+  const alive = useRef(false),
+    sequence = useRef(0),
+    reading = useRef<number | null>(null),
+    writing = useRef(false);
+  const load = useCallback(async (target: Query) => {
+    if (!alive.current) return;
+    const ticket = ++sequence.current;
+    reading.current = ticket;
+    setLoading(true);
+    setReadError(null);
+    const current = () =>
+      alive.current &&
+      ticket === sequence.current &&
+      sameQuery(target, queryRef.current);
+    try {
+      const params: UserFilters = {
+        limit: USER_PAGE_SIZE + 1,
+        skip: target.skip,
+        ...(target.role !== "ALL" ? { role: target.role as UserRole } : {}),
+        ...(target.active !== "ALL"
+          ? { is_active: target.active === "true" }
+          : {}),
+      };
+      const rows = await userService.getAll(params);
+      if (
+        !Array.isArray(rows) ||
+        rows.length > USER_PAGE_SIZE + 1 ||
+        rows.some(
+          (row) => !row || typeof row.id !== "string" || !row.id.trim(),
+        ) ||
+        new Set(rows.map((row) => row.id)).size !== rows.length ||
+        rows.some(
+          (row) =>
+            (target.role !== "ALL" && row.role !== target.role) ||
+            (target.active !== "ALL" &&
+              row.is_active !== (target.active === "true")),
+        )
+      )
+        throw new Error(
+          "La respuesta no corresponde a la consulta de usuarios.",
+        );
+      if (current()) {
+        setSnapshot({
+          rows: rows.slice(0, USER_PAGE_SIZE),
+          query: { ...target },
+          more: rows.length > USER_PAGE_SIZE,
+          at: new Date(),
+        });
+        setNeedsRefresh(false);
+      }
+    } catch {
+      if (current())
+        setReadError(
+          "No se pudo confirmar la consulta de usuarios. Se conservan los últimos datos cargados, si existen.",
+        );
+    } finally {
+      if (reading.current === ticket) reading.current = null;
+      if (current()) setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    const requests = sequence,
+      reads = reading;
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      requests.current++;
+      reads.current = null;
+    };
+  }, []);
+  useEffect(() => {
+    void load(query);
+  }, [load, query]);
+  const chooseQuery = (target: Query) => {
+    if (writing.current) return;
+    queryRef.current = target;
+    sequence.current++;
+    setQuery(target);
+  };
+  const matching = !!snapshot && sameQuery(snapshot.query, query),
+    disabled = pending || loading || !matching || !!readError || needsRefresh;
+  const visible = useMemo(
+    () =>
+      snapshot?.rows.filter((row) =>
+        normalize(
+          [userDisplayName(row), row.email, row.id, row.phone]
+            .filter(Boolean)
+            .join(" "),
+        ).includes(normalize(search)),
+      ) ?? [],
+    [snapshot, search],
+  );
+  const openConfirmation = (row: User) => {
+    if (
+      disabled ||
+      writing.current ||
+      row.id === actor?.id ||
+      row.is_active !== true ||
+      !canManageAccount(actor?.role, row.role)
+    )
+      return;
+    try {
+      requireUserRevision(row.user_revision);
+      setSelected({ ...row });
+      setConflicted(false);
+      setError(null);
+    } catch {
+      setError("Recarga y revisa el usuario antes de desactivarlo.");
+    }
+  };
+  const deactivate = async () => {
+    const observed = selected;
+    if (
+      !observed ||
+      disabled ||
+      conflicted ||
+      writing.current ||
+      reading.current !== null ||
+      observed.id === actor?.id ||
+      !canManageAccount(actor?.role, observed.role)
+    )
+      return;
+    writing.current = true;
+    setPending(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await userService.deactivate(
+        observed.id,
+        requireUserRevision(observed.user_revision),
+      );
+      if (!alive.current) return;
+      setSelected(null);
+      setNeedsRefresh(true);
+      setSuccess(
+        `Desactivación confirmada para ${observed.email || userDisplayName(observed)}.`,
+      );
+      if (queryRef.current.skip !== 0) {
+        const target = { ...queryRef.current, skip: 0 };
+        queryRef.current = target;
+        sequence.current++;
+        setQuery(target);
+      } else await load(queryRef.current);
+    } catch (error) {
+      if (alive.current) {
+        if (isUserConflict(error)) setConflicted(true);
+        setError(
+          isUserConflict(error)
+            ? "La cuenta cambió. Cierra la confirmación y actualiza antes de revisarla de nuevo."
+            : "No se pudo confirmar la desactivación. Revisa la cuenta antes de repetir.",
+        );
+      }
+    } finally {
+      writing.current = false;
+      if (alive.current) setPending(false);
+    }
+  };
+  const closeAndRefresh = () => {
+    setSelected(null);
+    setConflicted(false);
+    void load(queryRef.current);
+  };
+  return (
+    <main className={operationStyles.page}>
+      <OperationsHeader
+        icon={Users}
+        eyebrow="Administración · Accesos"
+        title="Gestión de Usuarios"
+        description="Consulta las cuentas y administra sus datos, roles y acceso al sistema."
+        actions={
+          <>
+            <button
+              className={operationStyles.button}
+              disabled={loading || pending}
+              onClick={() => void load(queryRef.current)}
             >
-              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw aria-hidden="true" className="h-4 w-4" />
               Actualizar
-            </Button>
-            <Button 
-              className="bg-blue-600 hover:bg-blue-700 shadow-md" 
-              onClick={() => router.push('/manager/admin/users/new')}
+            </button>
+            <Link
+              className={operationStyles.primaryButton}
+              href="/manager/admin/users/new"
             >
-              <UserPlus className="w-4 h-4 mr-2" /> Nuevo Usuario
-            </Button>
-          </div>
+              <UserPlus aria-hidden="true" className="h-4 w-4" />
+              Nuevo Usuario
+            </Link>
+          </>
+        }
+      />
+      <section
+        className={`${operationStyles.panel} space-y-4 p-5`}
+        aria-label="Filtros de usuarios"
+      >
+        <SectionHeading
+          icon={Search}
+          title="Explorar las cuentas"
+          description="Rol y estado consultan el servidor. La búsqueda filtra la página cargada."
+        />
+        <div className="grid gap-4 md:grid-cols-3">
+          <label className="space-y-2 text-sm font-medium">
+            Buscar en esta página
+            <input
+              className={operationStyles.field}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Nombre, email, teléfono o ID"
+            />
+          </label>
+          <label className="space-y-2 text-sm font-medium">
+            Rol registrado
+            <select
+              className={operationStyles.field}
+              value={query.role}
+              disabled={pending}
+              onChange={(event) =>
+                chooseQuery({ ...query, role: event.target.value, skip: 0 })
+              }
+            >
+              <option value="ALL">Todos los roles</option>
+              {Object.entries(USER_ROLE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2 text-sm font-medium">
+            Estado de cuenta
+            <select
+              className={operationStyles.field}
+              value={query.active}
+              disabled={pending}
+              onChange={(event) =>
+                chooseQuery({ ...query, active: event.target.value, skip: 0 })
+              }
+            >
+              <option value="ALL">Todos los estados</option>
+              <option value="true">Activos</option>
+              <option value="false">Inactivos</option>
+            </select>
+          </label>
         </div>
-
-        {/* Alertas */}
-        {error && (
-          <Alert variant="destructive" className="mb-6 bg-red-50 border-red-200">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-            <Button variant="ghost" size="sm" onClick={() => setError(null)} className="ml-auto">Cerrar</Button>
-          </Alert>
-        )}
-
-        {successMessage && (
-          <Alert className="mb-6 bg-green-50 border-green-200 text-green-800">
-            <Shield className="h-4 w-4 text-green-600" />
-            <AlertDescription>{successMessage}</AlertDescription>
-          </Alert>
-        )}
-
-        {/* Filtros */}
-        <Card className="mb-6 shadow-sm border-l-4 border-l-blue-500">
-          <CardContent className="p-4">
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <Input
-                  placeholder="Buscar por nombre, apellido o email..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 bg-white"
-                  disabled={isLoading}
-                />
-              </div>
-              <div className="flex items-center gap-2 w-full md:w-auto">
-                <Filter className="text-gray-400 w-5 h-5" />
-                <select
-                  value={roleFilter}
-                  onChange={(e) => setRoleFilter(e.target.value)}
-                  className="flex-1 md:flex-none px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
-                  disabled={isLoading}
-                >
-                  <option value="ALL">Todos los roles</option>
-                  <option value={ROLES.SUPERADMIN}>Superadmins</option>
-                  <option value={ROLES.GERENTE}>Gerentes</option>
-                  <option value={ROLES.OPERADOR}>Operadores</option>
-                  <option value={ROLES.REPARTIDOR}>Repartidores</option>
-                  <option value={ROLES.CLIENTE}>Clientes</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2 w-full md:w-auto">
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="flex-1 md:flex-none px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
-                  disabled={isLoading}
-                >
-                  <option value="ALL">Todos los estados</option>
-                  <option value="true">Activos</option>
-                  <option value="false">Inactivos</option>
-                </select>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Contenido */}
-        {isLoading ? (
-          <div className="flex justify-center py-20">
-            <Loader2 className="animate-spin h-10 w-10 text-blue-600" />
+        <p className="text-xs text-slate-600">
+          Hasta 50 registros por página. El servidor no informa un total global.
+        </p>
+      </section>
+      {loading && (
+        <OperationNotice role="status">Consultando usuarios…</OperationNotice>
+      )}
+      {readError && (
+        <OperationNotice role="alert" tone="warning">
+          <p>{readError}</p>
+          <button
+            className={operationStyles.button}
+            disabled={loading || pending}
+            onClick={() => void load(queryRef.current)}
+          >
+            Reintentar usuarios
+          </button>
+        </OperationNotice>
+      )}
+      {error && (
+        <OperationNotice role="alert" tone="error">
+          {error}
+        </OperationNotice>
+      )}
+      {success && (
+        <OperationNotice role="status" tone="success">
+          {success}
+        </OperationNotice>
+      )}
+      {snapshot && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <OperationMetric
+              icon={Users}
+              label="Cuentas en la página confirmada"
+              value={snapshot.rows.length}
+            />
+            <OperationMetric
+              icon={Shield}
+              label="Activas entre las cargadas"
+              value={
+                snapshot.rows.filter((row) => row.is_active === true).length
+              }
+              tone="emerald"
+            />
+            <OperationMetric
+              icon={Search}
+              label="Coincidencias locales"
+              value={visible.length}
+              tone="violet"
+            />
           </div>
-        ) : error && users.length === 0 ? (
-           <Card className="border-red-200 bg-red-50">
-            <CardContent className="p-6 flex items-center gap-4 text-red-700">
-              <AlertCircle className="w-6 h-6" />
-              <div>
-                <p className="font-bold">Error al cargar datos</p>
-                <p className="text-sm">{error}</p>
-              </div>
-            </CardContent>
-          </Card>
-        ) : filteredUsers.length === 0 ? (
-          <Card>
-            <CardContent className="py-16 text-center text-gray-500">
-              <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>No se encontraron usuarios con los filtros actuales.</p>
-              <Button variant="link" onClick={() => {setSearchTerm(''); setRoleFilter('ALL'); setStatusFilter('ALL');}} className="mt-2">
-                Limpiar filtros
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="bg-white rounded-xl shadow overflow-hidden border border-gray-200">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="px-6 py-4 font-semibold text-gray-700">Usuario</th>
-                  <th className="px-6 py-4 font-semibold text-gray-700">Rol</th>
-                  <th className="px-6 py-4 font-semibold text-gray-700">Estado</th>
-                  <th className="px-6 py-4 font-semibold text-gray-700 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filteredUsers.map((u) => (
-                  <tr key={u.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-white flex items-center justify-center font-bold text-sm shadow-sm">
-                          {(u.first_name || u.full_name || 'U')[0]}{(u.last_name || 'S')[0]}
-                        </div>
-                        <div>
-                          <p className="font-bold text-gray-900">
-                            {u.full_name || `${u.first_name || ''} ${u.last_name || ''}`}
-                          </p>
-                          <p className="text-xs text-gray-500 flex items-center gap-1">
-                            <Mail className="w-3 h-3" /> {u.email}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <Badge className={`${getRoleColor(u.role)} border font-medium`}>
-                        <Shield className="w-3 h-3 mr-1" /> {u.role.replace('_', ' ')}
-                      </Badge>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                        u.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                      }`}>
-                        {u.is_active ? 'Activo' : 'Inactivo'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          className="text-blue-600 hover:bg-blue-50 hover:text-blue-800"
-                          onClick={() => router.push(`/manager/admin/users/${u.id}`)}
-                        >
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          className="text-red-600 hover:bg-red-50 hover:text-red-800"
-                          onClick={() => { setDeleteConflicted(false); setUserToDelete({ ...u }); }}
-                          disabled={u.id === user?.id} // Deshabilitar si es el usuario actual
-                          title={u.id === user?.id ? "No puedes desactivarte a ti mismo" : "Desactivar usuario"}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </td>
+          <p className="text-sm text-slate-600">
+            Consulta confirmada: rol{" "}
+            {snapshot.query.role === "ALL"
+              ? "Todos"
+              : USER_ROLE_LABELS[snapshot.query.role as UserRole]}
+            , estado{" "}
+            {snapshot.query.active === "ALL"
+              ? "Todos"
+              : snapshot.query.active === "true"
+                ? "Activo"
+                : "Inactivo"}
+            , página {snapshot.query.skip / USER_PAGE_SIZE + 1}.{" "}
+            {alertDate(snapshot.at)?.toLocaleString("es-VE", {
+              timeZone: "America/Caracas",
+            })}{" "}
+            · America/Caracas.
+          </p>
+          {!matching && (
+            <OperationNotice>
+              Se conserva la consulta confirmada indicada arriba hasta confirmar
+              la nueva selección.
+            </OperationNotice>
+          )}
+          {!visible.length ? (
+            <OperationEmpty>
+              {snapshot.rows.length
+                ? "No hay coincidencias en esta página. Ajusta la búsqueda local."
+                : "La página consultada no contiene usuarios."}
+            </OperationEmpty>
+          ) : (
+            <div
+              role="region"
+              aria-label="Tabla de usuarios"
+              tabIndex={0}
+              className={`${operationStyles.panel} overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600`}
+            >
+              <table className="w-full min-w-[850px] text-left text-sm">
+                <thead className={operationStyles.tableHead}>
+                  <tr>
+                    <th scope="col" className="p-4">
+                      Usuario
+                    </th>
+                    <th scope="col" className="p-4">
+                      Rol
+                    </th>
+                    <th scope="col" className="p-4">
+                      Estado
+                    </th>
+                    <th scope="col" className="p-4">
+                      Acciones
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Diálogo de Confirmación de Eliminación */}
-      <Dialog open={!!userToDelete} onOpenChange={() => { if (!isDeleting) setUserToDelete(null); }}>
-        <DialogContent>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {visible.map((row) => {
+                    const known = Object.hasOwn(USER_ROLE_LABELS, row.role),
+                      tone: OperationTone =
+                        row.role === "SUPERADMIN"
+                          ? "violet"
+                          : row.role === "GERENTE"
+                            ? "blue"
+                            : "slate";
+                    let revision = false;
+                    try {
+                      requireUserRevision(row.user_revision);
+                      revision = true;
+                    } catch {
+                      /* No speculative write without the displayed revision. */
+                    }
+                    const mayManage = canManageAccount(actor?.role, row.role),
+                      mayDeactivate =
+                        mayManage &&
+                        row.id !== actor?.id &&
+                        row.is_active === true &&
+                        revision;
+                    return (
+                      <tr
+                        key={row.id}
+                        className="align-top hover:bg-blue-50/40"
+                      >
+                        <td className="max-w-sm space-y-1 p-4">
+                          <p className="break-words font-bold">
+                            {userDisplayName(row)}
+                          </p>
+                          <p className="break-all text-slate-600">
+                            {row.email || "Email no informado"}
+                          </p>
+                          <p className="break-all font-mono text-xs text-slate-500">
+                            ID: {row.id}
+                          </p>
+                        </td>
+                        <td className="p-4">
+                          <OperationPill tone={tone}>
+                            {known
+                              ? USER_ROLE_LABELS[row.role]
+                              : row.role || "Rol no informado"}
+                          </OperationPill>
+                        </td>
+                        <td className="p-4">
+                          <OperationPill
+                            tone={row.is_active === true ? "emerald" : "slate"}
+                          >
+                            {row.is_active === true
+                              ? "Activo"
+                              : row.is_active === false
+                                ? "Inactivo"
+                                : "Estado no informado"}
+                          </OperationPill>
+                        </td>
+                        <td className="p-4">
+                          <div className="flex flex-wrap gap-3">
+                            <Link
+                              className={operationStyles.link}
+                              href={`/manager/admin/users/${encodeURIComponent(row.id)}`}
+                              aria-label={`Ver ficha de ${row.id}`}
+                            >
+                              {mayManage ? "Editar usuario" : "Ver ficha"}
+                            </Link>
+                            <button
+                              className={operationStyles.button}
+                              title={
+                                row.id === actor?.id
+                                  ? "No puedes desactivarte a ti mismo"
+                                  : "Desactivar usuario"
+                              }
+                              aria-label={`Desactivar usuario ${row.id}`}
+                              disabled={disabled || !mayDeactivate}
+                              onClick={() => openConfirmation(row)}
+                            >
+                              Desactivar
+                            </button>
+                          </div>
+                          {!mayManage && (
+                            <p className="mt-2 text-xs text-slate-600">
+                              Modificación reservada a superadministración.
+                            </p>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <nav
+            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4"
+            aria-label="Paginación de usuarios"
+          >
+            <button
+              className={operationStyles.button}
+              disabled={
+                loading ||
+                pending ||
+                !matching ||
+                !!readError ||
+                snapshot.query.skip === 0
+              }
+              onClick={() =>
+                chooseQuery({
+                  ...snapshot.query,
+                  skip: Math.max(0, snapshot.query.skip - USER_PAGE_SIZE),
+                })
+              }
+            >
+              Página anterior
+            </button>
+            <span className="text-sm text-slate-600">
+              Página {snapshot.query.skip / USER_PAGE_SIZE + 1} de la consulta
+              confirmada
+            </span>
+            <button
+              className={operationStyles.button}
+              disabled={
+                loading || pending || !matching || !!readError || !snapshot.more
+              }
+              onClick={() =>
+                chooseQuery({
+                  ...snapshot.query,
+                  skip: snapshot.query.skip + USER_PAGE_SIZE,
+                })
+              }
+            >
+              Página siguiente
+            </button>
+          </nav>
+        </>
+      )}
+      <Dialog
+        open={!!selected}
+        onOpenChange={(open) => {
+          if (!open && !writing.current) setSelected(null);
+        }}
+      >
+        <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-2xl border-rose-200">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
-              <AlertTriangle className="w-5 h-5" /> Desactivar Usuario
-            </DialogTitle>
-            <DialogDescription className="pt-2">
-              ¿Estás seguro de desactivar a <strong>{userToDelete?.first_name} {userToDelete?.last_name}</strong>?
-              <br/><br/>
-              <ul className="list-disc list-inside text-sm space-y-1 mt-2 text-gray-700">
-                <li>El usuario perderá el acceso inmediatamente.</li>
-                <li>Sus datos históricos se mantendrán en el sistema.</li>
-                <li>Podrás reactivarlo manualmente más tarde si es necesario.</li>
-              </ul>
+            <DialogTitle>Desactivar Usuario</DialogTitle>
+            <DialogDescription>
+              ¿Desactivar a {selected ? userDisplayName(selected) : ""}? Email:{" "}
+              {selected?.email}. ID:{" "}
+              <span className="break-all">{selected?.id}</span>. Se revocan las
+              sesiones de la cuenta; sus datos históricos se mantienen.
             </DialogDescription>
           </DialogHeader>
+          {error && (
+            <p role="alert" className="text-sm text-rose-700">
+              {error}
+            </p>
+          )}
           <DialogFooter>
-            {deleteConflicted && <Button onClick={() => { setUserToDelete(null); loadUsers(); }}>Cerrar y actualizar</Button>}
-            <Button variant="outline" onClick={() => setUserToDelete(null)} disabled={isDeleting}>
-              Cancelar
-            </Button>
-            <Button 
-              variant="destructive" 
-              onClick={handleDeleteConfirm} 
-              disabled={isDeleting || deleteConflicted}
+            {conflicted && (
+              <button
+                className={operationStyles.button}
+                onClick={closeAndRefresh}
+              >
+                Cerrar y actualizar
+              </button>
+            )}
+            <button
+              className={operationStyles.button}
+              disabled={pending}
+              onClick={() => setSelected(null)}
             >
-              {isDeleting ? (
-                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Procesando...</>
-              ) : (
-                <><Trash2 className="w-4 h-4 mr-2" /> Sí, desactivar</>
-              )}
-            </Button>
+              Cancelar
+            </button>
+            <button
+              className={operationStyles.primaryButton}
+              disabled={disabled || conflicted}
+              onClick={() => void deactivate()}
+            >
+              {pending ? "Procesando…" : "Sí, desactivar"}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </main>
   );
 }
