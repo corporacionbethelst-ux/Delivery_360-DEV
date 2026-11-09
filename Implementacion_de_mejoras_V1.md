@@ -7207,3 +7207,36 @@ ramas y PRs; CI remoto observado por SHA. Sin merge, deploy u operaciones produc
 
 Registro: [frontend/ENTREGA_80.md](frontend/ENTREGA_80.md).
 Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
+
+## Entrega 81 — Centro personal de alertas (08/11/2026)
+
+Base main `2815ac9774ead59d36cc1b0d92a6625b86f14a2c`, árbol
+`4b0e9d86640be28c599c6c16d9f61f4397b3d23b`; entrega 80 integrada por el
+propietario y CI completo aprobado.
+
+Gerencia y operador comparten la nueva presentación azul/cian con filtros,
+indicadores de página, severidades de color y acciones visibles. La bandeja es
+personal: leer o descartar no resuelve un SLA. Fechas absolutas en Caracas,
+desconocidos explícitos y enlaces reales a orden y repartidor.
+
+Páginas de 50 con consulta de 51 para confirmar la siguiente; sin total inventado.
+Estado consultado al servidor, búsqueda y severidad locales. Fallos conservan datos
+y consulta confirmada; reintento exacto y retiro de respuestas de consultas o
+cuentas anteriores. Leer todas explica que incluye otras páginas y devuelve el
+contador real, incluso cero. Descartar confirma título e ID. Se bloquean duplicados
+y operaciones pendientes; un resultado incierto exige recarga antes de repetir.
+
+El servicio rechaza respuestas malformadas en lugar de convertirlas en vacío;
+comprueba coherencia, filtros, IDs únicos y acuses, y codifica IDs completos.
+Los endpoints y la autorización del backend se conservan.
+
+**75 casos nuevos**; **2472 pruebas / 117 suites aprobadas**. Cobertura global
+**61,02 % sentencias, 57,13 % ramas, 57,36 % funciones y 60,27 % líneas**, mínimos
+y exclusiones intactos. Tipos y build con lint de 48 páginas aprobados. Chromium:
+**91 comprobaciones**, cero escrituras reales y excepciones JavaScript. Nuevo
+smoke requerido en CI. Backend, dependencias y formulario original de orden sin
+cambios. Publicación mediante ramas y PRs ya autorizada; CI remoto observado por
+SHA. Sin merge, deploy u operaciones productivas desde el agente.
+
+Registro: [frontend/ENTREGA_81.md](frontend/ENTREGA_81.md).
+Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
