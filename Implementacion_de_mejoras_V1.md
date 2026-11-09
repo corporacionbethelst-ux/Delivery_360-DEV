@@ -7240,3 +7240,34 @@ SHA. Sin merge, deploy u operaciones productivas desde el agente.
 
 Registro: [frontend/ENTREGA_81.md](frontend/ENTREGA_81.md).
 Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
+
+## Entrega 82 — Administración de usuarios (09/11/2026)
+
+Base main `db53dc46277017828f254eb678846b63b5ae21a1`, árbol
+`1af4c77c1ce487a575fb85fe5d79075f93670fc8`; entrega 81 integrada por el
+propietario y CI completo aprobado.
+
+Listado, alta y edición adoptan encabezado azul/cian y secciones de identidad,
+permisos y credenciales en azul, violeta y ámbar. Formulario compartido con teléfono
+real y correo manual preservado; se retiran notas que no guardaba el contrato.
+Auditor se incorpora a los seis roles tipados. La interfaz refleja las restricciones
+reales para superadministración, propio rol y propia desactivación.
+
+Filtros de rol/estado del servidor, búsqueda local normalizada y páginas de 50
+con lectura de 51 para confirmar continuidad. Alcance y contadores de página,
+desconocidos explícitos, consulta preservada ante fallos y tabla móvil con teclado.
+Un error o identidad incorrecta no habilitan edición con valores predeterminados.
+Se conservan revisiones, acuses de identidad, bloqueo síncrono, retiro de resultados
+de sesiones anteriores y aviso de guardado parcial de datos y contraseña.
+Desactivación confirma identidad, conserva la revisión seleccionada y reconsulta.
+
+**58 casos nuevos; 2530 pruebas / 118 suites aprobadas**. Cobertura global:
+**61,85 % sentencias, 58,15 % ramas, 58,48 % funciones y 61,21 % líneas**;
+mínimos y exclusiones intactos. TypeScript y build de 48 páginas aprobados.
+Chromium: **106 comprobaciones**, cero escrituras de negocio y excepciones
+JavaScript; nuevo smoke requerido en CI. Backend, dependencias y formulario
+original de orden sin cambios. Publicación por ramas y PRs ya autorizada; CI
+remoto registrado por SHA. Sin merge, deploy u operaciones productivas del agente.
+
+Registro: [frontend/ENTREGA_82.md](frontend/ENTREGA_82.md).
+Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).

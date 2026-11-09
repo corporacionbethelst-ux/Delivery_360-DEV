@@ -1,10 +1,26 @@
 // Tipos TypeScript para Users y Riders - Delivery360
 // ACTUALIZADO: Coincide con el modelo real del backend e incluye extensiones para Rider
 
-export type UserRole = 'SUPERADMIN' | 'GERENTE' | 'OPERADOR' | 'REPARTIDOR' | 'CLIENTE';
-export type UserStatus = 'ACTIVO' | 'INACTIVO' | 'SUSPENDIDO';
-export type RiderStatus = 'ACTIVO' | 'PENDIENTE' | 'SUSPENDIDO' | 'INACTIVO' | 'OCUPADO';
-export type VehicleType = 'MOTO' | 'BICICLETA' | 'AUTO' | 'FURGONETA' | 'PATINETA';
+export type UserRole =
+  | "SUPERADMIN"
+  | "GERENTE"
+  | "OPERADOR"
+  | "REPARTIDOR"
+  | "CLIENTE"
+  | "AUDITOR";
+export type UserStatus = "ACTIVO" | "INACTIVO" | "SUSPENDIDO";
+export type RiderStatus =
+  | "ACTIVO"
+  | "PENDIENTE"
+  | "SUSPENDIDO"
+  | "INACTIVO"
+  | "OCUPADO";
+export type VehicleType =
+  | "MOTO"
+  | "BICICLETA"
+  | "AUTO"
+  | "FURGONETA"
+  | "PATINETA";
 
 export interface User {
   user_revision?: string;
@@ -18,16 +34,16 @@ export interface User {
   full_name?: string;
   phone?: string | null;
   avatar_url?: string | null;
-  
+
   // Autenticación
   last_login?: Date | string | null;
   failed_login_attempts?: number;
   locked_until?: Date | string | null;
-  
+
   // LGPD (Opcional según implementación)
   lgpdConsent?: boolean;
   lgpdConsentDate?: Date | string;
-  
+
   // Auditoría
   created_at: Date | string;
   updated_at: Date | string;
@@ -40,46 +56,56 @@ export interface Rider extends Partial<User> {
   // Datos específicos del Rider
   assignment_revision?: string;
   profile_revision?: string;
-  assigned_vehicle?: { id: string; revision?: string; plate: string; type: string; model: string; color: string; year: number };
-  tier?: 'BRONCE' | 'PLATA' | 'ORO' | 'PLATINO';
+  assigned_vehicle?: {
+    id: string;
+    revision?: string;
+    plate: string;
+    type: string;
+    model: string;
+    color: string;
+    year: number;
+  };
+  tier?: "BRONCE" | "PLATA" | "ORO" | "PLATINO";
   vehicle_type?: VehicleType | string;
   vehicle_plate?: string;
   vehicle_model?: string;
   operating_zone?: string;
   cpf?: string;
   cnh?: string;
-  
+
   // Tipo de propiedad del vehículo (Propio o Empresa)
-  vehicle_ownership_type?: 'PROPIO' | 'EMPRESA';
-  
+  vehicle_ownership_type?: "PROPIO" | "EMPRESA";
+
   // ID del vehículo asignado de la empresa (si aplica)
   assigned_vehicle_id?: string | null;
-  
+
   // Estado y Ubicación
   status?: RiderStatus;
   is_online?: boolean;
   last_lat?: number | null;
   last_lng?: number | null;
   last_location_at?: Date | string | null;
-  
+
   // Gamificación / Rendimiento
   level?: number;
   total_points?: number;
   badges?: string[];
   notes?: string;
   approved_at?: Date | string | null;
-  
+
   // Financiero (si aplica)
   wallet_balance?: number;
   pending_balance?: number;
 
   // Helper opcional para nombre completo (a veces el backend lo devuelve calculado)
-  full_name?: string; 
+  full_name?: string;
 }
 
 // Helper para obtener nombre completo en el frontend
-export const getFullName = (user: Partial<Pick<User, 'first_name' | 'last_name'>>): string => {
-  return `${user.first_name || ''} ${user.last_name || ''}`.trim();
+export const getFullName = (
+  user: Partial<Pick<User, "first_name" | "last_name">>,
+): string => {
+  return `${user.first_name || ""} ${user.last_name || ""}`.trim();
 };
 
 export interface UserCreateInput {
@@ -136,8 +162,8 @@ export interface RiderDocument {
   rider_id?: string;
   revision?: string;
   id: string;
-  type: 'LICENCIA' | 'DOCUMENTO_IDENTIDAD' | 'REGISTRO_VEHICULO' | 'SEGURO';
-  status: 'PENDIENTE' | 'APROBADO' | 'RECHAZADO';
+  type: "LICENCIA" | "DOCUMENTO_IDENTIDAD" | "REGISTRO_VEHICULO" | "SEGURO";
+  status: "PENDIENTE" | "APROBADO" | "RECHAZADO";
   file_url?: string;
   rejection_reason?: string;
   created_at: string;

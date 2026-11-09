@@ -87,6 +87,14 @@ consultas del servidor y mantener visible la consulta confirmada ante fallos.
 Las acciones globales explican si incluyen otras páginas; descartar identifica
 la alerta. Controles y enlaces permanecen visibles y alcanzables en móvil.
 
+La entrega 82 aplica esta línea al catálogo, alta y edición de usuarios: identidad
+azul, permisos violeta y credenciales ámbar. Conservar el correo manual, recoger
+solo campos que se guardan y reflejar los seis roles reales. Distinguir una ficha
+confirmada de un error de lectura, y lectura permitida de modificación autorizada.
+Explicar el alcance de los contadores y filtros, conservar los datos ante fallos
+y ofrecer desplazamiento de tabla con teclado en móvil. Las confirmaciones
+identifican la cuenta y explican el efecto sobre sus sesiones y datos históricos.
+
 Antes de publicar una actualización visual, comprobar el build real en escritorio y
 móvil, revisar capturas y ejecutar las regresiones relevantes. Las pruebas Chromium
 existentes de entregas y auditoría interceptan datos de negocio: permiten revisar
