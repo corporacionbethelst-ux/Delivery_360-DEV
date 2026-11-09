@@ -295,6 +295,7 @@ jobs:
           python frontend/e2e/riders.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/riders
           python frontend/e2e/rider-profile-documents.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/profile-documents
           python frontend/e2e/rider-map.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/rider-map
+          python frontend/e2e/personal-alerts.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/personal-alerts
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && hashFiles('browser-artifacts/**') != '' }}
         with:

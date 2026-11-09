@@ -52,7 +52,7 @@ const rawAlert = {
 
 it('the panel uses the real personal read endpoint without claiming an operational resolution', async () => {
   jest.mocked(api.get).mockResolvedValueOnce([rawAlert]).mockResolvedValue([]);
-  jest.mocked(api.patch).mockResolvedValue(undefined);
+  jest.mocked(api.patch).mockResolvedValue({ id: rawAlert.id, message: 'Alerta marcada como leída' });
   render(<AlertPanel />);
   expect(await screen.findByText('Aviso personal SLA')).toBeInTheDocument();
   expect(screen.getByText('Alta')).toBeInTheDocument();

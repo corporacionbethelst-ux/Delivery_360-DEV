@@ -79,6 +79,14 @@ Coordenadas cero son válidas y los desconocidos conservan etiqueta explícita.
 Mantener perfil accesible sin GPS, enlaces de contacto reales, centrado por
 teclado y ajuste del encuadre. Un fondo cartográfico fallido no oculta los datos.
 
+La entrega 81 aplica esta línea al centro personal de alertas de gerencia y
+operador: encabezado azul/cian, filtros en tarjetas, indicadores de página y
+severidades con etiqueta. Leer no significa resolver una incidencia: conservar
+la severidad y explicar el alcance personal. Diferenciar filtros locales de
+consultas del servidor y mantener visible la consulta confirmada ante fallos.
+Las acciones globales explican si incluyen otras páginas; descartar identifica
+la alerta. Controles y enlaces permanecen visibles y alcanzables en móvil.
+
 Antes de publicar una actualización visual, comprobar el build real en escritorio y
 móvil, revisar capturas y ejecutar las regresiones relevantes. Las pruebas Chromium
 existentes de entregas y auditoría interceptan datos de negocio: permiten revisar
