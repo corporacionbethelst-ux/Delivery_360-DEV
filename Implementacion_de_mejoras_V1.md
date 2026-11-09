@@ -7171,3 +7171,39 @@ productivas desde el agente.
 
 Registro: [frontend/ENTREGA_79.md](frontend/ENTREGA_79.md).
 Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
+
+## Entrega 80 — Mapa de repartidores y consultas fiables (08/11/2026)
+
+Base main `ac28753ed8ea8e3e2e098e16b50e933e60d43413`, árbol
+`ce65bb3cc435454ab84ef0d125bd23c183157718`; entrega 79 integrada por el
+propietario y CI completo aprobado.
+
+Mapa con encabezado azul/cian, tarjetas de consulta y filtros, indicadores de
+alcance y sección cartográfica violeta. Listado y mapa accesibles en móvil sin
+superposición. Coordenadas cero y posiciones desconectadas conservadas; valores
+ausentes, cadenas y rangos inválidos no crean marcadores. Fecha de señal separada
+de la consulta; datos históricos sin prometer seguimiento continuo.
+
+Búsqueda local con tildes, estado, conexión y ubicación; asignación real del
+vehículo, perfil accesible aunque falte ubicación y llamadas con enlace nativo.
+Encuadre desde puntos reales, referencia mundial sin centro regional inventado,
+centrado explícito y ajuste móvil. Error cartográfico con listado y marcadores
+utilizables y reintento de la capa. Leaflet conserva carga exclusiva en navegador.
+
+Consultas serializadas, siguiente lectura 20 s después de terminar, pausa manual
+y por pestaña oculta, sin intervalos acumulados. Cambios de sesión y desmontajes
+retiran respuestas y timers. Fallos distinguidos de catálogos vacíos y última
+consulta preservada. Mensajes de transporte claros en español.
+
+**56 casos nuevos**; suite final **2397 pruebas / 115 suites aprobadas**. Cobertura
+**59,45 % sentencias, 55,61 % ramas, 55,64 % funciones y 58,64 % líneas**. Tipos y
+build con lint de 48 páginas aprobados, mínimos de cobertura intactos. Chromium:
+**77 comprobaciones**, con Leaflet real y datos/teselas sintéticos rotulados;
+cero escrituras de negocio y excepciones JavaScript. Nuevo smoke añadido al CI.
+Jest usa un stub local para la hoja global en lugar de una dependencia inexistente,
+sin modificar paquetes. Backend, servicios y formulario original de orden sin
+cambios. El propietario autorizó publicar esta entrega y las próximas mediante
+ramas y PRs; CI remoto observado por SHA. Sin merge, deploy u operaciones productivas.
+
+Registro: [frontend/ENTREGA_80.md](frontend/ENTREGA_80.md).
+Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
