@@ -71,6 +71,14 @@ repartidor y versión; mantener las acciones visibles con teclado y en móvil.
 Los diálogos pendientes bloquean su cierre y conservan el borrador si falla la
 operación. Un fallo de lectura ofrece reintento sin simular una ficha o lista vacía.
 
+La entrega 80 lleva esta línea al mapa de repartidores: encabezado azul/cian,
+tarjetas de consulta y sección cartográfica violeta. Listado y mapa deben ser
+alcanzables en móvil sin capas que se tapen. Separar fecha de señal y fecha de
+consulta; una conexión informada no confirma la vigencia de la ubicación.
+Coordenadas cero son válidas y los desconocidos conservan etiqueta explícita.
+Mantener perfil accesible sin GPS, enlaces de contacto reales, centrado por
+teclado y ajuste del encuadre. Un fondo cartográfico fallido no oculta los datos.
+
 Antes de publicar una actualización visual, comprobar el build real en escritorio y
 móvil, revisar capturas y ejecutar las regresiones relevantes. Las pruebas Chromium
 existentes de entregas y auditoría interceptan datos de negocio: permiten revisar
