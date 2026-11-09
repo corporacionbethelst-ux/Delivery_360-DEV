@@ -63,6 +63,14 @@ Los formularios recogen datos que el contrato puede guardar y conservan candidat
 y revisión al reemplazar opciones. Probar también los selectores reales en el
 navegador: las simulaciones de controles nativos no cubren todas sus interacciones.
 
+La entrega 79 extiende el criterio al perfil y documentación: datos de identidad
+en azul/cian y revisión documental en violeta. Distinguir valores ausentes de cero,
+saldo informado de disponibilidad para retiro y ubicación histórica de conexión
+en vivo. Mostrar fecha y zona horaria reales. Los documentos deben identificar su
+repartidor y versión; mantener las acciones visibles con teclado y en móvil.
+Los diálogos pendientes bloquean su cierre y conservan el borrador si falla la
+operación. Un fallo de lectura ofrece reintento sin simular una ficha o lista vacía.
+
 Antes de publicar una actualización visual, comprobar el build real en escritorio y
 móvil, revisar capturas y ejecutar las regresiones relevantes. Las pruebas Chromium
 existentes de entregas y auditoría interceptan datos de negocio: permiten revisar

@@ -5,7 +5,8 @@ import Page from '@/app/(dashboard)/manager/fleet/riders/[id]/documents/page';
 import { riderService } from '@/services/rider.service';
 import { toast } from 'sonner';
 
-jest.mock('next/navigation', () => ({ useParams: () => ({ id: '123e4567-e89b-42d3-a456-426614174001' }), useRouter: () => ({ push: jest.fn(), back: jest.fn() }) }));
+jest.mock('next/navigation', () => ({ useParams: () => ({ id: '123e4567-e89b-42d3-a456-426614174001' }), useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn() }) }));
+jest.mock('@/stores/authStore', () => ({ useAuthStore: () => ({ user: {id: 'manager', role: 'GERENTE'}, isAuthenticated: true }) }));
 jest.mock('sonner', () => ({ toast: { error: jest.fn(), success: jest.fn(), warning: jest.fn() } }));
 jest.mock('@/services/rider.service', () => ({ riderService: { getDocuments: jest.fn(), approveDocument: jest.fn(), rejectDocument: jest.fn(), deleteDocument: jest.fn() } }));
 const service = jest.mocked(riderService);

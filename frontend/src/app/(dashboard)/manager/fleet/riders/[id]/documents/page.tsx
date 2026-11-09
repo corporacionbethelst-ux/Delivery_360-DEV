@@ -1,453 +1,606 @@
-'use client';
-import { requireDocumentRevision, isDocumentRevisionConflict } from '@/lib/document-revision';
-import { DocumentDownloadButton } from '@/components/DocumentDownloadButton';
+"use client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import {
+  ArrowLeft,
+  FileText,
+  RefreshCw,
+  ShieldCheck,
+  Upload,
+} from "lucide-react";
+import { toast } from "sonner";
+import { ManagerPageBoundary } from "@/components/layout/ManagerPageBoundary";
+import { DocumentDownloadButton } from "@/components/DocumentDownloadButton";
+import {
+  OperationsHeader,
+  OperationEmpty,
+  OperationNotice,
+  OperationPill,
+  operationStyles,
+  type OperationTone,
+} from "@/components/operations/OperationsUI";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { riderService } from "@/services/rider.service";
+import { useAuthStore } from "@/stores/authStore";
+import type { RiderDocument } from "@/types/user";
+import {
+  requireDocumentRevision,
+  isDocumentRevisionConflict,
+} from "@/lib/document-revision";
+import {
+  DOCUMENT_ACCEPT,
+  validateDocumentSelection,
+} from "@/lib/document-upload";
+import {
+  canManageRiders,
+  riderDate,
+  riderReadRoles,
+} from "@/lib/rider-display";
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { riderService } from '@/services/rider.service'; 
-import { RiderDocument } from '@/types/user';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription, DialogTrigger } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
-import { 
-  ArrowLeft, Check, X, FileText, AlertTriangle, ShieldCheck,
-  Loader2, MessageSquare, RefreshCw, Upload, Trash2, PlusCircle 
-} from 'lucide-react';
-import { toast } from 'sonner';
-
-// --- Tipos y Constantes ---
-type DocumentStatus = 'PENDIENTE' | 'APROBADO' | 'RECHAZADO';
-type DocumentTypeKey = 'LICENCIA' | 'DOCUMENTO_IDENTIDAD' | 'REGISTRO_VEHICULO' | 'SEGURO' | 'CERTIFICADO_ANTecedENTES';
-
-const DOCUMENT_LABELS: Record<DocumentTypeKey, string> = {
-  LICENCIA: 'Licencia de Conducción',
-  DOCUMENTO_IDENTIDAD: 'Documento de Identidad',
-  REGISTRO_VEHICULO: 'Tarjeta de Propiedad',
-  SEGURO: 'Seguro / SOAT',
-  CERTIFICADO_ANTecedENTES: 'Certificado de Antecedentes',
+const labels: Record<RiderDocument["type"], string> = {
+  LICENCIA: "Licencia de Conducción",
+  DOCUMENTO_IDENTIDAD: "Documento de Identidad",
+  REGISTRO_VEHICULO: "Tarjeta de Propiedad",
+  SEGURO: "Seguro / SOAT",
 };
-
-const STATUS_CONFIG: Record<DocumentStatus, { color: string; label: string; icon: any }> = {
-  PENDIENTE: { color: 'bg-yellow-100 text-yellow-800 border-yellow-200', label: 'Pendiente', icon: AlertTriangle },
-  APROBADO: { color: 'bg-green-100 text-green-800 border-green-200', label: 'Aprobado', icon: Check },
-  RECHAZADO: { color: 'bg-red-100 text-red-800 border-red-200', label: 'Rechazado', icon: X },
+const statuses: Record<string, { label: string; tone: OperationTone }> = {
+  PENDIENTE: { label: "Pendiente", tone: "amber" },
+  APROBADO: { label: "Aprobado", tone: "emerald" },
+  RECHAZADO: { label: "Rechazado", tone: "rose" },
 };
+type Snapshot = { id: string; revision: string; label: string };
+const errorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error ? error.message : fallback;
 
 export default function ManagerRiderDocumentsPage() {
-  const router = useRouter();
   const params = useParams();
-  const riderId = params.id as string;
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Estados
-  const [documents, setDocuments] = useState<RiderDocument[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-  
-  // Estados Modal Rechazo
-  const [rejectModalOpen, setRejectModalOpen] = useState(false);
-  const [docToReject, setDocToReject] = useState<{ id: string; revision: string } | null>(null);
-  const [rejectionReason, setRejectionReason] = useState('');
-
-  // Estados Modal Subida
-  const [uploadModalOpen, setUploadModalOpen] = useState(false);
-  const [uploadType, setUploadType] = useState<string>('');
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-
-  // Carga inicial
-  useEffect(() => {
-    if (!riderId) {
-      setError('ID de repartidor no válido');
-      setLoading(false);
-      return;
-    }
-    loadDocuments();
-  }, [riderId]);
-
-  const loadDocuments = useCallback(async () => {
+  const id = typeof params.id === "string" ? params.id : "";
+  return (
+    <ManagerPageBoundary scope={`rider-documents:${id}`} roles={riderReadRoles}>
+      <Documents id={id} />
+    </ManagerPageBoundary>
+  );
+}
+function Documents({ id }: { id: string }) {
+  const { user } = useAuthStore();
+  const canManage = canManageRiders(user?.role);
+  const [documents, setDocuments] = useState<RiderDocument[] | null>(null);
+  const [loading, setLoading] = useState(false),
+    [pending, setPending] = useState(false);
+  const [readError, setReadError] = useState<string | null>(null),
+    [actionError, setActionError] = useState<string | null>(null),
+    [success, setSuccess] = useState<string | null>(null);
+  const [rejection, setRejection] = useState<Snapshot | null>(null),
+    [reason, setReason] = useState("");
+  const [uploadOpen, setUploadOpen] = useState(false),
+    [uploadType, setUploadType] = useState("");
+  const [file, setFile] = useState<File | null>(null),
+    [fileError, setFileError] = useState<string | null>(null);
+  const alive = useRef(false),
+    sequence = useRef(0),
+    writing = useRef(false),
+    reading = useRef(false);
+  const load = useCallback(async () => {
+    const ticket = ++sequence.current;
+    reading.current = true;
     setLoading(true);
-    setError(null);
+    setReadError(null);
     try {
-      const data = await riderService.getDocuments(riderId);
-      setDocuments(data);
-    } catch (err: any) {
-      const msg = err.message || 'Error al cargar documentos';
-      setError(msg);
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
-  }, [riderId]);
-
-  const snapshotForReview = (docId: string) => {
-    try {
-      const doc = documents.find(item => item.id === docId);
-      return { id: docId, revision: requireDocumentRevision(doc?.revision) };
+      if (!id) throw new Error("ID de repartidor no válido.");
+      const rows = await riderService.getDocuments(id);
+      if (
+        !Array.isArray(rows) ||
+        rows.some(
+          (row) =>
+            !row ||
+            typeof row.id !== "string" ||
+            !row.id ||
+            (row.rider_id != null && row.rider_id !== id),
+        ) ||
+        new Set(rows.map((row) => row.id)).size !== rows.length
+      )
+        throw new Error(
+          "La respuesta documental no corresponde a la ficha solicitada.",
+        );
+      if (alive.current && ticket === sequence.current) setDocuments(rows);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Recarga la documentación');
+      if (alive.current && ticket === sequence.current)
+        setReadError(
+          errorMessage(error, "No se pudieron cargar los documentos."),
+        );
+    } finally {
+      if (alive.current && ticket === sequence.current) {
+        reading.current = false;
+        setLoading(false);
+      }
+    }
+  }, [id]);
+  useEffect(() => {
+    const requests = sequence;
+    alive.current = true;
+    void load();
+    return () => {
+      alive.current = false;
+      requests.current++;
+    };
+  }, [load]);
+  const disabled = loading || pending || !!readError || documents === null;
+  const snapshotForReview = (doc: RiderDocument): Snapshot | null => {
+    if (!canManage || disabled || reading.current || writing.current)
+      return null;
+    try {
+      return {
+        id: doc.id,
+        revision: requireDocumentRevision(doc.revision),
+        label: labels[doc.type] || doc.type || "Documento",
+      };
+    } catch (error) {
+      const message = errorMessage(error, "Recarga la documentación");
+      setActionError(message);
+      toast.error(message);
       return null;
     }
   };
-
-  const showReviewError = async (error: unknown, fallback: string) => {
-    toast.error(error instanceof Error ? error.message : fallback);
-    if (isDocumentRevisionConflict(error)) await loadDocuments();
-  };
-
-  const handleApprove = async (docId: string) => {
-    const snapshot = snapshotForReview(docId);
-    if (!snapshot || !confirm('¿Estás seguro de aprobar este documento?')) return;
-    setActionLoading(docId);
-    try {
-      await riderService.approveDocument(snapshot.id, snapshot.revision);
-      toast.success('Documento aprobado correctamente');
-      await loadDocuments();
-    } catch (error) {
-      await showReviewError(error, 'Error al aprobar');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const initiateReject = (docId: string) => {
-    const snapshot = snapshotForReview(docId);
-    if (!snapshot) return;
-    setDocToReject(snapshot);
-    setRejectionReason('No cumple con los requisitos de legibilidad o vigencia.');
-    setRejectModalOpen(true);
-  };
-
-  const confirmReject = async () => {
-    if (!docToReject || !rejectionReason.trim()) {
-      toast.warning('Por favor ingrese un motivo');
+  const perform = async (
+    work: () => Promise<unknown>,
+    message: string,
+    close: () => void,
+  ) => {
+    if (
+      !canManage ||
+      !alive.current ||
+      reading.current ||
+      writing.current ||
+      disabled
+    )
       return;
-    }
-    const snapshot = docToReject;
-    setActionLoading(snapshot.id);
-    setRejectModalOpen(false);
+    writing.current = true;
+    setPending(true);
+    setActionError(null);
+    setSuccess(null);
     try {
-      await riderService.rejectDocument(snapshot.id, rejectionReason.trim(), snapshot.revision);
-      toast.success('Documento rechazado');
-      await loadDocuments();
+      await work();
+      if (!alive.current) return;
+      close();
+      setSuccess(message);
+      toast.success(message);
+      await load();
     } catch (error) {
-      await showReviewError(error, 'Error al rechazar');
+      if (!alive.current) return;
+      const text = errorMessage(error, "No se pudo completar la operación.");
+      setActionError(text);
+      toast.error(text);
+      if (isDocumentRevisionConflict(error)) {
+        setRejection(null);
+        await load();
+      }
     } finally {
-      setActionLoading(null);
-      setDocToReject(null);
+      writing.current = false;
+      if (alive.current) setPending(false);
     }
   };
-
-  const handleDelete = async (docId: string) => {
-    const snapshot = snapshotForReview(docId);
-    if (!snapshot || !confirm('¿Eliminar este documento? Su referencia se eliminará permanentemente.')) return;
-    setActionLoading(docId);
-    try {
-      await riderService.deleteDocument(snapshot.id, snapshot.revision);
-      toast.success('Documento eliminado');
-      await loadDocuments();
-    } catch (error) {
-      await showReviewError(error, 'Error al eliminar');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  // --- Acciones: Subida Manual (CORREGIDO) ---
-  const handleUploadSubmit = async () => {
-    if (!uploadType || !uploadFile) {
-      toast.error('Seleccione un tipo y un archivo');
+  const approve = (doc: RiderDocument) => {
+    const snapshot = snapshotForReview(doc);
+    if (
+      !snapshot ||
+      !window.confirm(
+        `¿Aprobar ${snapshot.label}? Documento: ${snapshot.id}. Repartidor: ${id}.`,
+      )
+    )
       return;
-    }
-
-    setIsUploading(true);
-    try {
-      // Se pasa el objeto completo { type, file } como espera el servicio
-      await riderService.uploadDocumentForRider(riderId, { 
-        type: uploadType, 
-        file: uploadFile 
-      });
-      
-      toast.success('Documento subido exitosamente');
-      setUploadModalOpen(false);
-      setUploadFile(null);
-      setUploadType('');
-      await loadDocuments();
-    } catch (err: any) {
-      toast.error(err.message || 'Error al subir');
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const getLabel = (type: string) => DOCUMENT_LABELS[type as DocumentTypeKey] || type.replace('_', ' ');
-
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[80vh] bg-gray-50">
-        <Loader2 className="animate-spin h-12 w-12 text-blue-600 mb-4" />
-        <p className="text-gray-500 font-medium">Cargando documentos...</p>
-      </div>
+    void perform(
+      () => riderService.approveDocument(snapshot.id, snapshot.revision),
+      "Documento aprobado correctamente",
+      () => {},
     );
-  }
-
+  };
+  const remove = (doc: RiderDocument) => {
+    const snapshot = snapshotForReview(doc);
+    if (
+      !snapshot ||
+      !window.confirm(
+        `¿Eliminar ${snapshot.label}? Documento: ${snapshot.id}. Repartidor: ${id}. Su referencia se eliminará permanentemente.`,
+      )
+    )
+      return;
+    void perform(
+      () => riderService.deleteDocument(snapshot.id, snapshot.revision),
+      "Documento eliminado",
+      () => {},
+    );
+  };
+  const reject = () => {
+    const snapshot = rejection,
+      text = reason.trim();
+    if (!snapshot || !text || text.length > 2000) return;
+    void perform(
+      () => riderService.rejectDocument(snapshot.id, text, snapshot.revision),
+      "Documento rechazado",
+      () => setRejection(null),
+    );
+  };
+  const openUpload = () => {
+    setFile(null);
+    setFileError(null);
+    setUploadType("");
+    setActionError(null);
+    setUploadOpen(true);
+  };
+  const selectFile = (candidate: File | null) => {
+    setFile(null);
+    setFileError(null);
+    if (!candidate) return;
+    try {
+      validateDocumentSelection(candidate);
+      setFile(candidate);
+    } catch (error) {
+      setFileError(errorMessage(error, "Archivo inválido"));
+    }
+  };
+  const upload = () => {
+    const chosenFile = file,
+      type = uploadType;
+    if (!chosenFile || !Object.hasOwn(labels, type)) return;
+    try {
+      validateDocumentSelection(chosenFile);
+    } catch (error) {
+      setFileError(errorMessage(error, "Archivo inválido"));
+      return;
+    }
+    void perform(
+      () => riderService.uploadDocumentForRider(id, { type, file: chosenFile }),
+      "Documento subido exitosamente",
+      () => {
+        setUploadOpen(false);
+        setFile(null);
+        setUploadType("");
+      },
+    );
+  };
   return (
-    <div className="p-6 bg-gray-50 min-h-screen space-y-6">
-      {/* Header con Botón de Subida */}
-      <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-6 justify-between">
-          <div className="flex items-center gap-4 flex-1">
-            <Button variant="ghost" onClick={() => router.back()} className="pl-0 hover:bg-transparent hover:text-blue-600">
-              <ArrowLeft className="mr-2 h-4 w-4" /> Volver
-            </Button>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                <ShieldCheck className="w-6 h-6 text-blue-600" />
-                Validación de Documentos
-              </h1>
-              <p className="text-sm text-gray-500 mt-1">
-                ID: <span className="font-mono bg-gray-200 px-2 py-0.5 rounded text-gray-700">{riderId.slice(0, 8)}...</span>
-              </p>
-            </div>
-          </div>
-          
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={loadDocuments} disabled={loading}>
-              <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Actualizar
-            </Button>
-            
-            <Dialog open={uploadModalOpen} onOpenChange={setUploadModalOpen}>
-              <DialogTrigger asChild>
-                <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
-                  <PlusCircle className="w-4 h-4" /> Subir Documento
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Subir Documento Manualmente</DialogTitle>
-                  <DialogDescription>
-                    Agregue un documento en nombre del repartidor. El estado inicial será &quot;Pendiente&quot;.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label>Tipo de Documento</Label>
-                    <Select value={uploadType} onValueChange={setUploadType}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar tipo..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Object.entries(DOCUMENT_LABELS).map(([key, label]) => (
-                          <SelectItem key={key} value={key}>{label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Archivo (PDF, JPG, PNG)</Label>
-                    <Input 
-                      type="file" 
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      onChange={(e) => setUploadFile(e.target.files?.[0] || null)} 
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setUploadModalOpen(false)} disabled={isUploading}>Cancelar</Button>
-                  <Button onClick={handleUploadSubmit} disabled={!uploadType || !uploadFile || isUploading}>
-                    {isUploading ? <><Loader2 className="animate-spin mr-2 h-4 w-4"/> Subiendo...</> : <><Upload className="mr-2 h-4 w-4"/> Subir</>}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </div>
-        </div>
-
-        {error && (
-          <Alert variant="destructive" className="mb-6 bg-red-50 border-red-200">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Error</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-                {/* Grid de Documentos o Estado Vacío Mejorado */}
-        {documents.length === 0 ? (
-          <Card className="border-dashed border-2 border-slate-300 bg-white shadow-sm">
-            <CardContent className="py-16 flex flex-col items-center justify-center text-center">
-              <div className="bg-blue-50 p-4 rounded-full mb-4">
-                <FileText className="w-10 h-10 text-blue-500" />
-              </div>
-              <h3 className="text-xl font-semibold text-gray-900">Sin documentos registrados</h3>
-              <p className="text-gray-500 max-w-sm mt-2 mb-6">
-                Este repartidor aún no ha subido documentos o han sido eliminados. Puedes agregar uno manualmente ahora.
-              </p>
-              
-              <div className="flex gap-3">
-                <Button 
-                  onClick={() => setUploadModalOpen(true)} 
-                  className="bg-blue-600 hover:bg-blue-700 text-white gap-2 shadow-md"
+    <main className={operationStyles.page}>
+      <OperationsHeader
+        icon={ShieldCheck}
+        eyebrow="Flota · Documentos"
+        title="Validación de Documentos"
+        audit
+        description={
+          <span className="break-all">
+            ID repartidor: {id || "No informado"}
+          </span>
+        }
+        actions={
+          <>
+            <Link
+              className={operationStyles.button}
+              href={`/manager/fleet/riders/${encodeURIComponent(id)}`}
+            >
+              <ArrowLeft aria-hidden="true" className="h-4 w-4" />
+              Volver al perfil
+            </Link>
+            <button
+              className={operationStyles.button}
+              onClick={() => void load()}
+              disabled={loading || pending}
+            >
+              <RefreshCw aria-hidden="true" className="h-4 w-4" />
+              Actualizar
+            </button>
+            {canManage && (
+              <button
+                className={operationStyles.primaryButton}
+                disabled={disabled}
+                onClick={openUpload}
+              >
+                <Upload aria-hidden="true" className="h-4 w-4" />
+                Subir Documento
+              </button>
+            )}
+          </>
+        }
+      />
+      {loading && (
+        <OperationNotice role="status">Consultando documentos…</OperationNotice>
+      )}
+      {readError && (
+        <OperationNotice role="alert" tone="warning">
+          <p>{readError}</p>
+          <p>Se conserva la última consulta confirmada, si existe.</p>
+          <button
+            className={operationStyles.button}
+            onClick={() => void load()}
+            disabled={loading || pending}
+          >
+            Reintentar documentos
+          </button>
+        </OperationNotice>
+      )}
+      {actionError && (
+        <OperationNotice role="alert" tone="error">
+          {actionError}
+        </OperationNotice>
+      )}
+      {success && (
+        <OperationNotice role="status" tone="success">
+          {success}
+        </OperationNotice>
+      )}
+      {documents !== null && (
+        <section
+          aria-label="Documentos de la consulta confirmada"
+          aria-busy={loading}
+          className="space-y-4"
+        >
+          <p className="text-sm text-slate-600">
+            {documents.length} documentos cargados. Fechas en America/Caracas.
+          </p>
+          {documents.length === 0 ? (
+            <OperationEmpty>
+              <span>Sin documentos registrados</span>
+              {canManage && (
+                <button
+                  className={operationStyles.button}
+                  disabled={disabled}
+                  onClick={openUpload}
                 >
-                  <Upload className="w-4 h-4" /> Subir Primer Documento
-                </Button>
-                <Button 
-                  variant="outline" 
-                  onClick={loadDocuments}
-                  disabled={loading}
-                >
-                  <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Recargar
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {documents.map((doc) => {
-              const statusConfig = STATUS_CONFIG[doc.status as DocumentStatus] || STATUS_CONFIG.PENDIENTE;
-              const StatusIcon = statusConfig.icon;
-              const hasUrl = doc.file_url && doc.file_url !== '#' && doc.file_url !== '';
-
-              return (
-                <Card key={doc.id} className={`flex flex-col overflow-hidden transition-all duration-200 hover:shadow-md border-t-4 relative group ${
-                  doc.status === 'APROBADO' ? 'border-t-green-500' : 
-                  doc.status === 'RECHAZADO' ? 'border-t-red-500' : 'border-t-yellow-500'
-                }`}>
-                  {/* Botón Eliminar */}
-                  <button 
-                    onClick={() => handleDelete(doc.id)}
-                    disabled={actionLoading === doc.id}
-                    className="absolute top-2 right-2 p-1.5 bg-white/90 hover:bg-red-50 text-gray-400 hover:text-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-sm border border-gray-200"
-                    title="Eliminar documento"
+                  Subir Primer Documento
+                </button>
+              )}
+            </OperationEmpty>
+          ) : (
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+              {documents.map((doc) => {
+                const status = statuses[doc.status],
+                  label = labels[doc.type] || doc.type || "Tipo no informado";
+                let hasRevision = false;
+                try {
+                  requireDocumentRevision(doc.revision);
+                  hasRevision = true;
+                } catch {
+                  /* Require a confirmed version for this content. */
+                }
+                return (
+                  <article
+                    key={`${doc.id}:${doc.revision ?? "unknown"}`}
+                    aria-label={`Documento ${doc.id}`}
+                    className={`${operationStyles.panel} flex min-w-0 flex-col overflow-hidden`}
                   >
-                    {actionLoading === doc.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                  </button>
-
-                  <CardHeader className="pb-3 bg-gray-50/50 pt-4">
-                    <div className="flex justify-between items-start gap-2 pr-8">
-                      <div className="space-y-1">
-                        <CardTitle className="text-base font-semibold text-gray-900">{getLabel(doc.type)}</CardTitle>
-                        <p className="text-xs text-gray-500">
-                          Subido: {new Date(doc.created_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <Badge variant="outline" className={`${statusConfig.color} border font-medium text-xs`}>
-                        <StatusIcon className="w-3 h-3 mr-1" />
-                        {statusConfig.label}
-                      </Badge>
+                    <div className="space-y-3 border-b border-violet-100 bg-gradient-to-br from-violet-50 via-white to-blue-50 p-5">
+                      <h2 className="font-bold">{label}</h2>
+                      <p className="break-all font-mono text-xs text-slate-600">
+                        ID documento: {doc.id}
+                      </p>
+                      <OperationPill tone={status?.tone}>
+                        {status?.label || doc.status || "Estado no informado"}
+                      </OperationPill>
                     </div>
-                  </CardHeader>
-                  
-                  <CardContent className="flex-1 flex flex-col pt-4 space-y-4">
-                    {/* Vista Previa */}
-                    <div className="aspect-video bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center group/view relative overflow-hidden">
-                      {hasUrl ? (
-                        <>
-                          <div className="absolute inset-0 bg-black/0 group-hover/view:bg-black/5 transition-colors" />
-                          <DocumentDownloadButton documentId={doc.id} revision={doc.revision}
-                            className="z-10 flex flex-col items-center p-4 rounded-lg hover:bg-white/80"
+                    <div className="flex flex-1 flex-col gap-4 p-5">
+                      <p className="text-sm text-slate-600">
+                        Subido: {riderDate(doc.created_at)}
+                      </p>
+                      <p className="text-sm text-slate-600">
+                        Actualizado: {riderDate(doc.updated_at)}
+                      </p>
+                      <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-4">
+                        {!hasRevision ? (
+                          <p className="text-sm">
+                            Recarga la documentación para consultar su versión
+                            actual.
+                          </p>
+                        ) : doc.file_url && doc.file_url !== "#" ? (
+                          <DocumentDownloadButton
+                            documentId={doc.id}
+                            revision={doc.revision}
+                            className={operationStyles.button}
                           />
-                        </>
-                      ) : (
-                        <div className="flex flex-col items-center text-gray-400 p-4 text-center">
-                          <FileText className="w-10 h-10 mb-2 opacity-50" />
-                          <span className="text-xs">Vista previa no disponible</span>
+                        ) : (
+                          <p className="text-sm">Archivo no informado.</p>
+                        )}
+                      </div>
+                      {doc.rejection_reason && (
+                        <OperationNotice tone="warning">
+                          <p className="font-semibold">Motivo del rechazo</p>
+                          <p className="break-words">{doc.rejection_reason}</p>
+                        </OperationNotice>
+                      )}
+                      {canManage && (
+                        <div className="mt-auto flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+                          {doc.status === "PENDIENTE" && (
+                            <>
+                              <button
+                                className={operationStyles.button}
+                                onClick={() => approve(doc)}
+                                disabled={disabled}
+                              >
+                                Aprobar
+                              </button>
+                              <button
+                                className={operationStyles.button}
+                                disabled={disabled}
+                                onClick={() => {
+                                  const snapshot = snapshotForReview(doc);
+                                  if (snapshot) {
+                                    setActionError(null);
+                                    setReason(
+                                      "No cumple con los requisitos de legibilidad o vigencia.",
+                                    );
+                                    setRejection(snapshot);
+                                  }
+                                }}
+                              >
+                                Rechazar
+                              </button>
+                            </>
+                          )}
+                          <button
+                            className={operationStyles.button}
+                            title="Eliminar documento"
+                            aria-label={`Eliminar documento ${doc.id}`}
+                            onClick={() => remove(doc)}
+                            disabled={disabled}
+                          >
+                            Eliminar
+                          </button>
                         </div>
                       )}
                     </div>
-
-                    {/* Motivo de Rechazo */}
-                    {doc.rejection_reason && (
-                      <div className="bg-red-50 p-3 rounded-md border border-red-100 text-sm">
-                        <div className="flex items-start gap-2">
-                          <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
-                          <div>
-                            <p className="font-semibold text-red-800 text-xs uppercase tracking-wide">Motivo:</p>
-                            <p className="text-red-700 mt-1">{doc.rejection_reason}</p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Acciones de Aprobación/Rechazo */}
-                    {doc.status === 'PENDIENTE' && (
-                      <div className="mt-auto pt-4 border-t border-gray-100 flex gap-2">
-                        <Button 
-                          size="sm" 
-                          variant="outline" 
-                          className="flex-1 border-green-600 text-green-700 hover:bg-green-50 hover:text-green-800"
-                          onClick={() => handleApprove(doc.id)}
-                          disabled={actionLoading === doc.id}
-                        >
-                          {actionLoading === doc.id ? <Loader2 className="animate-spin w-4 h-4" /> : <><Check className="w-4 h-4 mr-1" /> Aprobar</>}
-                        </Button>
-                        <Button 
-                          size="sm" 
-                          variant="outline" 
-                          className="flex-1 border-red-600 text-red-700 hover:bg-red-50 hover:text-red-800"
-                          onClick={() => initiateReject(doc.id)}
-                          disabled={actionLoading === doc.id}
-                        >
-                          {actionLoading === doc.id ? <Loader2 className="animate-spin w-4 h-4" /> : <><X className="w-4 h-4 mr-1" /> Rechazar</>}
-                        </Button>
-                      </div>
-                    )}
-
-                    {doc.status !== 'PENDIENTE' && (
-                      <CardFooter className="px-0 pt-4 border-t border-gray-100 text-center flex justify-between items-center">
-                        <p className="text-xs text-gray-500">
-                          Actualizado: {doc.updated_at ? new Date(doc.updated_at).toLocaleDateString() : 'N/A'}
-                        </p>
-                        <span className="text-[10px] text-gray-400 italic">Solo lectura</span>
-                      </CardFooter>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Modal de Rechazo */}
-      <Dialog open={rejectModalOpen} onOpenChange={setRejectModalOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+      <Dialog
+        open={!!rejection}
+        onOpenChange={(open) => {
+          if (!open && !writing.current) setRejection(null);
+        }}
+      >
+        <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-2xl border-violet-200">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-700">
-              <AlertTriangle className="w-5 h-5" /> Rechazar Documento
-            </DialogTitle>
+            <DialogTitle>Rechazar Documento</DialogTitle>
             <DialogDescription>
-              Especifique el motivo. El repartidor deberá subir uno nuevo.
+              {rejection?.label}. Documento:{" "}
+              <span className="break-all">{rejection?.id}</span>. Repartidor:{" "}
+              <span className="break-all">{id}</span>. Se revisará la versión
+              seleccionada al abrir este diálogo.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="reason">Motivo del rechazo *</Label>
-              <Textarea
-                id="reason"
-                value={rejectionReason}
-                onChange={(e) => setRejectionReason(e.target.value)}
-                placeholder="Ej: Imagen borrosa, fecha vencida..."
-                className="min-h-[100px]"
-                autoFocus
-              />
-            </div>
-          </div>
+          <label htmlFor="rejection-reason" className="text-sm font-medium">
+            Motivo del rechazo *
+          </label>
+          <textarea
+            id="rejection-reason"
+            className={`${operationStyles.field} min-h-28`}
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            maxLength={2000}
+            disabled={pending}
+          />
+          {actionError && (
+            <p role="alert" className="text-sm text-rose-700">
+              {actionError}
+            </p>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectModalOpen(false)} disabled={!!actionLoading}>Cancelar</Button>
-            <Button variant="destructive" onClick={confirmReject} disabled={!rejectionReason.trim() || !!actionLoading}>
-              {actionLoading ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : <MessageSquare className="mr-2 h-4 w-4" />}
-              Confirmar
-            </Button>
+            <button
+              className={operationStyles.button}
+              disabled={pending}
+              onClick={() => setRejection(null)}
+            >
+              Cancelar
+            </button>
+            <button
+              className={operationStyles.primaryButton}
+              disabled={
+                disabled || !reason.trim() || reason.trim().length > 2000
+              }
+              onClick={reject}
+            >
+              {pending ? "Guardando…" : "Confirmar"}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+      <Dialog
+        open={uploadOpen}
+        onOpenChange={(open) => {
+          if (!writing.current) setUploadOpen(open);
+        }}
+      >
+        <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-2xl border-violet-200">
+          <DialogHeader>
+            <DialogTitle>Subir Documento Manualmente</DialogTitle>
+            <DialogDescription>
+              Repartidor: <span className="break-all">{id}</span>. Se guardará
+              como pendiente; reemplazar un documento puede afectar la
+              habilitación del repartidor.
+            </DialogDescription>
+          </DialogHeader>
+          <fieldset
+            disabled={pending}
+            className="min-w-0 space-y-4 rounded-xl border border-blue-100 bg-blue-50/40 p-4"
+          >
+            <div className="space-y-2">
+              <label
+                htmlFor="upload-document-type"
+                className="text-sm font-medium"
+              >
+                Tipo de Documento
+              </label>
+              <select
+                id="upload-document-type"
+                className={operationStyles.field}
+                value={uploadType}
+                onChange={(event) => setUploadType(event.target.value)}
+              >
+                <option value="">Seleccionar tipo…</option>
+                {Object.entries(labels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label
+                htmlFor="upload-document-file"
+                className="text-sm font-medium"
+              >
+                Archivo (PDF, JPG, PNG)
+              </label>
+              <input
+                id="upload-document-file"
+                type="file"
+                accept={DOCUMENT_ACCEPT}
+                className={operationStyles.field}
+                onChange={(event) =>
+                  selectFile(event.target.files?.[0] ?? null)
+                }
+                aria-describedby="document-file-help"
+              />
+              <p id="document-file-help" className="text-xs text-slate-600">
+                Máximo 10 MiB. El servidor valida el contenido del archivo.
+              </p>
+            </div>
+          </fieldset>
+          {fileError && (
+            <p role="alert" className="text-sm text-rose-700">
+              {fileError}
+            </p>
+          )}
+          {actionError && (
+            <p role="alert" className="text-sm text-rose-700">
+              {actionError}
+            </p>
+          )}
+          <DialogFooter>
+            <button
+              className={operationStyles.button}
+              disabled={pending}
+              onClick={() => setUploadOpen(false)}
+            >
+              Cancelar
+            </button>
+            <button
+              className={operationStyles.primaryButton}
+              disabled={disabled || !file || !uploadType}
+              onClick={upload}
+            >
+              {pending ? "Subiendo…" : "Subir"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </main>
   );
 }
