@@ -102,6 +102,14 @@ estados desconocidos neutros y detalles originales legibles sin depender de hove
 El CSV confirma filtros, límite y alcance entre páginas. Los diálogos y valores
 JSON permanecen acotados y la tabla móvil admite desplazamiento con teclado.
 
+La entrega 84 aplica esta línea a Roles y Permisos: encabezado azul/cian, tarjetas
+de rol con acento violeta, indicadores de alcance y comparación con etiquetas
+Declarado / No declarado. Distinguir lo informado por el catálogo de la autorización
+efectiva de cada operación. No sustituir catálogos fallidos por datos de ejemplo.
+Mantener cero, referencias sin ficha, filtros y selección identificados tras recargas.
+El CSV refleja las filas visibles y las fechas de ambas fuentes. La tabla móvil
+explica su desplazamiento horizontal y conserva foco visible para teclado.
+
 Antes de publicar una actualización visual, comprobar el build real en escritorio y
 móvil, revisar capturas y ejecutar las regresiones relevantes. Las pruebas Chromium
 existentes de entregas y auditoría interceptan datos de negocio: permiten revisar

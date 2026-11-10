@@ -7302,3 +7302,33 @@ ya autorizada; sin merge, deploy u operaciones productivas del agente.
 
 Registro: [frontend/ENTREGA_83.md](frontend/ENTREGA_83.md).
 Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
+
+## Entrega 84 — Roles y permisos (10/11/2026 UTC)
+
+Base main `59405226ad1c88606dd209807e4865ab90e0c8a6`, árbol
+`df8b22f62a443f0a60c7cc88c43e519c6cc8148e`; entrega 83 integrada por el
+propietario y CI completo aprobado.
+
+Catálogo con encabezado azul/cian, tarjetas violeta, conteos reales y búsqueda
+local. Roles y permisos se cargan y reintentan de forma independiente, conservan
+la última lectura confirmada y retiran respuestas antiguas o de sesiones anteriores.
+Se elimina el respaldo de permisos de ejemplo. Cero y false se conservan; un
+contrato incompleto no se convierte en una lista vacía o una cuenta de cero.
+
+Comparación de dos a tres roles, permisos compartidos y diferencias, filtros de
+módulo y texto, referencias sin ficha identificadas por ID y CSV de las filas
+visibles con fecha de ambas consultas. La matriz muestra capacidades declaradas;
+no concede permisos ni sustituye la autorización de cada operación. Desplazamiento
+móvil con teclado y foco visible. Mutaciones de roles de sistema rechazadas
+localmente, manteniendo firmas y política del backend.
+
+**70 casos nuevos; 2694 pruebas / 122 suites aprobadas**. Cobertura global
+**64,09 % sentencias, 60,27 % ramas, 61,28 % funciones y 63,66 % líneas**,
+mínimos y exclusiones intactos. TypeScript y build de 48 páginas aprobados.
+Chromium: **137 comprobaciones**, cero escrituras de negocio y excepciones
+JavaScript; nuevo smoke requerido en CI. Backend, dependencias y formulario
+original de orden sin cambios. CI remoto registrado por SHA. Publicación por rama
+y PR ya autorizada; sin merge, deploy u operaciones productivas del agente.
+
+Registro: [frontend/ENTREGA_84.md](frontend/ENTREGA_84.md).
+Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
