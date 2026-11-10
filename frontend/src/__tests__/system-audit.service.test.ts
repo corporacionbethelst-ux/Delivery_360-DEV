@@ -101,7 +101,7 @@ it("normalizes explicit timezone offsets to UTC before the API drops timezone ma
     ).get("date_from"),
   ).toBe("2026-11-09T04:00:00.000Z");
 });
-it("converts entire Caracas days including the last millisecond of the end date", () => {
+it("converts entire Caracas days including the last microsecond of the end date", () => {
   expect(
     auditDraftFilters({
       ...emptyAuditDraft,
@@ -114,8 +114,14 @@ it("converts entire Caracas days including the last millisecond of the end date"
     offset: 0,
     search: "ALL",
     date_from: "2026-11-09T04:00:00.000Z",
-    date_to: "2026-11-10T03:59:59.999Z",
+    date_to: "2026-11-10T03:59:59.999999Z",
   });
+});
+it("preserves database microseconds when normalizing an explicit timezone offset", () => {
+  const query = new URLSearchParams(
+    auditQuery({ date_to: "2026-11-09T23:59:59.123456-04:00" }).slice(1),
+  );
+  expect(query.get("date_to")).toBe("2026-11-10T03:59:59.123456Z");
 });
 it("uses the actual historical Caracas offset instead of hardcoding UTC-4", () => {
   expect(
@@ -128,7 +134,7 @@ it("uses the actual historical Caracas offset instead of hardcoding UTC-4", () =
     limit: 50,
     offset: 0,
     date_from: "2008-11-09T04:30:00.000Z",
-    date_to: "2008-11-10T04:29:59.999Z",
+    date_to: "2008-11-10T04:29:59.999999Z",
   });
 });
 it.each([

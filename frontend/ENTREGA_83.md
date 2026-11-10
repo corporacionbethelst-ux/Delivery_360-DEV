@@ -21,7 +21,8 @@ teclado en móvil; los detalles y las confirmaciones tienen altura limitada.
   consulta pendiente se distingue de los datos conservados. El reintento usa los
   filtros y offset solicitados; un fallo inicial no presenta una lista vacía.
 - Las fechas de calendario abarcan días completos de **America/Caracas** y se
-  convierten a instantes UTC antes de enviarse. Se respeta también el desplazamiento
+  convierten a instantes UTC antes de enviarse, incluyendo el último microsegundo
+  del día que admite la base de datos. Se respeta también el desplazamiento
   histórico de la zona. Los eventos se muestran con fecha absoluta y zona clara:
   prioridad para occurred_at_utc válido y respaldo en created_at UTC heredado.
 - El resumen de siete días es global e independiente de los filtros. Su lectura,
@@ -76,13 +77,13 @@ persistidos y la respuesta de detalle conservan los valores originales.
 
 | Control | Evidencia |
 | --- | --- |
-| Casos frontend nuevos | **93 aprobados** |
-| Regresión focalizada frontend | **95 pruebas / 3 suites aprobadas**, incluidos los dos casos anteriores de auditoría de flota |
-| Suite frontend completa | **2623 pruebas / 120 suites aprobadas**, 52,927 s |
-| Cobertura global frontend | **63,15 % sentencias; 59,36 % ramas; 59,76 % funciones; 62,61 % líneas** |
+| Casos frontend nuevos | **94 aprobados** |
+| Regresión focalizada frontend | **96 pruebas / 3 suites aprobadas**, incluidos los dos casos anteriores de auditoría de flota |
+| Suite frontend completa | **2624 pruebas / 120 suites aprobadas**, 48,435 s |
+| Cobertura global frontend | **63,16 % sentencias; 59,38 % ramas; 59,76 % funciones; 62,62 % líneas** |
 | Mínimos y selección | Sin cambios; pasan los cuatro mínimos de 50 % |
 | TypeScript y build con lint | Aprobados; **48 páginas**, 16 advertencias existentes |
-| API nueva | **29 pruebas aprobadas**: partición de resultados sobre 42 combinaciones persistidas, CSV y acceso |
+| API nueva | **30 pruebas aprobadas**: partición de resultados sobre 42 combinaciones persistidas, CSV y acceso |
 | Montaje PostgreSQL/PostGIS | **16 pruebas existentes de transacciones aprobadas** antes de la corrida completa |
 | Backend estático | Black y flake8 crítico aprobados; mypy sin errores en **195 archivos** |
 | Chromium | **121 comprobaciones**: auditoría del sistema 15 y los diez smokes anteriores 106 |

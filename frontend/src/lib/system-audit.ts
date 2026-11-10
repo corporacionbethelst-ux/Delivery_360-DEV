@@ -85,7 +85,12 @@ function dateFilter(value: string): string {
     !Number.isFinite(Date.parse(value))
   )
     throw new Error("Fecha de auditoría no válida.");
-  return new Date(value).toISOString();
+  const normalized = new Date(value).toISOString();
+  const fraction = value.match(/\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/)?.[1];
+  // PostgreSQL/Python timestamps retain microseconds; Date only retains milliseconds.
+  return fraction && fraction.length > 3
+    ? normalized.replace(/Z$/, fraction.slice(3, 6) + "Z")
+    : normalized;
 }
 function caracasMidnight(day: string): number {
   const midnight = Date.parse(day + "T00:00:00Z");
@@ -195,11 +200,13 @@ export function auditDraftFilters(draft: AuditDraft): AuditFilters {
     const nextDay = new Date(Date.parse(value + "T00:00:00Z") + 86400000)
       .toISOString()
       .slice(0, 10);
-    filters[field] = new Date(
+    const bound = new Date(
       field === "date_to"
         ? caracasMidnight(nextDay) - 1
         : caracasMidnight(value),
     ).toISOString();
+    filters[field] =
+      field === "date_to" ? bound.replace(/\.999Z$/, ".999999Z") : bound;
   }
   if (draft.date_from && draft.date_to && draft.date_from > draft.date_to)
     throw new Error("La fecha inicial no puede ser posterior a la final.");

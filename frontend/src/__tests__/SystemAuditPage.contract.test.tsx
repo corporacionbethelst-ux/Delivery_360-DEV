@@ -165,7 +165,7 @@ it("applies server result, action, resource, user and complete Caracas date filt
         resource_id: "one",
         user_id: "123e4567-e89b-42d3-a456-000000000083",
         date_from: "2026-11-09T04:00:00.000Z",
-        date_to: "2026-11-10T03:59:59.999Z",
+        date_to: "2026-11-10T03:59:59.999999Z",
       }),
     ),
   );

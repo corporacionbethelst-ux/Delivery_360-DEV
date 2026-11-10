@@ -146,6 +146,36 @@ async def test_csv_roundtrips_unicode_quotes_newlines_and_numeric_codes(audit_cl
     assert "text/csv" in response.headers["content-type"]
 
 
+async def test_caracas_calendar_bounds_include_the_last_database_microsecond(
+    audit_client,
+):
+    client, db, _ = audit_client
+    last = AuditLog(
+        id=uuid4(),
+        action_type=ActionType.UPDATE,
+        created_at=datetime(2026, 11, 10, 3, 59, 59, 999999),
+    )
+    following = AuditLog(
+        id=uuid4(),
+        action_type=ActionType.UPDATE,
+        created_at=datetime(2026, 11, 10, 4, 0, 0),
+    )
+    db.add_all([last, following])
+    await db.commit()
+    filters = {
+        "date_from": "2026-11-09T04:00:00.000Z",
+        "date_to": "2026-11-10T03:59:59.999999Z",
+    }
+    response = await client.get("/api/v1/audit", params=filters)
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["id"] == str(last.id)
+    exported = await client.get("/api/v1/audit/export", params=filters)
+    assert [row["id"] for row in csv.DictReader(io.StringIO(exported.text))] == [
+        str(last.id)
+    ]
+
+
 @pytest.mark.parametrize(
     "role", [UserRole.OPERADOR, UserRole.REPARTIDOR, UserRole.CLIENTE, UserRole.AUDITOR]
 )

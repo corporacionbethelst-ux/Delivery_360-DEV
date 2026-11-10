@@ -263,7 +263,7 @@ def main():
         page.get_by_role("button", name="Aplicar filtros", exact=True).click()
         expect(table.get_by_role("row")).to_have_count(51)
         assert reads[-1]["date_from"] == ["2026-11-09T04:00:00.000Z"]
-        assert reads[-1]["date_to"] == ["2026-11-10T03:59:59.999Z"]
+        assert reads[-1]["date_to"] == ["2026-11-10T03:59:59.999999Z"]
         passed("calendar filters cover the complete Caracas day using exact UTC bounds")
         page.get_by_label("Desde (Caracas)", exact=True).fill("2026-11-10")
         count = len(reads)

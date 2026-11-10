@@ -7290,9 +7290,9 @@ libera Blob URLs. La API corrige el solapamiento entre filtros SUCCESS, WARNING
 y FAILURE para coincidir con el resultado serializado. Protege fórmulas CSV sin
 alterar eventos persistidos. Se mantienen permisos y endpoints existentes.
 
-**93 casos nuevos frontend; 2623 pruebas / 120 suites aprobadas**. Cobertura
-**63,15 % sentencias, 59,36 % ramas, 59,76 % funciones y 62,61 % líneas**, mínimos
-y exclusiones intactos. **29 pruebas nuevas de API aprobadas** y controles estáticos
+**94 casos nuevos frontend; 2624 pruebas / 120 suites aprobadas**. Cobertura
+**63,16 % sentencias, 59,38 % ramas, 59,76 % funciones y 62,62 % líneas**, mínimos
+y exclusiones intactos. **30 pruebas nuevas de API aprobadas** y controles estáticos
 backend aprobados. La suite backend completa y CI remoto se registran por SHA en
 el PR y en la evidencia; no se sustituyen por resultados focalizados. Chromium:
 **121 comprobaciones**, cero escrituras de negocio y excepciones JavaScript.
