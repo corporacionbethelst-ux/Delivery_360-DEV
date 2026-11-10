@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Iterable, Optional, Union
@@ -132,15 +133,20 @@ def _build_filters(
     if status_filter and status_filter.upper() != "ALL":
         normalized_status = status_filter.upper()
         if normalized_status == "SUCCESS":
-            filters.append(AuditLog.success.is_(True))
+            filters.append(AuditLog.success.is_not(False))
             filters.append(
                 or_(AuditLog.status_code.is_(None), AuditLog.status_code < 400)
             )
+            filters.append(AuditLog.action_type != ActionType.ACCESS_DENIED)
         elif normalized_status == "FAILURE":
             filters.append(
                 or_(AuditLog.success.is_(False), AuditLog.status_code >= 500)
             )
         elif normalized_status == "WARNING":
+            filters.append(AuditLog.success.is_not(False))
+            filters.append(
+                or_(AuditLog.status_code.is_(None), AuditLog.status_code < 500)
+            )
             filters.append(
                 or_(
                     AuditLog.action_type == ActionType.ACCESS_DENIED,
@@ -326,13 +332,22 @@ async def export_audit_logs(
     writer.writeheader()
     for log in logs:
         serialized = _serialize_audit(log)
-        writer.writerow({field: serialized.get(field) for field in writer.fieldnames})
+        writer.writerow(
+            {field: _csv_literal(serialized.get(field)) for field in writer.fieldnames}
+        )
 
     return Response(
         content=output.getvalue(),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=audit_logs.csv"},
     )
+
+
+def _csv_literal(value: Any) -> Any:
+    """Export untrusted text as a literal spreadsheet cell; keep stored data intact."""
+    if isinstance(value, str) and re.match(r"^[\s\x00-\x1f\x7f\ufeff]*[=+\-@]", value):
+        return "'" + value
+    return value
 
 
 @router.get("/{audit_id}")

@@ -1,315 +1,678 @@
-'use client';
-
-import React, { useEffect, useMemo, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+"use client";
+import { useState } from "react";
 import {
-  AlertCircle,
-  CheckCircle,
-  Clock,
   Download,
   History,
-  Loader2,
   RefreshCw,
   Search,
-  ShieldAlert,
+  ShieldCheck,
   Terminal,
-  User,
-} from 'lucide-react';
-import { auditService, AuditFilters, AuditLog, AuditStatus, AuditSummary } from '@/services/audit.service';
+} from "lucide-react";
+import { ManagerPageBoundary } from "@/components/layout/ManagerPageBoundary";
+import {
+  OperationsHeader,
+  OperationEmpty,
+  OperationMetric,
+  OperationNotice,
+  OperationPill,
+  SectionHeading,
+  operationStyles,
+  type OperationTone,
+} from "@/components/operations/OperationsUI";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import type { AuditLog } from "@/services/audit.service";
+import {
+  AUDIT_ACTIONS,
+  AUDIT_EXPORT_LIMIT,
+  AUDIT_PAGE_SIZE,
+  AUDIT_RESULTS,
+  auditDraftFilters,
+  auditEventTime,
+  auditScope,
+  auditTime,
+  emptyAuditDraft,
+  type AuditDraft,
+} from "@/lib/system-audit";
+import { useSystemAudit } from "@/hooks/useSystemAudit";
 
-const PAGE_SIZE = 50;
-const ALL_VALUE = 'ALL';
-
-const ACTIONS = [
-  'LOGIN',
-  'LOGOUT',
-  'CREATE',
-  'READ',
-  'UPDATE',
-  'DELETE',
-  'ASSIGN',
-  'REASSIGN',
-  'STATUS_CHANGE',
-  'PAYMENT',
-  'EXPORT',
-  'IMPORT',
-  'CONFIG_CHANGE',
-  'ACCESS_DENIED',
-];
-
-function auditDate(log: AuditLog): string {
-  const utc = log.new_values?.occurred_at_utc;
-  const timestamp = typeof utc === 'string' ? utc : log.created_at;
-  return timestamp ? new Date(timestamp).toLocaleString() : 'Sin fecha';
-}
-
-export default function AdminAuditPage() {
-  const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [summary, setSummary] = useState<AuditSummary | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [actionFilter, setActionFilter] = useState<string>(ALL_VALUE);
-  const [statusFilter, setStatusFilter] = useState<AuditStatus | typeof ALL_VALUE>(ALL_VALUE);
-  const [resourceFilter, setResourceFilter] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [offset, setOffset] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [exporting, setExporting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const filters = useMemo<AuditFilters>(() => ({
-    limit: PAGE_SIZE,
-    offset,
-    search: searchTerm || undefined,
-    action: actionFilter !== ALL_VALUE ? actionFilter : undefined,
-    status: statusFilter !== ALL_VALUE ? statusFilter : undefined,
-    resource_type: resourceFilter || undefined,
-    date_from: dateFrom || undefined,
-    date_to: dateTo || undefined,
-  }), [actionFilter, dateFrom, dateTo, offset, resourceFilter, searchTerm, statusFilter]);
-
-  useEffect(() => {
-    loadAuditData();
-  }, [filters]);
-
-  const loadAuditData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [logsResponse, summaryResponse] = await Promise.all([
-        auditService.getLogs(filters),
-        auditService.getSummary(7).catch(() => null),
-      ]);
-      setLogs(logsResponse.items);
-      setTotal(logsResponse.total);
-      setSummary(summaryResponse);
-    } catch (err: any) {
-      setError(err?.message || 'No se pudieron cargar los logs de auditoría');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const resetFilters = () => {
-    setSearchTerm('');
-    setActionFilter(ALL_VALUE);
-    setStatusFilter(ALL_VALUE);
-    setResourceFilter('');
-    setDateFrom('');
-    setDateTo('');
-    setOffset(0);
-  };
-
-  const handleExport = async () => {
-    setExporting(true);
-    setError(null);
-    try {
-      const csv = await auditService.exportCsv({ ...filters, limit: 5000 });
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `audit_logs_${new Date().toISOString().slice(0, 10)}.csv`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (err: any) {
-      setError(err?.message || 'No se pudo exportar la auditoría');
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'SUCCESS': return 'bg-green-100 text-green-800 border-green-200';
-      case 'FAILURE': return 'bg-red-100 text-red-800 border-red-200';
-      case 'WARNING': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
-
-  const getIcon = (log: AuditLog) => {
-    if (log.action.includes('LOGIN')) return <User className="w-4 h-4" />;
-    if (log.status === 'FAILURE' || log.action.includes('ERROR')) return <AlertCircle className="w-4 h-4" />;
-    if (log.status === 'SUCCESS') return <CheckCircle className="w-4 h-4" />;
-    return <Terminal className="w-4 h-4" />;
-  };
-
-  const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-
+function Result({ row }: { row: AuditLog }) {
+  const tone: OperationTone =
+    row.status === "SUCCESS"
+      ? "emerald"
+      : row.status === "WARNING"
+        ? "amber"
+        : row.status === "FAILURE"
+          ? "rose"
+          : "slate";
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <History className="w-6 h-6 text-slate-600" />
-              Auditoría del Sistema
-            </h1>
-            <p className="text-gray-500 mt-1">Consulta trazable de acciones críticas, recursos afectados e IP de origen.</p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={loadAuditData} disabled={loading}>
-              <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Actualizar
-            </Button>
-            <Button variant="outline" onClick={handleExport} disabled={exporting || logs.length === 0}>
-              {exporting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+    <OperationPill tone={tone}>
+      {Object.hasOwn(AUDIT_RESULTS, row.status)
+        ? AUDIT_RESULTS[row.status as keyof typeof AUDIT_RESULTS]
+        : row.status}
+    </OperationPill>
+  );
+}
+function Actor({ row }: { row: AuditLog }) {
+  const identified = !!row.user_id || !!row.user_email;
+  return (
+    <>
+      <p className="break-all font-semibold">
+        {row.user_email || (row.user_id ? `Usuario ${row.user_id}` : "SYSTEM")}
+      </p>
+      <p className="text-xs text-slate-600">
+        {row.user_role || (identified ? "Rol no informado" : "SYSTEM")}
+      </p>
+    </>
+  );
+}
+export default function AdminAuditPage() {
+  return (
+    <ManagerPageBoundary scope="system-audit">
+      <AuditPage />
+    </ManagerPageBoundary>
+  );
+}
+function AuditPage() {
+  const state = useSystemAudit(),
+    [draft, setDraft] = useState<AuditDraft>({ ...emptyAuditDraft }),
+    [applied, setApplied] = useState<AuditDraft>({ ...emptyAuditDraft }),
+    [filterError, setFilterError] = useState<string | null>(null);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(applied),
+    snapshot = state.snapshot,
+    page = snapshot?.page,
+    summary = state.summary?.data;
+  const change = (key: keyof AuditDraft, value: string) => {
+    setDraft((previous) => ({ ...previous, [key]: value }));
+    setFilterError(null);
+  };
+  const apply = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (state.exporting) return;
+    try {
+      const filters = auditDraftFilters(draft);
+      setApplied({ ...draft });
+      setFilterError(null);
+      state.choose(filters);
+    } catch (error) {
+      setFilterError(
+        error instanceof Error
+          ? error.message
+          : "Revisa los filtros de auditoría.",
+      );
+    }
+  };
+  const clear = () => {
+    if (state.exporting) return;
+    setDraft({ ...emptyAuditDraft });
+    setApplied({ ...emptyAuditDraft });
+    setFilterError(null);
+    state.choose({ limit: AUDIT_PAGE_SIZE, offset: 0 });
+  };
+  return (
+    <main className={operationStyles.page}>
+      <OperationsHeader
+        audit
+        icon={History}
+        eyebrow="Administración · Trazabilidad"
+        title="Auditoría del Sistema"
+        description="Revisa acciones, actores y recursos con el resultado registrado en cada evento."
+        actions={
+          <>
+            <button
+              className={operationStyles.button}
+              disabled={
+                state.loading || state.summaryLoading || state.exporting
+              }
+              onClick={state.refresh}
+            >
+              <RefreshCw aria-hidden="true" className="h-4 w-4" />
+              Actualizar auditoría
+            </button>
+            <button
+              className={operationStyles.primaryButton}
+              disabled={!state.ready || dirty || state.exporting}
+              onClick={state.openExport}
+            >
+              <Download aria-hidden="true" className="h-4 w-4" />
               Exportar CSV
-            </Button>
-          </div>
-        </div>
-
+            </button>
+          </>
+        }
+      />
+      <section aria-label="Resumen global de auditoría" className="space-y-3">
+        <SectionHeading
+          icon={ShieldCheck}
+          title="Actividad global · últimos 7 días"
+          tone="violet"
+          description="Este resumen es independiente de los filtros de eventos. El éxito informado puede incluir advertencias."
+        />
+        {state.summaryLoading && (
+          <OperationNotice role="status">
+            Consultando resumen global…
+          </OperationNotice>
+        )}
+        {state.summaryError && (
+          <OperationNotice tone="warning" role="alert">
+            <p>{state.summaryError}</p>
+            <button
+              className={operationStyles.button}
+              disabled={state.summaryLoading || state.exporting}
+              onClick={state.retrySummary}
+            >
+              Reintentar resumen
+            </button>
+          </OperationNotice>
+        )}
         {summary && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-sm text-gray-500">Eventos últimos 7 días</p>
-                <p className="text-2xl font-bold text-gray-900">{summary.total}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-sm text-gray-500">Tipos de acción</p>
-                <p className="text-2xl font-bold text-gray-900">{Object.keys(summary.by_action || {}).length}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-sm text-gray-500">Resultados OK</p>
-                <p className="text-2xl font-bold text-green-700">{summary.by_success?.true || summary.by_success?.True || 0}</p>
-              </CardContent>
-            </Card>
-          </div>
-        )}
-
-        {error && (
-          <Alert variant="destructive">
-            <ShieldAlert className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Filtros</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
-            <div className="relative xl:col-span-2">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <Input
-                placeholder="Buscar acción, usuario, recurso o IP..."
-                className="pl-9"
-                value={searchTerm}
-                onChange={(event) => { setOffset(0); setSearchTerm(event.target.value); }}
+          <>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <OperationMetric
+                icon={History}
+                label="Eventos del período global"
+                value={summary.total}
+                tone="violet"
+              />
+              <OperationMetric
+                icon={Terminal}
+                label="Tipos de acción en el período"
+                value={Object.keys(summary.by_action).length}
+              />
+              <OperationMetric
+                icon={ShieldCheck}
+                label="Eventos con éxito informado"
+                value={summary.by_success.true ?? summary.by_success.True ?? 0}
+                tone="emerald"
               />
             </div>
+            <p className="text-xs text-slate-600">
+              Período desde {auditTime(summary.period_start)}. Resumen
+              confirmado: {auditTime(state.summary?.at)} · America/Caracas.
+            </p>
+          </>
+        )}
+      </section>
+      <form
+        onSubmit={apply}
+        className={`${operationStyles.panel} space-y-5 p-5`}
+        aria-label="Filtros de auditoría"
+        noValidate
+      >
+        <SectionHeading
+          icon={Search}
+          title="Explorar los eventos"
+          description="Aplica los filtros para consultar el servidor. Las fechas abarcan días completos de America/Caracas."
+        />
+        <fieldset
+          disabled={state.exporting}
+          className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-4"
+        >
+          <label className="space-y-2 text-sm font-medium md:col-span-2">
+            Buscar en la auditoría
+            <input
+              className={operationStyles.field}
+              value={draft.search}
+              onChange={(e) => change("search", e.target.value)}
+              placeholder="Descripción, usuario, recurso, IP o ruta"
+            />
+          </label>
+          <label className="space-y-2 text-sm font-medium">
+            Acción registrada
             <select
-              value={actionFilter}
-              onChange={(event) => { setOffset(0); setActionFilter(event.target.value); }}
-              className="px-3 py-2 border border-gray-300 rounded-md bg-white text-sm"
+              className={operationStyles.field}
+              value={draft.action}
+              onChange={(e) => change("action", e.target.value)}
             >
-              <option value={ALL_VALUE}>Todas las acciones</option>
-              {ACTIONS.map((action) => <option key={action} value={action}>{action}</option>)}
+              <option value="ALL">Todas las acciones</option>
+              {AUDIT_ACTIONS.map((action) => (
+                <option key={action} value={action}>
+                  {action}
+                </option>
+              ))}
             </select>
+          </label>
+          <label className="space-y-2 text-sm font-medium">
+            Resultado del evento
             <select
-              value={statusFilter}
-              onChange={(event) => { setOffset(0); setStatusFilter(event.target.value as AuditStatus | typeof ALL_VALUE); }}
-              className="px-3 py-2 border border-gray-300 rounded-md bg-white text-sm"
+              className={operationStyles.field}
+              value={draft.status}
+              onChange={(e) => change("status", e.target.value)}
             >
-              <option value={ALL_VALUE}>Todos los estados</option>
-              <option value="SUCCESS">Success</option>
-              <option value="WARNING">Warning</option>
-              <option value="FAILURE">Failure</option>
+              <option value="ALL">Todos los resultados</option>
+              {Object.entries(AUDIT_RESULTS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
             </select>
-            <Input placeholder="Recurso (Order, User...)" value={resourceFilter} onChange={(event) => { setOffset(0); setResourceFilter(event.target.value); }} />
-            <Button variant="outline" onClick={resetFilters}>Limpiar</Button>
-            <Input type="date" value={dateFrom} onChange={(event) => { setOffset(0); setDateFrom(event.target.value); }} />
-            <Input type="date" value={dateTo} onChange={(event) => { setOffset(0); setDateTo(event.target.value); }} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-0">
-            {loading ? (
-              <div className="flex justify-center py-16">
-                <Loader2 className="animate-spin h-10 w-10 text-slate-600" />
-              </div>
-            ) : logs.length === 0 ? (
-              <div className="text-center py-16 text-gray-500">
-                <History className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>No se encontraron eventos de auditoría con los filtros actuales.</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b">
-                    <tr>
-                      <th className="px-6 py-3">Estado</th>
-                      <th className="px-6 py-3">Acción</th>
-                      <th className="px-6 py-3">Usuario</th>
-                      <th className="px-6 py-3">Fecha</th>
-                      <th className="px-6 py-3">Recurso</th>
-                      <th className="px-6 py-3">IP</th>
-                      <th className="px-6 py-3">Detalles</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {logs.map((log) => (
-                      <tr key={log.id} className="bg-white border-b hover:bg-gray-50 text-xs">
-                        <td className="px-6 py-4">
-                          <Badge className={getStatusColor(log.status)}>{log.status}</Badge>
-                          {log.status_code && <div className="text-[11px] text-gray-400 mt-1">HTTP {log.status_code}</div>}
-                        </td>
-                        <td className="px-6 py-4 font-bold text-gray-700">
-                          <div className="flex items-center gap-2">
-                            {getIcon(log)}
-                            <span>{log.action}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="font-semibold text-gray-900 break-all">{log.user_email || (log.user_id ? `Usuario ${log.user_id}` : 'SYSTEM')}</div>
-                          <div className="text-xs text-gray-500">{log.user_role || 'SYSTEM'}</div>
-                        </td>
-                        <td className="px-6 py-4 text-gray-500 whitespace-nowrap">
-                          <div className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" /> {auditDate(log)}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="font-semibold text-gray-700">{log.resource_type || 'N/A'}</div>
-                          <div className="font-mono text-[11px] text-gray-400 truncate max-w-[160px]">{log.resource_id || '-'}</div>
-                        </td>
-                        <td className="px-6 py-4 font-mono text-gray-500">{log.ip_address || '-'}</td>
-                        <td className="px-6 py-4 text-gray-600 max-w-xs truncate" title={log.details || log.description || ''}>
-                          {log.details || log.description || log.error_message || 'Sin detalles'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="flex justify-between items-center text-sm text-gray-600">
-          <span>Mostrando {logs.length} de {total} eventos</span>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" disabled={offset === 0 || loading} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
-              Anterior
-            </Button>
-            <span>Página {currentPage} de {totalPages}</span>
-            <Button variant="outline" size="sm" disabled={currentPage >= totalPages || loading} onClick={() => setOffset(offset + PAGE_SIZE)}>
-              Siguiente
-            </Button>
+          </label>
+          <label className="space-y-2 text-sm font-medium">
+            Tipo de recurso
+            <input
+              className={operationStyles.field}
+              value={draft.resource_type}
+              onChange={(e) => change("resource_type", e.target.value)}
+              placeholder="Order, User, Rider…"
+            />
+          </label>
+          <label className="space-y-2 text-sm font-medium">
+            ID de recurso
+            <input
+              className={operationStyles.field}
+              value={draft.resource_id}
+              onChange={(e) => change("resource_id", e.target.value)}
+            />
+          </label>
+          <label className="space-y-2 text-sm font-medium md:col-span-2">
+            ID de usuario (UUID)
+            <input
+              className={operationStyles.field}
+              value={draft.user_id}
+              onChange={(e) => change("user_id", e.target.value)}
+              placeholder="Identificador completo del actor"
+            />
+          </label>
+          <label className="space-y-2 text-sm font-medium">
+            Desde (Caracas)
+            <input
+              type="date"
+              className={operationStyles.field}
+              value={draft.date_from}
+              onChange={(e) => change("date_from", e.target.value)}
+            />
+          </label>
+          <label className="space-y-2 text-sm font-medium">
+            Hasta (Caracas)
+            <input
+              type="date"
+              className={operationStyles.field}
+              value={draft.date_to}
+              onChange={(e) => change("date_to", e.target.value)}
+            />
+          </label>
+          <div className="flex flex-wrap items-end gap-3 md:col-span-2">
+            <button className={operationStyles.primaryButton} type="submit">
+              Aplicar filtros
+            </button>
+            <button
+              type="button"
+              className={operationStyles.button}
+              onClick={clear}
+            >
+              Limpiar filtros
+            </button>
           </div>
-        </div>
+        </fieldset>
+        {dirty && (
+          <p className="text-sm text-amber-900">
+            Hay cambios sin aplicar. La tabla conserva su consulta confirmada;
+            aplica los filtros antes de exportar.
+          </p>
+        )}
+        {filterError && (
+          <OperationNotice tone="error" role="alert">
+            {filterError}
+          </OperationNotice>
+        )}
+      </form>
+      {state.loading && (
+        <OperationNotice role="status">Consultando eventos…</OperationNotice>
+      )}
+      {state.readError && (
+        <OperationNotice tone="warning" role="alert">
+          <p>{state.readError}</p>
+          <button
+            className={operationStyles.button}
+            disabled={state.loading || state.exporting}
+            onClick={state.retry}
+          >
+            Reintentar eventos
+          </button>
+        </OperationNotice>
+      )}
+      {state.downloaded && (
+        <OperationNotice tone="success" role="status">
+          Se inició la descarga del CSV con los filtros confirmados, desde el
+          primer resultado y hasta {AUDIT_EXPORT_LIMIT} eventos. Los registros
+          pueden haber cambiado desde la consulta de la tabla.
+        </OperationNotice>
+      )}
+      {snapshot && page && (
+        <section
+          className="space-y-4"
+          aria-label="Eventos de la consulta confirmada"
+        >
+          <div className="grid gap-4 sm:grid-cols-3">
+            <OperationMetric
+              icon={History}
+              label="Eventos en la consulta confirmada"
+              value={page.total}
+              tone="violet"
+            />
+            <OperationMetric
+              icon={Terminal}
+              label="Eventos en esta página"
+              value={page.items.length}
+            />
+            <OperationMetric
+              icon={Search}
+              label="Página confirmada"
+              value={Math.floor(page.offset / page.limit) + 1}
+              tone="amber"
+            />
+          </div>
+          <p className="break-words text-sm text-slate-600">
+            Consulta confirmada: {auditScope(snapshot.filters)}. Lectura:{" "}
+            {auditTime(snapshot.at)} · America/Caracas.
+          </p>
+          {!state.matching && (
+            <OperationNotice>
+              Se conserva la consulta confirmada indicada arriba hasta confirmar
+              la nueva selección.
+            </OperationNotice>
+          )}
+          {!page.items.length ? (
+            <OperationEmpty>
+              {page.total && page.offset
+                ? "Esta página ya no contiene eventos. Vuelve a una página anterior o actualiza la consulta."
+                : "No se encontraron eventos en la consulta confirmada."}
+            </OperationEmpty>
+          ) : (
+            <div
+              role="region"
+              aria-label="Tabla de auditoría"
+              tabIndex={0}
+              className={`${operationStyles.panel} overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600`}
+            >
+              <table className="w-full min-w-[1050px] text-left text-sm">
+                <thead className={operationStyles.tableHead}>
+                  <tr>
+                    {[
+                      "Resultado",
+                      "Acción",
+                      "Actor",
+                      "Fecha · Caracas",
+                      "Recurso",
+                      "Origen",
+                      "Detalle",
+                    ].map((name) => (
+                      <th key={name} scope="col" className="p-4">
+                        {name}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {page.items.map((row) => (
+                    <tr
+                      key={row.id}
+                      className="align-top hover:bg-violet-50/30"
+                    >
+                      <td className="space-y-1 p-4">
+                        <Result row={row} />
+                        {row.status_code != null && (
+                          <p className="text-xs text-slate-500">
+                            HTTP {row.status_code}
+                          </p>
+                        )}
+                      </td>
+                      <td className="max-w-[200px] space-y-1 p-4">
+                        <p className="break-words font-bold">{row.action}</p>
+                        <p className="break-all font-mono text-xs text-slate-500">
+                          ID: {row.id}
+                        </p>
+                      </td>
+                      <td className="max-w-[240px] space-y-1 p-4">
+                        <Actor row={row} />
+                      </td>
+                      <td className="p-4 text-xs text-slate-600">
+                        {auditEventTime(row)}
+                      </td>
+                      <td className="max-w-[200px] p-4">
+                        <p className="font-semibold">
+                          {row.resource_type || "Tipo no informado"}
+                        </p>
+                        <p className="break-all font-mono text-xs text-slate-600">
+                          {row.resource_id || "ID no informado"}
+                        </p>
+                      </td>
+                      <td className="max-w-[170px] space-y-1 break-all p-4 text-xs text-slate-600">
+                        <p>{row.ip_address || "IP no informada"}</p>
+                        <p>{row.request_method || "Método no informado"}</p>
+                      </td>
+                      <td className="max-w-xs space-y-3 p-4">
+                        <p className="line-clamp-2 break-words text-slate-600">
+                          {row.details ||
+                            row.description ||
+                            row.error_message ||
+                            "Sin descripción informada"}
+                        </p>
+                        <button
+                          className={operationStyles.link}
+                          disabled={!state.ready || state.exporting}
+                          onClick={() => state.openDetail(row)}
+                          aria-label={`Ver detalle del evento ${row.id}`}
+                        >
+                          Ver detalle
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <nav
+            className={`${operationStyles.panel} flex flex-wrap items-center justify-between gap-3 p-4`}
+            aria-label="Paginación de auditoría"
+          >
+            <button
+              className={operationStyles.button}
+              disabled={!state.ready || state.exporting || page.offset === 0}
+              onClick={() =>
+                state.choose({
+                  ...snapshot.filters,
+                  offset: Math.max(0, page.offset - AUDIT_PAGE_SIZE),
+                })
+              }
+            >
+              Página anterior
+            </button>
+            <span className="text-sm text-slate-600">
+              Página {Math.floor(page.offset / page.limit) + 1} · {page.total}{" "}
+              eventos en la consulta
+            </span>
+            <button
+              className={operationStyles.button}
+              disabled={
+                !state.ready ||
+                state.exporting ||
+                page.offset + page.limit >= page.total
+              }
+              onClick={() =>
+                state.choose({
+                  ...snapshot.filters,
+                  offset: page.offset + AUDIT_PAGE_SIZE,
+                })
+              }
+            >
+              Página siguiente
+            </button>
+          </nav>
+        </section>
+      )}
+      <Dialog
+        open={!!state.selected}
+        onOpenChange={(open) => {
+          if (!open) state.closeDetail();
+        }}
+      >
+        <DialogContent className="max-h-[90dvh] max-w-3xl overflow-y-auto rounded-2xl border-violet-200">
+          <DialogHeader>
+            <DialogTitle>Detalle del evento</DialogTitle>
+            <DialogDescription className="break-all">
+              ID: {state.selected?.id}. Consulta del registro original de
+              auditoría.
+            </DialogDescription>
+          </DialogHeader>
+          {state.detailLoading && (
+            <OperationNotice role="status">
+              Consultando detalle…
+            </OperationNotice>
+          )}
+          {state.detailError && (
+            <OperationNotice tone="warning" role="alert">
+              <p>{state.detailError}</p>
+              <button
+                className={operationStyles.button}
+                onClick={state.retryDetail}
+              >
+                Reintentar detalle
+              </button>
+            </OperationNotice>
+          )}
+          {state.detail && <EventDetail row={state.detail} />}
+          <DialogFooter>
+            <button
+              className={operationStyles.button}
+              onClick={state.closeDetail}
+            >
+              Cerrar detalle
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!state.exportScope}
+        onOpenChange={(open) => {
+          if (!open) state.closeExport();
+        }}
+      >
+        <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-2xl border-amber-200">
+          <DialogHeader>
+            <DialogTitle>Exportar auditoría</DialogTitle>
+            <DialogDescription>
+              Se consultarán hasta {AUDIT_EXPORT_LIMIT} eventos desde el primer
+              resultado de los filtros confirmados, incluyendo otras páginas. El
+              archivo refleja los datos disponibles al exportar.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="break-words rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+            {state.exportScope && auditScope(state.exportScope.filters)}
+          </p>
+          {state.exportScope &&
+            state.exportScope.page.total > AUDIT_EXPORT_LIMIT && (
+              <OperationNotice tone="warning">
+                La consulta confirmada supera el límite. Acota los filtros para
+                dividir la exportación.
+              </OperationNotice>
+            )}
+          {state.exportError && (
+            <OperationNotice tone="error" role="alert">
+              {state.exportError}
+            </OperationNotice>
+          )}
+          <DialogFooter>
+            <button
+              className={operationStyles.button}
+              disabled={state.exporting}
+              onClick={state.closeExport}
+            >
+              Cancelar
+            </button>
+            <button
+              className={operationStyles.primaryButton}
+              disabled={state.exporting}
+              onClick={() => void state.exportCsv()}
+            >
+              {state.exporting ? "Preparando CSV…" : "Descargar CSV"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </main>
+  );
+}
+function EventDetail({ row }: { row: AuditLog }) {
+  return (
+    <div className="space-y-4">
+      <section className="space-y-3 rounded-xl border border-blue-100 bg-blue-50/30 p-4">
+        <SectionHeading icon={History} title="Evento y actor" />
+        <Result row={row} />
+        <p className="break-words font-bold">
+          {row.action} · {auditEventTime(row)} · America/Caracas
+        </p>
+        <Actor row={row} />
+        <p className="break-all text-sm">
+          ID de usuario: {row.user_id || "No informado"}
+        </p>
+        <p className="whitespace-pre-wrap break-words text-sm">
+          {row.description || row.details || "Sin descripción informada"}
+        </p>
+      </section>
+      <section className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/30 p-4">
+        <SectionHeading
+          icon={Terminal}
+          title="Recurso y solicitud"
+          tone="violet"
+        />
+        <dl className="grid gap-3 text-sm sm:grid-cols-2">
+          {Object.entries({
+            Recurso: row.resource_type,
+            "ID de recurso": row.resource_id,
+            IP: row.ip_address,
+            Método: row.request_method,
+            Ruta: row.request_path,
+            "Código HTTP": row.status_code,
+            "Agente de usuario": row.user_agent,
+            "Resumen de cambios": row.changes_summary,
+            Error: row.error_message,
+          }).map(([key, value]) => (
+            <div key={key} className="min-w-0">
+              <dt className="font-semibold">{key}</dt>
+              <dd className="whitespace-pre-wrap break-all text-slate-600">
+                {value ?? "No informado"}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+      {row.contains_personal_data && (
+        <OperationNotice tone="warning">
+          El evento está marcado como contenido con datos personales.
+        </OperationNotice>
+      )}
+      <div className="grid gap-4 md:grid-cols-2">
+        {(
+          [
+            ["Valores anteriores", row.old_values],
+            ["Valores nuevos", row.new_values],
+          ] as const
+        ).map(([title, values]) => (
+          <section
+            key={title}
+            className="min-w-0 space-y-2 rounded-xl border border-amber-200 bg-amber-50/30 p-4"
+          >
+            <h3 className="font-semibold">{title}</h3>
+            {values == null ? (
+              <p className="text-sm text-slate-600">No informados</p>
+            ) : (
+              <pre
+                className="max-h-80 overflow-auto whitespace-pre-wrap break-all text-xs"
+                tabIndex={0}
+                aria-label={title}
+              >
+                {JSON.stringify(values, null, 2)}
+              </pre>
+            )}
+          </section>
+        ))}
       </div>
     </div>
   );

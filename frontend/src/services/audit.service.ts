@@ -1,12 +1,23 @@
-import { api } from '@/lib/api';
+import { api } from "@/lib/api";
+import {
+  captureAuthSession,
+  isCurrentAuthSession,
+  SessionChangedError,
+} from "@/lib/auth-session";
+import {
+  auditQuery,
+  validateAuditCsv,
+  validateAuditLog,
+  validateAuditPage,
+  validateAuditSummary,
+} from "@/lib/system-audit";
 
-export type AuditStatus = 'SUCCESS' | 'WARNING' | 'FAILURE';
-
+export type AuditStatus = "SUCCESS" | "WARNING" | "FAILURE";
 export interface AuditLog {
   id: string;
   action: string;
   action_type?: string | null;
-  status: AuditStatus;
+  status: AuditStatus | (string & {});
   success: boolean;
   user_id?: string | null;
   user_email?: string | null;
@@ -27,19 +38,17 @@ export interface AuditLog {
   contains_personal_data?: boolean;
   created_at?: string | null;
 }
-
 export interface AuditLogResponse {
   items: AuditLog[];
   total: number;
   limit: number;
   offset: number;
 }
-
 export interface AuditFilters {
   limit?: number;
   offset?: number;
   action?: string;
-  status?: AuditStatus | 'ALL';
+  status?: AuditStatus | "ALL";
   user_id?: string;
   resource_type?: string;
   resource_id?: string;
@@ -47,7 +56,6 @@ export interface AuditFilters {
   date_from?: string;
   date_to?: string;
 }
-
 export interface AuditSummary {
   period_start: string;
   period_days: number;
@@ -55,67 +63,49 @@ export interface AuditSummary {
   by_action: Record<string, number>;
   by_success: Record<string, number>;
 }
-
-const clampInt = (value: number | undefined, fallback: number, min: number, max: number): number => {
-  if (!Number.isFinite(value)) return fallback;
-  return Math.min(Math.max(Math.trunc(value as number), min), max);
-};
-
-const buildQuery = (filters?: Readonly<AuditFilters>, exportMode = false): string => {
-  const params = new URLSearchParams();
-  const maxLimit = exportMode ? 5000 : 500;
-
-  params.append('limit', String(clampInt(filters?.limit, exportMode ? 1000 : 50, 1, maxLimit)));
-  if (!exportMode) params.append('offset', String(clampInt(filters?.offset, 0, 0, 100000)));
-  if (filters?.action && filters.action !== 'ALL') params.append('action', filters.action);
-  if (filters?.status && filters.status !== 'ALL') params.append('status', filters.status);
-  if (filters?.user_id?.trim()) params.append('user_id', filters.user_id.trim());
-  if (filters?.resource_type?.trim()) params.append('resource_type', filters.resource_type.trim());
-  if (filters?.resource_id?.trim()) params.append('resource_id', filters.resource_id.trim());
-  if (filters?.search?.trim()) params.append('search', filters.search.trim());
-  if (filters?.date_from) params.append('date_from', filters.date_from);
-  if (filters?.date_to) params.append('date_to', filters.date_to);
-
-  const query = params.toString();
-  return query ? `?${query}` : '';
-};
-
+async function inSession<T>(request: () => Promise<T>): Promise<T> {
+  const session = captureAuthSession(),
+    result = await request();
+  if (!isCurrentAuthSession(session)) throw new SessionChangedError();
+  return result;
+}
 export const auditService = {
-  getLogs: async (filters?: Readonly<AuditFilters>): Promise<AuditLogResponse> => {
-    try {
-      return await api.get<AuditLogResponse>(`/audit${buildQuery(filters)}`);
-    } catch (error) {
-      console.error('[AuditService] Error fetching audit logs:', error);
-      throw error;
-    }
+  getLogs: async (
+    filters: Readonly<AuditFilters> = {},
+  ): Promise<AuditLogResponse> => {
+    const captured = { ...filters },
+      query = auditQuery(captured);
+    return validateAuditPage(
+      await inSession(() => api.get<unknown>(`/audit${query}`)),
+      captured,
+    );
   },
-
   getSummary: async (days = 7): Promise<AuditSummary> => {
-    const safeDays = clampInt(days, 7, 1, 365);
-    try {
-      return await api.get<AuditSummary>(`/audit/summary?days=${safeDays}`);
-    } catch (error) {
-      console.error('[AuditService] Error fetching audit summary:', error);
-      throw error;
-    }
+    if (!Number.isSafeInteger(days) || days < 1 || days > 365)
+      throw new Error("El período del resumen debe estar entre 1 y 365 días.");
+    return validateAuditSummary(
+      await inSession(() => api.get<unknown>(`/audit/summary?days=${days}`)),
+      days,
+    );
   },
-
   getById: async (id: string): Promise<AuditLog> => {
-    if (!id) throw new Error('[AuditService] ID requerido');
-    try {
-      return await api.get<AuditLog>(`/audit/${id}`);
-    } catch (error) {
-      console.error(`[AuditService] Error fetching audit log ${id}:`, error);
-      throw error;
-    }
+    if (typeof id !== "string" || !id.trim())
+      throw new Error("ID de auditoría requerido.");
+    const row = validateAuditLog(
+      await inSession(() =>
+        api.get<unknown>(`/audit/${encodeURIComponent(id)}`),
+      ),
+    );
+    if (row.id !== id)
+      throw new Error("La respuesta no corresponde al evento solicitado.");
+    return row;
   },
-
-  exportCsv: async (filters?: Readonly<AuditFilters>): Promise<string> => {
-    try {
-      return await api.get<string>(`/audit/export${buildQuery(filters, true)}`, { responseType: 'text' });
-    } catch (error) {
-      console.error('[AuditService] Error exporting audit logs:', error);
-      throw error;
-    }
+  exportCsv: async (filters: Readonly<AuditFilters> = {}): Promise<string> => {
+    const query = auditQuery({ ...filters }, true);
+    return validateAuditCsv(
+      await inSession(() =>
+        api.get<unknown>(`/audit/export${query}`, { responseType: "text" }),
+      ),
+    );
   },
 };

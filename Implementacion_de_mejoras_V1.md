@@ -7271,3 +7271,34 @@ remoto registrado por SHA. Sin merge, deploy u operaciones productivas del agent
 
 Registro: [frontend/ENTREGA_82.md](frontend/ENTREGA_82.md).
 Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
+
+## Entrega 83 — Auditoría del sistema (10/11/2026 UTC)
+
+Base main `c416c8248c3a8dace2f86b3ca5f2d0be7884d944`, árbol
+`88bb402b35a577e0b25eb758e71c2aa531c6c967`; entrega 82 integrada por el
+propietario y CI completo aprobado.
+
+Auditoría administrativa con encabezado violeta/azul, filtros explícitos,
+indicadores de consulta confirmada y detalle original por evento. Se preservan
+identidades, fechas UTC heredadas, estados desconocidos, errores y datos anteriores.
+El calendario consulta días completos de Caracas; el resumen global de siete
+días se carga y reintenta de forma independiente. Tabla móvil accesible con teclado.
+
+CSV confirma filtros y alcance de hasta 5000 eventos desde la primera página.
+Bloquea duplicados y descargas de sesiones retiradas, valida el cuerpo recibido y
+libera Blob URLs. La API corrige el solapamiento entre filtros SUCCESS, WARNING
+y FAILURE para coincidir con el resultado serializado. Protege fórmulas CSV sin
+alterar eventos persistidos. Se mantienen permisos y endpoints existentes.
+
+**93 casos nuevos frontend; 2623 pruebas / 120 suites aprobadas**. Cobertura
+**63,15 % sentencias, 59,36 % ramas, 59,76 % funciones y 62,61 % líneas**, mínimos
+y exclusiones intactos. **29 pruebas nuevas de API aprobadas** y controles estáticos
+backend aprobados. La suite backend completa y CI remoto se registran por SHA en
+el PR y en la evidencia; no se sustituyen por resultados focalizados. Chromium:
+**121 comprobaciones**, cero escrituras de negocio y excepciones JavaScript.
+Build de 48 páginas aprobado; nuevo smoke requerido en CI. Sin dependencias,
+migraciones o cambios al formulario original de orden. Publicación por rama y PR
+ya autorizada; sin merge, deploy u operaciones productivas del agente.
+
+Registro: [frontend/ENTREGA_83.md](frontend/ENTREGA_83.md).
+Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).

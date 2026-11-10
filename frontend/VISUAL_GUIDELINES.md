@@ -95,6 +95,13 @@ Explicar el alcance de los contadores y filtros, conservar los datos ante fallos
 y ofrecer desplazamiento de tabla con teclado en móvil. Las confirmaciones
 identifican la cuenta y explican el efecto sobre sus sesiones y datos históricos.
 
+La entrega 83 aplica el encabezado violeta/azul a la auditoría del sistema.
+Diferenciar borradores de filtros, consulta confirmada y resumen global; los errores
+conservan su alcance y fecha. Fechas de calendario y presentación en Caracas,
+estados desconocidos neutros y detalles originales legibles sin depender de hover.
+El CSV confirma filtros, límite y alcance entre páginas. Los diálogos y valores
+JSON permanecen acotados y la tabla móvil admite desplazamiento con teclado.
+
 Antes de publicar una actualización visual, comprobar el build real en escritorio y
 móvil, revisar capturas y ejecutar las regresiones relevantes. Las pruebas Chromium
 existentes de entregas y auditoría interceptan datos de negocio: permiten revisar
