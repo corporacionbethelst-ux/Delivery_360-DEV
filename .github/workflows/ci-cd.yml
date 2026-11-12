@@ -299,6 +299,7 @@ jobs:
           python frontend/e2e/user-administration.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/users
           python frontend/e2e/system-audit.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/system-audit
           python frontend/e2e/role-catalog.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/role-catalog
+          python frontend/e2e/platform-settings.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/platform-settings
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && hashFiles('browser-artifacts/**') != '' }}
         with:

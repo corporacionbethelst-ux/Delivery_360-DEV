@@ -549,7 +549,10 @@ function RoleCatalog() {
               {selected.length} roles seleccionados, con las fechas de ambas
               consultas cargadas.
             </p>
-            <p className="text-xs text-slate-600 lg:hidden">
+            <p
+              id="role-comparison-scroll-help"
+              className="text-xs text-slate-600 lg:hidden"
+            >
               Desliza la tabla horizontalmente para ver los roles seleccionados.
               Con teclado, selecciona la tabla y usa las flechas.
             </p>
@@ -561,7 +564,7 @@ function RoleCatalog() {
               <div
                 role="region"
                 aria-label="Matriz de comparación"
-                aria-description="Desplázate horizontalmente para ver los roles seleccionados. Con teclado, usa las flechas."
+                aria-describedby="role-comparison-scroll-help"
                 tabIndex={0}
                 className="overflow-x-auto rounded-xl border border-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600"
               >

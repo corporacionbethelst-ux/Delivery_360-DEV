@@ -7332,3 +7332,34 @@ y PR ya autorizada; sin merge, deploy u operaciones productivas del agente.
 
 Registro: [frontend/ENTREGA_84.md](frontend/ENTREGA_84.md).
 Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
+
+## Entrega 85 — Configuración y bonos (11/11/2026 America/Caracas)
+
+Base main `0c8e409fd01d0c96c0a3ed2b339bd4c7ccd3d2e3`, árbol
+`7806903e6c3933629229d985fed0123f5a455d81`; entrega 84 integrada por el
+propietario y CI completo aprobado.
+
+Configuración azul/cian con tarifas azules, bonos violeta y estado ámbar. Valores
+null siguen sin configurar; cero, false y precisión real se conservan. Gerencia
+consulta y simula; superadministración revisa y confirma cambios parciales.
+Las zonas se editan una por línea conservando comas. Un error no habilita un
+formulario ficticio y una recarga permite conservar o descartar el borrador.
+
+Se consulta antes de PATCH para detectar cambios a los campos editados, se
+bloquean duplicados y se comprueba el acuse. Este control del cliente no es una
+precondición atómica: la carrera entre GET y PATCH sigue pendiente en la API.
+El simulador usa el bono guardado, admite cero y períodos explícitos, retira
+cálculos de sesiones anteriores y conserva resultados con sus parámetros reales.
+Sin bono, no inventa una base; sin costo histórico, no inventa porcentaje útil.
+Se retiran importe y moneda asumidos, sin modificar la fórmula backend.
+
+**86 casos nuevos; 2780 pruebas / 124 suites aprobadas**. Cobertura global
+**65,18 % sentencias, 61,44 % ramas, 62,37 % funciones y 64,90 % líneas**,
+mínimos y exclusiones intactos. TypeScript y build de 48 páginas aprobados.
+Chromium: **150 comprobaciones**, cero escrituras persistentes y excepciones
+JavaScript; nuevo smoke requerido en CI. Backend, dependencias y formulario
+original de orden sin cambios. CI remoto registrado por SHA. Publicación por rama
+y PR ya autorizada; sin merge, deploy u operaciones productivas del agente.
+
+Registro: [frontend/ENTREGA_85.md](frontend/ENTREGA_85.md).
+Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).

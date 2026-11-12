@@ -1,25 +1,41 @@
-import { api } from '@/lib/api';
-
+import { api } from "@/lib/api";
+import {
+  captureAuthSession,
+  isCurrentAuthSession,
+  SessionChangedError,
+} from "@/lib/auth-session";
+import {
+  validateBonusRequest,
+  validateBonusResult,
+  validatePlatformSettings,
+  validateSettingsUpdate,
+} from "@/lib/platform-settings";
 export interface PlatformSettings {
-  delivery_fee_base: number;
-  commission_percentage: number;
-  min_order_amount: number;
+  delivery_fee_base: number | null;
+  commission_percentage: number | null;
+  min_order_amount: number | null;
+  rider_delivery_bonus: number | null;
+  rider_failed_attempt_bonus: number | null;
   active_zones: string[];
-  support_email: string;
+  support_email: string | null;
   maintenance_mode: boolean;
-  rider_delivery_bonus: number;
-  rider_failed_attempt_bonus: number;
   updated_at?: string | null;
   updated_by_user_id?: string | null;
 }
-
-export type PlatformSettingsUpdate = Partial<Omit<PlatformSettings, 'updated_at' | 'updated_by_user_id'>>;
-
+export type PlatformSettingsUpdate = Partial<{
+  delivery_fee_base: number;
+  commission_percentage: number;
+  min_order_amount: number;
+  rider_delivery_bonus: number;
+  rider_failed_attempt_bonus: number;
+  active_zones: string[];
+  support_email: string;
+  maintenance_mode: boolean;
+}>;
 export interface BonusSimulationRequest {
   new_base_bonus?: number;
   days_projection?: number;
 }
-
 export interface BonusSimulationResponse {
   current_monthly_cost: number;
   projected_monthly_cost: number;
@@ -27,73 +43,40 @@ export interface BonusSimulationResponse {
   percentage_increase: number;
   message: string;
 }
-
-const normalizeSettings = (settings: PlatformSettings): PlatformSettings => ({
-  ...settings,
-  delivery_fee_base: Number(settings.delivery_fee_base ?? 0),
-  commission_percentage: Number(settings.commission_percentage ?? 0),
-  min_order_amount: Number(settings.min_order_amount ?? 0),
-  rider_delivery_bonus: Number(settings.rider_delivery_bonus ?? 2.50),
-  rider_failed_attempt_bonus: Number(settings.rider_failed_attempt_bonus ?? 1.00),
-  active_zones: Array.isArray(settings.active_zones) ? settings.active_zones : [],
-  support_email: settings.support_email || 'soporte@delivery.com',
-  maintenance_mode: Boolean(settings.maintenance_mode),
-});
-
-const validateSettings = (settings: PlatformSettingsUpdate): void => {
-  if (settings.commission_percentage !== undefined && (settings.commission_percentage < 0 || settings.commission_percentage > 100)) {
-    throw new Error('La comisión debe estar entre 0 y 100');
-  }
-  if (settings.delivery_fee_base !== undefined && settings.delivery_fee_base < 0) {
-    throw new Error('La tarifa base no puede ser negativa');
-  }
-  if (settings.min_order_amount !== undefined && settings.min_order_amount < 0) {
-    throw new Error('El pedido mínimo no puede ser negativo');
-  }
-  if (settings.rider_delivery_bonus !== undefined && settings.rider_delivery_bonus < 0) {
-    throw new Error('El bono del repartidor no puede ser negativo');
-  }
-  if (settings.rider_failed_attempt_bonus !== undefined && settings.rider_failed_attempt_bonus < 0) {
-    throw new Error('El bono por intento fallido no puede ser negativo');
-  }
-  if (settings.active_zones !== undefined && settings.active_zones.filter(Boolean).length === 0) {
-    throw new Error('Debe existir al menos una zona activa');
-  }
-  if (settings.support_email !== undefined && !/\S+@\S+\.\S+/.test(settings.support_email)) {
-    throw new Error('El correo de soporte no es válido');
-  }
-};
-
+async function inSession<T>(request: () => Promise<T>): Promise<T> {
+  const session = captureAuthSession(),
+    result = await request();
+  if (!isCurrentAuthSession(session)) throw new SessionChangedError();
+  return result;
+}
 export const settingsService = {
-  /** Obtener configuración global persistida de la plataforma. */
-  getSettings: async (): Promise<PlatformSettings> => {
-    try {
-      return normalizeSettings(await api.get<PlatformSettings>('/settings'));
-    } catch (error) {
-      console.error('[SettingsService] Error fetching platform settings:', error);
-      throw error;
-    }
+  getSettings: async (): Promise<PlatformSettings> =>
+    validatePlatformSettings(
+      await inSession(() => api.get<unknown>("/settings")),
+    ),
+  updateSettings: async (
+    settings: PlatformSettingsUpdate,
+  ): Promise<PlatformSettings> => {
+    validateSettingsUpdate(settings);
+    const captured = {
+      ...settings,
+      ...(settings.active_zones
+        ? { active_zones: [...settings.active_zones] }
+        : {}),
+    };
+    return validatePlatformSettings(
+      await inSession(() => api.patch<unknown>("/settings", captured)),
+    );
   },
-
-  /** Actualizar configuración global y devolver el estado persistido. */
-  updateSettings: async (settings: PlatformSettingsUpdate): Promise<PlatformSettings> => {
-    validateSettings(settings);
-
-    try {
-      return normalizeSettings(await api.patch<PlatformSettings>('/settings', settings));
-    } catch (error: any) {
-      console.error('[SettingsService] Error updating platform settings:', error);
-      throw new Error(error.response?.data?.detail || error.message || 'No se pudo guardar la configuración');
-    }
-  },
-
-  /** FASE 6: Simular impacto de cambios en bonos sobre costos operativos. */
-  simulateBonusImpact: async (request: BonusSimulationRequest): Promise<BonusSimulationResponse> => {
-    try {
-      return await api.post<BonusSimulationResponse>('/settings/simulate-bonus', request);
-    } catch (error: any) {
-      console.error('[SettingsService] Error simulating bonus impact:', error);
-      throw new Error(error.response?.data?.detail || error.message || 'No se pudo realizar la simulación');
-    }
+  simulateBonusImpact: async (
+    request: BonusSimulationRequest,
+  ): Promise<BonusSimulationResponse> => {
+    const captured = { ...request };
+    validateBonusRequest(captured);
+    return validateBonusResult(
+      await inSession(() =>
+        api.post<unknown>("/settings/simulate-bonus", captured),
+      ),
+    );
   },
 };
