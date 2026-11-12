@@ -110,6 +110,13 @@ Mantener cero, referencias sin ficha, filtros y selección identificados tras re
 El CSV refleja las filas visibles y las fechas de ambas fuentes. La tabla móvil
 explica su desplazamiento horizontal y conserva foco visible para teclado.
 
+La entrega 85 aplica esta línea a la configuración: tarifas azules, bonos violeta
+y estado ámbar. Distinguir null de cero, valores guardados de borradores y consulta
+de edición autorizada. La revisión muestra solo campos modificados y permite
+cancelar. Los cálculos conservan sus parámetros y fecha, sin moneda o proyección
+mensual asumidas; un resultado anterior no pertenece a una propuesta nueva.
+El formulario, simulador y confirmación permanecen legibles y acotados en móvil.
+
 Antes de publicar una actualización visual, comprobar el build real en escritorio y
 móvil, revisar capturas y ejecutar las regresiones relevantes. Las pruebas Chromium
 existentes de entregas y auditoría interceptan datos de negocio: permiten revisar
