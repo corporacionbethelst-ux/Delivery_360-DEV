@@ -1,0 +1,89 @@
+name: delivery360-local-test-${LOCAL_TEST_ID:?Run python scripts/local_test.py init first}
+
+x-backend: &backend
+  image: delivery360-local-test-api:${LOCAL_TEST_ID}
+  environment: &environment
+    APP_ENV: testing
+    ENVIRONMENT: testing
+    SECRET_KEY: ${LOCAL_TEST_SECRET:?Missing local test secret}
+    DATABASE_URL: postgresql://local_test:${LOCAL_TEST_DB_PASSWORD:?Missing local test DB password}@test-db:5432/test_delivery360_manual
+    DATABASE_URL_SYNC: postgresql://local_test:${LOCAL_TEST_DB_PASSWORD}@test-db:5432/test_delivery360_manual
+    REDIS_URL: redis://test-redis:6379/0
+    CELERY_BROKER_URL: redis://test-redis:6379/0
+    CELERY_RESULT_BACKEND: redis://test-redis:6379/0
+    BACKEND_CORS_ORIGINS: '["http://localhost:${LOCAL_TEST_WEB_PORT}","http://127.0.0.1:${LOCAL_TEST_WEB_PORT}"]'
+    FRONTEND_URL: http://localhost:${LOCAL_TEST_WEB_PORT}
+    LOCAL_TEST_ID: ${LOCAL_TEST_ID}
+    LOCAL_TEST_PASSWORD: ${LOCAL_TEST_PASSWORD:?Missing local test account password}
+    TRACKING_SCHEDULER_ENABLED: "false"
+    EMAILS_ENABLED: "false"
+    NOTIFICATIONS_ENABLED: "false"
+    ENABLE_ELECTRONIC_INVOICING: "false"
+    FISCAL_SANDBOX_ENABLED: "false"
+    GOOGLE_MAPS_API_KEY: ""
+    MAPBOX_API_KEY: ""
+    SENTRY_DSN: ""
+    FCM_PROJECT_ID: ""
+    TWILIO_ACCOUNT_SID: ""
+    TWILIO_AUTH_TOKEN: ""
+  networks: [laboratory]
+
+services:
+  test-db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: local_test
+      POSTGRES_PASSWORD: ${LOCAL_TEST_DB_PASSWORD}
+      POSTGRES_DB: test_delivery360_manual
+    volumes: [test_data:/var/lib/postgresql/data]
+    networks: [laboratory]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U local_test -d test_delivery360_manual"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  test-redis:
+    image: redis:7-alpine
+    networks: [laboratory]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  setup:
+    <<: *backend
+    command: [python, scripts/local_test_setup.py]
+    volumes:
+      - ./backend/scripts/local_test_setup.py:/app/scripts/local_test_setup.py:ro
+    depends_on:
+      test-db: {condition: service_healthy}
+
+  api:
+    <<: *backend
+    build:
+      context: ./backend
+    ports: ["127.0.0.1:${LOCAL_TEST_API_PORT}:8000"]
+    volumes: [test_uploads:/app/uploads]
+    depends_on:
+      setup: {condition: service_completed_successfully}
+      test-redis: {condition: service_healthy}
+
+  web:
+    image: delivery360-local-test-web:${LOCAL_TEST_ID}
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:${LOCAL_TEST_API_PORT}/api/v1
+    ports: ["127.0.0.1:${LOCAL_TEST_WEB_PORT}:3000"]
+    networks: [laboratory]
+    depends_on:
+      api: {condition: service_healthy}
+
+networks:
+  laboratory:
+
+volumes:
+  test_data:
+  test_uploads:

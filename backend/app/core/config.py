@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     ENVIRONMENT: str = "development"
     DEBUG: bool = False  # Cambiado a False para producción
+    TRACKING_SCHEDULER_ENABLED: bool = True
     SECRET_KEY: str
 
     # --- NUEVO: URL del Frontend para enlaces de recuperación ---

@@ -309,6 +309,36 @@ jobs:
         if: always()
         run: docker rm -f frontend-ci || true
 
+  local-functional-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install the real browser test runner
+        run: |
+          pip install playwright==1.56.0
+          python -m playwright install --with-deps chromium
+      - name: Build and start the isolated functional laboratory
+        run: |
+          python scripts/local_test.py init
+          python scripts/local_test.py up
+      - name: Verify real sessions, writes, permissions and restart persistence
+        run: |
+          chromium=$(python -c 'from playwright.sync_api import sync_playwright; p = sync_playwright().start(); print(p.chromium.executable_path); p.stop()')
+          python frontend/e2e/local-functional.browser.py --chromium "$chromium" --restart --artifacts-dir browser-real
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && hashFiles('browser-real/**') != '' }}
+        with:
+          name: local-functional-browser-checks
+          path: browser-real
+      - name: Stop only this laboratory and retain its volumes
+        if: always()
+        run: |
+          if test -f .delivery360-testing/config.json; then python scripts/local_test.py down; fi
+
   security-scan:
     runs-on: ubuntu-latest
     permissions:
@@ -353,7 +383,7 @@ jobs:
 
   release-readiness:
     if: always()
-    needs: [backend-test, frontend-test, frontend-security, backend-security, backend-container, release-contract, frontend-container, security-scan]
+    needs: [backend-test, frontend-test, frontend-security, backend-security, backend-container, release-contract, frontend-container, local-functional-test, security-scan]
     runs-on: ubuntu-latest
     steps:
       - name: Require every release check to pass

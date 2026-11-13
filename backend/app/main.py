@@ -72,8 +72,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         from app.services.tracking_scheduler import tracking_scheduler
 
-        await tracking_scheduler.start()
-        fase8_scheduler_started = True
+        if settings.TRACKING_SCHEDULER_ENABLED:
+            await tracking_scheduler.start()
+            fase8_scheduler_started = True
     except Exception as exc:  # noqa: BLE001 - no bloquear el arranque de la API
         logger.warning("Fase 8 scheduler no pudo iniciarse: %s", exc)
 

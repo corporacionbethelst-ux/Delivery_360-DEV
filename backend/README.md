@@ -2,6 +2,10 @@
 
 Backend API para el sistema de gestión de entregas Delivery360.
 
+Para pruebas funcionales con cuentas y datos aislados, sigue la
+[guía del laboratorio local](../PRUEBAS_LOCALES.md) desde la raíz del repositorio.
+Su inicializador utiliza Alembic y no ejecuta los seeds históricos de demostración.
+
 ## Tecnologías
 
 - **FastAPI** - Framework web moderno
