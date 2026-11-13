@@ -120,6 +120,24 @@ certificado se monta solo durante la compilación.
 
 ## Alcance
 
+### Recorrido automático del ciclo operativo
+
+Con el laboratorio iniciado, Playwright y Chromium disponibles:
+
+```bash
+python frontend/e2e/local-lifecycle.browser.py --artifacts-dir /tmp/delivery360-lifecycle
+```
+
+El ejecutor admite `--chromium /ruta/al/navegador`. Comprueba el marcador de la
+base y su identidad de API; requiere los bonos iniciales del laboratorio (2,50
+por entrega y 1 por fallo bonificable) y se detiene si se personalizaron. No los
+sobrescribe. Crea su propio repartidor, documentos sintéticos y siete órdenes.
+Registra una reserva rechazada y otra aprobada contablemente, sin pagos bancarios.
+Los datos quedan identificados en `progress.json` y `results.json` de los
+artefactos. Son datos de prueba conservados para revisión, sin validez documental.
+
+### Límites del laboratorio
+
 Este entorno escucha únicamente en la máquina local. No reutiliza el Compose
 anterior, bases existentes, archivos `.env` del backend ni credenciales reales.
 El inicializador comprueba entorno, host, nombre de base, conexión de migración
