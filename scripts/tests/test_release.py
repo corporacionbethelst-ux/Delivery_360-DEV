@@ -259,6 +259,7 @@ class ReleaseTests(unittest.TestCase):
                 "backend-container",
                 "release-contract",
                 "frontend-container",
+                "local-functional-test",
                 "security-scan",
             },
         )
