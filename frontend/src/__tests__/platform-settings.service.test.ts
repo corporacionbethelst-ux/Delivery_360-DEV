@@ -16,6 +16,7 @@ jest.mock("@/lib/api", () => ({
 }));
 const mocked = jest.mocked(api);
 const saved: PlatformSettings = {
+  revision: "s1-" + "a".repeat(64),
   delivery_fee_base: 0,
   commission_percentage: 12.1234,
   min_order_amount: null,
@@ -55,6 +56,8 @@ it.each([
   { ...saved, active_zones: [1] },
   { ...saved, active_zones: null },
   { ...saved, updated_at: {} },
+  { ...saved, revision: undefined },
+  { ...saved, revision: "old" },
 ])("rejects malformed read %j without fabricated values", async (value) => {
   mocked.get.mockResolvedValue(value);
   await expect(settingsService.getSettings()).rejects.toThrow();
@@ -120,7 +123,7 @@ it.each([
   {},
 ])("rejects invalid update %j before HTTP", async (patch) => {
   await expect(
-    settingsService.updateSettings(patch as never),
+    settingsService.updateSettings(patch as never, saved.revision),
   ).rejects.toThrow();
   expect(mocked.patch).not.toHaveBeenCalled();
 });
@@ -130,8 +133,10 @@ it("PATCH sends the exact minimal payload and retains a valid false state", asyn
     maintenance_mode: false,
     active_zones: Object.freeze(["Centro, Norte"]),
   });
-  await settingsService.updateSettings(patch as never);
-  expect(mocked.patch).toHaveBeenCalledWith("/settings", patch);
+  await settingsService.updateSettings(patch as never, saved.revision);
+  expect(mocked.patch).toHaveBeenCalledWith("/settings", patch, {
+    headers: { "If-Match": `"${saved.revision}"` },
+  });
 });
 const calculation = {
   current_monthly_cost: 100,
@@ -191,7 +196,10 @@ it.each(["read", "save", "simulation"])(
       source === "read"
         ? settingsService.getSettings()
         : source === "save"
-          ? settingsService.updateSettings({ maintenance_mode: true })
+          ? settingsService.updateSettings(
+              { maintenance_mode: true },
+              saved.revision,
+            )
           : settingsService.simulateBonusImpact({
               new_base_bonus: 0,
               days_projection: 30,
@@ -204,3 +212,20 @@ it.each(["read", "save", "simulation"])(
     await expect(request).rejects.toThrow("sesión cambió");
   },
 );
+it.each([
+  undefined,
+  null,
+  "",
+  "*",
+  'W/"old"',
+  "s1-bad",
+  "s1-" + "g".repeat(64),
+])("blocks writes with invalid revision %j before HTTP", async (revision) => {
+  await expect(
+    settingsService.updateSettings(
+      { maintenance_mode: true },
+      revision as never,
+    ),
+  ).rejects.toThrow(/revisión válida/);
+  expect(mocked.patch).not.toHaveBeenCalled();
+});

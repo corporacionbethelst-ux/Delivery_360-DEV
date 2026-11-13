@@ -5,10 +5,15 @@ from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 from decimal import Decimal
+import hashlib
+import json
+import re
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select, func, and_
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import require_role
@@ -52,6 +57,7 @@ SETTING_DESCRIPTIONS: dict[str, str] = {
 
 
 class PlatformSettingsResponse(BaseModel):
+    revision: str
     delivery_fee_base: Optional[float] = None
     commission_percentage: Optional[float] = None
     min_order_amount: Optional[float] = None
@@ -65,6 +71,8 @@ class PlatformSettingsResponse(BaseModel):
 
 
 class PlatformSettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
     delivery_fee_base: Optional[float] = Field(None, ge=0)
     commission_percentage: Optional[float] = Field(None, ge=0, le=100)
     min_order_amount: Optional[float] = Field(None, ge=0)
@@ -233,9 +241,42 @@ async def simulate_bonus_impact(
     )
 
 
-async def _load_settings_rows(db: AsyncSession) -> dict[str, PlatformSetting]:
-    result = await db.execute(select(PlatformSetting))
+async def _load_settings_rows(
+    db: AsyncSession, *, for_update: bool = False
+) -> dict[str, PlatformSetting]:
+    statement = (
+        select(PlatformSetting)
+        .where(PlatformSetting.key.in_(EXPECTED_SETTING_KEYS))
+        .order_by(PlatformSetting.key)
+        .execution_options(populate_existing=True)
+    )
+    if for_update:
+        statement = statement.with_for_update()
+    result = await db.execute(statement)
     return {row.key: row for row in result.scalars().all()}
+
+
+def _settings_revision(rows: dict[str, PlatformSetting]) -> str:
+    """Opaque snapshot token; timestamps detect changes even after value reversal."""
+
+    def canonical_value(value: Any) -> Any:
+        # JSON stores may return 0 for 0.0; equal numbers must share a revision.
+        return int(value) if type(value) is float and value.is_integer() else value
+
+    snapshot = [
+        [
+            key,
+            canonical_value(rows[key].value),
+            updated_at.isoformat() if (updated_at := rows[key].updated_at) else None,
+            str(rows[key].updated_by_user_id) if rows[key].updated_by_user_id else None,
+        ]
+        for key in sorted(rows)
+        if key in EXPECTED_SETTING_KEYS
+    ]
+    encoded = json.dumps(
+        snapshot, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode()
+    return "s1-" + hashlib.sha256(encoded).hexdigest()
 
 
 def _coerce_settings(rows: dict[str, PlatformSetting]) -> dict[str, Any]:
@@ -244,7 +285,7 @@ def _coerce_settings(rows: dict[str, PlatformSetting]) -> dict[str, Any]:
     NOTA CRÍTICA: Sin fallbacks. Si un setting no existe en DB, se retorna None
     explícitamente para forzar validación estricta en capas superiores.
     """
-    values: dict[str, Any] = {}
+    values: dict[str, Any] = {"revision": _settings_revision(rows)}
     latest_updated_at: Optional[datetime] = None
     latest_updated_by: Optional[str] = None
 
@@ -293,29 +334,32 @@ def _coerce_settings(rows: dict[str, PlatformSetting]) -> dict[str, Any]:
     return values
 
 
-async def _ensure_default_settings(db: AsyncSession) -> dict[str, PlatformSetting]:
+async def _ensure_default_settings(
+    db: AsyncSession, *, for_update: bool = False
+) -> dict[str, PlatformSetting]:
     """Crea entradas en DB para keys que no existen, con valores None explícitos.
 
     Esto garantiza que todas las keys esperadas existan en DB, pero SIN valores
     por defecto hardcodeados. El administrador debe configurar los valores reales.
     """
     rows = await _load_settings_rows(db)
-    changed = False
-
-    for key in EXPECTED_SETTING_KEYS:
-        if key not in rows:
-            # Crear entrada con valor None para forzar configuración explícita
-            row = PlatformSetting(
-                key=key, value=None, description=SETTING_DESCRIPTIONS.get(key)
+    missing = sorted(set(EXPECTED_SETTING_KEYS) - rows.keys())
+    if missing:
+        # Concurrent first reads/writes must not collide on the primary key.
+        insert = (
+            pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
+        )
+        for key in missing:
+            await db.execute(
+                insert(PlatformSetting)
+                .values(key=key, value=None, description=SETTING_DESCRIPTIONS.get(key))
+                .on_conflict_do_nothing(index_elements=[PlatformSetting.key])
             )
-            db.add(row)
-            rows[key] = row
-            changed = True
-
-    if changed:
-        await db.commit()
-        rows = await _load_settings_rows(db)
-    return rows
+        if not for_update:
+            await db.commit()
+    # All writers lock the same rows in key order, then compare a refreshed snapshot.
+    # Never commit between acquiring these locks and persisting the audited update.
+    return await _load_settings_rows(db, for_update=for_update)
 
 
 def _update_payload(body: PlatformSettingsUpdate) -> dict[str, Any]:
@@ -350,16 +394,37 @@ async def update_platform_settings(
     body: PlatformSettingsUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.SUPERADMIN)),
+    if_match: Optional[str] = Header(None),
 ):
     """Actualizar configuración global de plataforma y registrar auditoría."""
+    if if_match is None:
+        raise HTTPException(
+            status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+            detail="Consulta la configuración y envía su revisión en If-Match.",
+        )
+    if not re.fullmatch(r'"s1-[0-9a-f]{64}"', if_match):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="If-Match debe contener una única revisión válida entre comillas.",
+        )
     payload = _update_payload(body)
-    if not payload:
-        rows = await _ensure_default_settings(db)
-        return _coerce_settings(rows)
-
-    rows = await _ensure_default_settings(db)
+    rows = await _ensure_default_settings(db, for_update=True)
     before = _coerce_settings(rows)
-    now = utc_now_naive()
+    if if_match != '"' + before["revision"] + '"':
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED,
+            detail="La configuración cambió. Recarga y revisa los cambios antes de guardar.",
+        )
+    if not payload:
+        return before
+    latest = max(
+        (row.updated_at for row in rows.values() if row.updated_at), default=None
+    )
+    now = (
+        max(utc_now_naive(), latest + timedelta(microseconds=1))
+        if latest
+        else utc_now_naive()
+    )
 
     for key, value in payload.items():
         if key not in EXPECTED_SETTING_KEYS:
@@ -395,9 +460,10 @@ async def update_platform_settings(
     )
     db.add(audit)
 
+    await db.flush()
+    response = _coerce_settings(rows)
     await db.commit()
-    rows = await _load_settings_rows(db)
-    return _coerce_settings(rows)
+    return response
 
 
 @router.put("", response_model=PlatformSettingsResponse)
@@ -406,6 +472,7 @@ async def replace_platform_settings(
     body: PlatformSettingsUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.SUPERADMIN)),
+    if_match: Optional[str] = Header(None),
 ):
     """Alias PUT para clientes que envían actualización completa o parcial."""
-    return await update_platform_settings(body, db, current_user)
+    return await update_platform_settings(body, db, current_user, if_match)

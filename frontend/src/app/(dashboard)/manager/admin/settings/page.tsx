@@ -1,4 +1,5 @@
 "use client";
+import axios from "axios";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BadgeDollarSign,
@@ -181,7 +182,10 @@ function SettingsForm() {
         );
         return;
       }
-      const updated = await settingsService.updateSettings(captured.patch);
+      const updated = await settingsService.updateSettings(
+        captured.patch,
+        fresh.revision,
+      );
       if (!alive.current || confirmed.current !== captured) return;
       if (keys.some((key) => !sameSetting(updated[key], captured.patch[key]))) {
         setRequiresReload(true);
@@ -199,11 +203,13 @@ function SettingsForm() {
       });
       setDraft(settingsDraft(updated));
       setSuccess("Configuración guardada y confirmada correctamente.");
-    } catch {
+    } catch (cause) {
       if (alive.current) {
         setRequiresReload(true);
         setError(
-          "No se pudo confirmar el guardado. Recarga y revisa el estado de la configuración antes de repetir la operación.",
+          axios.isAxiosError(cause) && cause.response?.status === 412
+            ? "Otra persona cambió la configuración durante el guardado. Tu borrador se conserva. Recarga y revisa los cambios antes de guardar de nuevo."
+            : "No se pudo confirmar el guardado. Recarga y revisa el estado de la configuración antes de repetir la operación.",
         );
       }
     } finally {
@@ -465,7 +471,10 @@ function SettingsForm() {
             {requiresReload ? (
               <button
                 className={operationStyles.primaryButton}
-                onClick={() => void load()}
+                onClick={() => {
+                  closeConfirmation();
+                  reload();
+                }}
               >
                 Recargar y revisar
               </button>

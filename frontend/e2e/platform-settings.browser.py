@@ -1,4 +1,4 @@
-"""Local settings review; synthetic reads/calculations, no persistent writes."""
+"""Local settings review; synthetic reads/updates/calculations, no real writes."""
 
 import argparse
 import json
@@ -21,6 +21,7 @@ def main():
     out = Path(args.artifacts_dir)
     out.mkdir(parents=True, exist_ok=True)
     checks, reads, calculations, writes, errors, pending = [], [], [], [], [], []
+    conditional_updates = []
     state = {
         "role": "GERENTE",
         "read_failure": False,
@@ -29,8 +30,11 @@ def main():
         "bonus": 0,
         "calculation_failure": False,
         "hold": False,
+        "revision": "s1-" + "a" * 64,
+        "save_outcome": "unexpected",
     }
     saved = {
+        "revision": "s1-" + "a" * 64,
         "delivery_fee_base": 0,
         "commission_percentage": 12.12345,
         "min_order_amount": None,
@@ -75,11 +79,44 @@ def main():
             )
             headers = {
                 "access-control-allow-origin": base,
-                "access-control-allow-headers": "authorization,content-type",
-                "access-control-allow-methods": "GET,POST,OPTIONS",
+                "access-control-allow-headers": "authorization,content-type,if-match",
+                "access-control-allow-methods": "GET,POST,PATCH,OPTIONS",
             }
             if route.request.method == "OPTIONS":
                 route.fulfill(status=204, headers=headers)
+            elif (
+                path == "/api/v1/settings"
+                and route.request.method == "PATCH"
+                and state["save_outcome"] in ("conflict", "confirmed")
+            ):
+                body = route.request.post_data_json
+                precondition = route.request.headers.get("if-match")
+                assert body == {"delivery_fee_base": 4}
+                assert precondition == '"' + state["revision"] + '"'
+                conflict = state["save_outcome"] == "conflict"
+                conditional_updates.append(
+                    {
+                        "body": body,
+                        "if_match": precondition,
+                        "status": 412 if conflict else 200,
+                    }
+                )
+                if not conflict:
+                    state["fee"] = 4
+                    state["revision"] = "s1-" + "b" * 64
+                route.fulfill(
+                    status=412 if conflict else 200,
+                    json=(
+                        {"detail": "Synthetic revision conflict"}
+                        if conflict
+                        else {
+                            **saved,
+                            "delivery_fee_base": state["fee"],
+                            "revision": state["revision"],
+                        }
+                    ),
+                    headers=headers,
+                )
             elif (
                 path == "/api/v1/settings/simulate-bonus"
                 and route.request.method == "POST"
@@ -126,6 +163,7 @@ def main():
                 reads.append(path)
                 row = {
                     **saved,
+                    "revision": state["revision"],
                     "delivery_fee_base": state["fee"],
                     "rider_delivery_bonus": state["bonus"],
                 }
@@ -252,12 +290,71 @@ def main():
         confirmation.get_by_role(
             "button", name="Recargar y revisar", exact=True
         ).click()
+        reload_dialog.get_by_role(
+            "button", name="Descartar borrador y recargar", exact=True
+        ).click()
         expect(fee).to_have_value("9")
         state["fee"] = 0
         page.get_by_role("button", name="Recargar configuración", exact=True).click()
         expect(fee).to_have_value("0")
         passed(
             "preflight detects a changed target value and stops before PATCH, with a confirmed reload of the actual new value"
+        )
+        fee.fill("4")
+        page.get_by_role("button", name="Revisar cambios", exact=True).click()
+        state["save_outcome"] = "conflict"
+        confirmation.get_by_role(
+            "button", name="Confirmar guardado", exact=True
+        ).click()
+        expect(confirmation.get_by_role("alert")).to_contain_text("Otra persona cambió")
+        expect(page.get_by_label(re.compile("^Tarifa base de envío"))).to_have_value(
+            "4"
+        )
+        expect(
+            confirmation.get_by_role("button", name="Confirmar guardado", exact=True)
+        ).to_have_count(0)
+        assert len(conditional_updates) == 1
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.screenshot(
+            path=str(out / "settings-conflict-mobile.png"), animations="disabled"
+        )
+        assert confirmation.bounding_box()["width"] <= 390
+        confirmation.get_by_role(
+            "button", name="Recargar y revisar", exact=True
+        ).click()
+        reload_dialog.get_by_role(
+            "button", name="Conservar borrador", exact=True
+        ).click()
+        expect(fee).to_have_value("4")
+        expect(
+            page.get_by_role("button", name="Revisar cambios", exact=True)
+        ).to_be_disabled()
+        page.get_by_role("button", name="Recargar configuración", exact=True).click()
+        reload_dialog.get_by_role(
+            "button", name="Descartar borrador y recargar", exact=True
+        ).click()
+        expect(fee).to_have_value("0")
+        page.set_viewport_size({"width": 1440, "height": 1150})
+        passed(
+            "synthetic server conflict preserves the mobile draft, blocks retries and asks before discarding edits"
+        )
+        fee.fill("4")
+        page.get_by_role("button", name="Revisar cambios", exact=True).click()
+        state["save_outcome"] = "confirmed"
+        confirmation.get_by_role(
+            "button", name="Confirmar guardado", exact=True
+        ).click()
+        expect(content.get_by_role("status")).to_contain_text(
+            "Configuración guardada y confirmada"
+        )
+        expect(fee).to_have_value("4")
+        assert len(conditional_updates) == 2
+        state["save_outcome"] = "unexpected"
+        state["fee"] = 0
+        page.get_by_role("button", name="Recargar configuración", exact=True).click()
+        expect(fee).to_have_value("0")
+        passed(
+            "synthetic save sends the exact If-Match revision and minimal body, then confirms the returned values"
         )
         field("Email de soporte").fill("support@example.com")
         page.get_by_role("button", name="Revisar cambios", exact=True).click()
@@ -358,7 +455,7 @@ def main():
         assert not writes, writes
         assert not errors, errors
         passed(
-            "zero persistent business writes and zero JavaScript exceptions; calculation POSTs are synthetic"
+            "zero persistent business writes and zero JavaScript exceptions; PATCH and calculation POSTs are synthetic"
         )
         (out / "results.json").write_text(
             json.dumps(
@@ -366,6 +463,7 @@ def main():
                     "checks": checks,
                     "reads": reads,
                     "synthetic_calculations": calculations,
+                    "synthetic_updates": conditional_updates,
                     "writes": writes,
                     "errors": errors,
                 },
