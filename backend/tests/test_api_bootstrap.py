@@ -71,6 +71,24 @@ BACKEND = Path(__file__).resolve().parents[1]
 def before_settings_schema(application=app):
     """Remove only the reviewed settings revision contract; pin all other fields."""
     schema = deepcopy(application.openapi())
+    delta = Path(__file__).parent / "fixtures/openapi_bonus_simulation_delta.json"
+    for change in json.loads(delta.read_text()):
+        path = change["path"]
+        assert path[:3] in [
+            ["components", "schemas", "BonusSimulationRequest"],
+            ["components", "schemas", "BonusSimulationResponse"],
+        ] or path == ["paths", "/api/v1/settings/simulate-bonus", "post", "description"]
+        parent = schema
+        for key in path[:-1]:
+            parent = parent[key]
+        key = path[-1]
+        assert (key in parent) == change["new_present"]
+        if change["new_present"]:
+            assert parent[key] == change["new"]
+        if change["old_present"]:
+            parent[key] = change["old"]
+        else:
+            del parent[key]
     response = schema["components"]["schemas"]["PlatformSettingsResponse"]
     assert response["properties"].pop("revision") == {
         "type": "string",

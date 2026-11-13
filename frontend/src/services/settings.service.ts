@@ -36,6 +36,7 @@ export type PlatformSettingsUpdate = Partial<{
 export interface BonusSimulationRequest {
   new_base_bonus?: number;
   days_projection?: number;
+  expected_settings_revision?: string;
 }
 export interface BonusSimulationResponse {
   current_monthly_cost: number;
@@ -43,6 +44,23 @@ export interface BonusSimulationResponse {
   difference: number;
   percentage_increase: number;
   message: string;
+  comparison_basis: "flat_bonus_same_deliveries";
+  history_days: number;
+  period_start: string;
+  period_end: string;
+  completed_deliveries: number;
+  failed_bonus_deliveries: number;
+  undated_bonus_deliveries: number;
+  recorded_completed_bonus: number;
+  recorded_failed_bonus: number;
+  historical_cost: number;
+  scenario_cost: number;
+  applied_bonus: number;
+  current_base_bonus: number;
+  proposed_base_bonus: number;
+  settings_revision: string;
+  percentage_change: number | null;
+  currency: null;
 }
 async function inSession<T>(request: () => Promise<T>): Promise<T> {
   const session = captureAuthSession(),
@@ -83,10 +101,15 @@ export const settingsService = {
   ): Promise<BonusSimulationResponse> => {
     const captured = { ...request };
     validateBonusRequest(captured);
+    if (!captured.expected_settings_revision)
+      throw new Error(
+        "Recarga la configuración antes de simular con su revisión.",
+      );
     return validateBonusResult(
       await inSession(() =>
         api.post<unknown>("/settings/simulate-bonus", captured),
       ),
+      captured,
     );
   },
 };

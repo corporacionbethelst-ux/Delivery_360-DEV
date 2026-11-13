@@ -3,6 +3,8 @@
 import argparse
 import json
 import re
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -32,6 +34,9 @@ def main():
         "hold": False,
         "revision": "s1-" + "a" * 64,
         "save_outcome": "unexpected",
+        "empty_history": False,
+        "undated": 0,
+        "wrong_calculation": False,
     }
     saved = {
         "revision": "s1-" + "a" * 64,
@@ -123,13 +128,55 @@ def main():
             ):
                 request = route.request.post_data_json
                 calculations.append(request)
+                assert request["expected_settings_revision"] == state["revision"]
+                applied = Decimal(str(request["new_base_bonus"])).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+                completed, failed = (0, 0) if state["empty_history"] else (10, 2)
+                recorded_success, recorded_failed = (
+                    (0, 0) if state["empty_history"] else (100, 10)
+                )
+                historical = recorded_success + recorded_failed
+                scenario = applied * completed + recorded_failed
+                difference = scenario - historical
+                percentage = (
+                    float(
+                        (difference / historical * 100).quantize(
+                            Decimal("0.01"), rounding=ROUND_HALF_UP
+                        )
+                    )
+                    if historical
+                    else None
+                )
+                end = datetime(2026, 11, 13, 2, tzinfo=timezone.utc)
                 result = {
-                    "current_monthly_cost": 100,
-                    "projected_monthly_cost": 100 + request["new_base_bonus"] * 10,
-                    "difference": request["new_base_bonus"] * 10,
-                    "percentage_increase": request["new_base_bonus"] * 10,
+                    "current_monthly_cost": historical,
+                    "projected_monthly_cost": float(scenario),
+                    "difference": float(difference),
+                    "percentage_increase": percentage if percentage is not None else 0,
                     "message": "Cálculo sintético del período",
+                    "comparison_basis": "flat_bonus_same_deliveries",
+                    "history_days": request["days_projection"],
+                    "period_start": (end - timedelta(days=request["days_projection"]))
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                    "period_end": end.isoformat().replace("+00:00", "Z"),
+                    "completed_deliveries": completed,
+                    "failed_bonus_deliveries": failed,
+                    "undated_bonus_deliveries": state["undated"],
+                    "recorded_completed_bonus": recorded_success,
+                    "recorded_failed_bonus": recorded_failed,
+                    "historical_cost": historical,
+                    "scenario_cost": float(scenario),
+                    "applied_bonus": float(applied),
+                    "current_base_bonus": state["bonus"],
+                    "proposed_base_bonus": request["new_base_bonus"],
+                    "settings_revision": state["revision"],
+                    "percentage_change": percentage,
+                    "currency": None,
                 }
+                if state["wrong_calculation"]:
+                    result["settings_revision"] = "s1-" + "c" * 64
                 if state["hold"]:
                     pending.append((route, result, headers))
                     page.evaluate("window.__settingsCalculationHeld = true")
@@ -222,10 +269,45 @@ def main():
         page.get_by_role("button", name="Simular impacto", exact=True).click()
         expect(result).to_be_visible()
         expect(result).to_contain_text("Resultado para bono 0 y 7 días")
-        assert calculations[-1] == {"new_base_bonus": 0, "days_projection": 7}
+        assert calculations[-1] == {
+            "new_base_bonus": 0,
+            "days_projection": 7,
+            "expected_settings_revision": state["revision"],
+        }
         expect(result.get_by_text("COP", exact=False)).to_have_count(0)
         passed(
             "manager can calculate an explicit zero proposal for seven historical days without saving or converting currency"
+        )
+        expect(result).to_contain_text("Período histórico consultado")
+        expect(result).to_contain_text("No aplica multiplicadores de zona ni nivel")
+        expect(result).to_contain_text("10 entregas × 0,00")
+        page.screenshot(
+            path=str(out / "scenario-desktop.png"),
+            animations="disabled",
+            full_page=True,
+        )
+        passed(
+            "scenario identifies its actual historical bounds, flat-rate formula, sample counts and unknown currency"
+        )
+        state["wrong_calculation"] = True
+        page.get_by_role("button", name="Simular impacto", exact=True).click()
+        expect(content.get_by_role("alert")).to_contain_text(
+            "no informa importes coherentes"
+        )
+        expect(result).to_contain_text("Resultado para bono 0 y 7 días")
+        state["wrong_calculation"] = False
+        passed(
+            "response from another settings revision is rejected while the previous confirmed scenario remains visible"
+        )
+        state["empty_history"], state["undated"] = True, 3
+        page.get_by_role("button", name="Simular impacto", exact=True).click()
+        expect(result).to_contain_text("Sin entregas bonificadas en el período")
+        expect(result).to_contain_text("Existen 3 entregas bonificadas")
+        expect(result).to_contain_text("histórico global")
+        expect(result).to_contain_text("Sin base porcentual")
+        state["empty_history"], state["undated"] = False, 0
+        passed(
+            "empty bounded history and globally undated records remain explicit, without a fabricated percentage denominator"
         )
         state["role"] = "SUPERADMIN"
         page.reload(wait_until="domcontentloaded")

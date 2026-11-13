@@ -169,15 +169,21 @@ export function validateBonusRequest(value: BonusSimulationRequest): void {
   if (
     !finite(value.new_base_bonus) ||
     value.new_base_bonus < 0 ||
+    value.new_base_bonus > 99999999.99 ||
     !Number.isSafeInteger(value.days_projection) ||
     (value.days_projection as number) < 1 ||
-    (value.days_projection as number) > 90
+    (value.days_projection as number) > 90 ||
+    (value.expected_settings_revision !== undefined &&
+      !/^s1-[0-9a-f]{64}$/.test(value.expected_settings_revision))
   )
     throw new Error(
       "Introduce un bono no negativo y un período entero de 1 a 90 días.",
     );
 }
-export function validateBonusResult(value: unknown): BonusSimulationResponse {
+export function validateBonusResult(
+  value: unknown,
+  expected?: BonusSimulationRequest,
+): BonusSimulationResponse {
   const row = record(value);
   if (
     ![
@@ -193,7 +199,68 @@ export function validateBonusResult(value: unknown): BonusSimulationResponse {
       (row.current_monthly_cost as number) +
         (row.difference as number) -
         (row.projected_monthly_cost as number),
-    ) > 0.021
+    ) > 0.021 ||
+    row.comparison_basis !== "flat_bonus_same_deliveries" ||
+    row.currency !== null ||
+    typeof row.settings_revision !== "string" ||
+    !/^s1-[0-9a-f]{64}$/.test(row.settings_revision) ||
+    !Number.isSafeInteger(row.history_days) ||
+    (row.history_days as number) < 1 ||
+    (row.history_days as number) > 90 ||
+    ![
+      row.completed_deliveries,
+      row.failed_bonus_deliveries,
+      row.undated_bonus_deliveries,
+    ].every((count) => Number.isSafeInteger(count) && (count as number) >= 0) ||
+    ![
+      row.recorded_completed_bonus,
+      row.recorded_failed_bonus,
+      row.historical_cost,
+      row.scenario_cost,
+      row.applied_bonus,
+      row.current_base_bonus,
+      row.proposed_base_bonus,
+    ].every((amount) => finite(amount) && amount >= 0) ||
+    (row.completed_deliveries === 0 && row.recorded_completed_bonus !== 0) ||
+    (row.failed_bonus_deliveries === 0 && row.recorded_failed_bonus !== 0) ||
+    (row.proposed_base_bonus as number) > 99999999.99 ||
+    (row.applied_bonus as number) > 99999999.99 ||
+    Math.abs(
+      (row.applied_bonus as number) - (row.proposed_base_bonus as number),
+    ) > 0.005001 ||
+    typeof row.period_start !== "string" ||
+    typeof row.period_end !== "string" ||
+    !Number.isFinite(Date.parse(row.period_start)) ||
+    !Number.isFinite(Date.parse(row.period_end)) ||
+    !row.period_start.endsWith("Z") ||
+    !row.period_end.endsWith("Z") ||
+    Date.parse(row.period_end) - Date.parse(row.period_start) !==
+      (row.history_days as number) * 86400000 ||
+    row.current_monthly_cost !== row.historical_cost ||
+    row.projected_monthly_cost !== row.scenario_cost ||
+    Math.abs(
+      (row.recorded_completed_bonus as number) +
+        (row.recorded_failed_bonus as number) -
+        (row.historical_cost as number),
+    ) > 0.011 ||
+    Math.abs(
+      (row.applied_bonus as number) * (row.completed_deliveries as number) +
+        (row.recorded_failed_bonus as number) -
+        (row.scenario_cost as number),
+    ) > 0.011 ||
+    (row.historical_cost === 0
+      ? row.percentage_change !== null || row.percentage_increase !== 0
+      : !finite(row.percentage_change) ||
+        Math.abs(
+          (row.percentage_change as number) -
+            ((row.difference as number) / (row.historical_cost as number)) *
+              100,
+        ) > 0.011 ||
+        row.percentage_increase !== row.percentage_change) ||
+    (expected &&
+      (row.proposed_base_bonus !== expected.new_base_bonus ||
+        row.history_days !== expected.days_projection ||
+        row.settings_revision !== expected.expected_settings_revision))
   )
     throw new Error("El cálculo recibido no informa importes coherentes.");
   return { ...row } as unknown as BonusSimulationResponse;

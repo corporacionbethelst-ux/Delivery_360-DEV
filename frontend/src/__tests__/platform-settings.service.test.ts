@@ -11,6 +11,7 @@ import {
   validateBonusResult,
 } from "@/lib/platform-settings";
 import { clearStoredTokens, storeTokens } from "@/lib/auth-session";
+import { bonusScenario } from "../../test-fixtures/bonus-scenario";
 jest.mock("@/lib/api", () => ({
   api: { get: jest.fn(), patch: jest.fn(), post: jest.fn() },
 }));
@@ -138,13 +139,7 @@ it("PATCH sends the exact minimal payload and retains a valid false state", asyn
     headers: { "If-Match": `"${saved.revision}"` },
   });
 });
-const calculation = {
-  current_monthly_cost: 100,
-  projected_monthly_cost: 110,
-  difference: 10,
-  percentage_increase: 10,
-  message: "Cálculo",
-};
+const calculation = bonusScenario({ proposed: 0, days: 7 });
 it.each([
   { new_base_bonus: -1, days_projection: 30 },
   { new_base_bonus: NaN, days_projection: 30 },
@@ -165,11 +160,13 @@ it("allows zero proposed bonus and an explicit history window without currency c
     await settingsService.simulateBonusImpact({
       new_base_bonus: 0,
       days_projection: 7,
+      expected_settings_revision: saved.revision,
     }),
   ).toEqual(calculation);
   expect(mocked.post).toHaveBeenCalledWith("/settings/simulate-bonus", {
     new_base_bonus: 0,
     days_projection: 7,
+    expected_settings_revision: saved.revision,
   });
 });
 it.each([
@@ -203,6 +200,7 @@ it.each(["read", "save", "simulation"])(
           : settingsService.simulateBonusImpact({
               new_base_bonus: 0,
               days_projection: 30,
+              expected_settings_revision: saved.revision,
             });
     storeTokens({
       access_token: "settings85-change",
@@ -228,4 +226,73 @@ it.each([
     ),
   ).rejects.toThrow(/revisión válida/);
   expect(mocked.patch).not.toHaveBeenCalled();
+});
+
+it.each([
+  { comparison_basis: "monthly_forecast" },
+  { currency: "USD" },
+  { settings_revision: "old" },
+  { history_days: 8 },
+  { completed_deliveries: -1 },
+  { completed_deliveries: 0.5 },
+  { failed_bonus_deliveries: "2" },
+  { undated_bonus_deliveries: -1 },
+  { period_start: "not-a-date" },
+  { period_end: "2026-11-13T02:00:00" },
+  { recorded_completed_bonus: 200 },
+  { recorded_failed_bonus: -1 },
+  { historical_cost: 99 },
+  { scenario_cost: 99 },
+  { applied_bonus: 1 },
+  { percentage_change: 0 },
+  { percentage_increase: 0 },
+  { proposed_base_bonus: -1 },
+])("rejects inconsistent historical metadata %j", async (changes) => {
+  mocked.post.mockResolvedValue({ ...calculation, ...changes });
+  await expect(
+    settingsService.simulateBonusImpact({
+      new_base_bonus: 0,
+      days_projection: 7,
+      expected_settings_revision: saved.revision,
+    }),
+  ).rejects.toThrow(/coherentes/);
+});
+it.each([
+  bonusScenario({ proposed: 2, days: 7 }),
+  bonusScenario({ proposed: 0, days: 30 }),
+  bonusScenario({ proposed: 0, days: 7, revision: "s1-" + "b".repeat(64) }),
+])(
+  "rejects a coherent response bound to different request parameters",
+  async (response) => {
+    mocked.post.mockResolvedValue(response);
+    await expect(
+      settingsService.simulateBonusImpact({
+        new_base_bonus: 0,
+        days_projection: 7,
+        expected_settings_revision: saved.revision,
+      }),
+    ).rejects.toThrow(/coherentes/);
+  },
+);
+it("requires a captured settings revision before requesting a scenario", async () => {
+  await expect(
+    settingsService.simulateBonusImpact({
+      new_base_bonus: 0,
+      days_projection: 7,
+    }),
+  ).rejects.toThrow(/revisión/);
+  expect(mocked.post).not.toHaveBeenCalled();
+});
+it("accepts an empty bounded sample with no percentage denominator", () => {
+  const response = bonusScenario({
+    proposed: 0,
+    completed: 0,
+    failed: 0,
+    recordedCompleted: 0,
+    recordedFailed: 0,
+  });
+  expect(validateBonusResult(response).percentage_change).toBeNull();
+  expect(() =>
+    validateBonusResult({ ...response, percentage_change: 0 }),
+  ).toThrow();
 });

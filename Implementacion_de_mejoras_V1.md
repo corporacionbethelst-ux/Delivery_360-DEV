@@ -7397,3 +7397,40 @@ autorizada; sin merge, deploy u operaciones productivas del agente.
 
 Registro: [frontend/ENTREGA_86.md](frontend/ENTREGA_86.md).
 Contrato: [backend/PLATFORM_SETTINGS_CONCURRENCY.md](backend/PLATFORM_SETTINGS_CONCURRENCY.md).
+
+## Entrega 87 — Simulación histórica trazable de bonos
+
+Base main `a007518b1bcaf0f203f4fee5f9f24fe7881847c8`, árbol
+`350a64acb2d6f0192eb8adc7d2a74685293ba595`; entrega 86 integrada por el
+propietario y CI completo aprobado.
+
+El simulador utiliza un escenario explícito de bono uniforme para las mismas
+entregas históricas y conserva los bonos fallidos registrados. Se corrige la
+fórmula que podía producir costos negativos al reducir el bono. Decimal aplica
+redondeo por entrega; el resultado identifica período UTC, cantidades, sumas,
+propuesta, importe aplicado, base y revisión de configuración.
+
+La fecha del bono congelado permite ubicar intentos fallidos sin fecha de cierre.
+Los registros sin ambas fechas se cuentan aparte con alcance global. El agregado
+histórico usa una sola consulta; no inventa ceros ante snapshots inválidos y no
+confirma pagos ni proyecciones mensuales. Los multiplicadores no se reconstruyen
+y la moneda ausente permanece explícita. Simular no inicializa configuración.
+
+Período y muestra en azul, escenario violeta, seis tarjetas adaptables y fórmula
+visible. La interfaz rechaza respuestas de otra propuesta, ventana o revisión y
+conserva los resultados anteriores ante fallos.
+
+**73 casos nuevos: 45 backend y 28 frontend.** Suite frontend: **2818 pruebas /
+124 suites aprobadas**, cobertura **65,21 / 61,67 / 62,43 / 64,93 %**, mínimos
+intactos. Build de 48 páginas, tipos y controles estáticos aprobados. Chromium:
+**155 comprobaciones / 13 smokes**, sin escrituras reales ni excepciones JS.
+Backend completo: **2671 pruebas aprobadas, 2 omitidas**, con PostgreSQL/PostGIS
+y Redis temporales; logs y evidencia por SHA conservados.
+
+Contrato y modelo de cálculo revisados: coordinar los consumidores de API y
+frontend al desplegar. Sin dependencias, migraciones, cambios a la liquidación
+real, snapshots históricos ni formulario original de órdenes. Publicación por
+rama y PR autorizada; sin merge, deploy u operaciones productivas del agente.
+
+Registro: [frontend/ENTREGA_87.md](frontend/ENTREGA_87.md).
+Contrato: [backend/BONUS_SIMULATION.md](backend/BONUS_SIMULATION.md).
