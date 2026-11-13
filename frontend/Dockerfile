@@ -9,13 +9,13 @@ RUN --mount=type=secret,id=proxy_ca \
 FROM node:24-bookworm-slim AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
-COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_MAPBOX_TOKEN
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_MAPBOX_TOKEN=$NEXT_PUBLIC_MAPBOX_TOKEN
-RUN --mount=type=secret,id=proxy_ca \
+RUN --mount=type=bind,from=dependencies,source=/app/node_modules,target=/app/node_modules \
+    --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
     test -n "$NEXT_PUBLIC_API_URL" && mkdir -p public && CIRCLE_NODE_TOTAL=3 npm run build
 
