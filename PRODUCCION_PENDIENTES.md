@@ -9,7 +9,8 @@ La entrega 89 comprueba por HTTP y Chromium reales: alta del repartidor,
 documentos y revisión, permisos, asignación, recogida, ruta, entrega, fallos con
 y sin bono, cancelación, saldos, reserva/rechazo y aprobación contable de retiros.
 La UI real del repartidor completa una orden; las repeticiones no duplican bonos
-ni reservas. Quedan la aceptación del usuario y repetir el recorrido en staging.
+ni reservas. También permite reportar comercio cerrado sin salir de la recogida.
+Quedan la aceptación del usuario y repetir el recorrido en staging.
 Una aprobación contable EN_PROCESO no acredita una transferencia bancaria.
 
 ## 2. Moneda y pagos — siguiente bloque

@@ -14,6 +14,10 @@ incoherentes que reabrirían una orden finalizada. Iniciar no genera dinero.
 Las coordenadas cero se conservan al avanzar o finalizar una entrega. Diez
 regresiones reprodujeron los problemas anteriores; se añadieron también controles
 para órdenes entregadas, fallidas o canceladas con una entrega histórica incoherente.
+Un comercio cerrado puede reportarse desde la asignación o la recogida, sin
+fingir una salida a ruta. Servicio, endpoint unificado y botones del repartidor
+comparten esa posibilidad; la causa sigue siendo obligatoria y el bono único.
+El diálogo conserva su presentación e incorpora nombres y etiquetas accesibles.
 
 Login y recuperación de sesión comparten un destino según el rol: operador a
 `/operator`, repartidor a `/rider` y administración a `/manager`. Se conservan
@@ -31,7 +35,8 @@ los perfiles ni la configuración existentes.
 
 Un operador crea/asigna órdenes; el repartidor recoge, inicia ruta y completa
 una desde la interfaz real, comprobada también en móvil. En total se verifican
-cuatro éxitos, un fallo bonificable, uno sin bono y una cancelación. Finalizar
+cuatro éxitos, comercio cerrado reportado desde la UI de recogida, un fallo sin
+bono y una cancelación. Finalizar
 dos veces no duplica los asientos. La documentación pendiente y la cancelación
 por operador se rechazan.
 
@@ -46,9 +51,12 @@ IDs parciales de sus datos para diagnosticar interrupciones. CI lo ejecuta despu
 del laboratorio de la entrega 88. El smoke anterior también admite histórico
 ya poblado, sin exigir que permanezca vacío después de completar entregas.
 
-Las pruebas nuevas de login pasan **19 casos**; suite frontend completa:
-**2837 pruebas / 125 suites**. Las regresiones de avance pasan **13 casos nativos
-PostgreSQL**. Los resultados completos, compilación y evidencias por commit se
+Las pruebas nuevas de login pasan **19 casos**, y hay dos casos de UI para fallar
+antes de salir; suite frontend completa: **2839 pruebas / 125 suites**.
+Última suite completa backend: **2704 aprobadas, 2 omitidas**. La revisión final
+de avance y fallos tempranos pasa **21 casos nativos PostgreSQL**, incluidos ocho
+añadidos después de esa suite; CI ejecuta el conjunto ampliado completo.
+Los resultados, compilación y evidencias por commit se
 conservan en `/workspace/work/entrega89`.
 
 Siguiente bloque confirmado: Venezuela, USD como base y VES con tasa diaria BCV.

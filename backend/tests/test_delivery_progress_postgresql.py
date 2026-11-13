@@ -116,3 +116,61 @@ async def test_start_never_reopens_a_finished_order_from_an_inconsistent_deliver
         assert order.status == terminal and delivery.status == DeliveryStatus.INICIADA
         assert delivery.started_at is None and delivery.left_pickup_at is None
         assert await db.scalar(select(func.count()).select_from(Financial)) == receipts
+
+
+@pytest.mark.parametrize(
+    "progress", [DeliveryStatus.INICIADA, DeliveryStatus.EN_PICKUP]
+)
+@pytest.mark.parametrize("actor", ["staff", "owner"])
+@pytest.mark.parametrize("transport", ["fail", "status"])
+async def test_closed_business_can_be_reported_before_departure_with_one_bonus(
+    payment_db, progress, actor, transport
+):
+    client, sessions, ids = payment_db
+    async with sessions() as db:
+        delivery = await db.get(Delivery, ids["delivery"])
+        delivery.status = progress
+        order = await db.get(Order, ids["order"])
+        order.status = (
+            OrderStatus.RECOLECTADO
+            if progress == DeliveryStatus.EN_PICKUP
+            else OrderStatus.ASIGNADO
+        )
+        await db.commit()
+    headers = {"Authorization": "Bearer " + create_access_token(ids[actor])}
+    path = f"/api/v1/deliveries/{ids['delivery']}/{transport}"
+    body = (
+        {"failure_cause": "COMERCIO_CERRADO"}
+        if transport == "fail"
+        else {"status": "FALLIDA", "issue_type": "COMERCIO_CERRADO"}
+    )
+    response = (
+        client.post(path, headers=headers, json=body)
+        if transport == "fail"
+        else client.patch(path, headers=headers, json=body)
+    )
+    assert response.status_code == 200, response.text
+    async with sessions() as db:
+        order = await db.get(Order, ids["order"])
+        delivery = await db.get(Delivery, ids["delivery"])
+        assert (
+            order.status == OrderStatus.FALLIDO
+            and delivery.status == DeliveryStatus.FALLIDA
+        )
+        assert delivery.left_pickup_at is None
+        receipts = list(
+            (
+                await db.scalars(
+                    select(Financial).where(
+                        Financial.idempotency_key == f"pago_fallido_{ids['order']}"
+                    )
+                )
+            ).all()
+        )
+        assert len(receipts) == 1 and receipts[0].amount == 1
+    replay = (
+        client.post(path, headers=headers, json=body)
+        if transport == "fail"
+        else client.patch(path, headers=headers, json=body)
+    )
+    assert replay.status_code == 400

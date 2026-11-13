@@ -316,19 +316,63 @@ def main():
         )
 
         for cause, reward in [
-            ("CLIENTE_NO_ESTA", Decimal("1")),
+            ("COMERCIO_CERRADO", Decimal("1")),
             ("REPARTIDOR_ERROR_PROPIO", Decimal("0")),
         ]:
             order_id = create_order()
             delivery_id = assigned(order_id)
-            advance(delivery_id)
-            failed = call(
-                rider_page,
-                own,
-                "POST",
-                "/deliveries/" + delivery_id + "/fail",
-                data={"failure_cause": cause},
-            )
+            if cause == "COMERCIO_CERRADO":
+                rider_page.goto(
+                    base + "/rider/my-orders/" + order_id, wait_until="domcontentloaded"
+                )
+                rider_page.get_by_role(
+                    "button", name="Recolectar Pedido", exact=True
+                ).click()
+                expect(
+                    rider_page.get_by_text("Orden: RECOLECTADO", exact=True)
+                ).to_be_visible(timeout=20000)
+                rider_page.get_by_role(
+                    "button", name="Reportar Fallo", exact=True
+                ).click()
+                dialog = rider_page.get_by_role(
+                    "dialog", name="Reportar Entrega Fallida"
+                )
+                expect(dialog).to_be_visible()
+                expect(
+                    dialog.get_by_role("button", name="Confirmar Reporte")
+                ).to_be_disabled()
+                dialog.get_by_role(
+                    "combobox", name=re.compile("Causa del fallo")
+                ).select_option(cause)
+                rider_page.screenshot(
+                    path=str(out / "rider-pickup-failure-mobile.png"),
+                    full_page=True,
+                    animations="disabled",
+                )
+                with rider_page.expect_response(
+                    lambda response: response.url.endswith(
+                        "/deliveries/" + delivery_id + "/fail"
+                    )
+                    and response.request.method == "POST"
+                ) as report:
+                    dialog.get_by_role(
+                        "button", name="Confirmar Reporte", exact=True
+                    ).click()
+                assert report.value.status == 200
+                failed = report.value.json()
+                expect(
+                    rider_page.get_by_text("Orden: FALLIDO", exact=True)
+                ).to_be_visible(timeout=20000)
+                assert not failed.get("left_pickup_at")
+            else:
+                advance(delivery_id)
+                failed = call(
+                    rider_page,
+                    own,
+                    "POST",
+                    "/deliveries/" + delivery_id + "/fail",
+                    data={"failure_cause": cause},
+                )
             assert failed["status"] == "FALLIDA" and failed["is_bonificable"] == (
                 reward > 0
             )
@@ -350,7 +394,7 @@ def main():
                 data={},
             )
         passed(
-            "external failure earns exactly its configured bonus; rider-caused failure earns zero and neither can become success"
+            "a closed business is reported from pickup in the real UI; its bonus is exact, rider-caused failure earns zero and neither can become success"
         )
 
         cancelled_order = create_order()

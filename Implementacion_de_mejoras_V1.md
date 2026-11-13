@@ -7487,10 +7487,14 @@ duplicados, sobregiros y mutaciones después de cancelar. **12 comprobaciones
 reales aprobadas, sin respuestas sustituidas ni excepciones JS**. El simulador
 también se comprueba con el histórico real ya poblado.
 
-**13 casos nativos PostgreSQL** de avance y estados históricos incoherentes;
-**19 casos frontend** de destinos. Suite frontend: **2837 pruebas / 125 suites**.
-Build de 48 páginas, tipos y controles estáticos aprobados. La suite backend
-completa y CI se registran por commit en los artefactos de la entrega.
+También se permite reportar un comercio cerrado desde la recogida real, sin
+simular una salida a ruta, con causa obligatoria y sin duplicar el bono.
+**21 casos nativos PostgreSQL** de avance, estados históricos incoherentes y
+fallos tempranos; **21 casos frontend nuevos** de destinos y reporte antes de
+partir. Suite frontend: **2839 pruebas / 125 suites**. Última suite completa
+backend: **2704 aprobadas, 2 omitidas**, complementada por la revisión final de
+21 casos (ocho añadidos después). Build de 48 páginas, tipos y controles estáticos
+aprobados. CI y los resultados por commit se registran en los artefactos.
 
 CI incorpora el nuevo recorrido al laboratorio obligatorio. Los documentos
 subidos quedan fuera de Git y se conservan en almacenamiento de pruebas.

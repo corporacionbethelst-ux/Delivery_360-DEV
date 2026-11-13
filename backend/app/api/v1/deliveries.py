@@ -962,8 +962,12 @@ async def update_delivery_status(
 
     # 4. Validar transiciones permitidas
     allowed_transitions = {
-        DeliveryStatus.INICIADA: [DeliveryStatus.EN_PICKUP, DeliveryStatus.EN_ROUTE],
-        DeliveryStatus.EN_PICKUP: [DeliveryStatus.EN_ROUTE],
+        DeliveryStatus.INICIADA: [
+            DeliveryStatus.EN_PICKUP,
+            DeliveryStatus.EN_ROUTE,
+            DeliveryStatus.FALLIDA,
+        ],
+        DeliveryStatus.EN_PICKUP: [DeliveryStatus.EN_ROUTE, DeliveryStatus.FALLIDA],
         DeliveryStatus.EN_ROUTE: [
             DeliveryStatus.EN_DESTINO,
             DeliveryStatus.COMPLETADA,

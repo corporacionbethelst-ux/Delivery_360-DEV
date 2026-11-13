@@ -559,6 +559,7 @@ class DeliveryService:
                 allowed_from=(
                     DeliveryStatus.PENDIENTE,
                     DeliveryStatus.INICIADA,
+                    DeliveryStatus.EN_PICKUP,
                     DeliveryStatus.EN_ROUTE,
                     DeliveryStatus.EN_DESTINO,
                 ),

@@ -255,9 +255,9 @@ export default function RiderOrderDetailPage() {
 
     switch (delivery.status) {
       case DeliveryStatus.INICIADA:
-        return target === DeliveryStatus.EN_PICKUP || target === DeliveryStatus.EN_ROUTE;
+        return target === DeliveryStatus.EN_PICKUP || target === DeliveryStatus.EN_ROUTE || target === DeliveryStatus.FALLIDA;
       case DeliveryStatus.EN_PICKUP:
-        return target === DeliveryStatus.EN_ROUTE;
+        return target === DeliveryStatus.EN_ROUTE || target === DeliveryStatus.FALLIDA;
       case DeliveryStatus.EN_ROUTE:
         return target === DeliveryStatus.EN_DESTINO || target === DeliveryStatus.COMPLETADA || target === DeliveryStatus.FALLIDA;
       case DeliveryStatus.EN_DESTINO:
@@ -352,10 +352,10 @@ export default function RiderOrderDetailPage() {
       {/* Modal de Reporte de Fallo ACTUALIZADO */}
       {showFailModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+          <div role="dialog" aria-modal="true" aria-labelledby="delivery-failure-title" className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
             <div className="bg-red-50 p-4 border-b border-red-100 flex items-center gap-3">
               <AlertCircle className="w-6 h-6 text-red-600" />
-              <h3 className="text-lg font-bold text-red-800">Reportar Entrega Fallida</h3>
+              <h3 id="delivery-failure-title" className="text-lg font-bold text-red-800">Reportar Entrega Fallida</h3>
             </div>
             <div className="p-6">
               <p className="text-sm text-gray-600 mb-4">
@@ -369,10 +369,11 @@ export default function RiderOrderDetailPage() {
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="delivery-failure-cause" className="block text-sm font-medium text-gray-700 mb-1">
                     Causa del fallo <span className="text-red-500">*</span>
                   </label>
                   <select
+                    id="delivery-failure-cause"
                     className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-shadow bg-white"
                     value={selectedFailureCause}
                     onChange={(e) => setSelectedFailureCause(e.target.value as FailureCause)}
@@ -388,10 +389,11 @@ export default function RiderOrderDetailPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="delivery-failure-notes" className="block text-sm font-medium text-gray-700 mb-1">
                     Notas adicionales (Opcional)
                   </label>
                   <textarea
+                    id="delivery-failure-notes"
                     className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-shadow min-h-[80px]"
                     placeholder="Detalles extra que ayuden a la revisión..."
                     value={failNotes}
