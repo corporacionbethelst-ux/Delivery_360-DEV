@@ -39,6 +39,8 @@ const finite = (value: unknown): value is number =>
 export function validatePlatformSettings(value: unknown): PlatformSettings {
   const row = record(value);
   if (
+    typeof row.revision !== "string" ||
+    !/^s1-[0-9a-f]{64}$/.test(row.revision) ||
     SETTING_NUMBERS.some(
       (key) =>
         !(row[key] === null || (finite(row[key]) && (row[key] as number) >= 0)),

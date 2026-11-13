@@ -33,6 +33,7 @@ jest.mock("@/services/settings.service", () => ({
 }));
 const service = jest.mocked(settingsService),
   saved: PlatformSettings = {
+    revision: "s1-" + "a".repeat(64),
     delivery_fee_base: 0,
     commission_percentage: 12.1234,
     min_order_amount: null,
@@ -206,6 +207,7 @@ it("preflights the target values and sends only edited fields while preserving c
   const dialog = await review();
   service.getSettings.mockResolvedValueOnce({
     ...saved,
+    revision: "s1-" + "b".repeat(64),
     commission_percentage: 17,
   });
   service.updateSettings.mockResolvedValueOnce({
@@ -217,7 +219,10 @@ it("preflights the target values and sends only edited fields while preserving c
     within(dialog).getByRole("button", { name: "Confirmar guardado" }),
   );
   await screen.findByText("Configuración guardada y confirmada correctamente.");
-  expect(service.updateSettings).toHaveBeenCalledWith({ delivery_fee_base: 4 });
+  expect(service.updateSettings).toHaveBeenCalledWith(
+    { delivery_fee_base: 4 },
+    "s1-" + "b".repeat(64),
+  );
   expect(field("Comisión")).toHaveValue("17");
 });
 it("changed target values stop before PATCH and require reloading", async () => {
@@ -233,6 +238,40 @@ it("changed target values stop before PATCH and require reloading", async () => 
   expect(
     within(dialog).getByRole("button", { name: "Recargar y revisar" }),
   ).toBeInTheDocument();
+});
+it("a server revision conflict keeps the draft, blocks retries and asks before discarding it", async () => {
+  service.updateSettings.mockRejectedValueOnce({
+    isAxiosError: true,
+    response: { status: 412 },
+  });
+  render(<Page />);
+  await loaded();
+  const dialog = await review();
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Confirmar guardado" }),
+  );
+  await within(dialog).findByText(/Otra persona cambió/);
+  expect(
+    screen.getByLabelText("Tarifa base de envío", { exact: false }),
+  ).toHaveValue("4");
+  expect(
+    within(dialog).queryByRole("button", { name: "Confirmar guardado" }),
+  ).not.toBeInTheDocument();
+  expect(service.updateSettings).toHaveBeenCalledTimes(1);
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Recargar y revisar" }),
+  );
+  const reload = await screen.findByRole("dialog", {
+    name: "Recargar configuración",
+  });
+  fireEvent.click(
+    within(reload).getByRole("button", { name: "Conservar borrador" }),
+  );
+  expect(field("Tarifa base de envío")).toHaveValue("4");
+  expect(
+    screen.getByRole("button", { name: "Revisar cambios" }),
+  ).toBeDisabled();
+  expect(service.getSettings).toHaveBeenCalledTimes(2);
 });
 it("pending save locks close and duplicates, then confirms the actual response", async () => {
   const pending = deferred<PlatformSettings>();

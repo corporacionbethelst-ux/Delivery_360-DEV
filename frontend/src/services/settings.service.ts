@@ -11,6 +11,7 @@ import {
   validateSettingsUpdate,
 } from "@/lib/platform-settings";
 export interface PlatformSettings {
+  revision: string;
   delivery_fee_base: number | null;
   commission_percentage: number | null;
   min_order_amount: number | null;
@@ -56,8 +57,13 @@ export const settingsService = {
     ),
   updateSettings: async (
     settings: PlatformSettingsUpdate,
+    revision: string,
   ): Promise<PlatformSettings> => {
     validateSettingsUpdate(settings);
+    if (typeof revision !== "string" || !/^s1-[0-9a-f]{64}$/.test(revision))
+      throw new Error(
+        "Recarga la configuración para obtener una revisión válida.",
+      );
     const captured = {
       ...settings,
       ...(settings.active_zones
@@ -65,7 +71,11 @@ export const settingsService = {
         : {}),
     };
     return validatePlatformSettings(
-      await inSession(() => api.patch<unknown>("/settings", captured)),
+      await inSession(() =>
+        api.patch<unknown>("/settings", captured, {
+          headers: { "If-Match": `"${revision}"` },
+        }),
+      ),
     );
   },
   simulateBonusImpact: async (

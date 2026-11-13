@@ -68,8 +68,47 @@ FRAMEWORK_DELTA = Path(__file__).parent / "fixtures/openapi_framework_delta.json
 BACKEND = Path(__file__).resolve().parents[1]
 
 
+def before_settings_schema(application=app):
+    """Remove only the reviewed settings revision contract; pin all other fields."""
+    schema = deepcopy(application.openapi())
+    response = schema["components"]["schemas"]["PlatformSettingsResponse"]
+    assert response["properties"].pop("revision") == {
+        "type": "string",
+        "title": "Revision",
+    }
+    assert response.pop("required") == ["revision"]
+    update = schema["components"]["schemas"]["PlatformSettingsUpdate"]
+    assert update.pop("additionalProperties") is False
+    for path in ("/api/v1/settings", "/api/v1/settings/"):
+        for method in ("patch", "put"):
+            assert schema["paths"][path][method].pop("parameters") == [
+                {
+                    "name": "if-match",
+                    "in": "header",
+                    "required": False,
+                    "schema": {
+                        "anyOf": [{"type": "string"}, {"type": "null"}],
+                        "title": "If-Match",
+                    },
+                }
+            ]
+    return schema
+
+
+def surface_before_settings(application=app):
+    current = api_surface(application)
+    canonical = json.dumps(
+        before_settings_schema(application),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    current["openapi_sha256"] = hashlib.sha256(canonical.encode()).hexdigest()
+    return current
+
+
 def before_delivery_catalog_schema():
-    schema = deepcopy(app.openapi())
+    schema = before_settings_schema()
     operation = schema["paths"].pop("/api/v1/deliveries/page")
     assert set(operation) == {"get"}
     assert schema["components"]["schemas"].pop("DeliveryStatus")["enum"] == [
@@ -200,7 +239,7 @@ def test_compatibility_router_is_the_canonical_object(name):
 def test_exact_route_order_auth_dependencies_and_openapi_are_preserved():
     expected = json.loads(EXPECTED.read_text())
     assert len(expected["routes"]) == 204
-    assert api_surface(app) == expected
+    assert surface_before_settings() == expected
 
 
 def test_reconciliation_addition_preserves_all_preexisting_routes_and_openapi():
@@ -275,7 +314,7 @@ def test_payout_pagination_preserves_existing_routes_dependencies_and_openapi():
 def test_two_factories_have_identical_surfaces_without_duplicate_registration():
     first, second = create_app(), create_app()
     expected = json.loads(EXPECTED.read_text())
-    assert api_surface(first) == api_surface(second) == expected
+    assert surface_before_settings(first) == surface_before_settings(second) == expected
     # A separate factory must not mutate the module routers used by the first.
     assert first is not second
 
@@ -309,7 +348,7 @@ def test_factory_does_not_open_database_connections_or_create_schema(monkeypatch
     monkeypatch.setattr(type(engine), "connect", forbidden)
     monkeypatch.setattr(type(engine), "begin", forbidden)
     monkeypatch.setattr(Base.metadata, "create_all", forbidden)
-    assert api_surface(create_app()) == json.loads(EXPECTED.read_text())
+    assert surface_before_settings(create_app()) == json.loads(EXPECTED.read_text())
 
 
 # Faults run in fresh interpreters: no reload of live modules, auth globals or

@@ -7363,3 +7363,37 @@ y PR ya autorizada; sin merge, deploy u operaciones productivas del agente.
 
 Registro: [frontend/ENTREGA_85.md](frontend/ENTREGA_85.md).
 Criterio: [frontend/VISUAL_GUIDELINES.md](frontend/VISUAL_GUIDELINES.md).
+
+## Entrega 86 — Revisión atómica de configuración
+
+Base main `17662e197918c85b2d7e72b0abb56e6e0bb620d1`, árbol
+`6910e8c2c050d6048ea48da59052bfcaf0b1a334`; entrega 85 integrada por el
+propietario y comparación local/GitHub repetida antes de continuar.
+
+La API exige la revisión consultada mediante If-Match y la compara bajo bloqueo
+de registros en PostgreSQL. Comparación, cambios y auditoría comparten una
+transacción. Dos guardados con la misma revisión producen un único cambio; el
+otro recibe 412. Se toleran consultas iniciales simultáneas y se rechazan campos
+extra y números no finitos. La respuesta identifica el guardado propio.
+
+El frontend conserva la consulta previa y envía su revisión fresca. Un conflicto
+mantiene el borrador y bloquea reintentos; recargar pide elegir antes de descartar
+los cambios. Se conserva la presentación azul/cian y el aviso ámbar adaptable.
+Se comprobó import jwt con PyJWT 2.15.1, sin jose ni dependencias incompatibles.
+
+**40 casos nuevos: 30 backend y 10 frontend.** Suite frontend: **2790 pruebas /
+124 suites aprobadas**, cobertura **65,20 / 61,47 / 62,40 / 64,92 %**, mínimos
+intactos. Configuración: **15 comprobaciones Chromium**, incluidos dos PATCH
+sintéticos; cero escrituras reales y excepciones JavaScript. Build de 48 páginas,
+tipos, controles estáticos e imports aprobados. Backend completo: **2626 pruebas
+aprobadas, 2 omitidas**, con PostgreSQL/PostGIS y Redis temporales; cobertura total
+redondeada de **73 %**. Navegador completo: **152 comprobaciones / 13 smokes**.
+Evidencia local por SHA y CI remoto registrado en el PR.
+
+Los clientes de escritura anteriores reciben 428 si omiten la revisión; coordinar
+API y frontend al desplegar. Sin dependencias, migraciones ni cambios al formulario
+original de orden o fórmula de simulación. Publicación por rama y PR previamente
+autorizada; sin merge, deploy u operaciones productivas del agente.
+
+Registro: [frontend/ENTREGA_86.md](frontend/ENTREGA_86.md).
+Contrato: [backend/PLATFORM_SETTINGS_CONCURRENCY.md](backend/PLATFORM_SETTINGS_CONCURRENCY.md).
