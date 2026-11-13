@@ -14,6 +14,7 @@ import {
 } from "@/services/settings.service";
 import { storeTokens } from "@/lib/auth-session";
 import { BonusSimulator } from "@/components/admin/BonusSimulator";
+import { bonusScenario } from "../../test-fixtures/bonus-scenario";
 const mockRouter = { replace: jest.fn() };
 let mockUser: { id: string; role: string } | null = {
     id: "admin",
@@ -45,13 +46,7 @@ const service = jest.mocked(settingsService),
     updated_at: "2026-11-10T12:00:00",
     updated_by_user_id: "admin",
   };
-const calculation = {
-  current_monthly_cost: 100,
-  projected_monthly_cost: 110,
-  difference: 10,
-  percentage_increase: 10,
-  message: "Resultado del servidor",
-};
+const calculation = bonusScenario();
 function deferred<T>() {
   let resolve!: (value: T) => void, reject!: (error: Error) => void;
   const promise = new Promise<T>((yes, no) => {
@@ -66,7 +61,13 @@ beforeEach(() => {
   mockAuthenticated = true;
   service.getSettings.mockResolvedValue(saved);
   service.updateSettings.mockResolvedValue({ ...saved, delivery_fee_base: 4 });
-  service.simulateBonusImpact.mockResolvedValue(calculation);
+  service.simulateBonusImpact.mockImplementation(async (request) =>
+    bonusScenario({
+      proposed: request.new_base_bonus,
+      days: request.days_projection,
+      revision: request.expected_settings_revision,
+    }),
+  );
 });
 const loaded = async () => {
   await screen.findByLabelText("Tarifa base de envío", { exact: false });
@@ -349,6 +350,7 @@ it("accepts zero proposal and binds a result to its actual request window", asyn
   expect(service.simulateBonusImpact).toHaveBeenCalledWith({
     new_base_bonus: 0,
     days_projection: 7,
+    expected_settings_revision: saved.revision,
   });
   expect(
     screen.getByText(/Resultado para bono 0 y 7 días/),
@@ -437,11 +439,98 @@ it("zero historical cost is not displayed as a meaningful zero-percent base", as
     projected_monthly_cost: 10,
     difference: 10,
     percentage_increase: 0,
+    historical_cost: 0,
+    scenario_cost: 10,
+    percentage_change: null,
   });
   render(<Page />);
   await loaded();
   simulate();
   await screen.findByText("Sin base porcentual");
+});
+it("identifies the sample, actual period and flat-rate assumptions instead of claiming a forecast", async () => {
+  render(<Page />);
+  await loaded();
+  simulate();
+  const result = await screen.findByRole("region", {
+    name: "Resultado confirmado de simulación",
+  });
+  expect(
+    within(result).getByText("Período histórico consultado"),
+  ).toBeInTheDocument();
+  expect(
+    within(result).getByText(/No aplica multiplicadores de zona ni nivel/),
+  ).toBeInTheDocument();
+  expect(within(result).getByText(/10 entregas × 2,50/)).toBeInTheDocument();
+  expect(
+    within(result).getByText("Entregas completadas de la muestra"),
+  ).toBeInTheDocument();
+  expect(screen.getByText(/Moneda no informada/)).toBeInTheDocument();
+});
+it("shows an empty sample and globally undated records without assigning them to the period", async () => {
+  service.simulateBonusImpact.mockResolvedValue({
+    ...bonusScenario({
+      completed: 0,
+      failed: 0,
+      recordedCompleted: 0,
+      recordedFailed: 0,
+    }),
+    undated_bonus_deliveries: 3,
+  });
+  render(<Page />);
+  await loaded();
+  simulate();
+  await screen.findByText(/Sin entregas bonificadas en el período/);
+  expect(screen.getByText(/Existen 3 entregas bonificadas/)).toHaveTextContent(
+    "histórico global",
+  );
+  expect(screen.getByText("Sin base porcentual")).toBeInTheDocument();
+});
+it.each([412, 409])(
+  "a calculation error %s keeps the prior scenario and explains the recovery",
+  async (status) => {
+    render(<Page />);
+    await loaded();
+    simulate();
+    await screen.findByRole("region", {
+      name: "Resultado confirmado de simulación",
+    });
+    service.simulateBonusImpact.mockRejectedValueOnce({
+      isAxiosError: true,
+      response: { status },
+    });
+    fireEvent.change(screen.getByLabelText("Bono propuesto"), {
+      target: { value: "9" },
+    });
+    simulate();
+    await screen.findByText(
+      status === 412
+        ? /configuración cambió durante el cálculo/
+        : /histórico no permiten confirmar/,
+    );
+    expect(
+      screen.getByText(/Resultado para bono 2.50001 y 30 días/),
+    ).toBeInTheDocument();
+  },
+);
+it("binds the scenario to the fresh revision even when another setting changed", async () => {
+  render(<Page />);
+  await loaded();
+  const revision = "s1-" + "b".repeat(64);
+  service.getSettings.mockResolvedValueOnce({
+    ...saved,
+    revision,
+    commission_percentage: 17,
+  });
+  simulate();
+  await screen.findByRole("region", {
+    name: "Resultado confirmado de simulación",
+  });
+  expect(service.simulateBonusImpact).toHaveBeenCalledWith({
+    new_base_bonus: 2.50001,
+    days_projection: 30,
+    expected_settings_revision: revision,
+  });
 });
 it.each(["account", "credentials"])(
   "retired %s preflight cannot proceed to PATCH",

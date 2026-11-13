@@ -5,6 +5,13 @@ Referencia indicada por el propietario: el formulario de nueva orden, en
 estructura y su uso de colores por sección, manteniendo una interfaz profesional.
 Aplicar este criterio a las próximas mejoras frontend.
 
+La entrega 87 conserva el simulador dentro de configuración y utiliza azul para
+el período y la muestra, violeta para el escenario uniforme y ámbar para datos
+incompletos. Las tarjetas muestran importes y cantidades reales; la fórmula y
+sus hipótesis quedan visibles junto al resultado. No representar una muestra
+vacía como previsión de gasto cero ni identificar una moneda ausente. La ayuda
+de un input usa aria-describedby cuando debe conservarse su nombre accesible.
+
 ## Color con propósito
 
 - Base blanca y gris muy claro; títulos en slate oscuro, textos secundarios legibles.

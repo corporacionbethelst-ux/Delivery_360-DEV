@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Literal, Optional
 from decimal import Decimal
 import hashlib
 import json
@@ -11,7 +11,7 @@ import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from sqlalchemy import select, func, and_
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,8 +21,7 @@ from app.core.database import get_db
 from app.models.audit_log import ActionType, AuditLog
 from app.models.platform_setting import PlatformSetting
 from app.models.user import User, UserRole
-from app.models.financial import Financial, TransactionType, PaymentStatus
-from app.models.delivery import Delivery, DeliveryStatus
+from app.services.bonus_simulation import MAX_BONUS, historical_bonus_scenario
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
 
@@ -86,11 +85,23 @@ class PlatformSettingsUpdate(BaseModel):
 class BonusSimulationRequest(BaseModel):
     """Solicitud para simulación What-If de bonos."""
 
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
     new_base_bonus: Optional[float] = Field(
-        None, ge=0, description="Nuevo valor propuesto para bono por entrega"
+        None,
+        ge=0,
+        le=float(MAX_BONUS),
+        description="Bono uniforme propuesto por entrega completada",
     )
     days_projection: int = Field(
-        30, ge=1, le=90, description="Días hacia atrás para calcular promedio histórico"
+        30,
+        strict=True,
+        ge=1,
+        le=90,
+        description="Ventana histórica de días transcurridos; no es una proyección futura",
+    )
+    expected_settings_revision: Optional[str] = Field(
+        None, pattern=r"^s1-[0-9a-f]{64}$"
     )
 
 
@@ -102,81 +113,23 @@ class BonusSimulationResponse(BaseModel):
     difference: float
     percentage_increase: float
     message: str
-
-
-async def _get_historical_bonus_metrics(
-    db: AsyncSession, days: int = 30
-) -> Dict[str, Any]:
-    """
-    Obtiene métricas históricas de bonos pagados en los últimos N días.
-
-    Returns:
-        Dict con:
-        - total_deliveries: Total de entregas completadas
-        - total_failed_bonus_deliveries: Total de intentos fallidos bonificables
-        - total_bonus_paid: Suma total de bonos pagados (éxito + fallidos)
-        - avg_daily_deliveries: Promedio diario de entregas
-        - avg_daily_bonus_paid: Promedio diario de bonos pagados
-    """
-    cutoff_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
-
-    # Consulta agregada para entregas completadas (SUCCESS)
-    success_stmt = select(
-        func.count(Delivery.id).label("total_deliveries"),
-        func.sum(Delivery.locked_bonus_amount).label("total_success_bonus"),
-    ).where(
-        and_(
-            Delivery.status == DeliveryStatus.COMPLETADA,
-            Delivery.completed_at >= cutoff_date,
-            Delivery.locked_bonus_type == "SUCCESS",
-        )
-    )
-
-    # Consulta agregada para intentos fallidos bonificables
-    failed_stmt = select(
-        func.count(Delivery.id).label("total_failed_deliveries"),
-        func.sum(Delivery.locked_bonus_amount).label("total_failed_bonus"),
-    ).where(
-        and_(
-            Delivery.status == DeliveryStatus.FALLIDA,
-            Delivery.completed_at >= cutoff_date,
-            Delivery.locked_bonus_type == "FAILED_ATTEMPT",
-        )
-    )
-
-    success_result = await db.execute(success_stmt)
-    success_row = success_result.one()
-
-    failed_result = await db.execute(failed_stmt)
-    failed_row = failed_result.one()
-
-    total_deliveries = success_row.total_deliveries or 0
-    total_failed_deliveries = failed_row.total_failed_deliveries or 0
-    total_success_bonus = (
-        float(success_row.total_success_bonus)
-        if success_row.total_success_bonus
-        else 0.0
-    )
-    total_failed_bonus = (
-        float(failed_row.total_failed_bonus) if failed_row.total_failed_bonus else 0.0
-    )
-    total_bonus_paid = total_success_bonus + total_failed_bonus
-
-    return {
-        "days_analyzed": days,
-        "total_deliveries": total_deliveries,
-        "total_failed_bonus_deliveries": total_failed_deliveries,
-        "total_combined_deliveries": total_deliveries + total_failed_deliveries,
-        "total_bonus_paid": round(total_bonus_paid, 2),
-        "avg_daily_deliveries": round(total_deliveries / days, 2) if days > 0 else 0,
-        "avg_daily_failed_deliveries": (
-            round(total_failed_deliveries / days, 2) if days > 0 else 0
-        ),
-        "avg_daily_bonus_paid": round(total_bonus_paid / days, 2) if days > 0 else 0,
-        "avg_bonus_per_delivery": (
-            round(total_bonus_paid / total_deliveries, 2) if total_deliveries > 0 else 0
-        ),
-    }
+    comparison_basis: Literal["flat_bonus_same_deliveries"]
+    history_days: int
+    period_start: str
+    period_end: str
+    completed_deliveries: int
+    failed_bonus_deliveries: int
+    undated_bonus_deliveries: int
+    recorded_completed_bonus: float
+    recorded_failed_bonus: float
+    historical_cost: float
+    scenario_cost: float
+    applied_bonus: float
+    current_base_bonus: float
+    proposed_base_bonus: float
+    settings_revision: str
+    percentage_change: Optional[float]
+    currency: None = None
 
 
 @router.post("/simulate-bonus", response_model=BonusSimulationResponse)
@@ -185,59 +138,46 @@ async def simulate_bonus_impact(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ):
-    """
-    FASE 6: Simulador What-If para impacto de cambios en bonos.
-
-    Calcula proyecciones de costo operativo basadas en cambios propuestos
-    en los valores de bonos, usando datos históricos de los últimos N días.
-    """
-    # Obtener configuración actual
-    rows = await _ensure_default_settings(db)
-    current_settings = _coerce_settings(rows)
-
-    current_base_bonus = current_settings.get("rider_delivery_bonus") or 0
-    proposed_base_bonus = (
-        body.new_base_bonus if body.new_base_bonus is not None else current_base_bonus
+    """Comparar un bono uniforme con los bonos congelados de las mismas entregas históricas."""
+    # Simulation must never initialize or modify configuration.
+    rows = await _load_settings_rows(db)
+    revision = _settings_revision(rows)
+    if (
+        body.expected_settings_revision is not None
+        and body.expected_settings_revision != revision
+    ):
+        raise HTTPException(
+            status_code=412, detail="La configuración cambió. Recarga antes de simular."
+        )
+    raw_base = rows.get("rider_delivery_bonus")
+    value = raw_base.value if raw_base else None
+    try:
+        base = Decimal(str(value))
+        if (
+            isinstance(value, bool)
+            or not base.is_finite()
+            or not 0 <= base <= MAX_BONUS
+        ):
+            raise ValueError("invalid configured bonus")
+    except (ValueError, ArithmeticError):
+        raise HTTPException(
+            status_code=409,
+            detail="Configura un bono por entrega válido antes de simular.",
+        ) from None
+    proposed = (
+        Decimal(str(body.new_base_bonus)) if body.new_base_bonus is not None else base
     )
-
-    # Obtener métricas históricas (últimos 30 días por defecto)
-    days_lookback = body.days_projection or 30
-    historical_metrics = await _get_historical_bonus_metrics(db, days_lookback)
-
-    # Calcular proyección de impacto
-    total_deliveries = historical_metrics["total_deliveries"]
-    days = historical_metrics["days_analyzed"] or 1
-
-    # Costo actual con valores históricos
-    current_monthly_cost = historical_metrics["total_bonus_paid"]
-
-    # Costo proyectado con nuevo valor
-    base_bonus_delta = proposed_base_bonus - current_base_bonus
-    projected_additional_cost = base_bonus_delta * total_deliveries
-    projected_monthly_cost = current_monthly_cost + projected_additional_cost
-
-    # Diferencia neta
-    difference = projected_monthly_cost - current_monthly_cost
-
-    # Porcentaje de cambio
-    percentage_increase = (
-        ((difference / current_monthly_cost) * 100) if current_monthly_cost > 0 else 0
-    )
-
-    # Mensaje interpretativo
-    if difference > 0:
-        message = f"Un aumento del bono base a ${proposed_base_bonus} incrementaría el costo mensual en ${abs(difference):,.2f} ({percentage_increase:.2f}%). Esto representa un mayor incentivo para los riders pero reduce el margen operativo."
-    elif difference < 0:
-        message = f"Una reducción del bono base a ${proposed_base_bonus} disminuiría el costo mensual en ${abs(difference):,.2f} ({abs(percentage_increase):.2f}%). Esto mejora el margen pero puede afectar la satisfacción de los riders."
-    else:
-        message = "No hay cambio en el costo operativo. El valor propuesto es igual al actual."
-
+    try:
+        result = await historical_bonus_scenario(
+            db, proposed, body.days_projection, utc_now_naive()
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
     return BonusSimulationResponse(
-        current_monthly_cost=round(current_monthly_cost, 2),
-        projected_monthly_cost=round(projected_monthly_cost, 2),
-        difference=round(difference, 2),
-        percentage_increase=round(percentage_increase, 2),
-        message=message,
+        **result,
+        current_base_bonus=float(base),
+        proposed_base_bonus=float(proposed),
+        settings_revision=revision,
     )
 
 

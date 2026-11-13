@@ -1,0 +1,432 @@
+[
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationRequest",
+      "additionalProperties"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": false
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationRequest",
+      "properties",
+      "days_projection",
+      "description"
+    ],
+    "old_present": true,
+    "new_present": true,
+    "old": "Días hacia atrás para calcular promedio histórico",
+    "new": "Ventana histórica de días transcurridos; no es una proyección futura"
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationRequest",
+      "properties",
+      "expected_settings_revision"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^s1-[0-9a-f]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Expected Settings Revision"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationRequest",
+      "properties",
+      "new_base_bonus",
+      "anyOf"
+    ],
+    "old_present": true,
+    "new_present": true,
+    "old": [
+      {
+        "type": "number",
+        "minimum": 0.0
+      },
+      {
+        "type": "null"
+      }
+    ],
+    "new": [
+      {
+        "type": "number",
+        "maximum": 99999999.99,
+        "minimum": 0.0
+      },
+      {
+        "type": "null"
+      }
+    ]
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationRequest",
+      "properties",
+      "new_base_bonus",
+      "description"
+    ],
+    "old_present": true,
+    "new_present": true,
+    "old": "Nuevo valor propuesto para bono por entrega",
+    "new": "Bono uniforme propuesto por entrega completada"
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "applied_bonus"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "type": "number",
+      "title": "Applied Bonus"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "comparison_basis"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "type": "string",
+      "enum": [
+        "flat_bonus_same_deliveries"
+      ],
+      "const": "flat_bonus_same_deliveries",
+      "title": "Comparison Basis"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "completed_deliveries"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "type": "integer",
+      "title": "Completed Deliveries"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "currency"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "type": "null",
+      "title": "Currency"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "current_base_bonus"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "type": "number",
+      "title": "Current Base Bonus"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "failed_bonus_deliveries"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "type": "integer",
+      "title": "Failed Bonus Deliveries"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "historical_cost"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "type": "number",
+      "title": "Historical Cost"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "history_days"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "type": "integer",
+      "title": "History Days"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "percentage_change"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Percentage Change"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "period_end"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "type": "string",
+      "title": "Period End"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "period_start"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "type": "string",
+      "title": "Period Start"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "proposed_base_bonus"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "type": "number",
+      "title": "Proposed Base Bonus"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "recorded_completed_bonus"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "type": "number",
+      "title": "Recorded Completed Bonus"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "recorded_failed_bonus"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "type": "number",
+      "title": "Recorded Failed Bonus"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "scenario_cost"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "type": "number",
+      "title": "Scenario Cost"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "settings_revision"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "type": "string",
+      "title": "Settings Revision"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "required"
+    ],
+    "old_present": true,
+    "new_present": true,
+    "old": [
+      "current_monthly_cost",
+      "projected_monthly_cost",
+      "difference",
+      "percentage_increase",
+      "message"
+    ],
+    "new": [
+      "current_monthly_cost",
+      "projected_monthly_cost",
+      "difference",
+      "percentage_increase",
+      "message",
+      "comparison_basis",
+      "history_days",
+      "period_start",
+      "period_end",
+      "completed_deliveries",
+      "failed_bonus_deliveries",
+      "undated_bonus_deliveries",
+      "recorded_completed_bonus",
+      "recorded_failed_bonus",
+      "historical_cost",
+      "scenario_cost",
+      "applied_bonus",
+      "current_base_bonus",
+      "proposed_base_bonus",
+      "settings_revision",
+      "percentage_change"
+    ]
+  },
+  {
+    "path": [
+      "paths",
+      "/api/v1/settings/simulate-bonus",
+      "post",
+      "description"
+    ],
+    "old_present": true,
+    "new_present": true,
+    "old": "FASE 6: Simulador What-If para impacto de cambios en bonos.\n\nCalcula proyecciones de costo operativo basadas en cambios propuestos\nen los valores de bonos, usando datos históricos de los últimos N días.",
+    "new": "Comparar un bono uniforme con los bonos congelados de las mismas entregas históricas."
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "BonusSimulationResponse",
+      "properties",
+      "undated_bonus_deliveries"
+    ],
+    "old_present": false,
+    "new_present": true,
+    "old": null,
+    "new": {
+      "type": "integer",
+      "title": "Undated Bonus Deliveries"
+    }
+  }
+]
