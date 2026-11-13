@@ -42,7 +42,7 @@ def main():
         raise SystemExit(
             "Not the dedicated local laboratory; no browser writes allowed"
         )
-    local_test.check(state)
+    local_test.check(state, authenticate=False)
     users = json.loads(local_test.ACCOUNTS.read_text())
     base = "http://localhost:" + str(state["web_port"])
     api = "http://localhost:" + str(state["api_port"]) + "/api/v1"

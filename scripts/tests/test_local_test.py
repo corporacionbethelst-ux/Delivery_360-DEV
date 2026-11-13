@@ -200,6 +200,30 @@ class LocalTestCommands(unittest.TestCase):
                 local_test.check({"web_port": 3088, "api_port": 8088})
         self.assertEqual(request.call_count, 1)
 
+    def test_ready_check_uses_one_login_so_manual_testing_keeps_its_rate_budget(self):
+        self.initialize()
+        response = MagicMock()
+        response.__enter__.return_value.code = 200
+        response.__enter__.return_value.headers = {"Content-Type": "text/html"}
+        opener = MagicMock()
+        opener.open.return_value = response
+        with patch.object(
+            local_test, "build_opener", return_value=opener
+        ), patch.object(
+            local_test,
+            "api_request",
+            side_effect=[
+                (200, {"checks": {"database": True, "redis": True}}),
+                (200, {"access_token": "synthetic-test-token"}),
+                (200, {"role": "SUPERADMIN"}),
+            ],
+        ) as request, contextlib.redirect_stdout(
+            io.StringIO()
+        ):
+            local_test.check(local_test.configuration())
+        paths = [call.args[1] for call in request.call_args_list]
+        self.assertEqual(paths.count("/api/v1/auth/login"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

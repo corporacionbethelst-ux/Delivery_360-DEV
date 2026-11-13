@@ -33,7 +33,11 @@ python scripts/local_test.py up
 La primera ejecución compila las imágenes, crea una base independiente, aplica
 la cadena real de Alembic, prepara cuentas de prueba y espera las comprobaciones
 de salud. **Puedes comenzar cuando el comando termine correctamente y confirme
-la interfaz, API, PostgreSQL, Redis y acceso por roles.**
+la interfaz, API, PostgreSQL, Redis y acceso SUPERADMIN.**
+
+El inicializador termina y se retira antes de levantar la API. Al volver a ejecutar
+`up`, los contenedores web/API de esta instancia se recrean después de las
+migraciones; los volúmenes de datos permanecen intactos.
 
 En Windows puedes sustituir `python` por `py -3` si tu instalación lo requiere.
 Si necesitas otros puertos, elige antes de la primera inicialización:
@@ -63,6 +67,10 @@ excluida de Git. Conservarla permite recuperar la instancia y sus accesos.
 Superadministración, gerencia, operador y repartidor son los recorridos iniciales
 de la interfaz. Auditor y cliente también permiten comprobar autenticación y
 permisos de API; su presencia no garantiza una interfaz completa para esos roles.
+
+La comprobación de arranque realiza un solo login para conservar intentos para
+tus pruebas. El límite normal de cinco intentos por minuto sigue activo; si lo
+alcanzas al cambiar rápidamente de cuenta, espera el tiempo indicado por la API.
 
 ## Primer recorrido recomendado
 

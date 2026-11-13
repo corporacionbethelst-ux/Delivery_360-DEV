@@ -7434,3 +7434,36 @@ rama y PR autorizada; sin merge, deploy u operaciones productivas del agente.
 
 Registro: [frontend/ENTREGA_87.md](frontend/ENTREGA_87.md).
 Contrato: [backend/BONUS_SIMULATION.md](backend/BONUS_SIMULATION.md).
+
+## Entrega 88 — Laboratorio funcional local con API y datos reales
+
+Base main `6b2c75474994631f7fccbbb47b2a2f068714baee`, entrega 87 integrada por
+el propietario y CI anterior aprobado. Rama `feat/local-functional-test-environment-v1`.
+
+Se incorpora un Compose aislado y un lanzador Python para compilar, migrar,
+preparar datos y comprobar el acceso. Genera secretos privados, seis cuentas por
+rol, una zona, un repartidor desconectado y tres órdenes pendientes. Detener y
+reiniciar conserva credenciales y datos; el inicializador no sobrescribe cambios.
+El arranque secuencial libera el inicializador antes de levantar API y frontend.
+Un solo login de comprobación deja intentos disponibles para las pruebas manuales.
+
+Una migración aditiva completa tablas de productividad, SLA y eventos webhook y
+el rol AUDITOR ausentes en una base creada desde cero. Conserva tablas existentes
+compatibles y se niega a eliminar historial al hacer downgrade. El inicializador
+registra también las relaciones ORM al ejecutarse fuera de la aplicación.
+
+El recorrido real Chromium pasa **8 comprobaciones**, incluyendo configuración,
+conflicto, simulación, móvil, permisos, creación/cancelación y persistencia tras
+reiniciar, sin respuestas de API sustituidas ni excepciones JS. Última suite
+completa backend: **2690 aprobadas, 2 omitidas**; revisión final del inicializador:
+**15 casos**. Frontend: **2818 pruebas / 124 suites**; lanzador y contratos:
+**24 casos**. Ambas imágenes compiladas, 48 páginas y tipos aprobados.
+
+CI incorpora el recorrido funcional y su reinicio como comprobación requerida.
+El laboratorio está listo para pruebas locales cuando `up` confirma salud y login.
+Correo, notificaciones externas, facturación y tracking automático desactivados
+solo en este entorno. Sin cambios al formulario original de órdenes, merge,
+despliegues ni migraciones productivas.
+
+Guía: [PRUEBAS_LOCALES.md](PRUEBAS_LOCALES.md).
+Registro: [frontend/ENTREGA_88.md](frontend/ENTREGA_88.md).

@@ -9,7 +9,7 @@ propietario mediante PR #329; su CI completo terminó aprobado. Rama:
 
 `scripts/local_test.py` configura y arranca un Compose independiente con frontend,
 API, PostgreSQL/PostGIS y Redis. Genera secretos privados fuera de Git y confirma
-interfaz, dependencias y autenticación de cinco roles antes de indicar que está
+interfaz, dependencias y autenticación SUPERADMIN antes de indicar que está
 listo. La guía [PRUEBAS_LOCALES.md](../PRUEBAS_LOCALES.md) incluye los comandos,
 accesos, recorrido inicial y solución de problemas.
 
@@ -18,6 +18,10 @@ preparar seis cuentas por rol, una zona, un repartidor desconectado y tres órde
 pendientes. Usa las migraciones oficiales y no reutiliza los seeds históricos.
 Al reiniciar conserva contraseñas, cambios y órdenes. Detener no borra volúmenes.
 El CLI rechaza daemons remotos y las redirecciones HTTP a otros orígenes.
+El arranque libera el inicializador antes de crear la API. En un reinicio retira
+solo los contenedores web/API de esta instancia antes de migrar; conserva los
+volúmenes. Realiza un único login para dejar intentos disponibles al usuario y
+mantiene el límite normal de autenticación.
 
 ## Esquema y contenedores
 
@@ -40,9 +44,23 @@ confirmar el marcador del laboratorio. Comprueba login real, cambio y restauraci
 de configuración, rechazo de una revisión obsoleta, simulación sobre la base
 migrada, diseño móvil, creación y cancelación de una orden y bloqueo de escritura
 para gerencia. No intercepta ni sustituye las respuestas de la API.
+El reinicio conserva la orden cancelada y las credenciales, sin duplicar cuentas
+ni órdenes iniciales: **8 comprobaciones reales aprobadas, cero excepciones JS**.
+
+Última suite completa local del backend: **2690 aprobadas, 2 omitidas**, con
+PostgreSQL y Redis independientes; **2818 pruebas frontend / 124 suites**.
+La revisión final del inicializador pasa **15 casos**, incluido un intérprete
+nuevo para detectar relaciones ORM sin registrar; el lanzador y los contratos
+de entrega pasan **24 casos**. Build de 48 páginas y tipos del backend aprobados.
+CI añade el laboratorio real y su reinicio a las comprobaciones requeridas antes
+de publicar imágenes. El resultado remoto se registra aparte, por commit.
 
 Los resultados concluyentes, logs, capturas y artefactos por commit se conservan
 en `/workspace/work/entrega88`.
+El host de comprobación dispone de 8 GB y usa Docker VFS. Se verificó la
+compilación de ambas imágenes y, solo en este host, se consolidaron sus capas
+manteniendo contenido y configuración para ejecutar el recorrido. No cambia los
+Dockerfiles publicados ni omite la compilación normal en CI.
 
 El laboratorio permite comenzar pruebas funcionales locales cuando `up` confirma
 que está listo. La validación de proveedores reales, pagos, carga, restauración y

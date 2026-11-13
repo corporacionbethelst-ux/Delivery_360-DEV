@@ -191,7 +191,7 @@ def api_request(base, path, method="GET", body=None, token=None, form=False):
         return response.code, json.loads(raw)
 
 
-def check(data):
+def check(data, authenticate=True):
     base = "http://localhost:" + str(data["api_port"])
     web = "http://localhost:" + str(data["web_port"]) + "/login"
     with build_opener(ProxyHandler({}), LocalRedirect()).open(
@@ -204,8 +204,9 @@ def check(data):
     status, result = api_request(base, "/health/ready")
     if status != 200 or result.get("checks") != {"database": True, "redis": True}:
         raise ValueError("API, PostgreSQL o Redis no están listos")
-    users = json.loads(ACCOUNTS.read_text())
-    for role in ("SUPERADMIN", "GERENTE", "OPERADOR", "REPARTIDOR", "AUDITOR"):
+    if authenticate:
+        users = json.loads(ACCOUNTS.read_text())
+        role = "SUPERADMIN"
         account = users[role]
         code, pair = api_request(
             base,
@@ -219,9 +220,9 @@ def check(data):
         code, profile = api_request(base, "/api/v1/auth/me", token=pair["access_token"])
         if code != 200 or profile.get("role") != role:
             raise ValueError("Identidad o rol no confirmados")
-    print(
-        "API y dependencias listas. Login e identidad confirmados para cinco roles del sistema."
-    )
+    print("Interfaz, API, PostgreSQL y Redis listos.")
+    if authenticate:
+        print("Inicio de sesión e identidad SUPERADMIN confirmados.")
     print("Abre http://localhost:" + str(data["web_port"]) + "/login")
     print("Swagger: " + base + "/docs")
 
