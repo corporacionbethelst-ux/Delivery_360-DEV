@@ -206,6 +206,9 @@ El segundo runner realiza escrituras solo tras comprobar el marcador e identidad
 del laboratorio. También corta deliberadamente una respuesta ya guardada por la
 API: el reintento debe recuperar el mismo comprobante, sin duplicarlo. Verifica
 que los libros y saldos permanezcan idénticos. No ejecuta pagos bancarios.
+Si vienes de ejecutar varios recorridos con la misma cuenta, añade
+`--wait-request-window` para respetar la cuota compartida de solicitudes; CI
+aplica esa espera antes del recorrido.
 
 ### Límites del laboratorio
 

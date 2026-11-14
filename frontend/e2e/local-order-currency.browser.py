@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -17,6 +18,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--chromium", default="/usr/bin/chromium")
     parser.add_argument("--artifacts-dir", required=True)
+    parser.add_argument(
+        "--wait-request-window",
+        action="store_true",
+        help="Respect the shared 60-second request window after preceding functional runners",
+    )
     args = parser.parse_args()
     state = local_test.configuration()
     command = local_test.compose(state, local_test.local_docker())
@@ -44,6 +50,13 @@ def main():
         sql("SELECT id FROM local_test_instance") == state["instance"]
     ), "Marked laboratory required before any write"
     local_test.check(state, authenticate=False)
+    if args.wait_request_window:
+        print(
+            "Waiting for the shared request window before the next real browser flow",
+            flush=True,
+        )
+        time.sleep(60)
+        time.sleep(1)
     users = json.loads(local_test.ACCOUNTS.read_text())
     base = "http://localhost:" + str(state["web_port"])
     api = "http://localhost:" + str(state["api_port"]) + "/api/v1"
