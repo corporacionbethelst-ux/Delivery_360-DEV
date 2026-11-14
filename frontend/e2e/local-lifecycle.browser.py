@@ -163,7 +163,11 @@ def main():
                     "delivery_address": "Destino sintético",
                     "delivery_contact": "Destinatario de pruebas",
                     "items": [
-                        {"name": "Producto de pruebas", "quantity": 1, "price": 10}
+                        {
+                            "product_name": "Producto de pruebas",
+                            "quantity": 1,
+                            "unit_price": "10.00",
+                        }
                     ],
                     "subtotal": 10,
                     "delivery_fee": 2,
