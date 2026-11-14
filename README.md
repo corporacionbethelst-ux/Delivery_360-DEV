@@ -16,6 +16,8 @@ se generan para un laboratorio independiente y se conservan al detenerlo.
 
 [Guía de pruebas, roles, recorrido y límites](PRUEBAS_LOCALES.md).
 
+[Pendientes de producción y moneda acordada](PRODUCCION_PENDIENTES.md).
+
 [Backend y contratos](backend/README.md) ·
 [Registro de entregas](Implementacion_de_mejoras_V1.md).
 

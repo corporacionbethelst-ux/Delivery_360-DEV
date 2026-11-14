@@ -7467,3 +7467,42 @@ despliegues ni migraciones productivas.
 
 Guía: [PRUEBAS_LOCALES.md](PRUEBAS_LOCALES.md).
 Registro: [frontend/ENTREGA_88.md](frontend/ENTREGA_88.md).
+
+## Entrega 89 — Ciclo real de entrega y liquidación contable
+
+Base main `497fe9c4e761ddcb2a6985893c80649dbe7580cb`, entrega 88 integrada
+por el propietario y CI anterior completo aprobado.
+
+El inicio de entrega conserva UTC compatible con PostgreSQL y actualiza orden,
+entrega y salida de recogida en una transacción. No reabre órdenes finalizadas ni
+crea asientos financieros. Se conservan coordenadas cero al avanzar/finalizar.
+Login y recuperación de sesión llevan al operador y al repartidor a sus áreas,
+con destinos locales permitidos según rol y sin cambiar el diseño de órdenes.
+
+El recorrido Chromium real verifica alta y documentos del repartidor, permisos,
+asignación y recogida/ruta/entrega desde la interfaz, cuatro éxitos, dos tipos de
+fallo, cancelación y retiros contables. Se ganan 11 unidades de prueba; una
+reserva rechazada libera saldo y una aprobación de 10 deja 1. Se rechazan
+duplicados, sobregiros y mutaciones después de cancelar. **12 comprobaciones
+reales aprobadas, sin respuestas sustituidas ni excepciones JS**. El simulador
+también se comprueba con el histórico real ya poblado.
+
+También se permite reportar un comercio cerrado desde la recogida real, sin
+simular una salida a ruta, con causa obligatoria y sin duplicar el bono.
+**21 casos nativos PostgreSQL** de avance, estados históricos incoherentes y
+fallos tempranos; **21 casos frontend nuevos** de destinos y reporte antes de
+partir. Suite frontend: **2839 pruebas / 125 suites**. Última suite completa
+backend: **2704 aprobadas, 2 omitidas**, complementada por la revisión final de
+21 casos (ocho añadidos después). Build de 48 páginas, tipos y controles estáticos
+aprobados. CI y los resultados por commit se registran en los artefactos.
+
+CI incorpora el nuevo recorrido al laboratorio obligatorio. Los documentos
+subidos quedan fuera de Git y se conservan en almacenamiento de pruebas.
+No se efectúan pagos bancarios, facturas, mensajes externos, merge ni despliegue.
+
+El siguiente bloque acordado es Venezuela, con base USD y conversión a VES
+mediante tasa diaria BCV, conservando tasas e importes históricos. No se
+reetiquetan ni convierten movimientos anteriores en esta entrega.
+
+Registro: [frontend/ENTREGA_89.md](frontend/ENTREGA_89.md).
+Alcance: [PRODUCCION_PENDIENTES.md](PRODUCCION_PENDIENTES.md).

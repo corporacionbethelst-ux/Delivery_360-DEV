@@ -10,6 +10,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/stores/authStore';
 import { authService } from '@/services/auth.service';
+import { getLoginDestination } from '@/lib/login-destination';
 import { Mail, Lock, Loader2, AlertCircle, Truck, ArrowLeft, CheckCircle } from 'lucide-react';
 
 function LoginPageContent() {
@@ -40,18 +41,14 @@ function LoginPageContent() {
           const isProtected = ['/manager', '/operator', '/rider'].some(p => currentPath.startsWith(p));
           
           if (!isProtected) {
-            let target = '/manager';
-            if (role === 'OPERADOR') target = '/operator';
-            else if (role === 'REPARTIDOR') target = '/rider';
-            
-            router.replace(target);
+            router.replace(getLoginDestination(role, searchParams.get('callbackUrl')));
           }
         } catch (e) {
           console.error('Error parsing user on mount redirect', e);
         }
       }
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAuthenticated, isLoading, router, searchParams]);
 
   const validateForm = () => {
     const errors: { email?: string; password?: string } = {};
@@ -76,16 +73,12 @@ function LoginPageContent() {
     if (!validateForm()) return;
     
     try {
-      console.log('🔐 Iniciando proceso de login...');
-      
       // 1. LIMPIAR URL: Eliminar ?callbackUrl=... para evitar bucles
       window.history.replaceState({}, document.title, '/login');
       
       // 2. Ejecutar login (esto guarda tokens y cookies en authStore)
       await storeLogin({ email: formData.email, password: formData.password });
       
-      console.log('✅ Login completado en el store.');
-
       // 3. LECTURA MANUAL DE LOCALSTORAGE
       const userStr = localStorage.getItem('user');
       if (!userStr) {
@@ -95,20 +88,8 @@ function LoginPageContent() {
 
       const user = JSON.parse(userStr);
       const role = user.role;
-      console.log('👤 Usuario:', user.email, '| Rol:', role);
-
       // 4. DETERMINAR DESTINO
-      let targetPath = searchParams.get('callbackUrl') || '/manager';
-      const validPaths = ['/manager', '/operator', '/rider'];
-      
-      if (!validPaths.includes(targetPath)) {
-        if (role === 'SUPERADMIN' || role === 'GERENTE') targetPath = '/manager';
-        else if (role === 'OPERADOR') targetPath = '/operator';
-        else if (role === 'REPARTIDOR') targetPath = '/rider';
-        else targetPath = '/manager';
-      }
-
-      console.log('➡️ Redirigiendo a:', targetPath);
+      const targetPath = getLoginDestination(role, searchParams.get('callbackUrl'));
 
       // 5. REDIRECCIÓN FORZADA (Hard Redirect)
       // Usamos window.location.href en lugar de router.push para forzar una recarga completa.

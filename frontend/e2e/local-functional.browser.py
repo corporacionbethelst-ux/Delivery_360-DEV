@@ -129,13 +129,22 @@ def main():
         expect(fee).to_have_value(str(original).removesuffix(".0"))
         page.get_by_role("textbox", name="Bono propuesto", exact=True).fill("0")
         page.get_by_role("textbox", name=re.compile("^Días de histórico")).fill("7")
-        page.get_by_role("button", name="Simular impacto", exact=True).click()
+        with page.expect_response(
+            lambda response: response.url.endswith("/settings/simulate-bonus")
+            and response.request.method == "POST"
+        ) as calculation:
+            page.get_by_role("button", name="Simular impacto", exact=True).click()
+        assert calculation.value.status == 200
+        sample = calculation.value.json()
         region = page.get_by_role("region", name="Resultado confirmado de simulación")
         expect(region).to_be_visible(timeout=20000)
         expect(region).to_contain_text("Período histórico consultado")
-        expect(region).to_contain_text("Sin entregas bonificadas en el período")
+        if sample["completed_deliveries"] + sample["failed_bonus_deliveries"] == 0:
+            expect(region).to_contain_text("Sin entregas bonificadas en el período")
+        else:
+            expect(region).not_to_contain_text("Sin entregas bonificadas en el período")
         passed(
-            "real simulation reads the migrated DB and identifies the empty historical sample"
+            "real simulation displays the actual historical sample, including previously completed lab orders"
         )
         page.set_viewport_size({"width": 390, "height": 844})
         region.scroll_into_view_if_needed()

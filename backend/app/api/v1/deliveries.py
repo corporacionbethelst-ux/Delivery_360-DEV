@@ -663,13 +663,29 @@ async def start_delivery(
             detail=f"Estado inválido para iniciar: {optional_enum_value(delivery.status)}",
         )
 
+    # A mismatched historical delivery must never reopen a finished order.
+    order = await db.get(Order, delivery.order_id)
+    if order is None or order.status not in (
+        OrderStatus.ASIGNADO,
+        OrderStatus.RECOLECTADO,
+        OrderStatus.EN_RUTA,
+    ):
+        raise HTTPException(
+            status_code=409, detail="El estado de orden y entrega requiere revisión"
+        )
+
     if body.lat is not None:
         delivery.current_latitude = body.lat
     if body.lng is not None:
         delivery.current_longitude = body.lng
 
+    # Persist UTC without tzinfo, matching the PostgreSQL timestamp columns.
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     delivery.status = DeliveryStatus.EN_ROUTE
-    delivery.started_at = delivery.started_at or datetime.now(timezone.utc)
+    delivery.started_at = delivery.started_at or now
+    delivery.left_pickup_at = delivery.left_pickup_at or now
+    # lock_delivery_transition already holds the parent Order lock.
+    order.status = OrderStatus.EN_RUTA
 
     await db.commit()
 
@@ -946,8 +962,12 @@ async def update_delivery_status(
 
     # 4. Validar transiciones permitidas
     allowed_transitions = {
-        DeliveryStatus.INICIADA: [DeliveryStatus.EN_PICKUP, DeliveryStatus.EN_ROUTE],
-        DeliveryStatus.EN_PICKUP: [DeliveryStatus.EN_ROUTE],
+        DeliveryStatus.INICIADA: [
+            DeliveryStatus.EN_PICKUP,
+            DeliveryStatus.EN_ROUTE,
+            DeliveryStatus.FALLIDA,
+        ],
+        DeliveryStatus.EN_PICKUP: [DeliveryStatus.EN_ROUTE, DeliveryStatus.FALLIDA],
         DeliveryStatus.EN_ROUTE: [
             DeliveryStatus.EN_DESTINO,
             DeliveryStatus.COMPLETADA,
@@ -986,7 +1006,7 @@ async def update_delivery_status(
     elif new_status == DeliveryStatus.EN_ROUTE:
         delivery.status = DeliveryStatus.EN_ROUTE
         delivery.left_pickup_at = now
-        if body.lat and body.lng:
+        if body.lat is not None and body.lng is not None:
             delivery.current_latitude = body.lat
             delivery.current_longitude = body.lng
 
@@ -1017,7 +1037,7 @@ async def update_delivery_status(
         delivery.completed_at = now
         delivery.proof_notes = body.notes
         delivery.customer_name_received = body.customer_name_received
-        if body.lat and body.lng:
+        if body.lat is not None and body.lng is not None:
             delivery.current_latitude = body.lat
             delivery.current_longitude = body.lng
 
