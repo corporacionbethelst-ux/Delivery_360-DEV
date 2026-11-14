@@ -111,6 +111,63 @@ concurrencia y revocación durante una espera de bloqueo. El runner
 conflicto 412, borrador, rechazo de total alterado y diseño móvil contra API real.
 Exige el marcador del laboratorio antes de escribir y usa cuentas sintéticas.
 
+## Cotización ligada a la orden — entrega 93
+
+El detalle de una orden incorpora una tarjeta USD/Bolívares con revisión previa,
+importe exacto y referencia BCV del día de Caracas. El operador no escribe otro
+importe: el servidor obtiene el total del paquete exacto de la orden y conserva
+su revisión, artículos, subtotales y referencia externa junto con la tasa aplicada.
+El equivalente VES se calcula con Decimal/HALF_UP en el servidor y centavos enteros
+en el navegador. Cero conserva su significado. La tarjeta mantiene los colores y
+la estructura del detalle; las acciones de asignación conservan su posición.
+
+Nuevos endpoints (los de cotización independiente permanecen iguales):
+
+- `GET /api/v1/currency/orders/{order_id}/quotes`: precio actual, referencia
+  actual y últimos diez comprobantes visibles, con `has_more`.
+- `POST /api/v1/currency/orders/{order_id}/quotes`: acepta exclusivamente
+  `request_key` UUID, `rate_id` UUID y `expected_pricing_revision` entero positivo.
+  No admite un importe, moneda ni snapshot proporcionados por el cliente.
+- `GET /api/v1/currency/order-quotes/{quote_id}`: recupera un comprobante
+  conservado. El enlace del detalle usa `?bcv_quote=UUID` y permite recargarlo
+  incluso cuando ya no está entre los diez documentos recientes.
+
+La respuesta declara `scope: order_quotation_only`, `quotation_only: true` y
+`payment_confirmed: false`. Guardar una cotización no registra un cobro, reserva,
+retiro, factura o transferencia. El precio de la orden sigue en USD. La nueva
+tabla `order_currency_quotes` guarda el precio completo como cadenas, importes
+NUMERIC, tasa enlazada, cuenta responsable, fecha UTC y clave de solicitud.
+
+Solo se crea un comprobante con un precio exacto USD y una orden cuyo estado
+no sea cancelado o fallido. Los precios históricos sin paquete exacto o moneda
+verificada requieren revisión previa; no se convierten en esta operación.
+Un precio o referencia desactualizados causan 412; falta de tasa actual, cambio
+de día o una orden no apta causan 409. Orden, usuario y referencia del día se
+coordinan mediante bloqueos. Se vuelven a comprobar sesión y rol después de
+esperar por la orden. El comprobante y su auditoría se confirman juntos.
+
+Repetir la misma clave, cuenta, orden, tasa y revisión recupera el mismo documento,
+incluso después de cambios de precio, tasa, estado o día. Reutilizarla con otro
+contenido o cuenta da 409. El navegador conserva la solicitud tras un resultado
+ambiguo y permite reintentar o cerrar la revisión sin descartar esa recuperación.
+Un rechazo definitivo exige volver a revisar los valores actuales.
+
+La consulta muestra el precio actual separado del documento histórico y avisa
+cuando sus revisiones difieren. La corrección de la tasa o del precio no recalcula
+los comprobantes anteriores. Superadministrador, gerente y operador pueden crear;
+auditor solo consulta. Cada operador consulta únicamente sus propios comprobantes;
+gerente, superadministrador y auditor pueden consultarlos para su función.
+
+La migración `20261114_order_bcv_quotes` crea una tabla nueva sin UPDATE del
+historial. Sus triggers verifican el snapshot contra el precio bloqueado, tasa
+vigente, día y conversión, y rechazan UPDATE, DELETE y TRUNCATE. Las claves
+foráneas conservan orden, referencia y responsable. El downgrade se niega si ya
+existen comprobantes. La migración se prueba y aplica únicamente al laboratorio.
+
+Continúan pendientes el registro de cobros efectivamente verificados, abonos
+parciales/devoluciones y conciliación con el proveedor/banco seleccionado. No se
+habilita una liquidación VES ni fiscalidad venezolana por guardar este documento.
+
 ## Uso
 
 En el menú **USD / Bolívares**, gerencia y superadministración registran una

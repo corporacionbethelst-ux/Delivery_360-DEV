@@ -12,6 +12,7 @@ import { ArrowLeft, UserCheck, AlertCircle, Wand2, MapPin, CheckCircle2, Package
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { payoutAmountLabel } from '@/lib/payout-contract';
+import { OrderCurrencyQuotePanel } from '@/components/orders/OrderCurrencyQuotePanel';
 
 interface RiderSimple {
   id: string;
@@ -523,6 +524,7 @@ export default function OrderDetailManagerPage() {
                 </div>
               </CardContent>
             </Card>
+            <OrderCurrencyQuotePanel orderId={order.id} />
           </div>
         </div>
       </div>

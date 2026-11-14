@@ -15,11 +15,11 @@ Utiliza la rama de esta entrega mientras el PR no esté integrado a main:
 
 ```bash
 git fetch origin
-git switch feat/explicit-usd-ledger-v1
+git switch feat/order-bcv-receipts-v1
 ```
 
 Si solo existe la rama remota, utiliza
-`git switch --track origin/feat/explicit-usd-ledger-v1`.
+`git switch --track origin/feat/order-bcv-receipts-v1`.
 Conserva tus cambios locales antes de cambiar de rama. Después de integrar el
 PR, puedes usar main actualizado con `git pull --ff-only`.
 
@@ -178,6 +178,34 @@ Las nuevas órdenes mantienen el formulario colorido y los precios indicados en 
 Los reportes suman operaciones con unidad identificada; las cotizaciones BCV siguen
 sin confirmar pagos. La migración se niega a revertirse si perdería evidencia de
 moneda nueva. Conservar un saldo anterior requiere revisión, no cambiar etiquetas.
+
+### Precios y comprobantes BCV de las entregas 92–93
+
+La entrega 93 continúa desde main, que ya incluye los precios exactos de la
+entrega 92. Utiliza la rama indicada arriba mientras su PR siga abierto; no es
+necesario fusionar ramas manualmente para este laboratorio.
+
+Crea una orden con cantidad 3, precio 0.10 y envío 0.20: el total debe ser 0.50 USD.
+Una edición simultánea en otra pestaña debe recibir 412 y conservar el borrador.
+En el detalle, abre **USD y bolívares de esta orden** y revisa la cotización antes
+de guardar. Necesita una referencia BCV de hoy: usa solo referencias claramente
+sintéticas en el laboratorio, nunca una tasa de prueba como dato productivo.
+
+Con una referencia sintética de 1.50 Bs./USD, el comprobante debe conservar
+0.50 USD y 0.75 VES. Cancela la revisión una vez para confirmar que no se guarda.
+Después guarda, conserva su enlace y recarga. Corrige la tasa y el precio de la
+orden: el documento anterior debe mantener sus importes y mostrar su revisión.
+Una carrera durante la revisión exige actualizar antes de guardar otro documento.
+
+```bash
+python frontend/e2e/local-order-pricing.browser.py --artifacts-dir /tmp/delivery360-pricing
+python frontend/e2e/local-order-currency.browser.py --artifacts-dir /tmp/delivery360-order-currency
+```
+
+El segundo runner realiza escrituras solo tras comprobar el marcador e identidad
+del laboratorio. También corta deliberadamente una respuesta ya guardada por la
+API: el reintento debe recuperar el mismo comprobante, sin duplicarlo. Verifica
+que los libros y saldos permanezcan idénticos. No ejecuta pagos bancarios.
 
 ### Límites del laboratorio
 
