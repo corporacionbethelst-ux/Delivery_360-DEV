@@ -211,7 +211,7 @@ export function validateCollection(
       v.note.trim() !== v.note ||
       v.note.length < 10 ||
       v.note.length > 500 ||
-      /[\x00-\x1f]/.test(v.note) ||
+      /[\x00-\x1f\x7f]/.test(v.note) ||
       Date.parse(timestamp(v.reviewed_at)) < Date.parse(created)
     )
       return invalid();

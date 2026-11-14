@@ -94,7 +94,7 @@ class ReviewInput(BaseModel):
     @classmethod
     def visible_note(cls, value):
         value = value.strip()
-        if len(value) < 10 or any(ord(char) < 32 for char in value):
+        if len(value) < 10 or any(ord(char) < 32 or ord(char) == 127 for char in value):
             raise ValueError(
                 "Describe la comprobación o el rechazo sin caracteres de control"
             )

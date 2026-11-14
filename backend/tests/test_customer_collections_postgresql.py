@@ -486,3 +486,24 @@ async def test_raw_sql_cannot_forge_snapshot_credit_reference_or_self_review(
     call(f, "GET", "/" + row["id"], role="OTHER", status=403)
     assert call(f, "GET", "/" + row["id"], role="AUDITOR") == row
     assert call(f, "GET", path(f))["collection_revision"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"note": "Invisible control \x7f character"},
+        {"note": "Invisible control \x00 character"},
+        {"verified_evidence": 1},
+        {"verified_evidence": False},
+        {"decision": "RECHAZADO", "verified_evidence": True},
+    ],
+)
+async def test_review_rejects_invalid_evidence_and_control_characters_before_writing(
+    collection_db, change
+):
+    f = collection_db
+    row = call(f, "POST", path(f), declaration(f), status=201)
+    review(f, row, decision(**change), status=422)
+    ctx = call(f, "GET", path(f))
+    assert ctx["collection_revision"] == 1 and ctx["summary"]["review_count"] == 0

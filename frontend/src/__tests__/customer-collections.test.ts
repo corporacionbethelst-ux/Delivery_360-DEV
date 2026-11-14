@@ -67,10 +67,14 @@ it.each([
   { received_on: "2026-02-30" },
   { review: { ...reviewed.review, reviewed_by: collection.declared_by } },
   { review: { ...reviewed.review, verified_evidence: false } },
+  { review: { ...reviewed.review, note: "Invisible control \x7f character" } },
   { review: { ...reviewed.review, reviewed_at: "2026-11-14T16:00:00Z" } },
 ])("rejects forged receipt %j", (change) =>
   expect(() =>
-    validateCollection({ ...collection, ...change }, orderId),
+    validateCollection(
+      { ...("review" in change ? reviewed : collection), ...change },
+      orderId,
+    ),
   ).toThrow(),
 );
 it.each([

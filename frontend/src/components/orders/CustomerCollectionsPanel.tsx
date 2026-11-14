@@ -211,7 +211,7 @@ function Panel({
     if (!entry || !context || disabled) return;
     setError(null);
     const clean = note.trim();
-    if (clean.length < 10 || /[\x00-\x1f]/.test(clean)) {
+    if (clean.length < 10 || /[\x00-\x1f\x7f]/.test(clean)) {
       setError(
         "Describe la comprobación o el rechazo con al menos 10 caracteres.",
       );
