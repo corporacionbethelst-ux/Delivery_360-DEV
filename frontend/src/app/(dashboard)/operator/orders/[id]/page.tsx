@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, MapPin, Phone, Clock, User, Package, AlertTriangle, Loader2, CreditCard, Bike } from 'lucide-react';
-import { formatCurrency } from '@/lib/formatters';
+import { payoutAmountLabel } from '@/lib/payout-contract';
 
 const ACTIVE_STATUSES = ['PENDIENTE', 'CONFIRMADA', 'EN_PREPARACION', 'LISTA_PARA_DESPACHO', 'ASIGNADA', 'EN_CAMINO', 'ENTREGADO'];
 
@@ -174,7 +174,7 @@ export default function OperatorOrderDetailPage() {
                           <tr key={idx} className="hover:bg-gray-50">
                             <td className="px-4 py-2">{item.name || 'Producto sin nombre'}</td>
                             <td className="px-4 py-2 text-right">{item.quantity}</td>
-                            <td className="px-4 py-2 text-right">{formatCurrency(item.price || item.total || 0)}</td>
+                            <td className="px-4 py-2 text-right">{payoutAmountLabel(item.price ?? item.total, order.currency ?? undefined)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -192,15 +192,15 @@ export default function OperatorOrderDetailPage() {
               <CardContent className="space-y-4">
                 <div className="flex justify-between">
                   <span className="text-gray-500">Subtotal</span>
-                  <span className="font-medium">{formatCurrency(totalAmount * 0.85)}</span>
+                  <span className="font-medium">{payoutAmountLabel(order.subtotal, order.currency ?? undefined)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Impuestos</span>
-                  <span className="font-medium">{formatCurrency(totalAmount * 0.15)}</span>
+                  <span className="text-gray-500">Envío informado</span>
+                  <span className="font-medium">{payoutAmountLabel(order.delivery_fee, order.currency ?? undefined)}</span>
                 </div>
                 <div className="flex justify-between pt-4 border-t">
                   <span className="font-bold text-lg">Total</span>
-                  <span className="font-bold text-lg text-blue-600">{formatCurrency(totalAmount)}</span>
+                  <span className="font-bold text-lg text-blue-600">{payoutAmountLabel(totalAmount, order.currency ?? undefined)}</span>
                 </div>
               </CardContent>
             </Card>

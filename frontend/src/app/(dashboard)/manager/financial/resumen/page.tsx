@@ -65,6 +65,7 @@ function FinancialSummaryView() {
   const date = (value: string) => new Intl.DateTimeFormat('es-VE', { dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(value));
 
   return <div className="p-4 md:p-6 bg-gray-50 min-h-screen">
+      {(data?.currency === "USD") && <p role="note" className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-950">Los nuevos reportes USD incluyen solo operaciones con moneda identificada. El historial sin moneda se conserva para revisión en Transacciones y Pagos.</p>}
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 max-w-full">

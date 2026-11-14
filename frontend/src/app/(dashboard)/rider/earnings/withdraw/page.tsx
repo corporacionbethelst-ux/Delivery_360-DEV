@@ -130,7 +130,7 @@ function SessionWithdrawPage() {
     setError(null);
     
     const numAmount = parseFloat(amount);
-    const available = balance?.available;
+    const available = balance?.currency === "USD" ? balance.available : undefined;
 
     if (isNaN(numAmount) || numAmount <= 0) { setError('Ingresa un monto válido.'); return; }
     if (!unconfirmed && available === undefined) { setError('Consulta el saldo disponible antes de crear un retiro.'); return; }
@@ -219,7 +219,7 @@ function SessionWithdrawPage() {
     );
   }
 
-  const available = balance?.available;
+  const available = balance?.currency === "USD" ? balance.available : undefined;
   const canWithdraw = unconfirmed ? requestIntent.current !== null : available !== undefined && available >= 10;
 
   return (

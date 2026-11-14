@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, func, case, cast, String, or_, and_
-from typing import Optional
+from typing import Optional, Literal
 from decimal import Decimal
 import asyncio
 import uuid
@@ -45,6 +45,7 @@ def _order_earning_amount_expr():
 
 
 class PayoutRequestBody(BaseModel):
+    currency: Literal["USD"] = "USD"
     amount: Decimal = Field(
         ..., gt=0, le=Decimal("99999999.99"), max_digits=10, decimal_places=2
     )
@@ -105,6 +106,7 @@ def _serialize_payout(payout: Payout):
     return {
         "id": str(payout.id),
         "rider_id": str(payout.rider_id),
+        "currency": getattr(payout, "currency_code", None),
         "amount": amount,
         "total_amount": amount,
         "status": _enum_value(payout.status),
@@ -117,8 +119,16 @@ def _serialize_payout(payout: Payout):
         "bank_account_last4": payout.bank_account_last4,
         "reference_code": payout.reference_code,
         "rejection_reason": payout.rejection_reason,
-        "balance_before": _float_money(payout.balance_before),
-        "balance_after": _float_money(payout.balance_after),
+        "balance_before": (
+            _float_money(payout.balance_before)
+            if payout.balance_before is not None
+            else None
+        ),
+        "balance_after": (
+            _float_money(payout.balance_after)
+            if payout.balance_after is not None
+            else None
+        ),
         "requested_by_user_id": (
             str(payout.requested_by_user_id) if payout.requested_by_user_id else None
         ),
@@ -137,14 +147,19 @@ def _serialize_status_history(row: PayoutStatusHistory):
     return {
         "id": str(row.id),
         "payout_id": str(row.payout_id),
+        "currency": getattr(row, "currency_code", None),
         "old_status": row.old_status,
         "new_status": row.new_status,
         "reason": row.reason,
         "changed_by_user_id": (
             str(row.changed_by_user_id) if row.changed_by_user_id else None
         ),
-        "balance_before": _float_money(row.balance_before),
-        "balance_after": _float_money(row.balance_after),
+        "balance_before": (
+            _float_money(row.balance_before) if row.balance_before is not None else None
+        ),
+        "balance_after": (
+            _float_money(row.balance_after) if row.balance_after is not None else None
+        ),
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
 
@@ -186,6 +201,7 @@ async def _calculate_available_balance(
     )
     statement = select(Payout.status, Payout.amount, posted.label("posted")).where(
         Payout.rider_id == rider_uuid,
+        Payout.currency_code == "USD",
         or_(
             Payout.status.is_(None),
             Payout.status.in_(
@@ -221,7 +237,7 @@ async def _calculate_available_balance(
         "pending": _float_money(pending),
         "processed": _float_money(processed),
         "total_earned": _float_money(total_earned),
-        "currency": "COP",
+        "currency": "USD",
         "ledger_balance": _float_money(ledger_balance),
         "reserved": _float_money(reserved),
     }
@@ -286,12 +302,15 @@ def _add_status_history(
     db.add(
         PayoutStatusHistory(
             payout_id=payout.id,
+            currency_code=payout.currency_code,
             old_status=_enum_value(old_status) if old_status else None,
             new_status=_enum_value(new_status),
             reason=reason,
             changed_by_user_id=user.id,
-            balance_before=_money(balance_before),
-            balance_after=_money(balance_after),
+            balance_before=(
+                _money(balance_before) if balance_before is not None else None
+            ),
+            balance_after=_money(balance_after) if balance_after is not None else None,
         )
     )
 
@@ -410,7 +429,30 @@ async def get_available_balance(
         raise HTTPException(status_code=403, detail="Acceso denegado")
 
     try:
-        return await _calculate_available_balance(db, target_rider_id)
+        balance = await _calculate_available_balance(db, target_rider_id)
+        unknown = (
+            await db.execute(
+                select(
+                    select(func.count(Financial.id))
+                    .where(
+                        Financial.rider_id == target_rider_id,
+                        Financial.currency_code.is_(None),
+                    )
+                    .scalar_subquery(),
+                    select(func.count(Payout.id))
+                    .where(
+                        Payout.rider_id == target_rider_id,
+                        Payout.currency_code.is_(None),
+                    )
+                    .scalar_subquery(),
+                )
+            )
+        ).one()
+        return {
+            **balance,
+            "unverified_financial_count": int(unknown[0]),
+            "unverified_payout_count": int(unknown[1]),
+        }
     except Exception:
         logger.exception(
             "No se pudo calcular el saldo disponible para rider %s", target_rider_id
@@ -423,7 +465,7 @@ async def get_available_balance(
             "pending": 0.0,
             "processed": 0.0,
             "total_earned": 0.0,
-            "currency": "COP",
+            "currency": "USD",
             "degraded": True,
             "detail": "No se pudo calcular el saldo disponible temporalmente",
         }
@@ -513,6 +555,7 @@ async def request_payout(
         )
     payout = Payout(
         rider_id=rider_id,
+        currency_code="USD",
         amount=requested_amount,
         method=body.method,
         bank_account_last4=body.bank_account_last4,
@@ -638,6 +681,11 @@ async def approve_payout(
         raise HTTPException(status_code=404, detail="Retiro no encontrado")
 
     await _lock_payout_rider(db, str(payout.rider_id))
+
+    if payout.currency_code != "USD":
+        raise HTTPException(
+            409, "La moneda del retiro histórico requiere revisión; no se debitó USD"
+        )
 
     if payout.status != PayoutStatus.PENDIENTE:
         raise HTTPException(
@@ -777,12 +825,14 @@ async def reject_payout(
             status_code=400, detail="Solo se pueden rechazar retiros pendientes"
         )
 
-    balance_before_data = await _calculate_available_balance(db, payout.rider_id)
-    balance_before = _money(balance_before_data["available"])
-    released = await _calculate_available_balance(
-        db, payout.rider_id, exclude_payout_id=payout.id
-    )
-    balance_after = _money(released["available"])
+    balance_before = balance_after = None
+    if payout.currency_code == "USD":
+        balance_before_data = await _calculate_available_balance(db, payout.rider_id)
+        balance_before = _money(balance_before_data["available"])
+        released = await _calculate_available_balance(
+            db, payout.rider_id, exclude_payout_id=payout.id
+        )
+        balance_after = _money(released["available"])
     old_status = payout.status
 
     payout.status = PayoutStatus.RECHAZADO
@@ -790,8 +840,9 @@ async def reject_payout(
     payout.processed_at = utc_now_naive()
     payout.updated_at = payout.processed_at
     payout.processed_by_user_id = current_user.id
-    payout.balance_before = balance_before
-    payout.balance_after = balance_after
+    if payout.currency_code == "USD":
+        payout.balance_before = balance_before
+        payout.balance_after = balance_after
 
     _add_status_history(
         db,

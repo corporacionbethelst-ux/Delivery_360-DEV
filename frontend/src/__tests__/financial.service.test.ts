@@ -24,14 +24,14 @@ it('keeps the real summary response and date filters', async () => {
   expect(get).toHaveBeenCalledWith('/financial/summary?period=month&start_date=2026-10-01&end_date=2026-10-24');
 });
 it('distinguishes personal earnings from filtered administrative earnings', async () => {
-  get.mockResolvedValueOnce({ rider_id: 'me' }).mockResolvedValueOnce([]);
-  expect(await financialService.getMyEarnings()).toEqual({ rider_id: 'me' });
+  get.mockResolvedValueOnce({ rider_id: 'me', rider_name: 'Test Rider', currency: 'USD', total_earned: 0, pending_payout: 0, completed_deliveries: 0 }).mockResolvedValueOnce([]);
+  expect(await financialService.getMyEarnings()).toEqual({ rider_id: 'me', rider_name: 'Test Rider', currency: 'USD', total_earned: 0, pending_payout: 0, completed_deliveries: 0 });
   await financialService.getRiderEarnings('rider 1');
   expect(get).toHaveBeenNthCalledWith(1, '/financial/riders/me');
   expect(get).toHaveBeenNthCalledWith(2, '/financial/riders?rider_id=rider%201');
 });
 it('bounds breakdown and order report pagination', async () => {
-  get.mockResolvedValue({ items: [] });
+  get.mockResolvedValue({ rider_id: 'me', items: [] });
   await financialService.getMyEarningsBreakdown({ type: 'INGRESO', date_from: '2026-10-01', date_to: '2026-10-24', limit: NaN, offset: -1 });
   expect(get).toHaveBeenLastCalledWith('/financial/riders/me/earnings?type=INGRESO&date_from=2026-10-01&date_to=2026-10-24&limit=100');
   get.mockResolvedValue(ordersResponse({}, emptyOrders));

@@ -122,7 +122,7 @@ async def test_calculate_available_balance_reserves_pending_and_processed_payout
         "pending": 25.0,
         "processed": 40.0,
         "total_earned": 100.0,
-        "currency": "COP",
+        "currency": "USD",
         "ledger_balance": 100.0,
         "reserved": 65.0,
     }

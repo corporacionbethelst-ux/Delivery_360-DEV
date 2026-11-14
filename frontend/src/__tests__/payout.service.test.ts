@@ -6,7 +6,7 @@ jest.mock('@/lib/api', () => ({ api: { get: jest.fn(), post: jest.fn(), patch: j
 const get = jest.mocked(api.get);
 const post = jest.mocked(api.post);
 const patch = jest.mocked(api.patch);
-const row = { id: 'payout-1', rider_id: 'rider-1', amount: 12.5, status: 'PENDIENTE', method: 'TRANSFERENCIA', created_at: '2026-10-24T10:00:00' };
+const row = { currency: 'USD', id: 'payout-1', rider_id: 'rider-1', amount: 12.5, status: 'PENDIENTE', method: 'TRANSFERENCIA', created_at: '2026-10-24T10:00:00' };
 beforeEach(() => {
   clearStoredTokens(); storeTokens({ access_token: 'payout-a', refresh_token: 'refresh-a' });
   jest.resetAllMocks();

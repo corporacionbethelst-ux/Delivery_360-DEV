@@ -79,6 +79,16 @@ CURRENCY_PATHS = {
 
 def before_currency_schema(application):
     schema = deepcopy(application.openapi())
+    unit = schema["components"]["schemas"]["PayoutRequestBody"]["properties"].pop(
+        "currency"
+    )
+    assert unit == {
+        "const": "USD",
+        "enum": ["USD"],
+        "type": "string",
+        "title": "Currency",
+        "default": "USD",
+    }
     found = {key for key in schema["paths"] if key.startswith("/api/v1/currency/")}
     assert found == CURRENCY_PATHS
     for key in found:

@@ -97,3 +97,28 @@ def cancellation_contract(expected):
         ]
         labels.append("CANCELADA")
     return result
+
+
+def declared_usd_contract(expected):
+    """Permit only the five nullable unit columns of migration 20261114_explicit_usd."""
+    from copy import deepcopy
+
+    result = deepcopy(expected)
+    changes = (
+        ("financials", "currency_code", "USD", "\n\tid UUID"),
+        ("riders", "wallet_currency", "USD", "\n\tid UUID"),
+        ("orders", "currency_code", "USD", "\n\tsubtotal FLOAT"),
+        ("payouts", "currency_code", "USD", "\n\tamount NUMERIC"),
+        ("payout_status_history", "currency_code", None, "\n\tid UUID"),
+    )
+    for table, column, default, anchor in changes:
+        if table not in result:
+            continue
+        data = result[table]
+        assert data["ddl"].count(anchor) == 1
+        assert column not in data["defaults"]
+        data["ddl"] = data["ddl"].replace(
+            anchor, "\n\t" + column + " VARCHAR(3), " + anchor, 1
+        )
+        data["defaults"][column] = [default, None]
+    return result

@@ -5,7 +5,7 @@ import { clearStoredTokens, storeTokens, SessionChangedError } from '@/lib/auth-
 import type { WithdrawalIntent } from '@/lib/withdrawal-intent';
 
 jest.mock('@/lib/api', () => ({ api: { get: jest.fn(), post: jest.fn(), patch: jest.fn() } }));
-const row = { id: 'p', rider_id: 'r', amount: 60, total_amount: 60, status: 'PENDIENTE', method: 'TRANSFERENCIA', payment_method: 'TRANSFERENCIA', idempotency_key: 'key', requested_by_user_id: 'user', bank_account_last4: '1234' };
+const row = { currency: 'USD', id: 'p', rider_id: 'r', amount: 60, total_amount: 60, status: 'PENDIENTE', method: 'TRANSFERENCIA', payment_method: 'TRANSFERENCIA', idempotency_key: 'key', requested_by_user_id: 'user', bank_account_last4: '1234' };
 const request: PayoutRequestInput = { amount: 60, method: 'TRANSFERENCIA', idempotency_key: 'key', bank_account_last4: '1234' };
 const intent: WithdrawalIntent = { version: 1, userId: 'user', key: 'key', amountCents: 6000, bankLast4: '1234' };
 beforeEach(() => { jest.resetAllMocks(); clearStoredTokens(); storeTokens({ access_token: 'a', refresh_token: 'ra' }); });

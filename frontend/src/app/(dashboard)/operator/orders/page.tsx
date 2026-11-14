@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { formatCurrency } from '@/lib/formatters';
+import { payoutAmountLabel } from '@/lib/payout-contract';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 // Definición explícita de roles permitidos para este dashboard
@@ -302,7 +302,7 @@ function SessionOrdersPage() {
                         {order.customer_name || order.customer?.first_name || 'N/A'}
                       </td>
                       <td className="px-6 py-4 text-right font-bold text-gray-900">
-                        {order.total !== undefined && order.total !== null ? formatCurrency(order.total) : order.total_amount !== undefined && order.total_amount !== null ? formatCurrency(order.total_amount) : 'No informado'}
+                        {order.total !== undefined && order.total !== null ? payoutAmountLabel(order.total, order.currency ?? undefined) : order.total_amount !== undefined && order.total_amount !== null ? payoutAmountLabel(order.total_amount, order.currency ?? undefined) : 'No informado'}
                       </td>
                       <td className="px-6 py-4 text-gray-500 text-xs">
                         {order.created_at ? new Date(order.created_at).toLocaleString() : '-'}

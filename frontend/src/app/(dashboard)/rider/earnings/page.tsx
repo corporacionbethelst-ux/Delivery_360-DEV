@@ -1,61 +1,77 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore';
-import { 
-  DollarSign, 
-  TrendingUp, 
-  Clock, 
-  CheckCircle, 
+import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/stores/authStore";
+import {
+  DollarSign,
+  TrendingUp,
+  Clock,
+  CheckCircle,
   ShieldCheck,
-  AlertCircle, 
-  ArrowRight, 
-  Download, 
-  Loader2, 
+  AlertCircle,
+  ArrowRight,
+  Download,
+  Loader2,
   Wallet,
-  BarChart3
-} from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { formatCurrency } from '@/lib/formatters';
-import { financialService, RiderEarnings, FinancialTransaction } from '@/services/financial.service';
-import { payoutService, PayoutBalance } from '@/services/payout.service';
+  BarChart3,
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { payoutAmountLabel } from "@/lib/payout-contract";
+import { PayoutSessionBoundary } from "@/components/financial/PayoutSessionBoundary";
+const formatCurrency = (value: number) => payoutAmountLabel(value, "USD");
+import {
+  financialService,
+  RiderEarnings,
+  FinancialTransaction,
+} from "@/services/financial.service";
+import { payoutService, PayoutBalance } from "@/services/payout.service";
 
 // Importaciones directas de Recharts para asegurar el renderizado
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  Legend, 
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
   ResponsiveContainer,
-  Cell
-} from 'recharts';
+  Cell,
+} from "recharts";
 
 const MIN_WITHDRAWAL_AMOUNT = 10;
 
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof Error && error.message) return error.message;
-  if (typeof error === 'object' && error !== null && 'detail' in error) {
+  if (typeof error === "object" && error !== null && "detail" in error) {
     const detail = (error as { detail?: unknown }).detail;
-    if (typeof detail === 'string') return detail;
+    if (typeof detail === "string") return detail;
   }
   return fallback;
 };
 
 export default function RiderEarningsPage() {
+  return (
+    <PayoutSessionBoundary>
+      <RiderUsdEarnings />
+    </PayoutSessionBoundary>
+  );
+}
+function RiderUsdEarnings() {
   const router = useRouter();
   const { user, isAuthenticated } = useAuthStore();
 
   const [earnings, setEarnings] = useState<RiderEarnings | null>(null);
   const [balance, setBalance] = useState<PayoutBalance | null>(null);
-  const [recentMovements, setRecentMovements] = useState<FinancialTransaction[]>([]);
+  const [recentMovements, setRecentMovements] = useState<
+    FinancialTransaction[]
+  >([]);
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
@@ -65,54 +81,69 @@ export default function RiderEarningsPage() {
   useEffect(() => {
     if (!isMounted || !isAuthenticated || !user) return;
 
-    if (user.role !== 'REPARTIDOR') {
-      router.push('/login');
+    if (user.role !== "REPARTIDOR") {
+      router.push("/login");
       return;
     }
 
+    let active = true;
     const loadEarnings = async () => {
       setLoadingData(true);
       setError(null);
       try {
-        const [earningsResult, balanceResult, breakdownResult] = await Promise.allSettled([
-          financialService.getMyEarnings(),
-          payoutService.getAvailableBalance(),
-          financialService.getMyEarningsBreakdown({ limit: 5 }),
-        ]);
+        const [earningsResult, balanceResult, breakdownResult] =
+          await Promise.allSettled([
+            financialService.getMyEarnings(),
+            payoutService.getAvailableBalance(),
+            financialService.getMyEarningsBreakdown({ limit: 5 }),
+          ]);
 
-        if (earningsResult.status === 'rejected') {
+        if (earningsResult.status === "rejected") {
           throw earningsResult.reason;
         }
 
+        if (!active) return;
         const earningsData = earningsResult.value;
+        if (earningsData.currency !== "USD")
+          throw new Error("La moneda de tus ganancias requiere revisión.");
         setEarnings(earningsData);
 
-        if (balanceResult.status === 'fulfilled') {
-          setBalance(balanceResult.value);
-        } else {
-          console.warn('No se pudo cargar el balance de payout; usando resumen de ganancias.', balanceResult.reason);
-          setBalance({
-            available: Number(earningsData.pending_payout ?? 0),
-            pending: 0,
-            processed: Math.max(Number(earningsData.total_earned ?? 0) - Number(earningsData.pending_payout ?? 0), 0),
-            total_earned: Number(earningsData.total_earned ?? 0),
-            currency: 'COP',
-          });
-        }
+        if (balanceResult.status === "rejected") throw balanceResult.reason;
+        if (balanceResult.value.currency !== "USD")
+          throw new Error("El saldo disponible no está confirmado en USD.");
+        if (
+          balanceResult.value.processed === undefined ||
+          balanceResult.value.total_earned === undefined
+        )
+          throw new Error(
+            "El servidor no confirmó todos los totales del libro USD.",
+          );
+        setBalance(balanceResult.value);
+        setHistoryError(breakdownResult.status === "rejected");
 
-        setRecentMovements(breakdownResult.status === 'fulfilled' ? breakdownResult.value.items : []);
+        setRecentMovements(
+          breakdownResult.status === "fulfilled"
+            ? breakdownResult.value.items
+            : [],
+        );
       } catch (err) {
-        console.error('Error loading rider earnings:', err);
-        setError(getErrorMessage(err, 'No se pudieron cargar tus ganancias reales.'));
+        if (!active) return;
+        console.error("Error loading rider earnings:", err);
+        setError(
+          getErrorMessage(err, "No se pudieron cargar tus ganancias reales."),
+        );
         setEarnings(null);
         setBalance(null);
         setRecentMovements([]);
       } finally {
-        setLoadingData(false);
+        if (active) setLoadingData(false);
       }
     };
 
-    loadEarnings();
+    void loadEarnings();
+    return () => {
+      active = false;
+    };
   }, [user, isAuthenticated, router, isMounted]);
 
   if (!isMounted || !isAuthenticated || !user || loadingData) {
@@ -126,36 +157,66 @@ export default function RiderEarningsPage() {
     );
   }
 
-  const totalEarned = Number(balance?.total_earned ?? earnings?.total_earned ?? 0);
-  const availableBalance = Number(balance?.available ?? earnings?.pending_payout ?? 0);
-  const pendingWithdrawals = Number(balance?.pending ?? 0);
-  const processedWithdrawals = Number(balance?.processed ?? Math.max(totalEarned - availableBalance - pendingWithdrawals, 0));
+  if (!balance || !earnings)
+    return (
+      <div
+        className="m-6 rounded-2xl border border-amber-200 bg-amber-50 p-6"
+        role="alert"
+      >
+        <h1 className="text-xl font-bold text-amber-950">
+          Saldo USD por confirmar
+        </h1>
+        <p className="mt-2 text-amber-900">
+          {error ??
+            "No se pudo consultar tu saldo. No se habilitan retiros sin confirmación del servidor."}
+        </p>
+        <Button className="mt-4" onClick={() => window.location.reload()}>
+          Volver a consultar
+        </Button>
+      </div>
+    );
+
+  const totalEarned = Number(balance.total_earned);
+  const availableBalance = balance.available;
+  const pendingWithdrawals = balance.pending;
+  const processedWithdrawals = Number(balance.processed);
   const completedDeliveries = Number(earnings?.completed_deliveries ?? 0);
-  const canRequestWithdrawal = availableBalance >= MIN_WITHDRAWAL_AMOUNT;
+  const canRequestWithdrawal =
+    balance.currency === "USD" && availableBalance >= MIN_WITHDRAWAL_AMOUNT;
 
   // Datos formateados para el gráfico
   const chartData = [
-    { name: 'Total Ganado', value: totalEarned, color: '#16a34a' }, // green-600
-    { name: 'Disponible', value: availableBalance, color: '#2563eb' }, // blue-600
-    { name: 'En Proceso', value: pendingWithdrawals, color: '#9333ea' }, // purple-600
-    { name: 'Pagado', value: processedWithdrawals, color: '#f97316' }, // orange-500
+    { name: "Total Ganado", value: totalEarned, color: "#16a34a" }, // green-600
+    { name: "Disponible", value: availableBalance, color: "#2563eb" }, // blue-600
+    { name: "En Proceso", value: pendingWithdrawals, color: "#9333ea" }, // purple-600
+    {
+      name: "Retiro registrado",
+      value: processedWithdrawals,
+      color: "#f97316",
+    }, // orange-500
   ];
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen pb-20">
       <div className="max-w-5xl mx-auto space-y-6">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-white to-blue-50 p-6 shadow-sm">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Mis Ganancias</h1>
-            <p className="text-gray-500">Resumen real de ingresos, saldo disponible y retiros solicitados.</p>
+            <p className="text-gray-500">
+              Libro USD · Ganancias registradas, reservas y saldo disponible.
+            </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => router.push('/rider/earnings/payouts')}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push("/rider/earnings/payouts")}
+            >
               <Download className="w-4 h-4 mr-2" /> Historial
             </Button>
             <Button
               className="bg-green-600 hover:bg-green-700 text-white shadow-md shadow-green-200"
-              onClick={() => router.push('/rider/earnings/withdraw')}
+              onClick={() => router.push("/rider/earnings/withdraw")}
               disabled={!canRequestWithdrawal}
             >
               Solicitar Retiro
@@ -170,14 +231,41 @@ export default function RiderEarningsPage() {
           </div>
         )}
 
+        <div
+          role="note"
+          className="rounded-xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-950"
+        >
+          <strong>Tu saldo está denominado en USD.</strong> Los movimientos
+          históricos sin moneda confirmada no se suman a este libro.
+          {(balance.unverified_financial_count ?? 0) > 0 && (
+            <p className="mt-1">
+              {balance.unverified_financial_count} movimientos anteriores
+              requieren revisión de moneda.
+            </p>
+          )}
+          {(balance.unverified_payout_count ?? 0) > 0 && (
+            <p className="mt-1">
+              {balance.unverified_payout_count} retiros anteriores conservan su
+              moneda sin verificar.
+            </p>
+          )}
+          <p className="mt-1">
+            Un retiro aprobado contablemente no confirma una transferencia
+            bancaria.
+          </p>
+        </div>
         {/* Tarjetas de Métricas Superiores */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card className="border-t-4 border-t-green-500 shadow-sm">
             <CardHeader className="pb-2">
               <div className="flex justify-between items-start">
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Total Ganado</p>
-                  <h3 className="text-3xl font-bold text-gray-900 mt-1">{formatCurrency(totalEarned)}</h3>
+                  <p className="text-sm font-medium text-gray-500">
+                    Total Ganado
+                  </p>
+                  <h3 className="text-3xl font-bold text-gray-900 mt-1">
+                    {formatCurrency(totalEarned)}
+                  </h3>
                 </div>
                 <div className="p-2 bg-green-100 rounded-full">
                   <DollarSign className="w-6 h-6 text-green-600" />
@@ -196,8 +284,12 @@ export default function RiderEarningsPage() {
             <CardHeader className="pb-2">
               <div className="flex justify-between items-start">
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Disponible para Retiro</p>
-                  <h3 className="text-3xl font-bold text-gray-900 mt-1">{formatCurrency(availableBalance)}</h3>
+                  <p className="text-sm font-medium text-gray-500">
+                    Disponible para Retiro
+                  </p>
+                  <h3 className="text-3xl font-bold text-gray-900 mt-1">
+                    {formatCurrency(availableBalance)}
+                  </h3>
                 </div>
                 <div className="p-2 bg-blue-100 rounded-full">
                   <Wallet className="w-6 h-6 text-blue-600" />
@@ -205,7 +297,9 @@ export default function RiderEarningsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <p className="text-xs text-gray-500">Mínimo para retiro: {formatCurrency(MIN_WITHDRAWAL_AMOUNT)}</p>
+              <p className="text-xs text-gray-500">
+                Mínimo para retiro: {formatCurrency(MIN_WITHDRAWAL_AMOUNT)}
+              </p>
             </CardContent>
           </Card>
 
@@ -213,8 +307,12 @@ export default function RiderEarningsPage() {
             <CardHeader className="pb-2">
               <div className="flex justify-between items-start">
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Entregas Completadas</p>
-                  <h3 className="text-3xl font-bold text-gray-900 mt-1">{completedDeliveries}</h3>
+                  <p className="text-sm font-medium text-gray-500">
+                    Entregas Completadas
+                  </p>
+                  <h3 className="text-3xl font-bold text-gray-900 mt-1">
+                    {completedDeliveries}
+                  </h3>
                 </div>
                 <div className="p-2 bg-purple-100 rounded-full">
                   <TrendingUp className="w-6 h-6 text-purple-600" />
@@ -240,32 +338,39 @@ export default function RiderEarningsPage() {
           <CardContent className="pt-4">
             <div className="h-[300px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                  <XAxis 
-                    dataKey="name" 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{ fill: '#6b7280', fontSize: 12 }} 
+                <BarChart
+                  data={chartData}
+                  margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                    stroke="#e5e7eb"
+                  />
+                  <XAxis
+                    dataKey="name"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "#6b7280", fontSize: 12 }}
                     dy={10}
                   />
-                  <YAxis 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{ fill: '#6b7280', fontSize: 12 }} 
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "#6b7280", fontSize: 12 }}
                     tickFormatter={(value) => `$${value.toLocaleString()}`}
                   />
-                  <Tooltip 
-                    cursor={{ fill: '#f3f4f6' }}
-                    contentStyle={{ 
-                      backgroundColor: '#fff', 
-                      borderRadius: '8px', 
-                      border: '1px solid #e5e7eb',
-                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                  <Tooltip
+                    cursor={{ fill: "#f3f4f6" }}
+                    contentStyle={{
+                      backgroundColor: "#fff",
+                      borderRadius: "8px",
+                      border: "1px solid #e5e7eb",
+                      boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
                     }}
                     formatter={(value: number) => formatCurrency(value)}
                   />
-                  <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                  <Legend wrapperStyle={{ paddingTop: "20px" }} />
                   <Bar dataKey="value" radius={[4, 4, 0, 0]} barSize={60}>
                     {chartData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
@@ -280,26 +385,55 @@ export default function RiderEarningsPage() {
         {/* Últimos Movimientos */}
         <Card className="shadow-sm">
           <CardHeader>
-            <CardTitle className="text-lg">Últimos movimientos financieros</CardTitle>
+            <CardTitle className="text-lg">
+              Últimos movimientos financieros
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            {recentMovements.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-4">Aún no hay movimientos financieros para mostrar.</p>
+            {historyError ? (
+              <p role="alert" className="p-4 text-amber-900">
+                El historial no está disponible. Vuelve a consultar para revisar
+                los movimientos.
+              </p>
+            ) : recentMovements.length === 0 ? (
+              <p className="text-sm text-gray-500 text-center py-4">
+                Aún no hay movimientos financieros para mostrar.
+              </p>
             ) : (
               <div className="space-y-3">
                 {recentMovements.map((movement) => (
-                  <div key={movement.id} className="flex items-center justify-between border rounded-lg p-3 bg-white hover:shadow-sm transition-shadow">
+                  <div
+                    key={movement.id}
+                    className="flex items-center justify-between border rounded-lg p-3 bg-white hover:shadow-sm transition-shadow"
+                  >
                     <div>
-                      <p className="font-semibold text-gray-900">{movement.description}</p>
+                      <p className="font-semibold text-gray-900">
+                        {movement.description}
+                      </p>
                       <p className="text-xs text-gray-500">
-                        {movement.transaction_type} · {movement.created_at ? new Date(movement.created_at).toLocaleString() : 'Sin fecha'}
+                        {movement.transaction_type} ·{" "}
+                        {movement.created_at
+                          ? new Date(movement.created_at).toLocaleString()
+                          : "Sin fecha"}
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className={`font-bold ${movement.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {movement.amount >= 0 ? '+' : ''}{formatCurrency(movement.amount)}
+                      <p
+                        className={`font-bold ${movement.amount >= 0 ? "text-green-600" : "text-red-600"}`}
+                      >
+                        {movement.amount >= 0 ? "+" : ""}
+                        {payoutAmountLabel(
+                          movement.amount,
+                          movement.currency ?? undefined,
+                        )}
                       </p>
-                      <p className="text-xs text-gray-500">Saldo: {formatCurrency(movement.balance_after || 0)}</p>
+                      <p className="text-xs text-gray-500">
+                        Saldo:{" "}
+                        {payoutAmountLabel(
+                          movement.balance_after,
+                          movement.currency ?? undefined,
+                        )}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -315,7 +449,7 @@ export default function RiderEarningsPage() {
             <div className="absolute top-0 right-0 p-4 opacity-10">
               <Clock className="w-24 h-24 text-indigo-600" />
             </div>
-            
+
             <CardContent className="p-6 relative z-10">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
@@ -323,11 +457,18 @@ export default function RiderEarningsPage() {
                     <Clock className="w-6 h-6 text-indigo-600" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-gray-900 text-lg leading-tight">En Proceso</h3>
-                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Solicitudes Pendientes</p>
+                    <h3 className="font-bold text-gray-900 text-lg leading-tight">
+                      En Proceso
+                    </h3>
+                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">
+                      Solicitudes Pendientes
+                    </p>
                   </div>
                 </div>
-                <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200">
+                <Badge
+                  variant="outline"
+                  className="bg-indigo-50 text-indigo-700 border-indigo-200"
+                >
                   Activo
                 </Badge>
               </div>
@@ -337,14 +478,15 @@ export default function RiderEarningsPage() {
                   {formatCurrency(pendingWithdrawals)}
                 </p>
                 <p className="text-sm text-gray-600 mt-2 leading-relaxed">
-                  Tienes este monto en solicitudes que están siendo revisadas o procesadas.
+                  Tienes este monto en solicitudes que están siendo revisadas o
+                  procesadas.
                 </p>
               </div>
 
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 className="w-full justify-between group border-indigo-200 text-indigo-700 hover:bg-indigo-50 hover:text-indigo-900"
-                onClick={() => router.push('/rider/earnings/payouts')}
+                onClick={() => router.push("/rider/earnings/payouts")}
               >
                 <span className="font-semibold">Ver historial detallado</span>
                 <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-1" />
@@ -357,7 +499,7 @@ export default function RiderEarningsPage() {
             <div className="absolute top-0 right-0 p-4 opacity-10">
               <CheckCircle className="w-24 h-24 text-orange-600" />
             </div>
-            
+
             <CardContent className="p-6 relative z-10">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
@@ -365,12 +507,19 @@ export default function RiderEarningsPage() {
                     <CheckCircle className="w-6 h-6 text-orange-600" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-gray-900 text-lg leading-tight">Completados</h3>
-                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Historial de Pagos</p>
+                    <h3 className="font-bold text-gray-900 text-lg leading-tight">
+                      Retiros registrados
+                    </h3>
+                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">
+                      Historial contable
+                    </p>
                   </div>
                 </div>
-                <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
-                  Finalizado
+                <Badge
+                  variant="outline"
+                  className="bg-orange-50 text-orange-700 border-orange-200"
+                >
+                  Registrado
                 </Badge>
               </div>
 
@@ -379,7 +528,8 @@ export default function RiderEarningsPage() {
                   {formatCurrency(processedWithdrawals)}
                 </p>
                 <p className="text-sm text-gray-600 mt-2 leading-relaxed">
-                  Total acumulado de retiros ya pagados a tu cuenta.
+                  Total de retiros registrados contablemente; no confirma abonos
+                  bancarios.
                 </p>
               </div>
 
@@ -388,7 +538,9 @@ export default function RiderEarningsPage() {
                   <ShieldCheck className="w-4 h-4 text-orange-600" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-xs font-semibold text-orange-800">Datos Verificados</p>
+                  <p className="text-xs font-semibold text-orange-800">
+                    Datos Verificados
+                  </p>
                   <p className="text-[10px] text-orange-600/80 font-mono truncate">
                     Fuente: /payouts/balance + /financial/riders/me
                   </p>

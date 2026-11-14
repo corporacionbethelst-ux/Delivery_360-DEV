@@ -73,6 +73,10 @@ class Order(Base):
     delivery_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     items: Mapped[JsonValue] = mapped_column(JSON, nullable=True)
+
+    currency_code: Mapped[str | None] = mapped_column(
+        String(3).evaluates_none(), nullable=True, default="USD"
+    )
     subtotal: Mapped[float | None] = mapped_column(Float, default=0.0, nullable=True)
     delivery_fee: Mapped[float | None] = mapped_column(
         Float, default=0.0, nullable=True

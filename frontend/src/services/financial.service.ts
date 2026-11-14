@@ -1,12 +1,20 @@
-import { api } from '@/lib/api';
-import { capturePrivateTask } from '@/lib/private-task';
-import { normalizeFinancialSummary, prepareSummaryQuery } from '@/lib/financial-summary-contract';
-import { normalizeOrdersReport, normalizeReconciliation, prepareReportQuery } from '@/lib/financial-report-contract';
+import { normalizeUsdEarnings, normalizeRiderLedger } from "@/lib/usd-ledger";
+import { api } from "@/lib/api";
+import { capturePrivateTask } from "@/lib/private-task";
+import {
+  normalizeFinancialSummary,
+  prepareSummaryQuery,
+} from "@/lib/financial-summary-contract";
+import {
+  normalizeOrdersReport,
+  normalizeReconciliation,
+  prepareReportQuery,
+} from "@/lib/financial-report-contract";
 
-export type FinancialPeriod = 'today' | 'week' | 'month';
+export type FinancialPeriod = "today" | "week" | "month";
 
 export interface FinancialSummary {
-  period: FinancialPeriod | 'custom';
+  period: FinancialPeriod | "custom";
   period_start?: string | null;
   period_end?: string | null;
   currency?: string | null;
@@ -25,6 +33,7 @@ export interface FinancialSummary {
 }
 
 export interface RiderEarnings {
+  currency?: string | null;
   rider_id: string;
   rider_name: string;
   total_earned: number;
@@ -40,8 +49,8 @@ export interface FinancialSummaryParams {
   end_date?: string;
 }
 
-
 export interface FinancialTransaction {
+  currency?: string | null;
   id: string;
   rider_id: string;
   amount: number;
@@ -131,22 +140,33 @@ export interface RiderEarningsBreakdownParams extends FinancialReportParams {
   type?: string;
 }
 
-const boundedLimit = (value: number | undefined, maximum: number, fallback: number): number =>
-  Number.isFinite(value) ? Math.min(Math.max(Math.trunc(value as number), 1), maximum) : fallback;
+const boundedLimit = (
+  value: number | undefined,
+  maximum: number,
+  fallback: number,
+): number =>
+  Number.isFinite(value)
+    ? Math.min(Math.max(Math.trunc(value as number), 1), maximum)
+    : fallback;
 
 export const financialService = {
   /** Validate the actual summary contract within the session and query that requested it. */
-  getSummary: async (params?: Readonly<FinancialSummaryParams>): Promise<FinancialSummary> => {
+  getSummary: async (
+    params?: Readonly<FinancialSummaryParams>,
+  ): Promise<FinancialSummary> => {
     const task = capturePrivateTask();
     const queryParamsSnapshot = prepareSummaryQuery(params);
     const queryParams = new URLSearchParams();
-    
-    if (queryParamsSnapshot.period) queryParams.append('period', queryParamsSnapshot.period);
-    if (queryParamsSnapshot.start_date) queryParams.append('start_date', queryParamsSnapshot.start_date);
-    if (queryParamsSnapshot.end_date) queryParams.append('end_date', queryParamsSnapshot.end_date);
 
-    const query = queryParams.toString() ? `?${queryParams}` : '';
-    
+    if (queryParamsSnapshot.period)
+      queryParams.append("period", queryParamsSnapshot.period);
+    if (queryParamsSnapshot.start_date)
+      queryParams.append("start_date", queryParamsSnapshot.start_date);
+    if (queryParamsSnapshot.end_date)
+      queryParams.append("end_date", queryParamsSnapshot.end_date);
+
+    const query = queryParams.toString() ? `?${queryParams}` : "";
+
     try {
       const response = await api.get<unknown>(`/financial/summary${query}`);
       task.assertCurrent();
@@ -162,9 +182,15 @@ export const financialService = {
    */
   getMyEarnings: async (): Promise<RiderEarnings> => {
     try {
-      return await api.get<RiderEarnings>('/financial/riders/me');
+      const task = capturePrivateTask();
+      const value = await api.get<unknown>("/financial/riders/me");
+      task.assertCurrent();
+      return normalizeUsdEarnings(value);
     } catch (error) {
-      console.error('[FinancialService] Error fetching current rider earnings:', error);
+      console.error(
+        "[FinancialService] Error fetching current rider earnings:",
+        error,
+      );
       throw error;
     }
   },
@@ -175,57 +201,70 @@ export const financialService = {
    */
   getRiderEarnings: async (riderId?: string): Promise<RiderEarnings[]> => {
     try {
-      const params = riderId ? `?rider_id=${encodeURIComponent(riderId)}` : '';
+      const params = riderId ? `?rider_id=${encodeURIComponent(riderId)}` : "";
       return await api.get<RiderEarnings[]>(`/financial/riders${params}`);
     } catch (error) {
-      console.error('[FinancialService] Error fetching rider earnings:', error);
+      console.error("[FinancialService] Error fetching rider earnings:", error);
       throw error;
     }
   },
-
-
 
   /**
    * Desglose auditable de ganancias/retiros del rider autenticado.
    */
-  getMyEarningsBreakdown: async (params?: RiderEarningsBreakdownParams): Promise<RiderEarningsBreakdown> => {
+  getMyEarningsBreakdown: async (
+    params?: RiderEarningsBreakdownParams,
+  ): Promise<RiderEarningsBreakdown> => {
     const queryParams = new URLSearchParams();
-    if (params?.type) queryParams.append('type', params.type);
-    if (params?.date_from) queryParams.append('date_from', params.date_from);
-    if (params?.date_to) queryParams.append('date_to', params.date_to);
-    if (params?.limit !== undefined) queryParams.append('limit', String(boundedLimit(params.limit, 500, 100)));
+    if (params?.type) queryParams.append("type", params.type);
+    if (params?.date_from) queryParams.append("date_from", params.date_from);
+    if (params?.date_to) queryParams.append("date_to", params.date_to);
+    if (params?.limit !== undefined)
+      queryParams.append("limit", String(boundedLimit(params.limit, 500, 100)));
     if (Number.isFinite(params?.offset) && Number(params?.offset) >= 0) {
-      queryParams.append('offset', String(Math.trunc(Number(params?.offset))));
+      queryParams.append("offset", String(Math.trunc(Number(params?.offset))));
     }
 
-    const query = queryParams.toString() ? `?${queryParams}` : '';
+    const query = queryParams.toString() ? `?${queryParams}` : "";
 
     try {
-      return await api.get<RiderEarningsBreakdown>(`/financial/riders/me/earnings${query}`);
+      const task = capturePrivateTask();
+      const value = await api.get<unknown>(
+        `/financial/riders/me/earnings${query}`,
+      );
+      task.assertCurrent();
+      return normalizeRiderLedger(value);
     } catch (error) {
-      console.error('[FinancialService] Error fetching rider earnings breakdown:', error);
+      console.error(
+        "[FinancialService] Error fetching rider earnings breakdown:",
+        error,
+      );
       throw error;
     }
   },
 
-
   /**
    * Obtener reporte real de órdenes para estadísticas y exportación CSV.
    */
-  getOrdersReport: async (params?: Readonly<FinancialReportParams>): Promise<FinancialOrdersReport> => {
+  getOrdersReport: async (
+    params?: Readonly<FinancialReportParams>,
+  ): Promise<FinancialOrdersReport> => {
     const task = capturePrivateTask();
     const captured = prepareReportQuery(params);
     const queryParams = new URLSearchParams();
 
-    if (captured.date_from) queryParams.append('date_from', captured.date_from);
-    if (captured.date_to) queryParams.append('date_to', captured.date_to);
-    queryParams.append('limit', String(captured.limit));
-    if (params?.offset !== undefined) queryParams.append('offset', String(captured.offset));
+    if (captured.date_from) queryParams.append("date_from", captured.date_from);
+    if (captured.date_to) queryParams.append("date_to", captured.date_to);
+    queryParams.append("limit", String(captured.limit));
+    if (params?.offset !== undefined)
+      queryParams.append("offset", String(captured.offset));
 
-    const query = queryParams.toString() ? `?${queryParams}` : '';
+    const query = queryParams.toString() ? `?${queryParams}` : "";
 
     try {
-      const response = await api.get<unknown>(`/financial/reports/orders${query}`);
+      const response = await api.get<unknown>(
+        `/financial/reports/orders${query}`,
+      );
       task.assertCurrent();
       return normalizeOrdersReport(response, captured);
     } catch (error) {
@@ -237,17 +276,21 @@ export const financialService = {
   /**
    * Obtener conciliación financiera real para gerencia.
    */
-  getReconciliation: async (params?: Readonly<Pick<FinancialReportParams, 'date_from' | 'date_to'>>): Promise<FinancialReconciliation> => {
+  getReconciliation: async (
+    params?: Readonly<Pick<FinancialReportParams, "date_from" | "date_to">>,
+  ): Promise<FinancialReconciliation> => {
     const task = capturePrivateTask();
     const captured = prepareReportQuery(params, false);
     const queryParams = new URLSearchParams();
-    if (captured.date_from) queryParams.append('date_from', captured.date_from);
-    if (captured.date_to) queryParams.append('date_to', captured.date_to);
+    if (captured.date_from) queryParams.append("date_from", captured.date_from);
+    if (captured.date_to) queryParams.append("date_to", captured.date_to);
 
-    const query = queryParams.toString() ? `?${queryParams}` : '';
+    const query = queryParams.toString() ? `?${queryParams}` : "";
 
     try {
-      const response = await api.get<unknown>(`/financial/reconciliation${query}`);
+      const response = await api.get<unknown>(
+        `/financial/reconciliation${query}`,
+      );
       task.assertCurrent();
       return normalizeReconciliation(response, captured);
     } catch (error) {
@@ -256,17 +299,20 @@ export const financialService = {
     }
   },
 
-
   /**
    * Obtener historial de transacciones/pagos.
    * NUEVO MÉTODO: Útil para la página de historial.
    */
-  getTransactions: async (limit: number = 20): Promise<FinancialTransaction[]> => {
+  getTransactions: async (
+    limit: number = 20,
+  ): Promise<FinancialTransaction[]> => {
     try {
-      return await api.get(`/financial/transactions?limit=${boundedLimit(limit, 500, 20)}`);
+      return await api.get(
+        `/financial/transactions?limit=${boundedLimit(limit, 500, 20)}`,
+      );
     } catch (error) {
-      console.error('[FinancialService] Error fetching transactions:', error);
+      console.error("[FinancialService] Error fetching transactions:", error);
       throw error;
     }
-  }
+  },
 };

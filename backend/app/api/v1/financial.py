@@ -13,7 +13,12 @@ from app.models.payout import Payout, PayoutStatus
 from app.models.rider import Rider
 from app.models.user import User, UserRole
 from app.api.v1.auth import get_current_user, require_role
-from app.services.financial_service import CREDIT_TYPES, DEBIT_TYPES
+from app.services.financial_service import (
+    CREDIT_TYPES,
+    DEBIT_TYPES,
+    FinancialService,
+    processed_ledger_filter,
+)
 
 router = APIRouter(prefix="/financial", tags=["Financial"])
 
@@ -48,63 +53,28 @@ async def get_my_earnings(
             status_code=404, detail="Perfil de repartidor no encontrado"
         )
 
-    # 1. Calcular Total Ganado desde ledger y, si aún no hay asientos,
-    # usar órdenes entregadas como fallback para demos/instalaciones migradas.
-    earnings_result = await db.execute(
-        select(func.sum(Financial.amount)).where(
+    earned = await db.scalar(
+        select(func.coalesce(func.sum(func.abs(Financial.amount)), 0)).where(
             Financial.rider_id == rider.id,
             Financial.transaction_type.in_(list(CREDIT_TYPES)),
-            Financial.status == PaymentStatus.PROCESADO,
+            processed_ledger_filter(),
         )
     )
-    ledger_total_earned = float(earnings_result.scalar() or 0)
-
-    orders_earnings_result = await db.execute(
-        select(
-            func.coalesce(func.sum(_order_earning_amount_expr()), 0),
-            func.count(Order.id),
-        ).where(
-            Order.assigned_rider_id == rider.id,
-            Order.status == OrderStatus.ENTREGADO,
-        )
-    )
-    orders_total_earned, orders_completed_count = orders_earnings_result.one()
-    orders_total_earned = float(orders_total_earned or 0)
-    orders_completed_count = int(orders_completed_count or 0)
-    total_earned = (
-        ledger_total_earned if ledger_total_earned > 0 else orders_total_earned
-    )
-
-    # 2. Calcular Total Retirado (Suma de retiros PROCESADOS)
-    # Nota: No restamos los PENDIENTE aquí para que el frontend calcule el "pending_payout" correctamente
-    withdrawn_result = await db.execute(
-        select(func.sum(Financial.amount)).where(
-            Financial.rider_id == rider.id,
-            Financial.transaction_type == TransactionType.RETIRO,
-            Financial.status == PaymentStatus.PROCESADO,
-        )
-    )
-    total_withdrawn = float(withdrawn_result.scalar() or 0)
-
-    # Contar entregas completadas desde ledger (todos los tipos de crédito) y fallback a órdenes entregadas.
-    deliveries_count_result = await db.execute(
+    completed = await db.scalar(
         select(func.count(Financial.id)).where(
             Financial.rider_id == rider.id,
-            Financial.transaction_type.in_(list(CREDIT_TYPES)),
+            Financial.transaction_type == TransactionType.PAGO_ENTREGA,
+            processed_ledger_filter(),
         )
     )
-    ledger_completed_deliveries = int(deliveries_count_result.scalar() or 0)
-    completed_deliveries = max(ledger_completed_deliveries, orders_completed_count)
-
-    # El saldo pendiente es lo ganado menos lo que ya se ha retirado (procesado)
-    pending_payout = total_earned - total_withdrawn
-
+    balance = await FinancialService(db).get_current_balance(rider.id)
     return {
         "rider_id": str(rider.id),
         "rider_name": f"{rider.user.first_name} {rider.user.last_name}",
-        "total_earned": total_earned,
-        "completed_deliveries": completed_deliveries,
-        "pending_payout": max(0, pending_payout),  # Evitar negativos
+        "currency": "USD",
+        "total_earned": float(earned or 0),
+        "completed_deliveries": int(completed or 0),
+        "pending_payout": float(max(Decimal("0.00"), balance)),
     }
 
 
@@ -149,46 +119,6 @@ async def get_my_earnings_breakdown(
     items = [
         _serialize_transaction(transaction) for transaction in result.scalars().all()
     ]
-
-    if not items and transaction_type in (None, TransactionType.PAGO_ENTREGA):
-        fallback_orders_result = await db.execute(
-            select(Order)
-            .where(
-                Order.assigned_rider_id == rider.id,
-                Order.status == OrderStatus.ENTREGADO,
-            )
-            .order_by(
-                func.coalesce(
-                    Order.delivered_at, Order.updated_at, Order.created_at
-                ).desc()
-            )
-            .offset(offset)
-            .limit(limit)
-        )
-        for order in fallback_orders_result.scalars().all():
-            amount = float(order.delivery_fee or order.total or order.subtotal or 0)
-            created_at = order.delivered_at or order.updated_at or order.created_at
-            items.append(
-                {
-                    "id": str(order.id),
-                    "rider_id": str(rider.id),
-                    "amount": amount,
-                    "balance_before": None,
-                    "balance_after": None,
-                    "transaction_type": TransactionType.PAGO_ENTREGA.value,
-                    "type": TransactionType.PAGO_ENTREGA.value,
-                    "description": f"Entrega completada · Orden {order.external_id or str(order.id)[:8]}",
-                    "reference_id": str(order.id),
-                    "source_type": "order",
-                    "source_id": str(order.id),
-                    "idempotency_key": None,
-                    "created_by_user_id": None,
-                    "status": PaymentStatus.PROCESADO.value,
-                    "is_fallback": True,
-                    "created_at": created_at,
-                    "updated_at": order.updated_at,
-                }
-            )
 
     return {
         "rider_id": str(rider.id),
@@ -257,6 +187,7 @@ async def get_financial_summary(
             func.count(Order.id).label("completed_deliveries"),
             func.coalesce(func.sum(Order.total), 0).label("gross_order_value"),
         ).where(
+            Order.currency_code == "USD",
             Order.status == OrderStatus.ENTREGADO,
             order_period_date >= period_start,
             order_period_date <= period_end,
@@ -269,6 +200,7 @@ async def get_financial_summary(
     gross_order_value = float(revenue_row.gross_order_value or 0)
 
     financial_period_filters = [
+        Financial.currency_code == "USD",
         Financial.created_at >= period_start,
         Financial.created_at <= period_end,
     ]
@@ -312,6 +244,7 @@ async def get_financial_summary(
     payout_period_date = func.coalesce(Payout.processed_at, Payout.requested_at)
     processed_payouts_result = await db.execute(
         select(func.coalesce(func.sum(Payout.amount), 0)).where(
+            Payout.currency_code == "USD",
             payout_period_date >= period_start,
             payout_period_date <= period_end,
             # FIX FASE 7: 'PROCESADO' ya no existe en PayoutStatus (enum estándar en español).
@@ -332,6 +265,8 @@ async def get_financial_summary(
     net_margin = total_revenue - total_costs
 
     return {
+        "currency": "USD",
+        "scope": "declared_usd_only",
         "period": response_period,
         "period_start": period_start.isoformat(),
         "period_end": period_end.isoformat(),
@@ -376,7 +311,7 @@ async def get_orders_financial_report(
     )
 
     date_column = func.coalesce(Order.delivered_at, Order.created_at, Order.ordered_at)
-    filters = []
+    filters = [Order.currency_code == "USD"]
 
     if start_date:
         filters.append(date_column >= start_date)
@@ -425,6 +360,8 @@ async def get_orders_financial_report(
     rows = [_serialize_order_report_row(order) for order in orders]
 
     return {
+        "currency": "USD",
+        "scope": "declared_usd_only",
         "period_start": start_date.isoformat() if start_date else None,
         "period_end": end_date.isoformat() if end_date else None,
         "total_revenue": float(stats.total_revenue or 0),
@@ -455,9 +392,9 @@ async def get_financial_reconciliation(
     order_date = func.coalesce(
         Order.delivered_at, Order.updated_at, Order.created_at, Order.ordered_at
     )
-    financial_filters = []
-    payout_filters = []
-    order_filters = []
+    financial_filters = [Financial.currency_code == "USD"]
+    payout_filters = [Payout.currency_code == "USD"]
+    order_filters = [Order.currency_code == "USD"]
 
     if start_date:
         financial_filters.append(Financial.created_at >= start_date)
@@ -595,7 +532,7 @@ async def get_financial_reconciliation(
         "total_costs": round(total_costs, 2),
         "net_margin_after_rider_costs": round(delivery_revenue - total_costs, 2),
         "payout_count": int(payouts.payout_count or 0),
-        "currency": "COP",
+        "currency": "USD",
     }
 
 
@@ -741,6 +678,7 @@ def _serialize_transaction(transaction: Financial):
 
     return {
         "id": str(transaction.id),
+        "currency": getattr(transaction, "currency_code", None),
         "rider_id": str(transaction.rider_id),
         "amount": _float_money(transaction.amount),
         "balance_before": _float_money(getattr(transaction, "balance_before", 0)),

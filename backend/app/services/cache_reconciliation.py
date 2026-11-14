@@ -6,7 +6,7 @@ No ledger entries, modern wallets, reserves or transfers are created/modified.
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID
-from sqlalchemy import select, cast, String, update
+from sqlalchemy import select, cast, String, update, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import AppException, NotFoundError, ValidationError
 from app.models.financial import Financial
@@ -60,6 +60,7 @@ class CacheReconciliationService:
             await self.db.execute(
                 select(
                     Rider.wallet_balance,
+                    Rider.wallet_currency,
                     Rider.version,
                     Financial.id.label("transaction_id"),
                     Financial.amount,
@@ -70,7 +71,13 @@ class CacheReconciliationService:
                     Financial.created_at,
                 )
                 .select_from(Rider)
-                .outerjoin(Financial, Financial.rider_id == Rider.id)
+                .outerjoin(
+                    Financial,
+                    and_(
+                        Financial.rider_id == Rider.id,
+                        Financial.currency_code == Rider.wallet_currency,
+                    ),
+                )
                 .where(Rider.id == rider_id)
                 .order_by(Financial.created_at.asc().nullsfirst(), Financial.id)
                 .limit(MAX_LEDGER_ROWS + 1)
@@ -103,6 +110,9 @@ class CacheReconciliationService:
             else None
         )
         cache_issues = []
+        currency_verified = rows[0].wallet_currency == "USD"
+        if not currency_verified:
+            cache_issues.append("unverified_cache_currency")
         if version is None:
             cache_issues.append("invalid_cache_version")
         if raw_stored is not None and stored is None:
@@ -114,7 +124,8 @@ class CacheReconciliationService:
         difference = abs(adjustment) if adjustment is not None else None
         status: CacheState
         if (
-            integrity.status == "requires_review"
+            not currency_verified
+            or integrity.status == "requires_review"
             or version is None
             or raw_stored is not None
             and stored is None

@@ -1,3 +1,5 @@
+from tests.orm_contract import declared_usd_contract
+
 """Real HTTP + PostgreSQL contracts for delivery/order/ledger atomicity."""
 
 import asyncio
@@ -631,7 +633,9 @@ async def test_workflow_ddl_fixture_keeps_production_mapping_contract_unchanged(
             Path(__file__).parent / "fixtures/orm_financial_dispatch_contract.json"
         ).read_text()
     )
-    assert detailed_mapping_contract(tuple(expected)) == cancellation_contract(expected)
+    assert detailed_mapping_contract(tuple(expected)) == declared_usd_contract(
+        cancellation_contract(expected)
+    )
 
 
 @pytest.mark.asyncio

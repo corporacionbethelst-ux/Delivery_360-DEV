@@ -272,6 +272,7 @@ def _order_to_dict(o: Order, rider: Optional[Rider] = None) -> dict:
     return {
         "id": str(o.id),
         "external_id": o.external_id,
+        "currency": o.currency_code,
         "status": status_value,
         "cancellation_reason": o.cancellation_reason,
         "cancelled_by": o.cancelled_by,
@@ -663,6 +664,17 @@ async def update_order(
         )
 
     update_data = body.model_dump(exclude_unset=True)
+    if order.currency_code != "USD" and set(update_data) & {
+        "items",
+        "subtotal",
+        "delivery_fee",
+        "total",
+        "declared_value",
+    }:
+        raise HTTPException(
+            409,
+            "La moneda histórica de la orden requiere revisión antes de cambiar importes",
+        )
 
     direct_field_map = {
         "pickup_address": "pickup_address",

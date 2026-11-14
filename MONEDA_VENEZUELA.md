@@ -1,8 +1,58 @@
-# Referencias BCV y cotizaciones USD/VES — entrega 90
+# Moneda en Venezuela — referencias BCV y operaciones USD
 
 Decisión de negocio: Venezuela, base USD y equivalente en bolívares con BCV.
-Este incremento cubre referencias y cotizaciones independientes. No migra el
-libro anterior ni convierte tarifas, bonos o retiros existentes.
+La entrega 90 cubre referencias y cotizaciones independientes. La entrega 91
+identifica nuevas operaciones USD y separa el historial sin moneda; no convierte
+importes anteriores ni confirma transferencias.
+
+## Operaciones USD de la entrega 91
+
+Las nuevas órdenes, ganancias del libro `financials`, solicitudes de retiro y
+sus nuevos eventos declaran USD. Los saldos y reservas USD consultan únicamente
+filas con esa denominación. Una cadena USD comienza en cero; no incorpora el
+saldo de una cadena anterior cuya moneda no pueda verificarse. El otro libro de
+wallets en centavos conserva sus registros y no se suma al saldo de `financials`.
+
+La migración `20261114_explicit_usd` añade columnas de moneda **nullable y sin
+DEFAULT de base de datos** en órdenes, movimientos, retiros, historial de retiros
+y caché de repartidor. No ejecuta UPDATE sobre las filas anteriores: quedan con
+moneda null. Las escrituras nuevas de la aplicación declaran USD. Escritores
+antiguos que omitan la columna dejan filas sin verificar; no se importan al saldo
+USD. Las restricciones aceptan USD o null y los triggers impiden reetiquetar una
+fila confirmada, incluso de null a USD. La revisión histórica requiere un proceso
+explícito futuro; no se resuelve cambiando etiquetas o usando la tasa actual.
+
+`GET /api/v1/payouts/balance` declara USD y añade los conteos
+`unverified_financial_count` y `unverified_payout_count`. Los retiros, sus eventos,
+las transacciones y las órdenes devuelven su moneda o null. Los reportes de USD
+excluyen filas sin denominación; el historial sigue consultable en Transacciones
+y Pagos. Las métricas monetarias de la página de pagos suman solo retiros USD.
+
+Una solicitud de retiro acepta `currency: "USD"` (valor por defecto del contrato)
+y rechaza COP/VES u otras unidades. Una reserva histórica sin moneda no consume
+el saldo USD ni puede aprobarse debitándolo. Se puede rechazar conservando sus
+snapshots originales; el nuevo evento histórico no inventa un saldo USD. Las
+conciliaciones no sobrescriben cachés cuya moneda carezca de verificación.
+
+La pantalla de ganancias requiere saldo y totales USD confirmados por el servidor:
+no reconstruye disponibilidad desde un resumen ni transforma un fallo de consulta
+en saldo cero. Los movimientos sin moneda se muestran como tales. Una aprobación
+EN_PROCESO es un registro contable, sin confirmación bancaria. El resumen cuenta
+solo ganancias registradas: una orden entregada sin asiento no es evidencia de bono.
+
+El formulario de orden mantiene su estructura y colores; sus precios nuevos se
+identifican en USD. El historial muestra la moneda recibida, sin asumir dólares.
+Se bloquea la edición de importes de una orden sin unidad verificable. El detalle
+del operador muestra subtotal y envío registrados, sin inventar una distribución
+85/15 ni impuestos. El almacenamiento Float de importes de órdenes sigue pendiente
+de una migración decimal revisada; los asientos y retiros usan Numeric con centavos.
+
+La tasa BCV se conserva en los comprobantes de cotización del bloque siguiente.
+Este incremento no liquida un retiro en VES ni enlaza un comprobante a un pago
+bancario. Sigue pendiente elegir el proveedor, conservar el cambio realmente
+aplicado en el pago y conciliar su confirmación externa. La emisión fiscal existente
+para Colombia/México no homologa Venezuela ni demuestra conversión válida de USD;
+no está habilitada en el laboratorio de esta operación.
 
 ## Uso
 
@@ -95,6 +145,6 @@ En CI se ejecuta después de los recorridos funcionales anteriores, respetando l
 ventana real de cinco logins por minuto mediante `--wait-auth-window`. Los casos
 PostgreSQL automatizados utilizan una base `test_*` explícita y esquemas propios.
 
-Sigue pendiente llevar la política USD/VES a cada operación monetaria con una
-migración explícita de datos identificables, automatizar BCV con disponibilidad
-y trazabilidad verificables y elegir/homologar un proveedor de pagos.
+Siguen pendientes la revisión de moneda histórica, la migración decimal de órdenes,
+la aplicación de BCV a liquidaciones VES reales, automatizar BCV con disponibilidad
+y trazabilidad verificables y elegir/homologar pagos y facturación venezolana.

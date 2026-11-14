@@ -67,6 +67,10 @@ class VehicleType(str, enum.Enum):
 class Rider(Base):
     __tablename__ = "riders"
 
+    wallet_currency: Mapped[str | None] = mapped_column(
+        String(3).evaluates_none(), nullable=True, default="USD"
+    )
+
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,

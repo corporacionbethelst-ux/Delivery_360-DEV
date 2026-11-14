@@ -1,22 +1,39 @@
-'use client';
+"use client";
 
-import { PayoutSessionBoundary } from '@/components/financial/PayoutSessionBoundary';
-import { usePayoutRead } from '@/hooks/usePayoutRead';
-import { capturePrivateTask } from '@/lib/private-task';
+import { PayoutSessionBoundary } from "@/components/financial/PayoutSessionBoundary";
+import { usePayoutRead } from "@/hooks/usePayoutRead";
+import { capturePrivateTask } from "@/lib/private-task";
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter, useParams } from 'next/navigation';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import React, { useState, useEffect, useCallback } from "react";
+import { useRouter, useParams } from "next/navigation";
 import {
-  ArrowLeft, Wallet, DollarSign, Calendar, User, Banknote,
-  AlertCircle, CheckCircle, Loader2, ShieldCheck, XCircle, AlertTriangle
-} from 'lucide-react';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardFooter,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  ArrowLeft,
+  Wallet,
+  DollarSign,
+  Calendar,
+  User,
+  Banknote,
+  AlertCircle,
+  CheckCircle,
+  Loader2,
+  ShieldCheck,
+  XCircle,
+  AlertTriangle,
+} from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Dialog,
   DialogContent,
@@ -25,41 +42,56 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { payoutDateLabel, payoutAmountLabel } from '@/lib/payout-contract';
-import { payoutService, Payout, PayoutStatus, PayoutStatusHistory } from '@/services/payout.service';
+import { payoutDateLabel, payoutAmountLabel } from "@/lib/payout-contract";
+import {
+  payoutService,
+  Payout,
+  PayoutStatus,
+  PayoutStatusHistory,
+} from "@/services/payout.service";
 
 const getErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
 
 const STATUS_COLORS: Record<PayoutStatus, string> = {
-  APROBADO: 'bg-blue-100 text-blue-800 border-blue-200',
-  EN_PROCESO: 'bg-blue-100 text-blue-800 border-blue-200',
-  COMPLETADO: 'bg-green-100 text-green-800 border-green-200',
-  FALLIDO: 'bg-red-100 text-red-800 border-red-200',
-  PENDIENTE: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-  PROCESADO: 'bg-green-100 text-green-800 border-green-200',
-  RECHAZADO: 'bg-red-100 text-red-800 border-red-200',
-  CANCELADO: 'bg-gray-100 text-gray-800 border-gray-200',
+  APROBADO: "bg-blue-100 text-blue-800 border-blue-200",
+  EN_PROCESO: "bg-blue-100 text-blue-800 border-blue-200",
+  COMPLETADO: "bg-green-100 text-green-800 border-green-200",
+  FALLIDO: "bg-red-100 text-red-800 border-red-200",
+  PENDIENTE: "bg-yellow-100 text-yellow-800 border-yellow-200",
+  PROCESADO: "bg-green-100 text-green-800 border-green-200",
+  RECHAZADO: "bg-red-100 text-red-800 border-red-200",
+  CANCELADO: "bg-gray-100 text-gray-800 border-gray-200",
 };
 
 const METHOD_LABELS: Record<string, string> = {
-  TRANSFERENCIA: 'Transferencia Bancaria',
-  EFECTIVO: 'Efectivo',
-  BILLETERA_DIGITAL: 'Billetera Digital',
+  TRANSFERENCIA: "Transferencia Bancaria",
+  EFECTIVO: "Efectivo",
+  BILLETERA_DIGITAL: "Billetera Digital",
 };
 
 export default function PayoutDetailPage() {
   const params = useParams();
-  return <PayoutSessionBoundary><PayoutContent key={String(params.id)} /></PayoutSessionBoundary>;
+  return (
+    <PayoutSessionBoundary>
+      <PayoutContent key={String(params.id)} />
+    </PayoutSessionBoundary>
+  );
 }
 
 function PayoutContent() {
   const beginRead = usePayoutRead();
   const router = useRouter();
   const params = useParams();
-  const payoutId = typeof params.id === 'string' ? params.id : '';
-  const actionLock = React.useRef(false), alive = React.useRef(false);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const payoutId = typeof params.id === "string" ? params.id : "";
+  const actionLock = React.useRef(false),
+    alive = React.useRef(false);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   const [payout, setPayout] = useState<Payout | null>(null);
   const [history, setHistory] = useState<PayoutStatusHistory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,7 +101,7 @@ function PayoutContent() {
   const [actionLoading, setActionLoading] = useState(false);
   const [decisionUnconfirmed, setDecisionUnconfirmed] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
-  const [rejectReason, setRejectReason] = useState('');
+  const [rejectReason, setRejectReason] = useState("");
 
   const loadPayout = useCallback(async () => {
     const current = beginRead();
@@ -87,9 +119,8 @@ function PayoutContent() {
       setDecisionUnconfirmed(false);
     } catch (err: unknown) {
       if (!current()) return;
-      console.error('Error loading payout:', err);
-      setError(getErrorMessage(err, 'No se pudo cargar el retiro solicitado.'));
-
+      console.error("Error loading payout:", err);
+      setError(getErrorMessage(err, "No se pudo cargar el retiro solicitado."));
     } finally {
       if (current()) setLoading(false);
     }
@@ -97,11 +128,22 @@ function PayoutContent() {
 
   useEffect(() => {
     if (payoutId) void loadPayout();
-    else { setLoading(false); setError('Identificador del retiro no disponible.'); }
+    else {
+      setLoading(false);
+      setError("Identificador del retiro no disponible.");
+    }
   }, [payoutId, loadPayout]);
 
   const handleApprove = async () => {
-    if (!payout || payout.status !== 'PENDIENTE' || decisionUnconfirmed || error || actionLock.current) return;
+    if (
+      !payout ||
+      payout.currency !== "USD" ||
+      payout.status !== "PENDIENTE" ||
+      decisionUnconfirmed ||
+      error ||
+      actionLock.current
+    )
+      return;
     const task = capturePrivateTask();
     const current = () => alive.current && task.isCurrent();
     actionLock.current = true;
@@ -112,14 +154,25 @@ function PayoutContent() {
       const confirmed = await payoutService.approve(payout.id);
       task.assertCurrent();
       if (!current()) return;
-      if (confirmed.id !== payout.id || confirmed.rider_id !== payout.rider_id || confirmed.amount !== payout.amount || confirmed.method !== payout.method || (confirmed.bank_account_last4 ?? null) !== (payout.bank_account_last4 ?? null)) throw new Error('La confirmación corresponde a otros datos de retiro');
+      if (
+        confirmed.id !== payout.id ||
+        confirmed.currency !== payout.currency ||
+        confirmed.rider_id !== payout.rider_id ||
+        confirmed.amount !== payout.amount ||
+        confirmed.method !== payout.method ||
+        (confirmed.bank_account_last4 ?? null) !==
+          (payout.bank_account_last4 ?? null)
+      )
+        throw new Error("La confirmación corresponde a otros datos de retiro");
       setPayout(confirmed);
       setDecisionUnconfirmed(false);
       await loadPayout();
       task.assertCurrent();
     } catch (err: unknown) {
       if (!current()) return;
-      setError('No se pudo confirmar la aprobación. Consulta el estado del retiro antes de volver a actuar.');
+      setError(
+        "No se pudo confirmar la aprobación. Consulta el estado del retiro antes de volver a actuar.",
+      );
     } finally {
       actionLock.current = false;
       if (current()) setActionLoading(false);
@@ -127,7 +180,15 @@ function PayoutContent() {
   };
 
   const handleReject = async () => {
-    if (!payout || payout.status !== 'PENDIENTE' || decisionUnconfirmed || error || !rejectReason.trim() || actionLock.current) return;
+    if (
+      !payout ||
+      payout.status !== "PENDIENTE" ||
+      decisionUnconfirmed ||
+      error ||
+      !rejectReason.trim() ||
+      actionLock.current
+    )
+      return;
     const task = capturePrivateTask();
     const current = () => alive.current && task.isCurrent();
     actionLock.current = true;
@@ -138,16 +199,27 @@ function PayoutContent() {
       const confirmed = await payoutService.reject(payout.id, rejectReason);
       task.assertCurrent();
       if (!current()) return;
-      if (confirmed.id !== payout.id || confirmed.rider_id !== payout.rider_id || confirmed.amount !== payout.amount || confirmed.method !== payout.method || (confirmed.bank_account_last4 ?? null) !== (payout.bank_account_last4 ?? null)) throw new Error('La confirmación corresponde a otros datos de retiro');
+      if (
+        confirmed.id !== payout.id ||
+        confirmed.currency !== payout.currency ||
+        confirmed.rider_id !== payout.rider_id ||
+        confirmed.amount !== payout.amount ||
+        confirmed.method !== payout.method ||
+        (confirmed.bank_account_last4 ?? null) !==
+          (payout.bank_account_last4 ?? null)
+      )
+        throw new Error("La confirmación corresponde a otros datos de retiro");
       setPayout(confirmed);
       setDecisionUnconfirmed(false);
       setShowRejectDialog(false);
-      setRejectReason('');
+      setRejectReason("");
       await loadPayout();
       task.assertCurrent();
     } catch (err: unknown) {
       if (!current()) return;
-      setError('No se pudo confirmar el rechazo. Consulta el estado del retiro antes de volver a actuar.');
+      setError(
+        "No se pudo confirmar el rechazo. Consulta el estado del retiro antes de volver a actuar.",
+      );
       setShowRejectDialog(false);
     } finally {
       actionLock.current = false;
@@ -168,28 +240,66 @@ function PayoutContent() {
       <div className="p-6 max-w-4xl mx-auto">
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error || 'Pago no encontrado'}</AlertDescription>
+          <AlertDescription>{error || "Pago no encontrado"}</AlertDescription>
         </Alert>
-        <Button variant="outline" onClick={() => { void loadPayout(); }} className="mt-4">Consultar estado del retiro</Button>
-        <Button variant="outline" onClick={() => router.back()} className="mt-4">
+        <Button
+          variant="outline"
+          onClick={() => {
+            void loadPayout();
+          }}
+          className="mt-4"
+        >
+          Consultar estado del retiro
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => router.back()}
+          className="mt-4"
+        >
           <ArrowLeft className="w-4 h-4 mr-2" /> Volver
         </Button>
       </div>
     );
   }
 
-  const isPending = payout.status === 'PENDIENTE' && !error && !decisionUnconfirmed;
+  const isPending =
+    payout.status === "PENDIENTE" && !error && !decisionUnconfirmed;
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-4xl mx-auto space-y-6">
-
-        {error && <p role="alert" className="text-red-700">{error}</p>}
-        <Button variant="outline" onClick={() => { void loadPayout(); }} disabled={actionLoading}>Consultar estado del retiro</Button>
+        {error && (
+          <p role="alert" className="text-red-700">
+            {error}
+          </p>
+        )}
+        <Button
+          variant="outline"
+          onClick={() => {
+            void loadPayout();
+          }}
+          disabled={actionLoading}
+        >
+          Consultar estado del retiro
+        </Button>
+        {payout.currency !== "USD" && (
+          <p
+            role="note"
+            className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950"
+          >
+            La moneda de este retiro requiere revisión. Se conserva el historial
+            y no puede debitarse el libro USD para aprobarlo.
+          </p>
+        )}
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
-            <Button variant="outline" size="icon" onClick={() => router.back()} className="shrink-0">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => router.back()}
+              className="shrink-0"
+            >
               <ArrowLeft className="w-5 h-5" />
             </Button>
             <div>
@@ -197,11 +307,15 @@ function PayoutContent() {
                 <Wallet className="w-6 h-6 text-indigo-600" />
                 Detalle de Pago a Rider
               </h1>
-              <p className="text-gray-500 text-sm">ID: <span className="font-mono">{payout.id}</span></p>
+              <p className="text-gray-500 text-sm">
+                ID: <span className="font-mono">{payout.id}</span>
+              </p>
             </div>
           </div>
-          <Badge className={`${STATUS_COLORS[payout.status]} border px-4 py-1.5 text-sm font-bold shadow-sm`}>
-            {payout.status.replace('_', ' ')}
+          <Badge
+            className={`${STATUS_COLORS[payout.status]} border px-4 py-1.5 text-sm font-bold shadow-sm`}
+          >
+            {payout.status.replace("_", " ")}
           </Badge>
         </div>
 
@@ -209,7 +323,9 @@ function PayoutContent() {
           <CardHeader className="pb-4">
             <div className="flex justify-between items-start">
               <div>
-                <CardTitle className="text-lg text-gray-600">Solicitud de Retiro</CardTitle>
+                <CardTitle className="text-lg text-gray-600">
+                  Solicitud de Retiro
+                </CardTitle>
                 <CardDescription className="flex items-center gap-2 mt-1">
                   <Calendar className="w-4 h-4" />
                   Solicitado el: {payoutDateLabel(payout.requested_at)}
@@ -222,27 +338,41 @@ function PayoutContent() {
             {/* Monto y Método */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="p-6 bg-indigo-50 rounded-xl border border-indigo-100 flex flex-col justify-center">
-                <span className="text-indigo-600 font-medium text-sm uppercase tracking-wide">Monto a Pagar</span>
+                <span className="text-indigo-600 font-medium text-sm uppercase tracking-wide">
+                  Monto a Pagar
+                </span>
                 <span className="text-4xl font-bold text-indigo-900 mt-1">
-                  {payoutAmountLabel(payout.amount)}
+                  {payoutAmountLabel(payout.amount, payout.currency)}
                 </span>
               </div>
 
               <div className="space-y-4 p-6 bg-gray-50 rounded-xl border border-gray-100">
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-500 flex items-center gap-2"><Banknote className="w-4 h-4" /> Método</span>
-                  <span className="font-bold text-gray-900">{METHOD_LABELS[payout.method] || payout.method}</span>
+                  <span className="text-gray-500 flex items-center gap-2">
+                    <Banknote className="w-4 h-4" /> Método
+                  </span>
+                  <span className="font-bold text-gray-900">
+                    {METHOD_LABELS[payout.method] || payout.method}
+                  </span>
                 </div>
                 {payout.bank_account_last4 && (
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500 flex items-center gap-2">Cuenta</span>
-                    <span className="font-mono font-medium">**** {payout.bank_account_last4}</span>
+                    <span className="text-gray-500 flex items-center gap-2">
+                      Cuenta
+                    </span>
+                    <span className="font-mono font-medium">
+                      **** {payout.bank_account_last4}
+                    </span>
                   </div>
                 )}
                 {payout.reference_code && (
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500 flex items-center gap-2">Referencia</span>
-                    <span className="font-mono text-xs bg-white px-2 py-1 rounded border">{payout.reference_code}</span>
+                    <span className="text-gray-500 flex items-center gap-2">
+                      Referencia
+                    </span>
+                    <span className="font-mono text-xs bg-white px-2 py-1 rounded border">
+                      {payout.reference_code}
+                    </span>
                   </div>
                 )}
               </div>
@@ -251,76 +381,119 @@ function PayoutContent() {
             {/* Información del Rider */}
             <div className="pt-4 border-t">
               <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                <User className="w-5 h-5 text-gray-500" /> Información del Repartidor
+                <User className="w-5 h-5 text-gray-500" /> Información del
+                Repartidor
               </h3>
               <div className="bg-white p-4 rounded border border-gray-200 flex items-center gap-4">
                 <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center font-bold text-gray-600 text-lg">
                   R
                 </div>
                 <div>
-                  <p className="font-bold text-gray-900">ID Rider: {payout.rider_id}</p>
-                  <p className="text-sm text-gray-500">Ver perfil completo para más detalles</p>
+                  <p className="font-bold text-gray-900">
+                    ID Rider: {payout.rider_id}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    Ver perfil completo para más detalles
+                  </p>
                 </div>
-                <Button variant="outline" size="sm" className="ml-auto" onClick={() => router.push(`/manager/fleet/riders/${payout.rider_id}`)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="ml-auto"
+                  onClick={() =>
+                    router.push(`/manager/fleet/riders/${payout.rider_id}`)
+                  }
+                >
                   Ver Perfil
                 </Button>
               </div>
             </div>
 
             {/* Motivo de Rechazo (Si aplica) */}
-            {payout.status === 'RECHAZADO' && payout.rejection_reason && (
+            {payout.status === "RECHAZADO" && payout.rejection_reason && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                 <h4 className="text-red-800 font-bold text-sm mb-1 flex items-center gap-2">
                   <XCircle className="w-4 h-4" /> Motivo del Rechazo
                 </h4>
-                <p className="text-red-700 text-sm">{payout.rejection_reason}</p>
+                <p className="text-red-700 text-sm">
+                  {payout.rejection_reason}
+                </p>
               </div>
             )}
 
-
-
             <div className="pt-4 border-t">
               <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-emerald-600" /> Trazabilidad y Conciliación
+                <ShieldCheck className="w-5 h-5 text-emerald-600" />{" "}
+                Trazabilidad y Conciliación
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div className="bg-gray-50 p-4 rounded border">
-                  <p className="text-xs text-gray-500 uppercase font-semibold">Saldo antes</p>
-                  <p className="text-lg font-bold text-gray-900">{payoutAmountLabel(payout.balance_before)}</p>
+                  <p className="text-xs text-gray-500 uppercase font-semibold">
+                    Saldo antes
+                  </p>
+                  <p className="text-lg font-bold text-gray-900">
+                    {payoutAmountLabel(payout.balance_before, payout.currency)}
+                  </p>
                 </div>
                 <div className="bg-gray-50 p-4 rounded border">
-                  <p className="text-xs text-gray-500 uppercase font-semibold">Saldo después</p>
-                  <p className="text-lg font-bold text-gray-900">{payoutAmountLabel(payout.balance_after)}</p>
+                  <p className="text-xs text-gray-500 uppercase font-semibold">
+                    Saldo después
+                  </p>
+                  <p className="text-lg font-bold text-gray-900">
+                    {payoutAmountLabel(payout.balance_after, payout.currency)}
+                  </p>
                 </div>
               </div>
               <div className="space-y-2">
                 {history.length === 0 ? (
-                  <p className="text-sm text-gray-500">Sin movimientos de estado registrados todavía.</p>
-                ) : history.map((item) => (
-                  <div key={item.id} className="bg-white border rounded p-3 text-sm flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                    <div>
-                      <p className="font-semibold text-gray-900">
-                        {item.old_status || 'Inicio'} → {item.new_status}
-                      </p>
-                      {item.reason && <p className="text-gray-500">{item.reason}</p>}
+                  <p className="text-sm text-gray-500">
+                    Sin movimientos de estado registrados todavía.
+                  </p>
+                ) : (
+                  history.map((item) => (
+                    <div
+                      key={item.id}
+                      className="bg-white border rounded p-3 text-sm flex flex-col md:flex-row md:items-center md:justify-between gap-2"
+                    >
+                      <div>
+                        <p className="font-semibold text-gray-900">
+                          {item.old_status || "Inicio"} → {item.new_status}
+                        </p>
+                        {item.reason && (
+                          <p className="text-gray-500">{item.reason}</p>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500 md:text-right">
+                        <p>
+                          {item.created_at
+                            ? new Date(item.created_at).toLocaleString()
+                            : "Fecha no disponible"}
+                        </p>
+                        <p>
+                          {payoutAmountLabel(
+                            item.balance_before,
+                            item.currency,
+                          )}{" "}
+                          →{" "}
+                          {payoutAmountLabel(item.balance_after, item.currency)}
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-500 md:text-right">
-                      <p>{item.created_at ? new Date(item.created_at).toLocaleString() : 'Fecha no disponible'}</p>
-                      <p>{payoutAmountLabel(item.balance_before)} → {payoutAmountLabel(item.balance_after)}</p>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
 
             {/* Fecha de Procesamiento (Si aplica) */}
             {payout.processed_at && (
-               <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                 <h4 className="text-gray-800 font-bold text-sm mb-1 flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4" /> Fecha de gestión registrada
+                  <CheckCircle className="w-4 h-4" /> Fecha de gestión
+                  registrada
                 </h4>
                 <p className="text-gray-700 text-sm">
-                  Registrada el {payoutDateLabel(payout.processed_at)}. Estado: {payout.status.replaceAll('_', ' ')}.
+                  Registrada el {payoutDateLabel(payout.processed_at)}. Estado:{" "}
+                  {payout.status.replaceAll("_", " ")}.
                 </p>
               </div>
             )}
@@ -340,9 +513,13 @@ function PayoutContent() {
               <Button
                 className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
                 onClick={handleApprove}
-                disabled={actionLoading}
+                disabled={actionLoading || payout.currency !== "USD"}
               >
-                {actionLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
+                {actionLoading ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <ShieldCheck className="w-4 h-4 mr-2" />
+                )}
                 Aprobar retiro
               </Button>
             </CardFooter>
@@ -358,7 +535,8 @@ function PayoutContent() {
               <AlertTriangle className="w-5 h-5" /> Rechazar retiro
             </DialogTitle>
             <DialogDescription>
-              Indica el motivo. El retiro rechazado conserva su historial y libera la reserva correspondiente.
+              Indica el motivo. El retiro rechazado conserva su historial y
+              libera la reserva correspondiente.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
@@ -373,9 +551,18 @@ function PayoutContent() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRejectDialog(false)}>Cancelar</Button>
-            <Button variant="destructive" onClick={handleReject} disabled={!rejectReason.trim() || actionLoading}>
-              {actionLoading ? 'Procesando...' : 'Confirmar Rechazo'}
+            <Button
+              variant="outline"
+              onClick={() => setShowRejectDialog(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleReject}
+              disabled={!rejectReason.trim() || actionLoading}
+            >
+              {actionLoading ? "Procesando..." : "Confirmar Rechazo"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,3 +1,5 @@
+from tests.orm_contract import declared_usd_contract
+
 """Executable contracts for repaired adapters and informational utilities."""
 
 from datetime import datetime, timedelta, timezone
@@ -35,9 +37,9 @@ def test_runtime_model_annotations_preserve_base_physical_contract():
     expected = json.loads(
         (Path(__file__).parent / "fixtures/runtime_models_contract.json").read_text()
     )
-    assert (
-        detailed_mapping_contract(["riders", "zones", "platform_settings"]) == expected
-    )
+    assert detailed_mapping_contract(
+        ["riders", "zones", "platform_settings"]
+    ) == declared_usd_contract(expected)
 
 
 def test_nullable_rider_owner_is_serialized_without_dereferencing_none():

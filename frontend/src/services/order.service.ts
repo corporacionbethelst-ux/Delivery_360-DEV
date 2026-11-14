@@ -57,6 +57,7 @@ export interface DeliverySummary {
 }
 
 export interface Order {
+  currency?: string | null;
   id: string;
   external_id: string;
   

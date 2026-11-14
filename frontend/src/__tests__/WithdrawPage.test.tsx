@@ -13,7 +13,7 @@ beforeEach(() => {
   jest.resetAllMocks();
   sessionStorage.clear();
   jest.mocked(payoutService.findRequestByKey).mockResolvedValue(null);
-  jest.mocked(payoutService.getAvailableBalance).mockResolvedValue({ available: 100, pending: 0 });
+  jest.mocked(payoutService.getAvailableBalance).mockResolvedValue({ available: 100, pending: 0, currency: 'USD' });
   jest.mocked(payoutService.requestPayout).mockRejectedValue(new Error('Network unavailable'));
   jest.mocked(createPayoutIdempotencyKey).mockReturnValueOnce('intent-1').mockReturnValueOnce('intent-2');
 });
@@ -71,7 +71,7 @@ it('recovers the authoritative request after remount without submitting again', 
   submit();
   await screen.findByText('Error al procesar. Intenta más tarde.');
   page.unmount();
-  jest.mocked(payoutService.findRequestByKey).mockResolvedValue({ id: 'registered', rider_id: 'rider-1', amount: 60, total_amount: 60, status: 'RECHAZADO', method: 'TRANSFERENCIA', requested_at: '2026-10-24', created_at: '2026-10-24', updated_at: '2026-10-24', idempotency_key: 'intent-1', requested_by_user_id: 'rider-user' });
+  jest.mocked(payoutService.findRequestByKey).mockResolvedValue({ currency: 'USD', id: 'registered', rider_id: 'rider-1', amount: 60, total_amount: 60, status: 'RECHAZADO', method: 'TRANSFERENCIA', requested_at: '2026-10-24', created_at: '2026-10-24', updated_at: '2026-10-24', idempotency_key: 'intent-1', requested_by_user_id: 'rider-user' });
   render(<WithdrawPage />);
   expect(await screen.findByText('Solicitud encontrada')).toBeInTheDocument();
   expect(screen.getByText('Estado actual: RECHAZADO')).toBeInTheDocument();
@@ -104,7 +104,7 @@ it('shows the final server status when retrying an uncertain request', async () 
   fireEvent.change(await screen.findByLabelText('Monto a Retirar'), { target: { value: '60' } });
   submit();
   await screen.findByText('Error al procesar. Intenta más tarde.');
-  jest.mocked(payoutService.requestPayout).mockResolvedValueOnce({ id: 'registered', rider_id: 'rider-1', amount: 60, total_amount: 60, status: 'RECHAZADO', method: 'TRANSFERENCIA', requested_at: '2026-10-24', created_at: '2026-10-24', updated_at: '2026-10-24', idempotency_key: 'intent-1', requested_by_user_id: 'rider-user' });
+  jest.mocked(payoutService.requestPayout).mockResolvedValueOnce({ currency: 'USD', id: 'registered', rider_id: 'rider-1', amount: 60, total_amount: 60, status: 'RECHAZADO', method: 'TRANSFERENCIA', requested_at: '2026-10-24', created_at: '2026-10-24', updated_at: '2026-10-24', idempotency_key: 'intent-1', requested_by_user_id: 'rider-user' });
   submit();
   expect(await screen.findByText('Solicitud encontrada')).toBeInTheDocument();
   expect(screen.getByText('Estado actual: RECHAZADO')).toBeInTheDocument();

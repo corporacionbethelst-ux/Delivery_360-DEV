@@ -15,11 +15,11 @@ Utiliza la rama de esta entrega mientras el PR no esté integrado a main:
 
 ```bash
 git fetch origin
-git switch feat/usd-ves-bcv-rates-v1
+git switch feat/explicit-usd-ledger-v1
 ```
 
 Si solo existe la rama remota, utiliza
-`git switch --track origin/feat/usd-ves-bcv-rates-v1`.
+`git switch --track origin/feat/explicit-usd-ledger-v1`.
 Conserva tus cambios locales antes de cambiar de rama. Después de integrar el
 PR, puedes usar main actualizado con `git pull --ff-only`.
 
@@ -157,6 +157,27 @@ La tasa se registra manualmente tras verificar BCV; no existe consulta automáti
 habilitada. Es una herramienta de cotización independiente, sin pagos bancarios
 ni migración de saldos históricos. El [contrato de moneda](MONEDA_VENEZUELA.md)
 describe vigencia, precisión, permisos, comprobantes y pendientes.
+
+### Libro USD de la entrega 91
+
+Si actualizas un laboratorio anterior, los importes sin moneda verificable se
+conservan como historial y no se convierten automáticamente a USD. El saldo USD
+puede comenzar en cero aunque existan movimientos anteriores. La pantalla indica
+cuántos movimientos y retiros requieren revisión; las páginas de transacciones y
+pagos conservan su consulta. Las nuevas operaciones de esta versión declaran USD.
+
+El recorrido automático del ciclo operativo comprueba también esa separación:
+tras ganar 11 USD y registrar un retiro contable de 10 USD, añade dos fixtures
+claramente sintéticas sin moneda. Comprueba que queda 1 USD, que no se pueden usar
+los fondos desconocidos para retirar y que la UI impide aprobar ese retiro antiguo.
+Las fixtures quedan identificadas en `results.json`; sus inserciones SQL ocurren
+solo tras comprobar el marcador y la identidad del laboratorio. No son conversiones.
+
+Las órdenes sin moneda no permiten modificar sus importes como si fueran USD.
+Las nuevas órdenes mantienen el formulario colorido y los precios indicados en USD.
+Los reportes suman operaciones con unidad identificada; las cotizaciones BCV siguen
+sin confirmar pagos. La migración se niega a revertirse si perdería evidencia de
+moneda nueva. Conservar un saldo anterior requiere revisión, no cambiar etiquetas.
 
 ### Límites del laboratorio
 
