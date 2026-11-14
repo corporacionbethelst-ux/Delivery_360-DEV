@@ -15,11 +15,11 @@ Utiliza la rama de esta entrega mientras el PR no esté integrado a main:
 
 ```bash
 git fetch origin
-git switch feat/order-bcv-receipts-v1
+git switch feat/customer-collection-review-v1
 ```
 
 Si solo existe la rama remota, utiliza
-`git switch --track origin/feat/order-bcv-receipts-v1`.
+`git switch --track origin/feat/customer-collection-review-v1`.
 Conserva tus cambios locales antes de cambiar de rama. Después de integrar el
 PR, puedes usar main actualizado con `git pull --ff-only`.
 
@@ -229,3 +229,32 @@ El downgrade se niega si esas tablas contienen historial y conserva AUDITOR.
 
 La suite automática debe usar otra base PostgreSQL `test_*` vacía y sus esquemas
 privados. No ejecutes la suite completa contra los datos del laboratorio manual.
+
+## Cobros y revisión manual — entrega 94
+
+En el detalle de una orden con precio exacto USD, abre **Cobros de clientes**.
+Declara efectivo USD/VES, transferencia o pago móvil VES con un alias interno y
+referencia única. Revisa y confirma: el abono queda pendiente, sin acreditar cobro.
+Entra con **otra cuenta** GERENTE/SUPERADMIN, comprueba la evidencia y verifica o
+rechaza con una nota. La misma cuenta no puede revisar su propia declaración.
+Para VES, conserva primero la cotización de esa orden y actualiza el panel de
+cobros. El importe recibido debe coincidir con el abono USD y la tasa acordada.
+
+Usa exclusivamente importes y referencias sintéticos en el laboratorio. Las
+cuentas están en `.delivery360-testing/credentials.json`; no publiques ese archivo.
+El precio se protege con cobros pendientes o verificados. Al cancelar la orden,
+el panel expone una devolución pendiente sin ejecutar pagos. Todavía faltan el
+flujo de devolución y la conciliación externa; una revisión manual no es una
+confirmación automática del banco.
+
+Prueba automatizada con Chromium y la API real:
+
+```bash
+python frontend/e2e/local-customer-collections.browser.py --wait-request-window --artifacts-dir browser-real/customer-collections
+```
+
+El runner exige el marcador de la base y dos identidades verificadas antes de
+escribir. Comprueba efectivo y pago móvil parciales, revisión independiente,
+recuperación de una respuesta perdida, bloqueo del precio, enlace conservado,
+cancelación y diseño móvil. Compara los libros de repartidores antes y después.
+Respeta los límites reales de solicitudes sin desactivarlos.

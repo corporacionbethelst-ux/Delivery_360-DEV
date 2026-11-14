@@ -98,6 +98,9 @@ class Order(Base):
         JSON(none_as_null=True), nullable=True
     )
 
+    collection_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    collection_locked: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
     payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
     payment_status: Mapped[str | None] = mapped_column(
         String(20), default="pendiente", nullable=True

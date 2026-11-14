@@ -68,6 +68,10 @@ export default function EditOrderPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [priceLocked, setPriceLocked] = useState(false);
+  const [lockedPricing, setLockedPricing] = useState<ReturnType<
+    typeof priceOrder
+  > | null>(null);
   const [revision, setRevision] = useState<number | null>(null);
   const [exactLoaded, setExactLoaded] = useState(false);
   const [currency, setCurrency] = useState<string | undefined>();
@@ -120,6 +124,8 @@ export default function EditOrderPage() {
         setDeliveryFee(order.pricing?.delivery_fee ?? "");
         setRevision(order.pricing?.revision ?? null);
         setExactLoaded(!!order.pricing);
+        setPriceLocked(order.collection_locked === true);
+        setLockedPricing(order.pricing ?? null);
         setPriority(order.priority || "NORMAL");
         setItems(normalizeItems(order.pricing?.items ?? order.items));
       } catch (err: any) {
@@ -170,8 +176,8 @@ export default function EditOrderPage() {
 
     if (
       !isEditable ||
-      !preview ||
-      items.some((item) => !item.product_name.trim()) ||
+      (!priceLocked &&
+        (!preview || items.some((item) => !item.product_name.trim()))) ||
       !pickupAddress.trim() ||
       !deliveryAddress.trim()
     ) {
@@ -192,17 +198,21 @@ export default function EditOrderPage() {
         delivery_address: deliveryAddress.trim(),
         delivery_reference: deliveryReference.trim() || undefined,
         delivery_instructions: deliveryInstructions.trim() || undefined,
-        items: preview.items.map((item) => ({
-          ...item,
-          product_name: String(item.product_name).trim(),
-          quantity: item.quantity!,
-          unit_price: item.unit_price!,
-        })),
-        currency: "USD",
-        expected_pricing_revision: revision,
-        subtotal: preview.subtotal,
-        delivery_fee: preview.delivery_fee,
-        total: preview.total,
+        ...(!priceLocked && preview
+          ? {
+              items: preview.items.map((item) => ({
+                ...item,
+                product_name: String(item.product_name).trim(),
+                quantity: item.quantity!,
+                unit_price: item.unit_price!,
+              })),
+              currency: "USD",
+              expected_pricing_revision: revision,
+              subtotal: preview.subtotal,
+              delivery_fee: preview.delivery_fee,
+              total: preview.total,
+            }
+          : {}),
         priority,
       });
 
@@ -257,6 +267,16 @@ export default function EditOrderPage() {
           </Alert>
         )}
 
+        {priceLocked && (
+          <p
+            role="note"
+            className="rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-cyan-50 p-4 text-emerald-950"
+          >
+            Precio protegido por cobros pendientes o verificados. Puedes
+            actualizar las direcciones y la prioridad; los productos e importes
+            conservan su revisión.
+          </p>
+        )}
         {currency !== "USD" && (
           <p
             role="note"
@@ -408,7 +428,7 @@ export default function EditOrderPage() {
                   variant="outline"
                   size="sm"
                   onClick={addItem}
-                  disabled={!isEditable}
+                  disabled={!isEditable || priceLocked}
                 >
                   <PlusCircle className="w-4 h-4 mr-2" /> Agregar
                 </Button>
@@ -426,7 +446,7 @@ export default function EditOrderPage() {
                         onChange={(event) =>
                           updateItem(index, "product_name", event.target.value)
                         }
-                        disabled={!isEditable}
+                        disabled={!isEditable || priceLocked}
                       />
                     </div>
                     <div className="space-y-1">
@@ -439,7 +459,7 @@ export default function EditOrderPage() {
                         onChange={(event) =>
                           updateItem(index, "quantity", event.target.value)
                         }
-                        disabled={!isEditable}
+                        disabled={!isEditable || priceLocked}
                       />
                     </div>
                     <div className="space-y-1">
@@ -452,7 +472,7 @@ export default function EditOrderPage() {
                         onChange={(event) =>
                           updateItem(index, "unit_price", event.target.value)
                         }
-                        disabled={!isEditable}
+                        disabled={!isEditable || priceLocked}
                       />
                     </div>
                     <Button
@@ -460,7 +480,9 @@ export default function EditOrderPage() {
                       variant="ghost"
                       size="icon"
                       onClick={() => removeItem(index)}
-                      disabled={!isEditable || items.length === 1}
+                      disabled={
+                        !isEditable || priceLocked || items.length === 1
+                      }
                     >
                       <Trash2 className="w-4 h-4 text-red-500" />
                     </Button>
@@ -489,7 +511,7 @@ export default function EditOrderPage() {
                     step="0.01"
                     value={deliveryFee}
                     onChange={(event) => setDeliveryFee(event.target.value)}
-                    disabled={!isEditable}
+                    disabled={!isEditable || priceLocked}
                   />
                 </div>
                 <div className="space-y-2">
@@ -510,15 +532,27 @@ export default function EditOrderPage() {
                 <div className="bg-gray-50 border rounded-lg p-4 space-y-2">
                   <div className="flex justify-between text-sm">
                     <span>Subtotal</span>
-                    <strong>{exactMoneyLabel(preview?.subtotal)}</strong>
+                    <strong>
+                      {exactMoneyLabel(
+                        (priceLocked ? lockedPricing : preview)?.subtotal,
+                      )}
+                    </strong>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span>Envío</span>
-                    <strong>{exactMoneyLabel(preview?.delivery_fee)}</strong>
+                    <strong>
+                      {exactMoneyLabel(
+                        (priceLocked ? lockedPricing : preview)?.delivery_fee,
+                      )}
+                    </strong>
                   </div>
                   <div className="flex justify-between text-lg font-bold border-t pt-2">
                     <span>Total</span>
-                    <span>{exactMoneyLabel(preview?.total)}</span>
+                    <span>
+                      {exactMoneyLabel(
+                        (priceLocked ? lockedPricing : preview)?.total,
+                      )}
+                    </span>
                   </div>
                 </div>
               </CardContent>
@@ -526,7 +560,7 @@ export default function EditOrderPage() {
                 <Button
                   type="submit"
                   className="w-full h-12 text-base font-bold bg-blue-600 hover:bg-blue-700"
-                  disabled={!isEditable || saving || !preview}
+                  disabled={!isEditable || saving || (!priceLocked && !preview)}
                 >
                   {saving ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />

@@ -181,6 +181,10 @@ def apply(order: Order, price: Pricing, *, expected_revision=None) -> None:
         order.total_exact,
         order.items_exact,
     ) == (price.subtotal, price.delivery_fee, price.total, price.items)
+    if not same and getattr(order, "collection_locked", None) is True:
+        raise AppException(
+            "El precio tiene cobros pendientes o verificados y no admite cambios", 409
+        )
     order.pricing_version = 1
     order.pricing_revision = current if same else (current or 0) + 1
     order.subtotal_exact, order.delivery_fee_exact, order.total_exact = (

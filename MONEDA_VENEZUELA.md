@@ -164,9 +164,75 @@ vigente, día y conversión, y rechazan UPDATE, DELETE y TRUNCATE. Las claves
 foráneas conservan orden, referencia y responsable. El downgrade se niega si ya
 existen comprobantes. La migración se prueba y aplica únicamente al laboratorio.
 
-Continúan pendientes el registro de cobros efectivamente verificados, abonos
-parciales/devoluciones y conciliación con el proveedor/banco seleccionado. No se
-habilita una liquidación VES ni fiscalidad venezolana por guardar este documento.
+El bloque de cobros de la entrega 94 utiliza estas cotizaciones para conservar
+el cambio acordado. Las cotizaciones siguen sin confirmar pagos por sí solas.
+
+## Cobros de clientes y revisión independiente — entrega 94
+
+Medios confirmados: **efectivo USD/VES, transferencia USD/VES y pago móvil VES**.
+El detalle de la orden permite declarar un abono USD y el importe realmente
+recibido. Se revisan los importes antes de guardar y se confirma explícitamente
+la recepción. El registro nace PENDIENTE: reserva capacidad, pero no suma al
+importe verificado. Un gerente o superadministrador distinto del declarante
+comprueba el efectivo o ingreso en cuenta y verifica o rechaza con una nota.
+La decisión es final y conserva la declaración; corregir un rechazo requiere
+una declaración nueva. No hay consulta o confirmación automática de un banco.
+
+El importe recibido USD debe coincidir con el abono USD. Un cobro VES exige una
+cotización de la misma orden, revisión de precio y día de Caracas; el importe
+recibido debe ser exactamente el abono USD × la tasa conservada, con HALF_UP a
+centavos. Una corrección posterior de BCV no revaloriza el pago acordado. En este
+primer bloque se declaran recepciones del día; no se inventan tasas para pagos
+anteriores ni se deducen dólares dividiendo bolívares redondeados.
+
+Se indica un alias interno de caja/cuenta y la referencia completa del recibo o
+transferencia. La combinación es única entre todos los cobros pendientes o
+verificados, incluso de distintas órdenes, fechas o medios. No se deben introducir
+números de cuenta ni datos personales bancarios. Un rechazo libera capacidad y
+permite corregir la referencia con otra declaración, preservando la anterior.
+
+El resumen muestra USD pendientes, verificados y por cobrar. La capacidad de
+nuevos abonos resta también los pendientes, para evitar reservas duplicadas.
+El precio exacto se congela mientras exista un pendiente o verificado: se pueden
+actualizar direcciones y prioridad según el estado operativo. La protección
+existe en la API y PostgreSQL. No se actualiza el `payment_status` heredado ni los
+libros de bonos, wallets y retiros del repartidor; el resumen de este panel es
+la fuente de este nuevo libro de cobros de clientes.
+
+Una orden cancelada o fallida no admite declaraciones nuevas. Si ya hay un
+importe verificado, se expone como devolución pendiente, sin ejecutar una salida
+de dinero. Verificar un pendiente de esa orden exige reconocer esa obligación.
+La ejecución, aprobación y conciliación de devoluciones queda para el siguiente
+bloque; tampoco se habilita todavía liquidación VES de repartidores.
+
+| Ruta | Función | Roles |
+| --- | --- | --- |
+| `GET /api/v1/customer-collections/orders/{order_id}` | Resumen global, últimos 20 registros visibles y cotizaciones VES elegibles | SUPERADMIN, GERENTE, OPERADOR, AUDITOR |
+| `POST /api/v1/customer-collections/orders/{order_id}` | Declarar abono recibido | SUPERADMIN, GERENTE, OPERADOR |
+| `POST /api/v1/customer-collections/{collection_id}/review` | Verificar o rechazar con evidencia y nota | SUPERADMIN, GERENTE; distinto del declarante |
+| `GET /api/v1/customer-collections/{collection_id}` | Recuperar declaración y decisión conservadas | Consulta; OPERADOR solo propio |
+
+El contexto agrega todos los abonos de la orden; un operador solo ve sus propias
+declaraciones y cotizaciones. Gerencia y auditoría consultan el conjunto. El enlace
+`?customer_collection=UUID` recupera un registro aunque haya salido de la lista
+reciente. Cada nueva declaración exige revisiones esperadas de precio y cobros;
+la revisión exige la revisión de cobros. Un cambio concurrente devuelve 412.
+Repetir la misma clave y contenido recupera el registro ya confirmado, incluso
+si cambió el día o la orden se canceló; otro contenido con esa clave causa 409.
+El navegador conserva la solicitud ante una respuesta ambigua para reintentar.
+
+La migración `20261114_customer_collections`, después de las cotizaciones de
+orden, añade dos tablas inmutables y dos columnas nullable sin DEFAULT a órdenes:
+`collection_revision` y `collection_locked`. No reescribe filas anteriores.
+Triggers verifican snapshot, conversión, referencia, capacidad e independencia;
+calculan el estado de cobros y bloquean su falsificación y los cambios de precio.
+Declaración/decisión, contadores y auditoría se confirman en la misma transacción.
+UPDATE, DELETE y TRUNCATE se rechazan; el downgrade se niega si existe historial.
+La migración solo se aplica al laboratorio marcado durante esta entrega.
+
+Las pruebas `test_customer_collections_postgresql.py` y
+`frontend/e2e/local-customer-collections.browser.py` cubren el libro real y la UI
+con dos cuentas independientes. No se envía dinero, mensajes ni datos a bancos.
 
 ## Uso
 
@@ -259,6 +325,6 @@ En CI se ejecuta después de los recorridos funcionales anteriores, respetando l
 ventana real de cinco logins por minuto mediante `--wait-auth-window`. Los casos
 PostgreSQL automatizados utilizan una base `test_*` explícita y esquemas propios.
 
-Siguen pendientes la revisión de moneda histórica, la migración decimal de órdenes,
+Siguen pendientes la revisión de moneda histórica, el cierre decimal de reportes,
 la aplicación de BCV a liquidaciones VES reales, automatizar BCV con disponibilidad
 y trazabilidad verificables y elegir/homologar pagos y facturación venezolana.
