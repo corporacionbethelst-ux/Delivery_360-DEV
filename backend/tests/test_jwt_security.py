@@ -96,8 +96,8 @@ def test_missing_required_claims_never_authenticate(field):
         ("iat", "0"),
         ("iat", -1),
         ("iat", float("nan")),
-        ("iat", int(time.time()) + 600),
-        ("exp", int(time.time()) - 1),
+        pytest.param("iat", lambda: int(time.time()) + 600, id="future-issued-at"),
+        pytest.param("exp", lambda: int(time.time()) - 1, id="expired-at-execution"),
         ("sub", ""),
         ("sub", " "),
         ("sub", 1),
@@ -115,7 +115,14 @@ def test_missing_required_claims_never_authenticate(field):
     ],
 )
 def test_signed_but_malformed_claims_fail_closed(field, value):
-    assert decode_token(independent_signature(claims(**{field: value}))) is None
+    # Collection can precede this case by more than ten minutes in a full CI run.
+    # Resolve relative timestamps when issuing the token, never during collection.
+    resolved = value() if callable(value) else value
+    payload = claims(**{field: resolved})
+    if field == "iat" and callable(value):
+        # Keep the lifetime coherent so this specifically exercises future iat.
+        payload["exp"] = resolved + 300
+    assert decode_token(independent_signature(payload)) is None
 
 
 @pytest.mark.parametrize(

@@ -74,11 +74,16 @@ CURRENCY_PATHS = {
     "/api/v1/currency/rates",
     "/api/v1/currency/quotes",
     "/api/v1/currency/quotes/{quote_id}",
+    "/api/v1/currency/orders/{order_id}/quotes",
+    "/api/v1/currency/order-quotes/{quote_id}",
 }
 
 
 def before_currency_schema(application):
     schema = deepcopy(application.openapi())
+    assert schema["components"]["schemas"].pop("OrderQuoteInput") == json.loads(
+        (Path(__file__).parent / "fixtures/openapi_order_quote_input.json").read_text()
+    )
     # Reverse only the reviewed prospective-price input changes. Every previous
     # route, dependency and unrelated schema remains pinned by historical hashes.
     delta = json.loads(
@@ -119,7 +124,7 @@ def before_currency_schema(application):
 def surface_before_currency(application):
     current = api_surface(application)
     removed = [row for row in current["routes"] if row["path"] in CURRENCY_PATHS]
-    assert len(removed) == 4
+    assert len(removed) == 7
     current["routes"] = [
         row for row in current["routes"] if row["path"] not in CURRENCY_PATHS
     ]
