@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.auth import require_role
 from app.core.database import get_db
 from app.models.currency import UsdVesQuote, BcvRate
+from app.models.order_currency_quote import OrderCurrencyQuote
+from app.services import order_currency_quote as order_quotes
 from app.models.user import User, UserRole
 from app.services import bcv_currency as service
 
@@ -109,3 +111,49 @@ async def get_usd_ves_quote(
     if actor.role == UserRole.OPERADOR and row.created_by != actor.id:
         raise HTTPException(403, "La cotización pertenece a otra cuenta")
     return await service.receipt_view(db, row)
+
+
+class OrderQuoteInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_key: UUID
+    rate_id: UUID
+    expected_pricing_revision: int = Field(ge=1, le=2147483647, strict=True)
+
+
+@router.get("/orders/{order_id}/quotes")
+async def order_quote_context(
+    order_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(
+        require_role(*sorted(service.READ_ROLES, key=lambda role: role.value))
+    ),
+):
+    return await order_quotes.context_view(db, actor, order_id)
+
+
+@router.post("/orders/{order_id}/quotes", status_code=201)
+async def save_order_quote(
+    order_id: UUID,
+    body: OrderQuoteInput,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(
+        require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)
+    ),
+):
+    return await order_quotes.create(db, actor, order_id, body)
+
+
+@router.get("/order-quotes/{quote_id}")
+async def get_order_quote(
+    quote_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(
+        require_role(*sorted(service.READ_ROLES, key=lambda role: role.value))
+    ),
+):
+    row = await db.get(OrderCurrencyQuote, quote_id)
+    if row is None:
+        raise HTTPException(404, "Comprobante de cotización no encontrado")
+    if actor.role == UserRole.OPERADOR and row.created_by != actor.id:
+        raise HTTPException(403, "El comprobante pertenece a otra cuenta")
+    return await order_quotes.receipt_view(db, row)

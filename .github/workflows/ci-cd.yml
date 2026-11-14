@@ -332,6 +332,7 @@ jobs:
           python frontend/e2e/local-lifecycle.browser.py --chromium "$chromium" --artifacts-dir browser-real/lifecycle
           python frontend/e2e/local-currency.browser.py --chromium "$chromium" --wait-auth-window --artifacts-dir browser-real/currency
           python frontend/e2e/local-order-pricing.browser.py --chromium "$chromium" --artifacts-dir browser-real/order-pricing
+          python frontend/e2e/local-order-currency.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/order-currency
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && hashFiles('browser-real/**') != '' }}
         with:

@@ -1,0 +1,28 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "expected_pricing_revision": {
+      "maximum": 2147483647.0,
+      "minimum": 1.0,
+      "title": "Expected Pricing Revision",
+      "type": "integer"
+    },
+    "rate_id": {
+      "format": "uuid",
+      "title": "Rate Id",
+      "type": "string"
+    },
+    "request_key": {
+      "format": "uuid",
+      "title": "Request Key",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_key",
+    "rate_id",
+    "expected_pricing_revision"
+  ],
+  "title": "OrderQuoteInput",
+  "type": "object"
+}

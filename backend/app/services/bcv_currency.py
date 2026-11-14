@@ -94,8 +94,12 @@ async def advisory(db: AsyncSession, key: str):
     )
 
 
-async def actor_lock(db: AsyncSession, actor: User, roles: set[UserRole]):
-    identity, version = actor.id, actor.token_version
+async def actor_lock(
+    db: AsyncSession, actor: User, roles: set[UserRole], *, expected_version=None
+):
+    identity, version = actor.id, (
+        actor.token_version if expected_version is None else expected_version
+    )
     live = await db.scalar(
         select(User)
         .where(User.id == identity)

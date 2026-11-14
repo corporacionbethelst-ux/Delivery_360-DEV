@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 91. Este registro distingue implementación local,
+Actualizado con la entrega 93. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -31,10 +31,21 @@ Impide aprobar un retiro antiguo contra USD, reetiquetar unidades o sobrescribir
 una caché sin moneda verificable. Los reportes USD excluyen datos sin denominación;
 la UI conserva su historial y deja de inferir ganancias desde órdenes sin asiento.
 
-Faltan la revisión explícita de moneda histórica, el almacenamiento decimal de
-importes de órdenes, la aplicación de tasas BCV conservadas a liquidaciones VES
-y la obtención automática fiable del BCV. La cotización sigue siendo independiente
-(`quotation_only`); no acredita conversión de saldos anteriores o pago bancario.
+La entrega 92 guarda precios nuevos de órdenes con NUMERIC y artículos decimales,
+protege ediciones por revisión y conserva los Float anteriores. Los reportes añaden
+un subconjunto exacto, sin convertir los indicadores históricos.
+
+La entrega 93 vincula el precio exacto y su revisión a un comprobante USD/VES con
+referencia BCV conservada. Incluye revisión visual, reintentos sin duplicados,
+permisos, recuperación por enlace e historial inmutable. Una cotización de orden
+no acredita cobro ni modifica saldos; los cambios posteriores no recalculan el
+documento anterior.
+
+Faltan la revisión explícita de moneda histórica, el cierre de reportes monetarios
+sobre decimales, la confirmación de cobros reales y abonos/devoluciones, la
+aplicación de tasas BCV conservadas a liquidaciones VES
+y la obtención automática fiable del BCV. La cotización independiente o ligada a la orden sigue siendo
+`quotation_only`; no acredita conversión de saldos anteriores o pago bancario.
 La consulta HTTPS al BCV respondió 503 durante el bloque de referencias; no se
 sustituyó por tasas de prueba ni se omitió TLS. Véase
 [MONEDA_VENEZUELA.md](MONEDA_VENEZUELA.md).
