@@ -89,6 +89,16 @@ class OrderService:
     ) -> Order:
         order = await self.get_order(db, order_id, lock=True)
         update_data = order_data.model_dump(exclude_unset=True)
+        if order.currency_code != "USD" and set(update_data) & {
+            "items",
+            "subtotal",
+            "delivery_fee",
+            "total",
+        }:
+            raise AppException(
+                "La moneda histórica de la orden requiere revisión antes de cambiar importes",
+                409,
+            )
         if "assigned_rider_id" in update_data or (
             order_data.status is not None
             and order_data.status.value == "ASIGNADO"

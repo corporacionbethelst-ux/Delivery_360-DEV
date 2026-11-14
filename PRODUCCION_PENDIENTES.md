@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 90. Este registro distingue implementación local,
+Actualizado con la entrega 91. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -25,13 +25,19 @@ duplicados y comprobantes que conservan su tasa. Las referencias y cotizaciones
 persistidas rechazan UPDATE, DELETE y TRUNCATE. Una corrección crea otra revisión.
 La API y la pantalla indican que el origen es manual y que no confirman pagos.
 
-Faltan la obtención automática fiable del BCV y la adopción de USD en todos los
-flujos contables, tarifas, bonos, órdenes, facturas y retiros. La nueva herramienta
-es de cotización (`quotation_only`); no acredita que el libro histórico ya esté
-en USD. Los importes anteriores sin moneda verificable requieren revisión; no
-se reetiquetan COP como USD ni se convierten usando la tasa actual. La consulta
-HTTPS al BCV respondió 503 en este entorno; no se sustituyó por tasas de prueba
-ni se omitió la verificación TLS. Véase [MONEDA_VENEZUELA.md](MONEDA_VENEZUELA.md).
+La entrega 91 identifica nuevas órdenes, movimientos y retiros en USD, separa
+saldos/reservas de registros sin moneda y conserva el historial anterior en null.
+Impide aprobar un retiro antiguo contra USD, reetiquetar unidades o sobrescribir
+una caché sin moneda verificable. Los reportes USD excluyen datos sin denominación;
+la UI conserva su historial y deja de inferir ganancias desde órdenes sin asiento.
+
+Faltan la revisión explícita de moneda histórica, el almacenamiento decimal de
+importes de órdenes, la aplicación de tasas BCV conservadas a liquidaciones VES
+y la obtención automática fiable del BCV. La cotización sigue siendo independiente
+(`quotation_only`); no acredita conversión de saldos anteriores o pago bancario.
+La consulta HTTPS al BCV respondió 503 durante el bloque de referencias; no se
+sustituyó por tasas de prueba ni se omitió TLS. Véase
+[MONEDA_VENEZUELA.md](MONEDA_VENEZUELA.md).
 
 El banco/proveedor de pagos todavía no está seleccionado. La integración exige
 confirmación externa verificable, prevención de duplicados y conciliación; no

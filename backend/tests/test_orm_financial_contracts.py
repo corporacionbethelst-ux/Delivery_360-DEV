@@ -1,3 +1,5 @@
+from tests.orm_contract import declared_usd_contract
+
 """Preserve PostgreSQL DDL and real persisted scalar/nullable contracts."""
 
 import json
@@ -34,7 +36,9 @@ def test_typed_mappings_preserve_postgresql_contract():
             Path(__file__).parent / "fixtures/orm_financial_dispatch_contract.json"
         ).read_text()
     )
-    assert detailed_mapping_contract(TABLES) == cancellation_contract(expected)
+    assert detailed_mapping_contract(TABLES) == declared_usd_contract(
+        cancellation_contract(expected)
+    )
 
 
 @pytest.mark.asyncio

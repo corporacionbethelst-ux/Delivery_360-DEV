@@ -68,7 +68,7 @@ class CRUDFinancial:
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
     ) -> dict:
-        filters = []
+        filters = [Financial.currency_code == "USD"]
         if rider_id:
             filters.append(Financial.rider_id == rider_id)
         if start_date:

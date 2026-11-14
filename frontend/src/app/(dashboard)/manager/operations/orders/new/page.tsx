@@ -400,7 +400,7 @@ export default function NewOrderPage() {
                         />
                       </div>
                       <div className="w-full md:w-28 space-y-1">
-                        <Label className="text-xs text-gray-500">Precio</Label>
+                        <Label className="text-xs text-gray-500">Precio · USD</Label>
                         <Input 
                           type="number" 
                           min="0"
@@ -440,7 +440,7 @@ export default function NewOrderPage() {
                 </CardHeader>
                 <CardContent className="space-y-4 pt-4">
                   <div className="space-y-2">
-                    <Label htmlFor="deliveryFee">Costo de Envío</Label>
+                    <Label htmlFor="deliveryFee">Costo de Envío · USD</Label>
                     <div className="relative">
                       <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
                       <Input 

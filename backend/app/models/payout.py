@@ -57,6 +57,11 @@ class Payout(Base):
     )
 
     # Datos del retiro
+
+    currency_code: Mapped[str | None] = mapped_column(
+        String(3).evaluates_none(), nullable=True, default="USD"
+    )
+
     amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     # FIX FASE 7 (column "payouts.status" does not exist):
     # La tabla legacy 'payouts' se creó en la migración inicial a617d286d3d0 con una
@@ -122,6 +127,8 @@ class PayoutStatusHistory(Base):
     """Historial auditable de cambios de estado de retiros."""
 
     __tablename__ = "payout_status_history"
+
+    currency_code: Mapped[str | None] = mapped_column(String(3), nullable=True)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False

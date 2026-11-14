@@ -45,8 +45,11 @@ from app.core.reporting_period import utc_naive
 def processed_ledger_filter() -> ColumnElement[bool]:
     # Compare text so reading older installations does not bind a value that
     # their physical PostgreSQL enum has not acquired yet (e.g. PAGADO).
-    return cast(Financial.status, String).in_(
-        [state.value for state in BALANCE_IMPACT_STATUSES]
+    return and_(
+        Financial.currency_code == "USD",
+        cast(Financial.status, String).in_(
+            [state.value for state in BALANCE_IMPACT_STATUSES]
+        ),
     )
 
 
@@ -174,7 +177,9 @@ class FinancialService:
         Raises:
             ValueError: Si el rider no existe
         """
-        statement = update(Rider).where(Rider.id == UUID(str(rider_id)))
+        statement = update(Rider).where(
+            Rider.id == UUID(str(rider_id)), Rider.wallet_currency == "USD"
+        )
         if expected_version is not None:
             statement = statement.where(Rider.version == expected_version)
         result = await self.db.execute(
@@ -199,9 +204,9 @@ class FinancialService:
         A cache discrepancy is not a real earning or debit. Never fabricate a
         ledger entry to reconcile the cache, or the source balance changes too.
         """
-        statement = select(Rider.wallet_balance, Rider.version).where(
-            Rider.id == UUID(str(rider_id))
-        )
+        statement = select(
+            Rider.wallet_balance, Rider.version, Rider.wallet_currency
+        ).where(Rider.id == UUID(str(rider_id)))
         if not dry_run:
             statement = statement.with_for_update()
         try:
@@ -217,6 +222,11 @@ class FinancialService:
                     "dry_run": dry_run,
                 }
             ledger_balance = await self.get_current_balance(rider_id)
+            if row.wallet_currency != "USD":
+                raise AppException(
+                    "La moneda del saldo almacenado requiere revisión; no se modificó",
+                    409,
+                )
             stored_balance = money(row.wallet_balance)
             adjustment = ledger_balance - stored_balance
             difference = abs(adjustment)
@@ -363,7 +373,10 @@ class FinancialService:
                                     ),
                                     Financial.created_at,
                                 )
-                                .where(Financial.rider_id == rider_uuid)
+                                .where(
+                                    Financial.rider_id == rider_uuid,
+                                    Financial.currency_code == "USD",
+                                )
                                 .order_by(
                                     Financial.created_at.asc().nullsfirst(),
                                     Financial.id,
@@ -430,6 +443,7 @@ class FinancialService:
                             )
                         transaction = Financial(
                             rider_id=rider_uuid,
+                            currency_code="USD",
                             amount=normalized,
                             balance_before=before,
                             balance_after=after,

@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ArrowLeft, UserCheck, AlertCircle, Wand2, MapPin, CheckCircle2, Package, Truck, Phone, Mail, UserRound, Edit } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { formatCurrency } from '@/lib/formatters';
+import { payoutAmountLabel } from '@/lib/payout-contract';
 
 interface RiderSimple {
   id: string;
@@ -364,7 +364,7 @@ export default function OrderDetailManagerPage() {
                               </td>
                               <td className="px-4 py-3 text-center text-gray-600">x{item.quantity}</td>
                               <td className="px-4 py-3 text-right font-medium text-gray-900">
-                                {formatCurrency((item.unit_price || 0) * (item.quantity || 0))}
+                                {payoutAmountLabel((item.unit_price || 0) * (item.quantity || 0), order.currency ?? undefined)}
                               </td>
                             </tr>
                           ))
@@ -380,7 +380,7 @@ export default function OrderDetailManagerPage() {
                         <tr>
                           <td colSpan={2} className="px-4 py-3 text-right text-gray-700">TOTAL</td>
                           <td className="px-4 py-3 text-right text-green-700 text-base">
-                            {formatCurrency(order.total_amount || order.total || 0)}
+                            {payoutAmountLabel(order.total_amount ?? order.total, order.currency ?? undefined)}
                           </td>
                         </tr>
                       </tfoot>

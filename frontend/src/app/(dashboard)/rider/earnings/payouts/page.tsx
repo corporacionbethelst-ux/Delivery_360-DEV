@@ -115,7 +115,7 @@ function PayoutContent() {
                       {/* Info Principal */}
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-3 mb-2">
-                          <h3 className="text-xl font-bold text-gray-900">{payoutAmountLabel(payout.amount)}</h3>
+                          <h3 className="text-xl font-bold text-gray-900">{payoutAmountLabel(payout.amount, payout.currency)}</h3>
                           <Badge className={`${config.bg} ${config.color} border-transparent font-semibold text-xs px-2.5 py-0.5`}>
                             {config.label}
                           </Badge>

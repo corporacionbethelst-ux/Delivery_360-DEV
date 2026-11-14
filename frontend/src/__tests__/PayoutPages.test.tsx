@@ -18,7 +18,7 @@ jest.mock('@/components/ui/select', () => ({
   SelectTrigger: () => null, SelectValue: () => null, SelectContent: ({ children }: any) => <>{children}</>,
   SelectItem: ({ value, children }: any) => <option value={value}>{children}</option>,
 }));
-const row = { id: 'p', rider_id: 'r', amount: 60.12, total_amount: 60.12, method: 'TRANSFERENCIA' as const, status: 'PENDIENTE' as const, requested_at: null, created_at: null, updated_at: null };
+const row = { currency: 'USD', id: 'p', rider_id: 'r', amount: 60.12, total_amount: 60.12, method: 'TRANSFERENCIA' as const, status: 'PENDIENTE' as const, requested_at: null, created_at: null, updated_at: null };
 
 const page = (items: Payout[]): PayoutPage => ({ items: items.slice(0, 50), next_cursor: items.length > 50 ? `after-${items[49].id}` : null });
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }

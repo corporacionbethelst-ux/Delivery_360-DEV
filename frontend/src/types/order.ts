@@ -57,6 +57,7 @@ export interface OrderAssignedRider {
  * Incluye la propiedad opcional delivery para el flujo del repartidor.
  */
 export interface Order {
+  currency?: string | null;
   id: string;
   orderNumber: string;
   status: OrderStatus;

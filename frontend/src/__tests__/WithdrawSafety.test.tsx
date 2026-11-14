@@ -11,12 +11,12 @@ jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }));
 jest.mock('@/stores/authStore', () => ({ useAuthStore: () => ({ user: mockUser, isAuthenticated: true }) }));
 jest.mock('@/services/payout.service', () => ({ payoutService: { getAvailableBalance: jest.fn(), requestPayout: jest.fn(), findRequestByKey: jest.fn() }, createPayoutIdempotencyKey: jest.fn(), payoutHttpStatus: jest.requireActual('@/services/payout.service').payoutHttpStatus }));
 const intent = { version: 1 as const, userId: 'a', key: 'safe-key', amountCents: 6000, bankLast4: '1234' };
-const reply = { id: 'p', rider_id: 'r', amount: 60, total_amount: 60, method: 'TRANSFERENCIA' as const, status: 'PENDIENTE' as const, requested_at: null, created_at: null, updated_at: null, idempotency_key: 'safe-key', requested_by_user_id: 'a', bank_account_last4: '1234' };
+const reply = { currency: 'USD', id: 'p', rider_id: 'r', amount: 60, total_amount: 60, method: 'TRANSFERENCIA' as const, status: 'PENDIENTE' as const, requested_at: null, created_at: null, updated_at: null, idempotency_key: 'safe-key', requested_by_user_id: 'a', bank_account_last4: '1234' };
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 beforeEach(() => {
   jest.resetAllMocks(); clearStoredTokens(); sessionStorage.clear(); mockUser = { id: 'a', role: 'REPARTIDOR' };
   storeTokens({ access_token: 'token-a', refresh_token: 'ra' });
-  jest.mocked(payoutService.getAvailableBalance).mockResolvedValue({ available: 100, pending: 0, currency: 'COP' });
+  jest.mocked(payoutService.getAvailableBalance).mockResolvedValue({ available: 100, pending: 0, currency: 'USD' });
   jest.mocked(payoutService.findRequestByKey).mockResolvedValue(null);
   jest.mocked(payoutService.requestPayout).mockResolvedValue(reply);
   jest.mocked(createPayoutIdempotencyKey).mockReturnValue('safe-key');
@@ -72,7 +72,7 @@ it('does not clear the old account intent after a late lookup', async () => {
 });
 it('does not let a late balance from another account enable a withdrawal', async () => {
   const old = deferred<{ available: number; pending: number }>();
-  jest.mocked(payoutService.getAvailableBalance).mockReturnValueOnce(old.promise).mockResolvedValueOnce({ available: 0, pending: 0, currency: 'COP' });
+  jest.mocked(payoutService.getAvailableBalance).mockReturnValueOnce(old.promise).mockResolvedValueOnce({ available: 0, pending: 0, currency: 'USD' });
   render(<Page />);
   act(() => { mockUser = { id: 'b', role: 'REPARTIDOR' }; storeTokens({ access_token: 'token-b', refresh_token: 'rb' }); });
   await screen.findByLabelText('Monto a Retirar');

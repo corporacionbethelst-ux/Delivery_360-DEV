@@ -1,3 +1,5 @@
+from tests.orm_contract import declared_usd_contract
+
 """Persisted wallet contracts; SQLite tests do not claim row-lock coverage."""
 
 import json
@@ -36,7 +38,7 @@ def test_mapped_columns_match_versioned_postgresql_schema():
     expected = json.loads(
         (Path(__file__).parent / "fixtures/wallet_orm_contract.json").read_text()
     )
-    assert mapping_contract() == expected
+    assert mapping_contract() == declared_usd_contract(expected)
 
 
 @pytest.fixture

@@ -30,6 +30,7 @@ function ReportsView() {
   const reconciledMoney = (value: number) => payoutAmountLabel(value, reconciliation?.currency ?? undefined);
 
   return <div className="p-4 md:p-6 bg-gray-50 min-h-screen">
+    {(orders?.currency === "USD" || reconciliation?.currency === "USD") && <p role="note" className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-950">Los nuevos reportes USD incluyen solo operaciones con moneda identificada. El historial sin moneda se conserva para revisión en Transacciones y Pagos.</p>}
     <div className="max-w-7xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Reportes y Exportación</h1>

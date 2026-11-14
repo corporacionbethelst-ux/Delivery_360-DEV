@@ -78,7 +78,7 @@ function PayoutContent() {
 
   const ridersMap = riderNames.revision === page.revision ? riderNames.data : {};
   const metrics = useMemo(() => ({
-    completedAmount: payouts.filter(p => p.status === 'COMPLETADO').reduce((cents, p) => cents + payoutCents(p.amount), 0) / 100,
+    completedAmount: payouts.filter(p => p.status === 'COMPLETADO' && p.currency === 'USD').reduce((cents, p) => cents + payoutCents(p.amount), 0) / 100,
     pendingCount: payouts.filter(p => p.status === 'PENDIENTE').length,
     processedCount: payouts.filter(p => p.status === 'COMPLETADO').length,
     rejectedCount: payouts.filter(p => p.status === 'RECHAZADO').length,
@@ -177,6 +177,10 @@ function PayoutContent() {
         </div>
       </div>
 
+      <div className="rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-blue-50 p-4 text-sm text-indigo-950">
+        <strong>Contabilidad USD</strong> · El total monetario incluye solo retiros identificados en USD.
+        Los registros sin moneda se conservan para revisión y no se suman a este total.
+      </div>
       {/* Metrics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <Card>
@@ -185,7 +189,7 @@ function PayoutContent() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{page.loaded ? formatCurrency(metrics.completedAmount) : 'No disponible'}</div>
+            <div className="text-2xl font-bold">{page.loaded ? formatCurrency(metrics.completedAmount, "USD") : 'No disponible'}</div>
             <p className="text-xs text-muted-foreground">Importe de los retiros con estado completado</p>
           </CardContent>
         </Card>
@@ -310,7 +314,7 @@ function PayoutContent() {
                         </div>
                       </TableCell>
                       <TableCell className="font-semibold">
-                        {formatCurrency(payout.amount)}
+                        {formatCurrency(payout.amount, payout.currency)}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{payout.orders_count === undefined ? 'Cantidad no informada' : `${payout.orders_count} órdenes`}</Badge>

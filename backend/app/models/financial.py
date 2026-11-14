@@ -285,6 +285,10 @@ class Financial(Base):
 
     __tablename__ = "financials"
 
+    currency_code: Mapped[str | None] = mapped_column(
+        String(3).evaluates_none(), nullable=True, default="USD"
+    )
+
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,

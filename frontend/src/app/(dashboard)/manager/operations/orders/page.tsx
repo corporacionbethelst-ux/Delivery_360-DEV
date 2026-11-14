@@ -16,7 +16,7 @@ import {
 import { orderService, Order, OrderStatus } from '@/services/order.service';
 import { riderService } from '@/services/rider.service';
 import { vehicleService, Vehicle } from '@/services/vehicle.service';
-import { formatCurrency } from '@/lib/formatters';
+import { payoutAmountLabel } from '@/lib/payout-contract';
 import { downloadCSV } from '@/lib/csv-export';
 import { OrderSkeleton } from '@/components/loaders/OrderSkeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -477,7 +477,7 @@ function SessionOrdersPage() {
 
                     <div className="pt-3 border-t flex justify-between items-center">
                       <span className="text-xs text-gray-500">Total</span>
-                      <span className="font-bold text-lg text-gray-900">{order.total !== undefined && order.total !== null ? formatCurrency(order.total) : order.total_amount !== undefined && order.total_amount !== null ? formatCurrency(order.total_amount) : 'No informado'}</span>
+                      <span className="font-bold text-lg text-gray-900">{order.total !== undefined && order.total !== null ? payoutAmountLabel(order.total, order.currency ?? undefined) : order.total_amount !== undefined && order.total_amount !== null ? payoutAmountLabel(order.total_amount, order.currency ?? undefined) : 'No informado'}</span>
                     </div>
 
                     <div className="flex gap-2 pt-2 mt-2 flex-wrap">

@@ -217,6 +217,7 @@ def main():
         )
 
         rider_page, own = login(account, "/rider")
+        identity_rider = call(rider_page, own, "GET", "/auth/me")
         assert call(rider_page, own, "GET", "/riders/me")["id"] == rider_id
         call(rider_page, own, "GET", "/orders/" + first_order, expected=403)
         call(rider_page, own, "PATCH", "/riders/" + rider_id + "/online?online=true")
@@ -503,12 +504,104 @@ def main():
         passed(
             "administrative approval posts one withdrawal; ledger reconciles 11 earned - 10 withdrawn = 1 available"
         )
+        assert all(row["currency"] == "USD" for row in receipts)
+        assert balance()["currency"] == "USD" and payout["currency"] == "USD"
+        passed("new delivery earnings and withdrawal receipts explicitly preserve USD")
+
+        # Deliberately unknown-unit synthetic fixtures, never a conversion/backfill.
+        # The marker and real API identity were checked before any SQL writes.
+        unknown_entry, unknown_payout = str(uuid4()), str(uuid4())
+        sql(
+            "INSERT INTO financials (id,rider_id,currency_code,amount,balance_before,balance_after,transaction_type,status,description,source_type,created_at) VALUES ('"
+            + unknown_entry
+            + "','"
+            + rider_id
+            + "',NULL,1000,0,1000,'INGRESO','PROCESADO','DATO SINTETICO: moneda no verificada','TEST_UNVERIFIED_CURRENCY',NOW())"
+        )
+        sql(
+            "INSERT INTO payouts (id,rider_id,currency_code,amount,status,method,requested_at,requested_by_user_id) VALUES ('"
+            + unknown_payout
+            + "','"
+            + rider_id
+            + "',NULL,1000,'PENDIENTE','TRANSFERENCIA',NOW(),'"
+            + identity_rider["id"]
+            + "')"
+        )
+        after_unknown = balance()
+        assert Decimal(str(after_unknown["available"])) == 1
+        assert (
+            after_unknown["unverified_financial_count"] == 1
+            and after_unknown["unverified_payout_count"] == 1
+        )
+        call(
+            rider_page,
+            own,
+            "POST",
+            "/payouts/request",
+            expected=400,
+            data={"amount": 10, "idempotency_key": "unknown-funds-" + run},
+        )
+        call(
+            admin,
+            staff,
+            "PATCH",
+            "/payouts/" + unknown_payout + "/approve",
+            expected=409,
+        )
+        passed(
+            "unknown-unit income and reservations neither fund nor debit the real USD account"
+        )
+
+        rider_page.goto(base + "/rider/earnings", wait_until="domcontentloaded")
+        expect(
+            rider_page.get_by_role("heading", name="Mis Ganancias", exact=True)
+        ).to_be_visible(timeout=20000)
+        expect(
+            rider_page.get_by_text(
+                "1 movimientos anteriores requieren revisión de moneda.", exact=True
+            )
+        ).to_be_visible()
+        expect(
+            rider_page.get_by_text(
+                "1 retiros anteriores conservan su moneda sin verificar.", exact=True
+            )
+        ).to_be_visible()
+        expect(
+            rider_page.get_by_role("button", name="Solicitar Retiro", exact=True)
+        ).to_be_disabled()
+        rider_page.set_viewport_size({"width": 390, "height": 844})
+        rider_page.screenshot(
+            path=str(out / "usd-earnings-mobile.png"),
+            full_page=True,
+            animations="disabled",
+        )
+        assert rider_page.evaluate(
+            "document.documentElement.scrollWidth <= window.innerWidth"
+        )
+        admin.goto(
+            base + "/manager/financial/payouts/" + unknown_payout,
+            wait_until="domcontentloaded",
+        )
+        expect(
+            admin.get_by_role("button", name="Aprobar retiro", exact=True)
+        ).to_be_disabled(timeout=20000)
+        passed(
+            "real colorful rider UI separates unverified history and staff cannot approve an unknown-unit withdrawal"
+        )
+        assert (
+            sql(
+                "SELECT amount::text || ':' || balance_before::text || ':' || balance_after::text FROM financials WHERE id='"
+                + unknown_entry
+                + "'"
+            )
+            == "1000.00:0.00:1000.00"
+        )
         for context in contexts:
             context.close()
         browser.close()
     assert not errors, errors
     passed(
-        "zero JavaScript exceptions; all business writes use real authenticated endpoints"
+        "zero JavaScript exceptions; user actions use real authenticated endpoints and unknown-unit fixtures are explicitly synthetic"
     )
     (out / "results.json").write_text(
         json.dumps(
@@ -519,6 +612,8 @@ def main():
                 "rider_id": rider_id,
                 "created_order_ids": orders,
                 "payout_ids": payouts,
+                "currency": "USD",
+                "unverified_currency_fixture_ids": [unknown_entry, unknown_payout],
                 "earned": "11.00",
                 "withdrawal_posted": "10.00",
                 "available": "1.00",

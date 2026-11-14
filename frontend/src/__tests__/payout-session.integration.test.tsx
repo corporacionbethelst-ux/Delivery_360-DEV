@@ -13,7 +13,7 @@ jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }));
 jest.mock('@/stores/authStore', () => ({ useAuthStore: () => ({ user: mockUser, isAuthenticated: true }) }));
 const original = client.defaults.adapter;
 const reply = (config: InternalAxiosRequestConfig, data: unknown) => ({ config, data, status: 200, statusText: 'OK', headers: new AxiosHeaders() });
-const record = { id: 'p', rider_id: 'r', amount: 60, total_amount: 60, method: 'TRANSFERENCIA', payment_method: 'TRANSFERENCIA', status: 'PENDIENTE', requested_by_user_id: 'a' };
+const record = { currency: 'USD', id: 'p', rider_id: 'r', amount: 60, total_amount: 60, method: 'TRANSFERENCIA', payment_method: 'TRANSFERENCIA', status: 'PENDIENTE', requested_by_user_id: 'a' };
 beforeEach(() => { clearStoredTokens(); sessionStorage.clear(); mockUser = { id: 'a', role: 'REPARTIDOR' }; storeTokens({ access_token: 'access-a', refresh_token: 'refresh-a' }); });
 afterEach(() => { clearStoredTokens(); client.defaults.adapter = original; });
 
@@ -24,7 +24,7 @@ it('fences the gap after the actual Axios interceptor accepts a response and bef
   finally { client.interceptors.response.eject(hook); }
 });
 it('preserves the durable key when the actual HTTP wrapper receives a contradictory 200 confirmation', async () => {
-  client.defaults.adapter = async config => reply(config, config.url?.includes('/balance') ? { available: 100, pending: 0, currency: 'COP' } : { ...record, idempotency_key: 'not-the-sent-key' });
+  client.defaults.adapter = async config => reply(config, config.url?.includes('/balance') ? { available: 100, pending: 0, currency: 'USD' } : { ...record, idempotency_key: 'not-the-sent-key' });
   render(<Page />);
   fireEvent.change(await screen.findByLabelText('Monto a Retirar'), { target: { value: '60' } });
   fireEvent.submit(screen.getByLabelText('Monto a Retirar').closest('form')!);
@@ -33,7 +33,7 @@ it('preserves the durable key when the actual HTTP wrapper receives a contradict
 });
 it('retains the initiating account key after a real HTTP continuation is retired', async () => {
   client.defaults.adapter = async config => {
-    if (config.url?.includes('/balance')) return reply(config, { available: 100, pending: 0, currency: 'COP' });
+    if (config.url?.includes('/balance')) return reply(config, { available: 100, pending: 0, currency: 'USD' });
     const data = JSON.parse(String(config.data));
     return reply(config, { ...record, idempotency_key: data.idempotency_key });
   };
@@ -49,7 +49,7 @@ it('retains the initiating account key after a real HTTP continuation is retired
   } finally { client.interceptors.response.eject(hook); }
 });
 it('rejects a degraded balance through the actual HTTP wrapper without showing a normal zero', async () => {
-  client.defaults.adapter = async config => reply(config, { available: 0, pending: 0, degraded: true, currency: 'COP' });
+  client.defaults.adapter = async config => reply(config, { available: 0, pending: 0, degraded: true, currency: 'USD' });
   render(<Page />); await screen.findByText('No se pudo cargar tu saldo disponible. Puedes volver a consultarlo.');
   expect(screen.getAllByText('No disponible').length).toBeGreaterThan(0); expect(screen.getByRole('button', { name: 'Enviar solicitud de retiro' })).toBeDisabled();
 });
