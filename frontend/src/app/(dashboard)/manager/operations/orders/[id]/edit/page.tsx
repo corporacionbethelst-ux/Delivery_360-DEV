@@ -26,30 +26,36 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { payoutAmountLabel } from "@/lib/payout-contract";
+import {
+  exactMoneyLabel,
+  priceOrder,
+  ExactPriceLine,
+} from "@/lib/order-pricing";
 import {
   orderService,
   OrderItem,
   PriorityLevel,
 } from "@/services/order.service";
 
-interface EditableOrderItem {
+interface EditableOrderItem extends Record<string, unknown> {
   product_name: string;
-  quantity: number;
-  unit_price: number;
+  quantity: string;
+  unit_price: string;
 }
 
 const EDITABLE_STATUSES = ["PENDIENTE", "ASIGNADO"];
 
-const normalizeItems = (items?: OrderItem[]): EditableOrderItem[] => {
+const normalizeItems = (
+  items?: (OrderItem | ExactPriceLine)[],
+): EditableOrderItem[] => {
   if (!items || items.length === 0) {
-    return [{ product_name: "", quantity: 1, unit_price: 0 }];
+    return [{ product_name: "", quantity: "1", unit_price: "0.00" }];
   }
 
   return items.map((item) => ({
-    product_name: item.product_name || "",
-    quantity: Number(item.quantity || 1),
-    unit_price: Number(item.unit_price || 0),
+    product_name: String(item.product_name ?? ""),
+    quantity: String(item.quantity ?? ""),
+    unit_price: String(item.unit_price ?? ""),
   }));
 };
 
@@ -62,6 +68,8 @@ export default function EditOrderPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [revision, setRevision] = useState<number | null>(null);
+  const [exactLoaded, setExactLoaded] = useState(false);
   const [currency, setCurrency] = useState<string | undefined>();
   const [externalId, setExternalId] = useState("");
   const [status, setStatus] = useState("");
@@ -74,22 +82,19 @@ export default function EditOrderPage() {
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [deliveryReference, setDeliveryReference] = useState("");
   const [deliveryInstructions, setDeliveryInstructions] = useState("");
-  const [deliveryFee, setDeliveryFee] = useState(0);
+  const [deliveryFee, setDeliveryFee] = useState("0.00");
   const [priority, setPriority] = useState<PriorityLevel>("NORMAL");
   const [items, setItems] = useState<EditableOrderItem[]>([
-    { product_name: "", quantity: 1, unit_price: 0 },
+    { product_name: "", quantity: "1", unit_price: "0.00" },
   ]);
 
-  const subtotal = useMemo(
-    () =>
-      items.reduce(
-        (sum, item) =>
-          sum + Number(item.quantity || 0) * Number(item.unit_price || 0),
-        0,
-      ),
-    [items],
-  );
-  const total = subtotal + Number(deliveryFee || 0);
+  const preview = useMemo(() => {
+    try {
+      return priceOrder(items, deliveryFee);
+    } catch {
+      return null;
+    }
+  }, [items, deliveryFee]);
   const isEditable = EDITABLE_STATUSES.includes(status) && currency === "USD";
 
   useEffect(() => {
@@ -112,9 +117,11 @@ export default function EditOrderPage() {
         setDeliveryAddress(order.delivery_address || "");
         setDeliveryReference(order.delivery_reference || "");
         setDeliveryInstructions(order.delivery_instructions || "");
-        setDeliveryFee(Number(order.delivery_fee || 0));
+        setDeliveryFee(order.pricing?.delivery_fee ?? "");
+        setRevision(order.pricing?.revision ?? null);
+        setExactLoaded(!!order.pricing);
         setPriority(order.priority || "NORMAL");
-        setItems(normalizeItems(order.items));
+        setItems(normalizeItems(order.pricing?.items ?? order.items));
       } catch (err: any) {
         console.error("Error cargando orden para edición:", err);
         setError(
@@ -133,14 +140,14 @@ export default function EditOrderPage() {
   const addItem = () => {
     setItems((prev) => [
       ...prev,
-      { product_name: "", quantity: 1, unit_price: 0 },
+      { product_name: "", quantity: "1", unit_price: "0.00" },
     ]);
   };
 
   const removeItem = (index: number) => {
     setItems((prev) =>
       prev.length === 1
-        ? [{ product_name: "", quantity: 1, unit_price: 0 }]
+        ? [{ product_name: "", quantity: "1", unit_price: "0.00" }]
         : prev.filter((_, i) => i !== index),
     );
   };
@@ -152,15 +159,7 @@ export default function EditOrderPage() {
   ) => {
     setItems((prev) => {
       const next = [...prev];
-      if (field === "product_name") {
-        next[index] = { ...next[index], product_name: value };
-      } else if (field === "quantity") {
-        const quantity = Math.max(1, Number.parseInt(value, 10) || 1);
-        next[index] = { ...next[index], quantity };
-      } else {
-        const unitPrice = Math.max(0, Number.parseFloat(value) || 0);
-        next[index] = { ...next[index], unit_price: unitPrice };
-      }
+      next[index] = { ...next[index], [field]: value };
       return next;
     });
   };
@@ -169,13 +168,12 @@ export default function EditOrderPage() {
     event.preventDefault();
     if (!orderId) return;
 
-    const validItems = items.filter(
-      (item) => item.product_name.trim() && item.quantity > 0,
-    );
     if (
+      !isEditable ||
+      !preview ||
+      items.some((item) => !item.product_name.trim()) ||
       !pickupAddress.trim() ||
-      !deliveryAddress.trim() ||
-      validItems.length === 0
+      !deliveryAddress.trim()
     ) {
       setError(
         "Completa dirección de recogida, dirección de entrega y al menos un producto válido.",
@@ -194,15 +192,17 @@ export default function EditOrderPage() {
         delivery_address: deliveryAddress.trim(),
         delivery_reference: deliveryReference.trim() || undefined,
         delivery_instructions: deliveryInstructions.trim() || undefined,
-        items: validItems.map((item) => ({
-          product_name: item.product_name.trim(),
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          subtotal: item.quantity * item.unit_price,
+        items: preview.items.map((item) => ({
+          ...item,
+          product_name: String(item.product_name).trim(),
+          quantity: item.quantity!,
+          unit_price: item.unit_price!,
         })),
-        subtotal,
-        delivery_fee: deliveryFee,
-        total,
+        currency: "USD",
+        expected_pricing_revision: revision,
+        subtotal: preview.subtotal,
+        delivery_fee: preview.delivery_fee,
+        total: preview.total,
         priority,
       });
 
@@ -210,9 +210,11 @@ export default function EditOrderPage() {
     } catch (err: any) {
       console.error("Error actualizando orden:", err);
       setError(
-        err.response?.data?.detail ||
-          err.message ||
-          "No se pudo actualizar la orden.",
+        err.response?.status === 412
+          ? "El precio cambió mientras editabas. Tu borrador sigue aquí; revisa la versión actual en otra pestaña y recarga antes de volver a guardar."
+          : err.response?.data?.detail ||
+              err.message ||
+              "No se pudo actualizar la orden.",
       );
     } finally {
       setSaving(false);
@@ -262,6 +264,16 @@ export default function EditOrderPage() {
           >
             La moneda de esta orden requiere revisión antes de modificar
             importes. Los valores originales se conservan.
+          </p>
+        )}
+        {currency === "USD" && !exactLoaded && (
+          <p
+            role="note"
+            className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-950"
+          >
+            Precio histórico: revisa todos los productos y escribe el costo de
+            envío para confirmar un nuevo precio en USD. No se convierten
+            automáticamente los importes anteriores.
           </p>
         )}
         {!EDITABLE_STATUSES.includes(status) && (
@@ -421,7 +433,8 @@ export default function EditOrderPage() {
                       <Label className="text-xs">Cant.</Label>
                       <Input
                         type="number"
-                        min="1"
+                        min="0.001"
+                        step="0.001"
                         value={item.quantity}
                         onChange={(event) =>
                           updateItem(index, "quantity", event.target.value)
@@ -475,9 +488,7 @@ export default function EditOrderPage() {
                     min="0"
                     step="0.01"
                     value={deliveryFee}
-                    onChange={(event) =>
-                      setDeliveryFee(Number.parseFloat(event.target.value) || 0)
-                    }
+                    onChange={(event) => setDeliveryFee(event.target.value)}
                     disabled={!isEditable}
                   />
                 </div>
@@ -499,15 +510,15 @@ export default function EditOrderPage() {
                 <div className="bg-gray-50 border rounded-lg p-4 space-y-2">
                   <div className="flex justify-between text-sm">
                     <span>Subtotal</span>
-                    <strong>{payoutAmountLabel(subtotal, currency)}</strong>
+                    <strong>{exactMoneyLabel(preview?.subtotal)}</strong>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span>Envío</span>
-                    <strong>{payoutAmountLabel(deliveryFee, currency)}</strong>
+                    <strong>{exactMoneyLabel(preview?.delivery_fee)}</strong>
                   </div>
                   <div className="flex justify-between text-lg font-bold border-t pt-2">
                     <span>Total</span>
-                    <span>{payoutAmountLabel(total, currency)}</span>
+                    <span>{exactMoneyLabel(preview?.total)}</span>
                   </div>
                 </div>
               </CardContent>
@@ -515,7 +526,7 @@ export default function EditOrderPage() {
                 <Button
                   type="submit"
                   className="w-full h-12 text-base font-bold bg-blue-600 hover:bg-blue-700"
-                  disabled={!isEditable || saving}
+                  disabled={!isEditable || saving || !preview}
                 >
                   {saving ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />

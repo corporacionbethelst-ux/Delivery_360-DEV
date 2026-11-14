@@ -1,5 +1,6 @@
 'use client';
 
+import { ExactOrderTotals } from '@/components/financial/ExactOrderTotals';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
@@ -67,6 +68,7 @@ function FinancialSummaryView() {
   return <div className="p-4 md:p-6 bg-gray-50 min-h-screen">
       {(data?.currency === "USD") && <p role="note" className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-950">Los nuevos reportes USD incluyen solo operaciones con moneda identificada. El historial sin moneda se conserva para revisión en Transacciones y Pagos.</p>}
     <div className="max-w-7xl mx-auto space-y-6">
+      <ExactOrderTotals value={data?.exact_order_pricing} />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 max-w-full">
           <h1 className="text-2xl font-bold text-gray-900">Resumen Financiero</h1>

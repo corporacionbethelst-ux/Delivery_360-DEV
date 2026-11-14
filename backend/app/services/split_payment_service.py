@@ -26,9 +26,11 @@ from sqlalchemy import select, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.services.fiscal_integrity import money_to_cents
 from app.models.delivery import Delivery
 from app.models.fiscal import PaymentDistributionSnapshot
 from app.models.order import Order
+from app.services.order_pricing import amount as recorded_order_amount
 from app.models.platform_setting import PlatformSetting
 
 logger = logging.getLogger("delivery360.split")
@@ -141,8 +143,8 @@ async def process_order_settlement(
         logger.info("split: orden %s ya liquidada (idempotencia)", order_id)
         return None
 
-    fee_cents = int(round(float(order.delivery_fee or 0) * 100))
-    gross_cents = int(round(float(order.total or 0) * 100))
+    fee_cents = money_to_cents(recorded_order_amount(order, "delivery_fee"))
+    gross_cents = money_to_cents(recorded_order_amount(order, "total"))
     if fee_cents <= 0:
         logger.info("split: orden %s sin fee de envío; nada que repartir", order_id)
         return None

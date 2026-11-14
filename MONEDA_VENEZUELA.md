@@ -54,6 +54,63 @@ aplicado en el pago y conciliar su confirmación externa. La emisión fiscal exi
 para Colombia/México no homologa Venezuela ni demuestra conversión válida de USD;
 no está habilitada en el laboratorio de esta operación.
 
+## Precios exactos de órdenes — entrega 92
+
+Las órdenes nuevas guardan un paquete de precio versión 1: `subtotal_exact`,
+`delivery_fee_exact` y `total_exact` son `NUMERIC(10,2)`; `items_exact` conserva
+cantidades y precios como cadenas decimales. La respuesta añade `pricing` con
+`version`, `currency: USD`, `revision`, `items`, `subtotal`, `delivery_fee` y
+`total`. Los importes son cadenas con dos decimales. Las cantidades positivas
+admiten hasta tres decimales; cada línea usa HALF_UP a centavos, luego se suman
+las líneas y el envío. Por ejemplo, 3 × 0,10 + 0,20 = 0,50 USD. Cero es un valor
+explícito válido, no una señal para buscar un importe alternativo.
+
+Se admiten hasta 200 líneas e importes de hasta 99.999.999,99 USD por orden.
+Se rechazan exponentes, booleanos, valores negativos/no finitos, exceso de
+precisión y totales que no coincidan. Una línea de cargo puede declarar solo su
+subtotal; la API también permite una base y envío explícitos sin productos.
+El formulario exige productos completos y usa centavos enteros para calcular;
+conserva el texto del usuario y muestra «Por confirmar» si el precio es inválido.
+Los campos numéricos anteriores son espejos de compatibilidad para lectores
+existentes y no son la fuente para calcular precios nuevos.
+
+Una modificación monetaria de un paquete exacto exige
+`expected_pricing_revision`. Un precio diferente aumenta la revisión; repetir
+el mismo paquete conserva su revisión. Una edición con revisión obsoleta o
+faltante devuelve 412 sin cambios parciales. El formulario conserva su borrador
+y explica que debe revisarse la versión actual. La actualización bloquea la
+orden en PostgreSQL y vuelve a comprobar la sesión y el rol después de esperar.
+Cambiar direcciones o referencias sin tocar precios conserva el paquete.
+
+La migración `20261114_order_exact_prices` añade seis columnas nullable sin
+DEFAULT ni UPDATE del historial. Los importes Float anteriores no se convierten
+ni redondean durante la migración. Una orden USD histórica solo obtiene un
+paquete exacto mediante revisión explícita del precio completo (productos o
+base, más envío); una orden sin moneda sigue bloqueada para cambios monetarios.
+En la edición de un precio histórico el envío se deja sin confirmar para exigir
+esa revisión. Los triggers comprueban paquete, aritmética, espejos y revisiones,
+e impiden eliminar la versión exacta de una orden ya confirmada.
+
+Resumen, reporte de órdenes y conciliación añaden `exact_order_pricing`: suma
+SQL decimal del subconjunto exacto USD y conteo separado de órdenes USD antiguas.
+La UI presenta ese subconjunto en una tarjeta propia. Los indicadores generales
+y CSV anteriores mantienen su contrato numérico y criterio contable; todavía
+no representan una migración completa de todos los reportes a decimales.
+Facturación y reparto interno usan los importes exactos cuando existen. Esta
+entrega no habilita liquidación VES, facturación fiscal venezolana ni un banco.
+
+Para desplegar hay que respaldar, aplicar la migración y coordinar el reemplazo
+de todos los escritores monetarios. Un proceso antiguo que intente cambiar los
+espejos Float de una orden exacta será rechazado por PostgreSQL. La reversión de
+la migración se niega cuando ya hay paquetes exactos; no elimina precios para
+forzar un downgrade. La entrega solo aplica la migración al laboratorio marcado.
+
+`tests/test_order_pricing_exact.py` verifica cálculo y PostgreSQL real, incluyendo
+concurrencia y revocación durante una espera de bloqueo. El runner
+`frontend/e2e/local-order-pricing.browser.py` comprueba creación, recarga, revisión,
+conflicto 412, borrador, rechazo de total alterado y diseño móvil contra API real.
+Exige el marcador del laboratorio antes de escribir y usa cuentas sintéticas.
+
 ## Uso
 
 En el menú **USD / Bolívares**, gerencia y superadministración registran una

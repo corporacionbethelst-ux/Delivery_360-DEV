@@ -164,11 +164,17 @@ def main():
                 "pickup_address": "Origen de laboratorio",
                 "delivery_address": "Destino de laboratorio",
                 "delivery_contact": "Destinatario de prueba",
-                "items": [{"name": "Producto de prueba", "quantity": 1, "price": 10}],
+                "items": [
+                    {
+                        "product_name": "Producto de prueba",
+                        "quantity": 1,
+                        "unit_price": "10.00",
+                    }
+                ],
                 "subtotal": 10,
                 "delivery_fee": 2,
                 "total": 12,
-                "declared_value": 10,
+                "declared_value": 12,
             },
         )
         assert created.status == 201

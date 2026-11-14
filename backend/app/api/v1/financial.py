@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from app.core.database import get_db
+from app.services import order_pricing
 from app.models.financial import Financial, TransactionType, PaymentStatus
 from app.models.order import Order, OrderStatus
 from app.models.payout import Payout, PayoutStatus
@@ -264,7 +265,15 @@ async def get_financial_summary(
     total_costs = total_rider_payouts + other_costs
     net_margin = total_revenue - total_costs
 
+    precise = await order_pricing.aggregate(
+        db,
+        Order.status == OrderStatus.ENTREGADO,
+        order_period_date >= period_start,
+        order_period_date <= period_end,
+        func.upper(func.coalesce(Order.payment_status, "")).in_(paid_statuses),
+    )
     return {
+        "exact_order_pricing": precise,
         "currency": "USD",
         "scope": "declared_usd_only",
         "period": response_period,
@@ -359,7 +368,9 @@ async def get_orders_financial_report(
 
     rows = [_serialize_order_report_row(order) for order in orders]
 
+    precise = await order_pricing.aggregate(db, *filters)
     return {
+        "exact_order_pricing": precise,
         "currency": "USD",
         "scope": "declared_usd_only",
         "period_start": start_date.isoformat() if start_date else None,
@@ -514,7 +525,14 @@ async def get_financial_reconciliation(
     )
     total_costs = processed_payouts + pending_payouts
 
+    precise = await order_pricing.aggregate(
+        db,
+        *order_filters,
+        Order.status == OrderStatus.ENTREGADO,
+        func.upper(func.coalesce(Order.payment_status, "")).in_(paid_statuses),
+    )
     return {
+        "exact_order_pricing": precise,
         "period_start": start_date.isoformat() if start_date else None,
         "period_end": end_date.isoformat() if end_date else None,
         "gross_order_value": gross_order_value,

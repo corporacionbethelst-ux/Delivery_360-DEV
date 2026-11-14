@@ -1,3 +1,4 @@
+import { validateExactAggregate } from '@/lib/order-pricing';
 import { summaryDate } from '@/lib/financial-summary-contract';
 import type { FinancialOrdersReport, FinancialOrderReportRow, FinancialReconciliation, FinancialReportParams } from '@/services/financial.service';
 
@@ -87,7 +88,7 @@ export function normalizeOrdersReport(value: unknown, query: Readonly<FinancialR
       Object.entries(loadedCounts).some(([status, n]) => n > (statusCounts[status] ?? 0))) return invalid();
   if (offset === 0 && rows.length === total && (sum('delivery_fee') !== cents(revenue) || sum('total') !== cents(gross) ||
       Object.keys(statusCounts).some(status => (loadedCounts[status] ?? 0) !== statusCounts[status]))) return invalid();
-  return { ...bounds, currency: currency(data.currency), total_orders: total, completed_orders: completed, active_customers: customers,
+  return { ...(data.exact_order_pricing === undefined ? {} : {exact_order_pricing: validateExactAggregate(data.exact_order_pricing)}), ...bounds, currency: currency(data.currency), total_orders: total, completed_orders: completed, active_customers: customers,
     total_revenue: revenue, gross_order_value: gross, status_counts: statusCounts, rows };
 }
 
@@ -95,6 +96,7 @@ export function normalizeReconciliation(value: unknown, query: Readonly<ReportRa
   const data = object(value), bounds = range(data, query);
   if (data.degraded === true) return invalid();
   const result: FinancialReconciliation = {
+    ...(data.exact_order_pricing === undefined ? {} : {exact_order_pricing: validateExactAggregate(data.exact_order_pricing)}),
     ...bounds, currency: currency(data.currency),
     gross_order_value: money(data.gross_order_value), delivery_revenue: money(data.delivery_revenue),
     completed_orders: count(data.completed_orders), ledger_transactions: count(data.ledger_transactions), payout_count: count(data.payout_count),

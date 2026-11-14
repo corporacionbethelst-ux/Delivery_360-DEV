@@ -1,9 +1,10 @@
 """Order schemas for Pydantic validation."""
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 import uuid
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+from app.services.order_pricing import MoneyInput
 from enum import Enum
 
 
@@ -50,9 +51,9 @@ class OrderBase(BaseModel):
     delivery_longitude: Optional[float] = None
 
     items: Optional[List[Dict[str, Any]]] = None
-    subtotal: Optional[float] = 0.0
-    delivery_fee: Optional[float] = 0.0
-    total: Optional[float] = 0.0
+    subtotal: Optional[MoneyInput] = None
+    delivery_fee: Optional[MoneyInput] = None
+    total: Optional[MoneyInput] = None
 
     payment_method: Optional[str] = None
     payment_status: Optional[str] = "pendiente"
@@ -65,6 +66,7 @@ class OrderBase(BaseModel):
 
 # Create Schema
 class OrderCreate(OrderBase):
+    currency: Literal["USD"] = "USD"
     """Schema for creating an Order."""
 
     assigned_rider_id: Optional[uuid.UUID] = None
@@ -73,6 +75,10 @@ class OrderCreate(OrderBase):
 
 # Update Schema
 class OrderUpdate(BaseModel):
+    currency: Literal["USD"] = "USD"
+    expected_pricing_revision: Optional[int] = Field(
+        default=None, ge=1, le=2147483647, strict=True
+    )
     """Schema for updating an Order."""
 
     external_id: Optional[str] = None
@@ -90,9 +96,9 @@ class OrderUpdate(BaseModel):
     delivery_latitude: Optional[float] = None
     delivery_longitude: Optional[float] = None
     items: Optional[List[Dict[str, Any]]] = None
-    subtotal: Optional[float] = None
-    delivery_fee: Optional[float] = None
-    total: Optional[float] = None
+    subtotal: Optional[MoneyInput] = None
+    delivery_fee: Optional[MoneyInput] = None
+    total: Optional[MoneyInput] = None
     payment_method: Optional[str] = None
     payment_status: Optional[str] = None
     status: Optional[OrderStatus] = None

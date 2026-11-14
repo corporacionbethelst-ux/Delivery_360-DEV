@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, Field
+from typing import Optional, List, Literal
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 import uuid
@@ -28,6 +28,8 @@ from app.core.operation_permissions import (
     ensure_rider_resource_access,
 )
 from app.models.order import Order, OrderStatus, OrderPriority
+from app.services import order_pricing
+from app.services.order_pricing import MoneyInput
 from app.models.rider import Rider, RiderStatus, utc_now_naive
 from app.models.user import User, UserRole
 from app.models.delivery import Delivery, DeliveryStatus
@@ -60,6 +62,7 @@ class CancelOrderBody(BaseModel):
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 class OrderCreate(BaseModel):
+    currency: Literal["USD"] = "USD"
     customer_name: str
     customer_phone: str
     customer_email: Optional[str] = None
@@ -78,17 +81,21 @@ class OrderCreate(BaseModel):
     delivery_instructions: Optional[str] = None
     description: Optional[str] = None
     items: Optional[List[dict]] = None
-    subtotal: Optional[float] = None
-    delivery_fee: Optional[float] = None
-    total: Optional[float] = None
+    subtotal: Optional[MoneyInput] = None
+    delivery_fee: Optional[MoneyInput] = None
+    total: Optional[MoneyInput] = None
     payment_method: Optional[str] = None
-    declared_value: float = 0.0
+    declared_value: MoneyInput = Decimal("0.00")
     priority: OrderPriority = OrderPriority.NORMAL
     sla_minutes: int = 60
     rider_id: Optional[str] = None
 
 
 class OrderUpdate(BaseModel):
+    currency: Literal["USD"] = "USD"
+    expected_pricing_revision: Optional[int] = Field(
+        default=None, ge=1, le=2147483647, strict=True
+    )
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
     customer_email: Optional[str] = None
@@ -106,9 +113,9 @@ class OrderUpdate(BaseModel):
     delivery_instructions: Optional[str] = None
     description: Optional[str] = None
     items: Optional[List[dict]] = None
-    subtotal: Optional[float] = None
-    delivery_fee: Optional[float] = None
-    total: Optional[float] = None
+    subtotal: Optional[MoneyInput] = None
+    delivery_fee: Optional[MoneyInput] = None
+    total: Optional[MoneyInput] = None
     payment_method: Optional[str] = None
     priority: Optional[OrderPriority] = None
     sla_minutes: Optional[int] = None
@@ -273,6 +280,7 @@ def _order_to_dict(o: Order, rider: Optional[Rider] = None) -> dict:
         "id": str(o.id),
         "external_id": o.external_id,
         "currency": o.currency_code,
+        "pricing": order_pricing.view(o),
         "status": status_value,
         "cancellation_reason": o.cancellation_reason,
         "cancelled_by": o.cancelled_by,
@@ -509,12 +517,17 @@ async def create_order(
 ):
     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
     order_items = body.items or []
-    subtotal, delivery_fee, total = _calculate_order_amounts(
+    price = order_pricing.calculate(
         order_items,
         body.subtotal,
         body.delivery_fee,
         body.total,
-        body.declared_value,
+        body.declared_value if "declared_value" in body.model_fields_set else None,
+    )
+    subtotal, delivery_fee, total = (
+        float(price.subtotal),
+        float(price.delivery_fee),
+        float(price.total),
     )
 
     # SOLUCIÓN PROFESIONAL: Construir kwargs dinámicamente
@@ -550,6 +563,8 @@ async def create_order(
         order_kwargs["delivery_longitude"] = body.delivery_lng
 
     order = Order(**order_kwargs)
+    order.currency_code = "USD"
+    order_pricing.apply(order, price)
 
     actor_id, expected_version = current_user.id, current_user.token_version
     db.add(order)
@@ -646,6 +661,7 @@ async def update_order(
         require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)
     ),
 ):
+    actor_id, actor_version = current_user.id, current_user.token_version
     result = await db.execute(
         select(Order)
         .where(Order.id == _parse_uuid(order_id, "order_id"))
@@ -697,35 +713,20 @@ async def update_order(
     if "priority" in update_data and body.priority is not None:
         order.priority = OrderPriority(body.priority.value)
 
-    if "items" in update_data or any(
-        field in update_data for field in ("subtotal", "delivery_fee", "total")
-    ):
-        try:
-            order_items = json_value(
-                body.items if "items" in update_data else order.items
-            )
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=422, detail="Los artículos contienen datos inválidos"
-            ) from exc
-        subtotal, delivery_fee, total = _calculate_order_amounts(
-            order_items or [],
-            (
-                body.subtotal
-                if "subtotal" in update_data
-                else getattr(order, "subtotal", None)
-            ),
-            (
-                body.delivery_fee
-                if "delivery_fee" in update_data
-                else getattr(order, "delivery_fee", None)
-            ),
-            body.total if "total" in update_data else None,
+    if order_pricing.MONEY_FIELDS.intersection(update_data):
+        live = await db.scalar(
+            select(User)
+            .where(User.id == actor_id)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
         )
-        order.items = order_items
-        order.subtotal = subtotal
-        order.delivery_fee = delivery_fee
-        order.total = total
+        if live is None or not live.is_active or live.token_version != actor_version:
+            raise HTTPException(401, "La sesión cambió antes de guardar el precio")
+        if live.role not in (UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR):
+            raise HTTPException(
+                403, "El permiso para cambiar precios ya no está vigente"
+            )
+    order_pricing.update_price(order, update_data)
 
     coordinate_field_map = {
         "pickup_lat": "pickup_latitude",

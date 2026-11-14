@@ -74,7 +74,9 @@ async def test_service_create_and_update_persist_real_coordinate_fields(
     assert created.status == OrderStatus.PENDIENTE
     assert created.pickup_latitude == 10.5
     assert created.delivery_longitude == -66.9
-    assert created.items == [{"quantity": 2, "unit_price": 3.5}]
+    assert created.items == [{"quantity": 2, "unit_price": 3.5, "subtotal": 7}]
+    assert created.total_exact == 9
+    assert created.pricing_revision == 1
     updated = await service.update_order(
         db_session,
         created.id,

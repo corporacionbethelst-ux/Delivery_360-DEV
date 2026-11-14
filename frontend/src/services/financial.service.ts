@@ -1,3 +1,4 @@
+import type { ExactOrderAggregate } from "@/lib/order-pricing";
 import { normalizeUsdEarnings, normalizeRiderLedger } from "@/lib/usd-ledger";
 import { api } from "@/lib/api";
 import { capturePrivateTask } from "@/lib/private-task";
@@ -14,6 +15,7 @@ import {
 export type FinancialPeriod = "today" | "week" | "month";
 
 export interface FinancialSummary {
+  exact_order_pricing?: ExactOrderAggregate;
   period: FinancialPeriod | "custom";
   period_start?: string | null;
   period_end?: string | null;
@@ -75,6 +77,7 @@ export interface RiderEarningsBreakdown {
 }
 
 export interface FinancialReconciliation {
+  exact_order_pricing?: ExactOrderAggregate;
   period_start?: string | null;
   period_end?: string | null;
   gross_order_value: number;
@@ -117,6 +120,7 @@ export interface FinancialOrderReportRow {
 }
 
 export interface FinancialOrdersReport {
+  exact_order_pricing?: ExactOrderAggregate;
   currency?: string | null;
   period_start?: string | null;
   period_end?: string | null;

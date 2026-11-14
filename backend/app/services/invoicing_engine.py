@@ -32,6 +32,7 @@ from app.models.fiscal import (
     InvoiceType,
 )
 from app.models.order import Order
+from app.services.order_pricing import amount as recorded_order_amount
 from app.services.order_cancellation import ensure_order_not_cancelled
 from app.services.tax_engine import TaxCalculator, get_tax_calculator
 from app.services.fiscal_integrity import (
@@ -613,8 +614,8 @@ async def issue_invoice_for_order_safe(order_id: uuid.UUID) -> None:
             if order is None:
                 logger.warning("Hook factura: orden %s inexistente", order_id)
                 return
-            fee_cents = money_to_cents(order.delivery_fee)
-            gross_cents = money_to_cents(order.total)
+            fee_cents = money_to_cents(recorded_order_amount(order, "delivery_fee"))
+            gross_cents = money_to_cents(recorded_order_amount(order, "total"))
             if gross_cents <= 0:
                 logger.info("Orden %s sin monto; no se factura", order_id)
                 return
