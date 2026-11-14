@@ -1,10 +1,8 @@
-"""Servicio Multi-Moneda / Tasas de Cambio — Fase 10 (Hito 5, parte FX).
+"""Legacy generic FX previews, separate from dated BCV quotation receipts.
 
-Patrón tolerante a fallos (OR-Tools Fase 8 / omnichannel Fase 9):
-- Si EXCHANGE_RATE_PROVIDER == 'openexchangerates' y hay APP_ID → fetch httpx.
-- Cualquier fallo (red, credencial, parseo) → fallback a FX_FALLBACK_RATES_JSON
-  con logger.warning. NUNCA lanza excepción al caller.
-- Cache en memoria con TTL FX_CACHE_TTL_MINUTES (Redis opcional no requerido).
+get_rates retains its legacy demo fallback and cache. Those values do not prove
+official rates. Conversion helpers reject VES, unknown currencies and invalid
+rates; Venezuelan quotations must use bcv_currency's persisted references.
 """
 
 from __future__ import annotations
@@ -54,7 +52,9 @@ async def _fetch_live_rates() -> Optional[Dict[str, float]]:
                 return {k: float(v) for k, v in rates.items()}
             logger.warning("OXR respondió sin tasas")
     except Exception as exc:
-        logger.warning("Fallo fetch tasas OXR, uso fallback: %s", exc)
+        logger.warning(
+            "Fallo fetch tasas genéricas; respaldo de prueba, sin verificación oficial"
+        )
     return None
 
 
@@ -77,35 +77,58 @@ async def get_rates(force_refresh: bool = False) -> Dict[str, float]:
 
 
 async def convert(amount_cents: int, from_ccy: str, to_ccy: str) -> int:
-    """Convierte centavos entre monedas con redondeo HALF_UP. Nunca falla.
-
-    Moneda desconocida → tasa implícita 1.0 con warning (dev-safe).
-    """
-    from sqlalchemy.orm import decl_api  # noqa: F401  (guard de import entorno)
+    """Legacy preview in integer cents. Raises for VES or unknown/invalid rates."""
+    if (
+        isinstance(amount_cents, bool)
+        or not isinstance(amount_cents, int)
+        or amount_cents < 0
+    ):
+        raise ValueError("El importe debe ser un entero no negativo de centavos")
+    if "VES" in (from_ccy.upper(), to_ccy.upper()):
+        raise ValueError(
+            "VES requiere una cotización BCV fechada; no admite tasas demo"
+        )
 
     rates = await get_rates()
 
     def rate_to_usd(ccy: str) -> float:
         r = rates.get(ccy.upper())
         if r is None:
-            logger.warning("Moneda %s sin tasa conocida; asumo 1.0", ccy)
-            return 1.0
+            raise ValueError("Moneda sin tasa conocida")
         return float(r)
 
     f = rate_to_usd(from_ccy)
     t = rate_to_usd(to_ccy)
-    if f <= 0:
-        f = 1.0
+    if (
+        not Decimal(str(f)).is_finite()
+        or not Decimal(str(t)).is_finite()
+        or f <= 0
+        or t <= 0
+    ):
+        raise ValueError("Tasa inválida")
     usd_cents = Decimal(int(amount_cents)) / Decimal(str(f))
     out = usd_cents * Decimal(str(t))
-    return int(out.quantize(Decimal("0.01")))  # type: ignore[arg-type]
+    from decimal import ROUND_HALF_UP
+
+    return int(out.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 async def get_exchange_rate(from_ccy: str, to_ccy: str) -> Decimal:
-    """Tasa numérica directa (para invoice.exchange_rate). Nunca lanza."""
+    """Legacy numeric preview; not an official quote. Raises for VES/unknowns."""
+    if "VES" in (from_ccy.upper(), to_ccy.upper()):
+        raise ValueError(
+            "VES requiere una cotización BCV fechada; no admite tasas demo"
+        )
     rates = await get_rates()
-    f = float(rates.get((from_ccy or "USD").upper(), 1.0))
-    t = float(rates.get((to_ccy or "USD").upper(), 1.0))
-    if f <= 0:
-        f = 1.0
+    if from_ccy.upper() not in rates or to_ccy.upper() not in rates:
+        raise ValueError("Moneda sin tasa conocida")
+    f = float(rates[from_ccy.upper()])
+    t = float(rates[to_ccy.upper()])
+    if (
+        not Decimal(str(f)).is_finite()
+        or not Decimal(str(t)).is_finite()
+        or f <= 0
+        or t <= 0
+    ):
+        raise ValueError("Tasa inválida")
     return Decimal(str(round(t / f, 4)))

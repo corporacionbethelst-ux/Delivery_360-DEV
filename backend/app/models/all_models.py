@@ -5,6 +5,7 @@ Import this module to ensure all models are registered with the Base metadata.
 """
 
 from app.models.user import User
+from app.models.currency import BcvRate, UsdVesQuote
 from app.models.rider import Rider
 from app.models.vehicle import Vehicle  # ✅ AÑADIDO: Vehicle debe importarse aquí
 from app.models.zone import Zone
