@@ -40,6 +40,7 @@ MODULES = (
     "wallet",
     "notifications",
     "fiscal",
+    "currency",
 )
 ALIASES = (
     "deliveries",
@@ -68,9 +69,53 @@ FRAMEWORK_DELTA = Path(__file__).parent / "fixtures/openapi_framework_delta.json
 BACKEND = Path(__file__).resolve().parents[1]
 
 
+CURRENCY_PATHS = {
+    "/api/v1/currency/context",
+    "/api/v1/currency/rates",
+    "/api/v1/currency/quotes",
+    "/api/v1/currency/quotes/{quote_id}",
+}
+
+
+def before_currency_schema(application):
+    schema = deepcopy(application.openapi())
+    found = {key for key in schema["paths"] if key.startswith("/api/v1/currency/")}
+    assert found == CURRENCY_PATHS
+    for key in found:
+        del schema["paths"][key]
+    for key in ("BcvRateInput", "UsdVesQuoteInput"):
+        del schema["components"]["schemas"][key]
+    return schema
+
+
+def surface_before_currency(application):
+    current = api_surface(application)
+    removed = [row for row in current["routes"] if row["path"] in CURRENCY_PATHS]
+    assert len(removed) == 4
+    current["routes"] = [
+        row for row in current["routes"] if row["path"] not in CURRENCY_PATHS
+    ]
+    reachable = set()
+
+    def visit(key):
+        if key in reachable:
+            return
+        reachable.add(key)
+        for child in current["dependencies"][key]["dependencies"]:
+            visit(child)
+
+    for row in current["routes"]:
+        if "dependency_contract" in row:
+            visit(row["dependency_contract"])
+    current["dependencies"] = {
+        key: value for key, value in current["dependencies"].items() if key in reachable
+    }
+    return current
+
+
 def before_settings_schema(application=app):
     """Remove only the reviewed settings revision contract; pin all other fields."""
-    schema = deepcopy(application.openapi())
+    schema = before_currency_schema(application)
     delta = Path(__file__).parent / "fixtures/openapi_bonus_simulation_delta.json"
     for change in json.loads(delta.read_text()):
         path = change["path"]
@@ -114,7 +159,7 @@ def before_settings_schema(application=app):
 
 
 def surface_before_settings(application=app):
-    current = api_surface(application)
+    current = surface_before_currency(application)
     canonical = json.dumps(
         before_settings_schema(application),
         sort_keys=True,
@@ -143,7 +188,7 @@ def before_delivery_catalog_schema():
 
 
 def historical_surface():
-    current = api_surface(app)
+    current = surface_before_currency(app)
     current["routes"] = [
         row for row in current["routes"] if row["path"] != "/api/v1/deliveries/page"
     ]

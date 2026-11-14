@@ -25,6 +25,7 @@ from . import payouts
 from . import wallet
 from . import notifications
 from . import fiscal
+from . import currency
 
 _API_MODULES = (
     auth,
@@ -51,6 +52,7 @@ _API_MODULES = (
     wallet,
     notifications,
     fiscal,
+    currency,
 )
 
 for _module in _API_MODULES:

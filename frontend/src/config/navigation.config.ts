@@ -2,7 +2,7 @@ import { UserRole } from '@/types/user';
 import {
   LayoutDashboard, Package, Users, MapPin, DollarSign, Settings,
   Bike, ClipboardList, AlertTriangle, Truck, Shield, Wallet, PieChart,
-  History, CreditCard, Globe, Activity, Clock
+  History, CreditCard, Globe, Activity, Clock, ArrowLeftRight
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -89,6 +89,12 @@ export const NAVIGATION_CONFIG: NavItem[] = [
       { label: 'Auditoría', href: '/manager/admin/audit', icon: History, roles: ['SUPERADMIN'] },
       { label: 'Configuración', href: '/manager/admin/settings', icon: Settings, roles: ['SUPERADMIN'] },
     ]
+  },
+  {
+    label: 'USD / Bolívares',
+    href: '/manager/admin/currency',
+    icon: ArrowLeftRight,
+    roles: ['SUPERADMIN', 'GERENTE', 'OPERADOR'],
   },
   {
     label: 'Dashboard Rider',

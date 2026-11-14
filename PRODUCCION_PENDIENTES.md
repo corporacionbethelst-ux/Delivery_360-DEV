@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 89. Este registro distingue implementación local,
+Actualizado con la entrega 90. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -13,16 +13,25 @@ ni reservas. También permite reportar comercio cerrado sin salir de la recogida
 Quedan la aceptación del usuario y repetir el recorrido en staging.
 Una aprobación contable EN_PROCESO no acredita una transferencia bancaria.
 
-## 2. Moneda y pagos — siguiente bloque
+## 2. Moneda y pagos — bloque en curso
 
 Decisión confirmada por el usuario: **Venezuela, base contable USD y conversión a
 VES con la tasa oficial BCV del día**.
 
-Falta implementar identificación coherente de moneda, obtención/validación de la
-tasa y su vigencia, redondeo decimal y conservación de la tasa aplicada por
-operación. Actualizar la tasa no debe modificar documentos o movimientos previos.
-Los importes históricos sin moneda verificable requieren revisión; no se
-reetiquetan COP como USD ni se convierten usando la tasa actual.
+La entrega 90 incorpora un registro diario de referencias BCV verificadas
+manualmente y cotizaciones independientes USD/VES: precisión decimal, redondeo
+HALF_UP, fecha del servidor en Caracas, revisión concurrente, reintentos sin
+duplicados y comprobantes que conservan su tasa. Las referencias y cotizaciones
+persistidas rechazan UPDATE, DELETE y TRUNCATE. Una corrección crea otra revisión.
+La API y la pantalla indican que el origen es manual y que no confirman pagos.
+
+Faltan la obtención automática fiable del BCV y la adopción de USD en todos los
+flujos contables, tarifas, bonos, órdenes, facturas y retiros. La nueva herramienta
+es de cotización (`quotation_only`); no acredita que el libro histórico ya esté
+en USD. Los importes anteriores sin moneda verificable requieren revisión; no
+se reetiquetan COP como USD ni se convierten usando la tasa actual. La consulta
+HTTPS al BCV respondió 503 en este entorno; no se sustituyó por tasas de prueba
+ni se omitió la verificación TLS. Véase [MONEDA_VENEZUELA.md](MONEDA_VENEZUELA.md).
 
 El banco/proveedor de pagos todavía no está seleccionado. La integración exige
 confirmación externa verificable, prevención de duplicados y conciliación; no

@@ -1,6 +1,6 @@
 # Cómo probar Delivery360 localmente
 
-El laboratorio de la entrega 88 utiliza la API y la interfaz reales, PostgreSQL
+El laboratorio iniciado en la entrega 88 utiliza la API y la interfaz reales, PostgreSQL
 con PostGIS y Redis propios. No utiliza las respuestas sintéticas de los smokes
 visuales anteriores. Los datos de este laboratorio son de prueba.
 
@@ -15,11 +15,11 @@ Utiliza la rama de esta entrega mientras el PR no esté integrado a main:
 
 ```bash
 git fetch origin
-git switch feat/local-functional-test-environment-v1
+git switch feat/usd-ves-bcv-rates-v1
 ```
 
 Si solo existe la rama remota, utiliza
-`git switch --track origin/feat/local-functional-test-environment-v1`.
+`git switch --track origin/feat/usd-ves-bcv-rates-v1`.
 Conserva tus cambios locales antes de cambiar de rama. Después de integrar el
 PR, puedes usar main actualizado con `git pull --ff-only`.
 
@@ -135,6 +135,28 @@ sobrescribe. Crea su propio repartidor, documentos sintéticos y siete órdenes.
 Registra una reserva rechazada y otra aprobada contablemente, sin pagos bancarios.
 Los datos quedan identificados en `progress.json` y `results.json` de los
 artefactos. Son datos de prueba conservados para revisión, sin validez documental.
+
+### Referencias BCV y cotizaciones de la entrega 90
+
+Abre **USD / Bolívares** como superadministrador o gerente. En el laboratorio,
+usa una referencia claramente identificada como sintética: revisa y cancela una
+vez; después confírmala, guarda un importe pequeño y recarga su enlace. Corrige
+la tasa y comprueba que el comprobante anterior conserva el equivalente original.
+El operador cotiza, pero no puede registrar referencias ni recuperar las ajenas.
+
+```bash
+python frontend/e2e/local-currency.browser.py --artifacts-dir /tmp/delivery360-currency
+```
+
+El ejecutor comprueba identidad y marcador antes de escribir, conserva sus datos
+sintéticos y verifica que órdenes, contabilidad y configuración no cambien.
+Si acabas de ejecutar otros recorridos con varios usuarios, añade
+`--wait-auth-window` para respetar el límite de inicio de sesión.
+
+La tasa se registra manualmente tras verificar BCV; no existe consulta automática
+habilitada. Es una herramienta de cotización independiente, sin pagos bancarios
+ni migración de saldos históricos. El [contrato de moneda](MONEDA_VENEZUELA.md)
+describe vigencia, precisión, permisos, comprobantes y pendientes.
 
 ### Límites del laboratorio
 

@@ -41,6 +41,7 @@ from app.api.v1 import (
     tracking as tracking_module,
     notifications as notifications_module,
     fiscal as fiscal_module,
+    currency as currency_module,
 )
 from app.middleware import RateLimitMiddleware, AuditLogMiddleware
 from app.monitoring.health_check import health_router
@@ -231,6 +232,7 @@ def create_app() -> FastAPI:
     async def ping():
         return {"success": True, "message": "pong"}
 
+    app.include_router(currency_module.router, prefix="/api/v1", tags=["Currency"])
     return app
 
 
