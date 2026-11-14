@@ -168,7 +168,7 @@ def main():
                 "subtotal": 10,
                 "delivery_fee": 2,
                 "total": 12,
-                "declared_value": 10,
+                "declared_value": 12,
             },
         )
         assert created.status == 201

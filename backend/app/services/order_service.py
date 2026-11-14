@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.serialization import optional_enum_value
 from app.core.json_types import json_value
 from app.models.order import Order, OrderStatus, OrderPriority
+from app.services import order_pricing
 from app.core.exceptions import AppException, ValidationError
 from app.services.order_cancellation import (
     cancel_order as coordinated_cancel,
@@ -52,7 +53,7 @@ class OrderService:
             data = order_data.model_dump()
             # Only the coordinator may set the first persisted assignment.
             data.pop("assigned_rider_id", None)
-            data["items"] = json_value(order_data.items)
+            data.pop("currency", None)
             data["priority"] = (
                 OrderPriority(order_data.priority.value)
                 if order_data.priority is not None
@@ -62,6 +63,16 @@ class OrderService:
             data["estimated_delivery_time"] = estimated_delivery
             data["sla_deadline"] = estimated_delivery
             order = Order(**data)
+            order.currency_code = "USD"
+            order_pricing.apply(
+                order,
+                order_pricing.calculate(
+                    data.get("items"),
+                    data.get("subtotal"),
+                    data.get("delivery_fee"),
+                    data.get("total"),
+                ),
+            )
             db.add(order)
             if order_data.assigned_rider_id is not None:
                 actor_id = notification_uuid(created_by, "Responsable")
@@ -105,8 +116,6 @@ class OrderService:
             and order.status != OrderStatus.ASIGNADO
         ):
             raise AppException("Use la operación de asignación con sus controles", 409)
-        if "items" in update_data:
-            update_data["items"] = json_value(update_data["items"])
         if order_data.priority is not None:
             update_data["priority"] = OrderPriority(order_data.priority.value)
         if order_data.status is not None:
@@ -129,6 +138,14 @@ class OrderService:
             raise AppException(
                 "Una orden terminal no puede reabrirse mediante edición", 409
             )
+        order_pricing.update_price(order, update_data)
+        update_data = {
+            k: v
+            for k, v in update_data.items()
+            if k
+            not in order_pricing.MONEY_FIELDS
+            | {"expected_pricing_revision", "currency"}
+        }
         for key, value in update_data.items():
             setattr(order, key, value)
 

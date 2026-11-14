@@ -1,0 +1,275 @@
+[
+  {
+    "path": [
+      "components",
+      "schemas",
+      "OrderCreate",
+      "properties",
+      "currency"
+    ],
+    "added": {
+      "const": "USD",
+      "default": "USD",
+      "enum": [
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "OrderCreate",
+      "properties",
+      "declared_value",
+      "anyOf"
+    ],
+    "added": [
+      {
+        "type": "number"
+      },
+      {
+        "type": "string"
+      }
+    ]
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "OrderCreate",
+      "properties",
+      "declared_value",
+      "default"
+    ],
+    "before": 0.0,
+    "after": "0.00"
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "OrderCreate",
+      "properties",
+      "declared_value",
+      "type"
+    ],
+    "removed": "number"
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "OrderCreate",
+      "properties",
+      "delivery_fee",
+      "anyOf"
+    ],
+    "before": [
+      {
+        "type": "number"
+      },
+      {
+        "type": "null"
+      }
+    ],
+    "after": [
+      {
+        "type": "number"
+      },
+      {
+        "type": "string"
+      },
+      {
+        "type": "null"
+      }
+    ]
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "OrderCreate",
+      "properties",
+      "subtotal",
+      "anyOf"
+    ],
+    "before": [
+      {
+        "type": "number"
+      },
+      {
+        "type": "null"
+      }
+    ],
+    "after": [
+      {
+        "type": "number"
+      },
+      {
+        "type": "string"
+      },
+      {
+        "type": "null"
+      }
+    ]
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "OrderCreate",
+      "properties",
+      "total",
+      "anyOf"
+    ],
+    "before": [
+      {
+        "type": "number"
+      },
+      {
+        "type": "null"
+      }
+    ],
+    "after": [
+      {
+        "type": "number"
+      },
+      {
+        "type": "string"
+      },
+      {
+        "type": "null"
+      }
+    ]
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "OrderUpdate",
+      "properties",
+      "currency"
+    ],
+    "added": {
+      "const": "USD",
+      "default": "USD",
+      "enum": [
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "OrderUpdate",
+      "properties",
+      "delivery_fee",
+      "anyOf"
+    ],
+    "before": [
+      {
+        "type": "number"
+      },
+      {
+        "type": "null"
+      }
+    ],
+    "after": [
+      {
+        "type": "number"
+      },
+      {
+        "type": "string"
+      },
+      {
+        "type": "null"
+      }
+    ]
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "OrderUpdate",
+      "properties",
+      "expected_pricing_revision"
+    ],
+    "added": {
+      "anyOf": [
+        {
+          "maximum": 2147483647.0,
+          "minimum": 1.0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Expected Pricing Revision"
+    }
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "OrderUpdate",
+      "properties",
+      "subtotal",
+      "anyOf"
+    ],
+    "before": [
+      {
+        "type": "number"
+      },
+      {
+        "type": "null"
+      }
+    ],
+    "after": [
+      {
+        "type": "number"
+      },
+      {
+        "type": "string"
+      },
+      {
+        "type": "null"
+      }
+    ]
+  },
+  {
+    "path": [
+      "components",
+      "schemas",
+      "OrderUpdate",
+      "properties",
+      "total",
+      "anyOf"
+    ],
+    "before": [
+      {
+        "type": "number"
+      },
+      {
+        "type": "null"
+      }
+    ],
+    "after": [
+      {
+        "type": "number"
+      },
+      {
+        "type": "string"
+      },
+      {
+        "type": "null"
+      }
+    ]
+  }
+]

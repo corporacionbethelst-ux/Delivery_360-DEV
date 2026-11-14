@@ -121,4 +121,29 @@ def declared_usd_contract(expected):
             anchor, "\n\t" + column + " VARCHAR(3), " + anchor, 1
         )
         data["defaults"][column] = [default, None]
+    return exact_pricing_contract(result)
+
+
+def exact_pricing_contract(expected):
+    from copy import deepcopy
+
+    result = deepcopy(expected)
+    if "orders" in result:
+        row = result["orders"]
+        fields = (
+            ("pricing_version", "INTEGER"),
+            ("pricing_revision", "INTEGER"),
+            ("subtotal_exact", "NUMERIC(10, 2)"),
+            ("delivery_fee_exact", "NUMERIC(10, 2)"),
+            ("total_exact", "NUMERIC(10, 2)"),
+            ("items_exact", "JSON"),
+        )
+        addition = "".join("\n\t" + name + " " + kind + ", " for name, kind in fields)
+        assert row["ddl"].count("\n\tpayment_method") == 1
+        row["ddl"] = row["ddl"].replace(
+            "\n\tpayment_method", addition + "\n\tpayment_method", 1
+        )
+        for name, _ in fields:
+            assert name not in row["defaults"]
+            row["defaults"][name] = [None, None]
     return result

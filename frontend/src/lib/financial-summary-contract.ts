@@ -1,3 +1,4 @@
+import { validateExactAggregate } from '@/lib/order-pricing';
 import type { FinancialPeriod, FinancialSummary, FinancialSummaryParams } from '@/services/financial.service';
 
 export const FINANCIAL_PERIODS = ['today', 'week', 'month'] as const;
@@ -67,6 +68,7 @@ export function normalizeFinancialSummary(value: unknown, query: Readonly<Financ
     currency = data.currency;
   }
   const result: FinancialSummary = {
+    ...(data.exact_order_pricing === undefined ? {} : {exact_order_pricing: validateExactAggregate(data.exact_order_pricing)}),
     period, period_start: start?.iso ?? null, period_end: end?.iso ?? null, currency,
     total_revenue: money(data.total_revenue), total_costs: money(data.total_costs),
     net_margin: money(data.net_margin, true), total_rider_payouts: money(data.total_rider_payouts),

@@ -14,10 +14,12 @@ from sqlalchemy import (
     Boolean,
     JSON,
     Integer,
+    Numeric,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
+from decimal import Decimal
 from app.core.database import Base
 
 
@@ -82,6 +84,19 @@ class Order(Base):
         Float, default=0.0, nullable=True
     )
     total: Mapped[float | None] = mapped_column(Float, default=0.0, nullable=True)
+
+    pricing_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pricing_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    subtotal_exact: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    delivery_fee_exact: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    total_exact: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    items_exact: Mapped[JsonValue] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
 
     payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
     payment_status: Mapped[str | None] = mapped_column(

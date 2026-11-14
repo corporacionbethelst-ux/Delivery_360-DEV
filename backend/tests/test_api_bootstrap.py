@@ -79,6 +79,24 @@ CURRENCY_PATHS = {
 
 def before_currency_schema(application):
     schema = deepcopy(application.openapi())
+    # Reverse only the reviewed prospective-price input changes. Every previous
+    # route, dependency and unrelated schema remains pinned by historical hashes.
+    delta = json.loads(
+        (Path(__file__).parent / "fixtures/openapi_exact_prices_delta.json").read_text()
+    )
+    for change in delta:
+        parent = schema
+        for key in change["path"][:-1]:
+            parent = parent[key]
+        key = change["path"][-1]
+        if "added" in change:
+            assert parent.pop(key) == change["added"]
+        elif "removed" in change:
+            assert key not in parent
+            parent[key] = change["removed"]
+        else:
+            assert parent[key] == change["after"]
+            parent[key] = change["before"]
     unit = schema["components"]["schemas"]["PayoutRequestBody"]["properties"].pop(
         "currency"
     )

@@ -1,3 +1,4 @@
+import { checkedOrder } from "@/lib/order-pricing";
 import { DeliveryStatus } from '@/types/delivery';
 import { api } from '@/lib/api';
 import type { Order as HttpOrder, OrderListParams } from '@/services/order.service';
@@ -41,7 +42,7 @@ export function validateHttpOrder(value: unknown, expectedId?: string): HttpOrde
   if (defined.some(v => v !== null && (typeof v !== 'string' || !v.trim())) ||
       new Set(defined).size > 1) throw new Error('Identidades de asignación contradictorias');
   if (o.items != null && !Array.isArray(o.items)) throw new Error('Artículos mal formados');
-  return o as unknown as HttpOrder;
+  return checkedOrder(o as unknown as HttpOrder);
 }
 
 export function validateRider(value: unknown, expectedId?: string): Rider {

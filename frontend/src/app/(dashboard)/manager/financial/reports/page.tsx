@@ -1,5 +1,6 @@
 'use client';
 
+import { ExactOrderTotals } from '@/components/financial/ExactOrderTotals';
 import { useEffect, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
@@ -66,6 +67,7 @@ function ReportsView() {
           <CardDescription>Incluye todos los estados. Los importes de órdenes no equivalen a ingresos cobrados.</CardDescription>
         </CardHeader><CardContent className="space-y-4">
           <p className="text-sm text-gray-600">{orders.currency ? `Moneda informada: ${orders.currency}` : 'Moneda no informada para órdenes'}</p>
+          <ExactOrderTotals value={orders.exact_order_pricing} />
           <dl className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             {[
               { label: 'Total de órdenes', value: orders.total_orders.toLocaleString('es-VE') },

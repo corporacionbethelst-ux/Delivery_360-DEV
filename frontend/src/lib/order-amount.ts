@@ -1,4 +1,6 @@
+import { validateOrderPricing, type ExactOrderPricing } from "@/lib/order-pricing";
 export interface OrderAmountSource {
+  pricing?: ExactOrderPricing | null;
   total_amount?: number | string | null;
   total?: number | string | null;
   subtotal?: number | string | null;
@@ -25,6 +27,7 @@ const firstPositiveAmount = (...values: Array<number | string | null | undefined
 };
 
 export const resolveOrderCollectAmount = (order: OrderAmountSource): number => {
+  if (order.pricing != null) return Number(validateOrderPricing(order.pricing).total);
   const directAmount = firstPositiveAmount(order.total_amount, order.total);
   if (directAmount !== null) return directAmount;
 
