@@ -110,10 +110,20 @@ def main():
         expect(save).to_be_enabled()
         page.screenshot(path=str(out / "new-desktop.png"), full_page=True)
         page.set_viewport_size({"width": 390, "height": 844})
+        page.wait_for_function(
+            "document.querySelector('aside').getBoundingClientRect().right <= 1"
+        )
         assert page.evaluate(
             "document.documentElement.scrollWidth <= window.innerWidth"
         )
         page.screenshot(path=str(out / "new-mobile.png"), full_page=True)
+        save.scroll_into_view_if_needed()
+        expect(save).to_be_visible()
+        page.screenshot(
+            path=str(out / "new-mobile-summary.png"),
+            full_page=True,
+            animations="disabled",
+        )
         passed("colorful USD form fits desktop and mobile without horizontal overflow")
         numbers.nth(1).fill("0.001")
         expect(save).to_be_disabled()
@@ -188,7 +198,9 @@ def main():
             page.get_by_role("button", name=re.compile("Guardar cambios", re.I)).click()
         assert stale.value.status == 412
         expect(numbers.nth(2)).to_have_value("0.50")
-        expect(page.get_by_role("alert").filter(has_text="precio cambió")).to_be_visible()
+        expect(
+            page.get_by_role("alert").filter(has_text="precio cambió")
+        ).to_be_visible()
         current = call("GET", "/orders/" + oid)
         assert (
             current["pricing"]["revision"] == 3
