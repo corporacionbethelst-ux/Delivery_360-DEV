@@ -482,9 +482,10 @@ def main():
         passed("three-decimal input is refused before saving or posting a withdrawal")
         amount_field.fill("10,01")
         rider_page.get_by_label("Últimos 4 dígitos (Opcional)", exact=True).fill("1234")
-        rider_page.locator("main > div.overflow-auto").evaluate(
-            "el => el.scrollTo({top: 0, behavior: 'instant'})"
-        )
+        rider_page.evaluate("document.activeElement?.blur()")
+        rider_page.get_by_role(
+            "heading", name="Solicitar Retiro", exact=True
+        ).scroll_into_view_if_needed()
         expect(
             rider_page.get_by_role("heading", name="Solicitar Retiro", exact=True)
         ).to_be_in_viewport()
@@ -495,9 +496,10 @@ def main():
         rider_page.wait_for_function(
             "document.querySelector('aside').getBoundingClientRect().right<=1"
         )
-        rider_page.locator("main > div.overflow-auto").evaluate(
-            "el => el.scrollTo({top: 0, behavior: 'instant'})"
-        )
+        rider_page.evaluate("document.activeElement?.blur()")
+        rider_page.get_by_role(
+            "heading", name="Solicitar Retiro", exact=True
+        ).scroll_into_view_if_needed()
         expect(
             rider_page.get_by_role("heading", name="Solicitar Retiro", exact=True)
         ).to_be_in_viewport()
