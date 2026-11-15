@@ -558,3 +558,19 @@ sin reconsultar por cada objeto de usuario recreado. Un fallo financiero deja
 las cifras por confirmar; no rellena ingresos con órdenes ni monedas de prueba.
 La exportación incluye todas las filas y exclusiones del historial cargado,
 propietario, corte y huella SHA256, sin una segunda consulta.
+
+## Entrega 99: formulario de retiro exacto
+
+La solicitud usa el saldo exacto del propietario y compara centavos con BigInt.
+El usuario puede escribir punto o coma decimal; el POST existente recibe el monto
+USD como texto decimal canónico, sin redondeo en el formulario. Se mantienen las
+intenciones v1 y la misma clave al recuperar o reintentar una solicitud incierta.
+Una confirmación recuperada indica USD aun cuando falle la lectura del saldo.
+
+El formulario no solicita fondos nuevos con saldo desconocido. Sí permite
+confirmar o reintentar una intención existente con la misma identidad, para que
+una reserva ya creada no obligue a generar otra solicitud. El servidor decide
+sobre fondos, concurrencia e idempotencia. No se amplían métodos, no se introduce
+conversión VES ni se confirma una transferencia bancaria. Las respuestas
+numéricas de compatibilidad del servidor se conservan; su migración y los demás
+consumidores activos siguen en el registro de producción.

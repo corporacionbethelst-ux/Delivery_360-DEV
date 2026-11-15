@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 98. Este registro distingue implementación local,
+Actualizado con la entrega 99. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -130,3 +130,9 @@ CI del commit candidato aprobado, protección efectiva de main y environments,
 credenciales mínimas, imágenes identificadas por digest y plan de despliegue
 revisado. La aplicación del despliegue productivo sigue siendo una acción
 separada autorizada explícitamente; no se realiza desde este registro.
+
+La entrega 99 migra el formulario de solicitud a saldo exacto y montos USD en
+texto decimal, conservando claves v1 y recuperación incluso sin saldo disponible.
+El ciclo real comprueba reserva de 10.01 y recuperación tras perder la respuesta
+sin duplicados. Continúan pendientes otros consumidores numéricos y las respuestas
+de compatibilidad del servidor; no se considera conciliación ni liquidación bancaria.

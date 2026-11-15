@@ -438,18 +438,158 @@ def main():
         passed(
             "real earned balance is 4 delivery bonuses plus 1 failed-attempt bonus, with no seeded funds"
         )
-        first_key = "lifecycle-reject-" + run
-        request = {"amount": 10, "idempotency_key": first_key}
-        payout = call(
-            rider_page, own, "POST", "/payouts/request", expected=201, data=request
+        # The form uses only funds earned above. Never seed monetary income.
+        exact = call(rider_page, own, "GET", "/payouts/balance/exact")
+        assert (
+            exact["available"] == "11.00" and exact["user_id"] == identity_rider["id"]
         )
+        remaining, reset = budget[own["Authorization"]]
+        if remaining < 15 and reset > time.time():
+            time.sleep(min(60, reset - time.time() + 0.25))
+        financial_reads, form_posts, lost = [], [], {}
+
+        def track_withdrawal(request):
+            if "/api/v1/payouts/" in request.url and request.method == "GET":
+                financial_reads.append(request.url)
+            if (
+                request.url.endswith("/api/v1/payouts/request")
+                and request.method == "POST"
+            ):
+                form_posts.append(request.post_data_json)
+
+        rider_page.on("request", track_withdrawal)
+        rider_page.goto(
+            base + "/rider/earnings/withdraw", wait_until="domcontentloaded"
+        )
+        amount_field = rider_page.get_by_label("Monto a Retirar", exact=True)
+        expect(amount_field).to_be_visible(timeout=30000)
+        expect(rider_page.get_by_text("USD 11,00", exact=True).first).to_be_visible()
+        assert financial_reads and all(
+            "/payouts/balance/exact" in url for url in financial_reads
+        )
+        passed(
+            "real withdrawal form reads the exact owner balance and keeps decimal input as text"
+        )
+        amount_field.fill("10.001")
+        rider_page.get_by_role(
+            "button", name="Enviar solicitud de retiro", exact=True
+        ).click()
+        expect(
+            rider_page.get_by_text(re.compile("Usa un monto con hasta dos decimales"))
+        ).to_be_visible()
+        assert not form_posts
+        passed("three-decimal input is refused before saving or posting a withdrawal")
+        amount_field.fill("10,01")
+        rider_page.get_by_label("Últimos 4 dígitos (Opcional)", exact=True).fill("1234")
+        rider_page.screenshot(
+            path=str(out / "withdraw-exact-desktop.png"), animations="disabled"
+        )
+        rider_page.set_viewport_size({"width": 390, "height": 844})
+        rider_page.wait_for_function(
+            "document.querySelector('aside').getBoundingClientRect().right<=1"
+        )
+        assert rider_page.evaluate("document.documentElement.scrollWidth<=innerWidth")
+        rider_page.screenshot(
+            path=str(out / "withdraw-exact-mobile.png"),
+            full_page=True,
+            animations="disabled",
+        )
+        passed(
+            "colorful withdrawal form remains readable on mobile without horizontal overflow"
+        )
+
+        def lose_confirmation(route):
+            response = route.fetch()
+            assert response.status == 201
+            lost["reply"] = response.json()
+            route.abort("failed")
+
+        rider_page.route("**/api/v1/payouts/request", lose_confirmation)
+        rider_page.get_by_role(
+            "button", name="Enviar solicitud de retiro", exact=True
+        ).click()
+        expect(
+            rider_page.get_by_text("Error al procesar. Intenta más tarde.", exact=True)
+        ).to_be_visible(timeout=30000)
+        assert len(form_posts) == 1
+        request = form_posts[0]
+        first_key = request["idempotency_key"]
+        assert re.fullmatch(r"[0-9a-f-]{36}", first_key)
+        assert (
+            request["amount"] == "10.01"
+            and request["currency"] == "USD"
+            and request["method"] == "TRANSFERENCIA"
+        )
+        payout = lost["reply"]
+        assert (
+            payout["requested_by_user_id"] == identity_rider["id"]
+            and payout["rider_id"] == rider_id
+        )
+        assert (
+            sql("SELECT amount::text FROM payouts WHERE id='" + payout["id"] + "'")
+            == "10.01"
+        )
+        passed(
+            "decimal comma posts canonical 10.01 text and PostgreSQL reserves precisely 1001 cents"
+        )
+        storage_key = "delivery360-withdrawal-v1:" + identity_rider["id"]
+        saved = rider_page.evaluate(
+            "key => JSON.parse(sessionStorage.getItem(key))", storage_key
+        )
+        assert (
+            saved["key"] == first_key
+            and saved["amountCents"] == 1001
+            and saved["version"] == 1
+        )
+        expect(
+            rider_page.get_by_role(
+                "button", name="Reintentar misma solicitud", exact=True
+            )
+        ).to_be_enabled()
+        passed(
+            "a lost real server confirmation preserves the original v1 intent and key"
+        )
+        rider_page.unroute("**/api/v1/payouts/request")
+        rider_page.route(
+            "**/api/v1/payouts/balance/exact",
+            lambda route: route.fulfill(
+                status=503,
+                content_type="application/json",
+                body='{"detail":"Synthetic read outage"}',
+            ),
+        )
+        rider_page.reload(wait_until="domcontentloaded")
+        expect(
+            rider_page.get_by_role("heading", name="Solicitud encontrada", exact=True)
+        ).to_be_visible(timeout=30000)
+        expect(rider_page.get_by_text("USD 10,01", exact=True)).to_be_visible()
+        assert (
+            rider_page.evaluate("key => sessionStorage.getItem(key)", storage_key)
+            is None
+        )
+        assert len(form_posts) == 1
+        passed(
+            "reload recovers the same confirmed USD request even when exact balance is unavailable, without another POST"
+        )
+        rider_page.unroute("**/api/v1/payouts/balance/exact")
+        assert (
+            sql(
+                "SELECT count(*) FROM payouts WHERE idempotency_key='" + first_key + "'"
+            )
+            == "1"
+        )
+        passed(
+            "recovery leaves exactly one reserved request and never invents a second key"
+        )
+        rider_page.remove_listener("request", track_withdrawal)
+        rider_page.set_viewport_size({"width": 1440, "height": 1050})
         payouts.append(payout["id"])
         checkpoint()
         replay = call(
             rider_page, own, "POST", "/payouts/request", expected=201, data=request
         )
         assert replay["id"] == payout["id"]
-        assert Decimal(str(balance()["available"])) == 1
+        assert Decimal(str(balance()["available"])) == Decimal("0.99")
         call(
             rider_page,
             own,
