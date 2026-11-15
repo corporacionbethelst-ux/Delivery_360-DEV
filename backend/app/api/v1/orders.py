@@ -281,6 +281,8 @@ def _order_to_dict(o: Order, rider: Optional[Rider] = None) -> dict:
         "external_id": o.external_id,
         "currency": o.currency_code,
         "pricing": order_pricing.view(o),
+        "collection_revision": getattr(o, "collection_revision", None),
+        "collection_locked": getattr(o, "collection_locked", None),
         "status": status_value,
         "cancellation_reason": o.cancellation_reason,
         "cancelled_by": o.cancelled_by,

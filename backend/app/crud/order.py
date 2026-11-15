@@ -46,6 +46,8 @@ class CRUDOrder:
             "delivery_fee_exact",
             "total_exact",
             "items_exact",
+            "collection_revision",
+            "collection_locked",
         }:
             raise AppException(
                 "El precio exacto debe calcularse desde sus datos declarados", 422
@@ -96,6 +98,8 @@ class CRUDOrder:
             "delivery_fee_exact",
             "total_exact",
             "items_exact",
+            "collection_revision",
+            "collection_locked",
         }:
             raise AppException("Use los datos de precio y su revisión esperada", 422)
         target = obj_in.get("status")

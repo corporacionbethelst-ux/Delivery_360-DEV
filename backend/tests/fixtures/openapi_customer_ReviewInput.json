@@ -1,0 +1,48 @@
+{
+  "properties": {
+    "request_key": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Request Key"
+    },
+    "expected_collection_revision": {
+      "type": "integer",
+      "maximum": 2147483647.0,
+      "minimum": 1.0,
+      "title": "Expected Collection Revision"
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "VERIFICADO",
+        "RECHAZADO"
+      ],
+      "title": "Decision"
+    },
+    "note": {
+      "type": "string",
+      "maxLength": 500,
+      "minLength": 10,
+      "title": "Note"
+    },
+    "verified_evidence": {
+      "type": "boolean",
+      "title": "Verified Evidence"
+    },
+    "acknowledge_refund_due": {
+      "type": "boolean",
+      "title": "Acknowledge Refund Due",
+      "default": false
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "request_key",
+    "expected_collection_revision",
+    "decision",
+    "note",
+    "verified_evidence"
+  ],
+  "title": "ReviewInput"
+}

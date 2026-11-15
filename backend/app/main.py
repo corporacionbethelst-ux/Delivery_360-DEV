@@ -42,6 +42,7 @@ from app.api.v1 import (
     notifications as notifications_module,
     fiscal as fiscal_module,
     currency as currency_module,
+    customer_collections as customer_collections_module,
 )
 from app.middleware import RateLimitMiddleware, AuditLogMiddleware
 from app.monitoring.health_check import health_router
@@ -233,6 +234,7 @@ def create_app() -> FastAPI:
         return {"success": True, "message": "pong"}
 
     app.include_router(currency_module.router, prefix="/api/v1", tags=["Currency"])
+    app.include_router(customer_collections_module.router, prefix="/api/v1")
     return app
 
 

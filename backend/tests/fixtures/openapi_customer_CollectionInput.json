@@ -1,0 +1,114 @@
+{
+  "properties": {
+    "request_key": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Request Key"
+    },
+    "expected_pricing_revision": {
+      "type": "integer",
+      "maximum": 2147483647.0,
+      "minimum": 1.0,
+      "title": "Expected Pricing Revision"
+    },
+    "expected_collection_revision": {
+      "type": "integer",
+      "maximum": 2147483647.0,
+      "minimum": 0.0,
+      "title": "Expected Collection Revision"
+    },
+    "amount_usd": {
+      "anyOf": [
+        {
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "title": "Amount Usd"
+    },
+    "paid_amount": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "title": "Paid Amount"
+    },
+    "paid_currency": {
+      "type": "string",
+      "enum": [
+        "USD",
+        "VES"
+      ],
+      "title": "Paid Currency"
+    },
+    "method": {
+      "type": "string",
+      "enum": [
+        "EFECTIVO",
+        "TRANSFERENCIA",
+        "PAGO_MOVIL"
+      ],
+      "title": "Method"
+    },
+    "source_key": {
+      "type": "string",
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Source Key"
+    },
+    "reference_key": {
+      "type": "string",
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Reference Key"
+    },
+    "received_on": {
+      "type": "string",
+      "format": "date",
+      "title": "Received On"
+    },
+    "quote_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Quote Id"
+    },
+    "confirmed_received": {
+      "type": "boolean",
+      "enum": [
+        true
+      ],
+      "const": true,
+      "title": "Confirmed Received"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "request_key",
+    "expected_pricing_revision",
+    "expected_collection_revision",
+    "amount_usd",
+    "paid_amount",
+    "paid_currency",
+    "method",
+    "source_key",
+    "reference_key",
+    "received_on",
+    "confirmed_received"
+  ],
+  "title": "CollectionInput"
+}

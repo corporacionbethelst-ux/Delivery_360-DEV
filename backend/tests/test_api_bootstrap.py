@@ -41,6 +41,7 @@ MODULES = (
     "notifications",
     "fiscal",
     "currency",
+    "customer_collections",
 )
 ALIASES = (
     "deliveries",
@@ -81,6 +82,24 @@ CURRENCY_PATHS = {
 
 def before_currency_schema(application):
     schema = deepcopy(application.openapi())
+    for name in ("CollectionInput", "ReviewInput"):
+        assert schema["components"]["schemas"].pop(name) == json.loads(
+            (
+                Path(__file__).parent / ("fixtures/openapi_customer_" + name + ".json")
+            ).read_text()
+        )
+    found_collections = {
+        key
+        for key in schema["paths"]
+        if key.startswith("/api/v1/customer-collections/")
+    }
+    assert found_collections == {
+        "/api/v1/customer-collections/orders/{order_id}",
+        "/api/v1/customer-collections/{collection_id}/review",
+        "/api/v1/customer-collections/{collection_id}",
+    }
+    for key in found_collections:
+        del schema["paths"][key]
     assert schema["components"]["schemas"].pop("OrderQuoteInput") == json.loads(
         (Path(__file__).parent / "fixtures/openapi_order_quote_input.json").read_text()
     )
@@ -123,10 +142,20 @@ def before_currency_schema(application):
 
 def surface_before_currency(application):
     current = api_surface(application)
-    removed = [row for row in current["routes"] if row["path"] in CURRENCY_PATHS]
-    assert len(removed) == 7
+    removed = [
+        row
+        for row in current["routes"]
+        if (
+            row["path"] in CURRENCY_PATHS
+            or row["path"].startswith("/api/v1/customer-collections/")
+        )
+    ]
+    assert len(removed) == 11
     current["routes"] = [
-        row for row in current["routes"] if row["path"] not in CURRENCY_PATHS
+        row
+        for row in current["routes"]
+        if row["path"] not in CURRENCY_PATHS
+        and not row["path"].startswith("/api/v1/customer-collections/")
     ]
     reachable = set()
 

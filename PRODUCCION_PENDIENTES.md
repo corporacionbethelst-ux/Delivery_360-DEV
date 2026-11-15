@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 93. Este registro distingue implementación local,
+Actualizado con la entrega 94. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -41,8 +41,17 @@ permisos, recuperación por enlace e historial inmutable. Una cotización de ord
 no acredita cobro ni modifica saldos; los cambios posteriores no recalculan el
 documento anterior.
 
+La entrega 94 incorpora cobros de clientes en efectivo USD/VES, transferencia y
+pago móvil VES, con abonos parciales y revisión manual por otro gerente o
+superadministrador. Los pendientes reservan capacidad sin acreditar cobro; solo
+la decisión independiente reconoce USD verificados. Conserva cotización y BCV,
+referencia única por caja/cuenta, auditoría e historial inmutable, con reintentos
+sin duplicados. El precio se protege mientras existan cobros pendientes o
+verificados. Una cancelación expone una devolución pendiente y conserva el cobro.
+
 Faltan la revisión explícita de moneda histórica, el cierre de reportes monetarios
-sobre decimales, la confirmación de cobros reales y abonos/devoluciones, la
+sobre decimales, el registro y ejecución controlados de devoluciones, la conciliación bancaria de
+cobros y la
 aplicación de tasas BCV conservadas a liquidaciones VES
 y la obtención automática fiable del BCV. La cotización independiente o ligada a la orden sigue siendo
 `quotation_only`; no acredita conversión de saldos anteriores o pago bancario.

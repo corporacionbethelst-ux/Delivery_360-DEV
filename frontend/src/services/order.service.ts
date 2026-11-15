@@ -67,6 +67,8 @@ export interface DeliverySummary {
 }
 
 export interface Order {
+  collection_revision?: number | null;
+  collection_locked?: boolean | null;
   pricing?: ExactOrderPricing | null;
   currency?: string | null;
   id: string;

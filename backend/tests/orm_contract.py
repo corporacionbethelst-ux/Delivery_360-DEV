@@ -137,6 +137,8 @@ def exact_pricing_contract(expected):
             ("delivery_fee_exact", "NUMERIC(10, 2)"),
             ("total_exact", "NUMERIC(10, 2)"),
             ("items_exact", "JSON"),
+            ("collection_revision", "INTEGER"),
+            ("collection_locked", "BOOLEAN"),
         )
         addition = "".join("\n\t" + name + " " + kind + ", " for name, kind in fields)
         assert row["ddl"].count("\n\tpayment_method") == 1
