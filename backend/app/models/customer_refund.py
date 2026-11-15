@@ -58,6 +58,12 @@ class CustomerRefund(Base):
 class CustomerRefundEvent(Base):
     __tablename__ = "customer_refund_events"
     __table_args__ = (
+        Index(
+            "ix_refund_events_verified_at",
+            "created_at",
+            "id",
+            postgresql_where=text("kind='VERIFICAR_DEVOLUCION'"),
+        ),
         UniqueConstraint(
             "refund_id", "revision", name="uq_customer_refund_event_revision"
         ),

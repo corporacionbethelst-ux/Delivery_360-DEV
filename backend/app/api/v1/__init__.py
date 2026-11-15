@@ -28,6 +28,7 @@ from . import fiscal
 from . import currency
 from . import customer_collections
 from . import customer_refunds
+from . import customer_cashbook
 
 _API_MODULES = (
     auth,
@@ -57,6 +58,7 @@ _API_MODULES = (
     currency,
     customer_collections,
     customer_refunds,
+    customer_cashbook,
 )
 
 for _module in _API_MODULES:

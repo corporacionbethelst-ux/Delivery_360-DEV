@@ -335,6 +335,7 @@ jobs:
           python frontend/e2e/local-order-currency.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/order-currency
           python frontend/e2e/local-customer-collections.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/customer-collections
           python frontend/e2e/local-customer-refunds.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/customer-refunds
+          python frontend/e2e/local-customer-cashbook.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/customer-cashbook
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && hashFiles('browser-real/**') != '' }}
         with:

@@ -412,3 +412,54 @@ PostgreSQL automatizados utilizan una base `test_*` explícita y esquemas propio
 Siguen pendientes la revisión de moneda histórica, el cierre decimal de reportes,
 la aplicación de BCV a liquidaciones VES reales, automatizar BCV con disponibilidad
 y trazabilidad verificables y elegir/homologar pagos y facturación venezolana.
+
+
+## Libro exacto de cobros y devoluciones — entrega 96
+
+`GET /api/v1/customer-cashbook/report` y la pantalla
+`/manager/financial/customer-cashbook` admiten SUPERADMIN, GERENTE y AUDITOR.
+Solo leen cobros con revisión VERIFICADO y eventos VERIFICAR_DEVOLUCION;
+solicitudes, aprobaciones y ejecuciones todavía no verificadas quedan fuera.
+El reconocimiento corresponde a la fecha de verificación manual, no a la fecha
+de la orden o la solicitud. Los documentos originales conservan sus fechas.
+
+Filtros opcionales: `date_from`, `date_to` (YYYY-MM-DD, calendario Caracas),
+`method` (EFECTIVO/TRANSFERENCIA/PAGO_MOVIL), `currency` (USD/VES) y `source_key`
+(alias exacto normalizado). Sin fechas se consultan los últimos siete días.
+El máximo es 31 días, con final no posterior a hoy en Caracas. Los límites UTC
+son medianoche local inclusiva y medianoche siguiente exclusiva. Se rechazan
+filtros desconocidos o repetidos. La operación es exclusivamente GET.
+
+Una sola sentencia PostgreSQL determina filas y momento de lectura. Totales,
+desglose diario, monedas, medios y CSV proceden de esas mismas filas. La prueba
+de concurrencia verifica que una devolución confirmada durante la lectura no
+mezcla filas anteriores con totales posteriores. Los importes viajan como
+cadenas decimales; servidor Decimal y navegador BigInt conservan centavos.
+El neto de un período puede ser negativo por devoluciones de cobros anteriores.
+Los originales USD y VES nunca se suman como una misma unidad.
+
+Cada devolución conserva la tasa del cobro original y la asignación acumulada
+de centavos. El detalle incluye IDs del cobro, devolución, orden y verificación,
+responsables distintos, fechas, alias/referencia y BCV original. Se valida la
+ejecución vinculada a la última declaración anterior a la verificación, también
+cuando hubo observación y reintento. Un origen incoherente produce 409.
+
+Hasta 5.000 movimientos se reciben completos y se paginan visualmente a 50.
+Si el rango supera el límite, la API responde 409 y pide acotarlo: no entrega
+CSV parcial. Editar filtros descarta las cifras anteriores e impide exportarlas
+hasta aplicar la nueva consulta. El CSV incluye todas las filas, rango, hora,
+conteo y huella SHA256 del snapshot; esta huella identifica contenido y no es
+una firma bancaria. También permite exportar un período confirmado vacío con
+sus metadatos. El cambio de sesión invalida solicitudes privadas en curso.
+
+La migración `20261115_cashbook_indexes`, sucesora de devoluciones, crea dos
+índices parciales por fecha de verificación; no transforma filas ni importa
+saldos. Su downgrade solo elimina esos índices, incluso con datos presentes.
+El libro de clientes es independiente de ganancias/retiros de riders y de los
+indicadores Float heredados. Este bloque no cierra todos los reportes antiguos.
+
+Bancos confirmados por el usuario: Banco de Venezuela, Banesco, Provincial,
+Mercantil y BOD. La conciliación automática sigue pendiente de canales
+oficiales, credenciales y homologación. Se verificará la entidad operativa
+actual de BOD antes de diseñar un adaptador. Ningún alias histórico se interpreta
+como banco ni una verificación manual se presenta como confirmación externa.

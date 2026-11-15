@@ -44,6 +44,7 @@ from app.api.v1 import (
     currency as currency_module,
     customer_collections as customer_collections_module,
     customer_refunds as customer_refunds_module,
+    customer_cashbook as customer_cashbook_module,
 )
 from app.middleware import RateLimitMiddleware, AuditLogMiddleware
 from app.monitoring.health_check import health_router
@@ -237,6 +238,7 @@ def create_app() -> FastAPI:
     app.include_router(currency_module.router, prefix="/api/v1", tags=["Currency"])
     app.include_router(customer_collections_module.router, prefix="/api/v1")
     app.include_router(customer_refunds_module.router, prefix="/api/v1")
+    app.include_router(customer_cashbook_module.router, prefix="/api/v1")
     return app
 
 

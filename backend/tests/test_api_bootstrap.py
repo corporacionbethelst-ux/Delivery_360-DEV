@@ -43,6 +43,7 @@ MODULES = (
     "currency",
     "customer_collections",
     "customer_refunds",
+    "customer_cashbook",
 )
 ALIASES = (
     "deliveries",
@@ -83,6 +84,11 @@ CURRENCY_PATHS = {
 
 def before_currency_schema(application):
     schema = deepcopy(application.openapi())
+    cashbook_paths = {
+        key for key in schema["paths"] if key.startswith("/api/v1/customer-cashbook/")
+    }
+    assert cashbook_paths == {"/api/v1/customer-cashbook/report"}
+    del schema["paths"]["/api/v1/customer-cashbook/report"]
     refund_paths = {
         key for key in schema["paths"] if key.startswith("/api/v1/customer-refunds/")
     }
@@ -166,18 +172,24 @@ def surface_before_currency(application):
             row["path"] in CURRENCY_PATHS
             or (
                 row["path"].startswith("/api/v1/customer-collections/")
-                or row["path"].startswith("/api/v1/customer-refunds/")
+                or (
+                    row["path"].startswith("/api/v1/customer-refunds/")
+                    or row["path"].startswith("/api/v1/customer-cashbook/")
+                )
             )
         )
     ]
-    assert len(removed) == 16
+    assert len(removed) == 17
     current["routes"] = [
         row
         for row in current["routes"]
         if row["path"] not in CURRENCY_PATHS
         and not (
             row["path"].startswith("/api/v1/customer-collections/")
-            or row["path"].startswith("/api/v1/customer-refunds/")
+            or (
+                row["path"].startswith("/api/v1/customer-refunds/")
+                or row["path"].startswith("/api/v1/customer-cashbook/")
+            )
         )
     ]
     reachable = set()
