@@ -199,13 +199,16 @@ def main():
         expect(region).to_be_visible()
         page.screenshot(path=str(out / "cashbook-desktop.png"), full_page=True)
         page.set_viewport_size({"width": 390, "height": 844})
+        page.wait_for_function(
+            "document.querySelector('aside').getBoundingClientRect().right <= 1"
+        )
         expect(
             page.get_by_role("heading", name="Libro de cobros y devoluciones")
         ).to_be_visible()
         assert page.evaluate(
             "document.documentElement.scrollWidth <= window.innerWidth"
         ), "Page overflow outside scrollable table"
-        page.screenshot(path=str(out / "cashbook-mobile.png"), full_page=True)
+        page.screenshot(path=str(out / "cashbook-mobile.png"))
         passed("desktop and mobile layout remain readable without viewport overflow")
         page.route(
             "**/api/v1/customer-cashbook/report?**",
