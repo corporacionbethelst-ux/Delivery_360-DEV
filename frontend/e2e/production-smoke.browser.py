@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from playwright.sync_api import sync_playwright, expect
+from rider_audit_fixture import money, envelope as exact_envelope
 
 
 def main():
@@ -44,7 +45,14 @@ def main():
             path = target.path
             if path.startswith("/api/v1/") or target.netloc != urlparse(base).netloc:
                 if route.request.method == "OPTIONS":
-                    route.fulfill(status=204)
+                    route.fulfill(
+                        status=204,
+                        headers={
+                            "access-control-allow-origin": base,
+                            "access-control-allow-headers": "authorization, content-type",
+                            "access-control-allow-methods": "GET, OPTIONS",
+                        },
+                    )
                     return
                 if route.request.method != "GET":
                     writes.append(path)
@@ -61,7 +69,7 @@ def main():
                         "last_name": "Local",
                         "created_at": "2026-11-01T00:00:00Z",
                     }
-                elif path.endswith("/riders/audit/summary"):
+                elif path.endswith("/riders/audit/summary/exact"):
                     query = parse_qs(target.query)
                     data = {
                         "limit": int(query.get("limit", ["51"])[0]),
@@ -69,6 +77,7 @@ def main():
                         "total": 1,
                         "items": [
                             {
+                                "money": money(),
                                 "rider_id": "rider-local",
                                 "user_id": "actual-user-local",
                                 "full_name": "Prueba local",
@@ -93,6 +102,7 @@ def main():
                             }
                         ],
                     }
+                    data = exact_envelope(data["items"], query)
                 elif path.endswith("/riders"):
                     data = []
                 else:
@@ -144,7 +154,7 @@ def main():
         expect(
             page.get_by_text("ID usuario: actual-user-local", exact=True)
         ).to_be_visible()
-        assert "/api/v1/riders/audit/summary" in reads
+        assert "/api/v1/riders/audit/summary/exact" in reads
         with page.expect_download() as event:
             page.get_by_role("button", name="Exportar página CSV", exact=True).click()
         path = artifacts / "production-csv.csv"
@@ -153,8 +163,8 @@ def main():
         assert (
             len(rows) == 1
             and rows[0]["id_rider"] == "rider-local"
-            and rows[0]["creditos_procesado"] == "0"
-            and rows[0]["moneda"] == ""
+            and rows[0]["creditos_usd"] == "0.00"
+            and rows[0]["moneda"] == "USD"
         )
         checks.append("same_origin_api_session_and_actual_csv_on_next15")
         page.set_viewport_size({"width": 390, "height": 844})
