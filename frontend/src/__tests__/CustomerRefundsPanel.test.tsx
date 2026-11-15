@@ -253,6 +253,9 @@ it("requires independent evidence before confirming the refund", async () => {
       name: "Verificar devolución",
     }),
   );
+  expect(screen.getByLabelText("Ejecución a conciliar")).toHaveTextContent(
+    "CAJA / SALIDA-95",
+  );
   fireEvent.change(
     screen.getByLabelText("Motivo o comprobación de devolución"),
     { target: { value: verification.note } },

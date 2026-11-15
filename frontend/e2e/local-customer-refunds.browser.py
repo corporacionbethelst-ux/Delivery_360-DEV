@@ -385,6 +385,9 @@ def main():
         review_panel.get_by_role(
             "button", name="Verificar devolución", exact=True
         ).click()
+        expect(review_panel.get_by_label("Ejecución a conciliar")).to_contain_text(
+            "SALIDA1-" + run
+        )
         review_panel.get_by_label(
             "Motivo o comprobación de devolución", exact=True
         ).fill("Salida comprobada por otra cuenta sintética")

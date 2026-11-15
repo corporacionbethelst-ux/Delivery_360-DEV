@@ -65,6 +65,27 @@ type Proposal =
       currency: "USD" | "VES";
     }
   | { kind: "event"; body: RefundEventInput; refund: CustomerRefund };
+function ExecutionReference({ refund }: { refund: CustomerRefund }) {
+  const execution = refund.events.find(
+    (event) => event.kind === "DECLARAR_EJECUCION",
+  );
+  if (!execution) return null;
+  return (
+    <div
+      aria-label="Ejecución a conciliar"
+      className="rounded-lg border border-indigo-200 bg-white p-3 text-sm text-indigo-950"
+    >
+      <p className="font-semibold">Salida declarada que vas a comprobar</p>
+      <p className="mt-1 break-all">
+        {moneyText(execution.paid_amount!, execution.paid_currency!)} ·{" "}
+        {execution.method} · {execution.executed_on}
+      </p>
+      <p className="mt-1 break-all font-mono text-xs">
+        {execution.source_key} / {execution.reference_key}
+      </p>
+    </div>
+  );
+}
 export function CustomerRefundsPanel({
   orderId,
   orderStatus,
@@ -675,6 +696,13 @@ function Panel({
                     target.refund.return_currency,
                   )}
                 </p>
+                {[
+                  "VERIFICAR_DEVOLUCION",
+                  "OBSERVAR_EJECUCION",
+                  "CONFIRMAR_NO_EJECUTADA",
+                ].includes(target.kind) && (
+                  <ExecutionReference refund={target.refund} />
+                )}
                 {target.kind === "DECLARAR_EJECUCION" && (
                   <>
                     <p className="rounded-lg bg-white p-3 text-sm text-indigo-950">
@@ -929,6 +957,14 @@ function Panel({
                   ? proposal.body.reason
                   : names[proposal.body.kind] + " · " + proposal.body.note}
               </p>
+              {proposal.kind === "event" &&
+                [
+                  "VERIFICAR_DEVOLUCION",
+                  "OBSERVAR_EJECUCION",
+                  "CONFIRMAR_NO_EJECUTADA",
+                ].includes(proposal.body.kind) && (
+                  <ExecutionReference refund={proposal.refund} />
+                )}
               {proposal.kind === "event" &&
                 proposal.body.kind === "DECLARAR_EJECUCION" && (
                   <p className="break-all text-sm">
