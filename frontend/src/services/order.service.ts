@@ -6,6 +6,8 @@ import {
 import { capturePrivateTask } from "@/lib/private-task";
 import {
   readOrderCatalog,
+  readOperationalOrderCatalog,
+  type OperationalHttpOrder,
   validateHttpOrder,
   record,
   identifier,
@@ -135,6 +137,7 @@ export interface Order {
   // Relaciones
   customer?: User;
   rider?: OrderRiderSummary | User | null;
+  assigned_rider?: OrderRiderSummary | null;
   delivery?: DeliverySummary | null; // NUEVO: Datos de la entrega
 
   // Auditoría
@@ -236,6 +239,13 @@ function confirmItems(
 }
 
 export const orderService = {
+  /** Read-only operational review keeps inconsistent rider links visible; mutation confirmations remain strict. */
+  getOperationalList: async (
+    params?: OrderListParams,
+  ): Promise<OperationalHttpOrder[]> => {
+    const task = capturePrivateTask();
+    return readOperationalOrderCatalog(params, task.assertCurrent);
+  },
   /**
    * Listar órdenes con filtros
    */

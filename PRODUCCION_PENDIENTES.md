@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 99. Este registro distingue implementación local,
+Actualizado con la entrega 100. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -136,3 +136,9 @@ texto decimal, conservando claves v1 y recuperación incluso sin saldo disponibl
 El ciclo real comprueba reserva de 10.01 y recuperación tras perder la respuesta
 sin duplicados. Continúan pendientes otros consumidores numéricos y las respuestas
 de compatibilidad del servidor; no se considera conciliación ni liquidación bancaria.
+
+La entrega 100 corrige el bloqueo del listado de órdenes por un vínculo de
+repartidor contradictorio: lectura de revisión, referencias conservadas y cambios
+bloqueados solo en las filas afectadas. No repara automáticamente el historial.
+Los catálogos auxiliares ya no ocultan órdenes confirmadas. Se prioriza esta
+incidencia reportada; la migración monetaria de auditoría operativa sigue pendiente.
