@@ -1,8 +1,9 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { readAuditCatalogPage } from '@/services/rider-audit-catalog.service';
+import { readExactAuditCatalogPage as readAuditCatalogPage } from '@/services/rider-audit-exact.service';
+import { exactAuditCsv, type ExactAuditCatalogSnapshot as AuditCatalogSnapshot } from '@/lib/rider-audit-exact';
 import { AUDIT_PAGE_SIZE, RIDER_AUDIT_STATUSES } from '@/lib/rider-audit-contract';
-import { initialAuditCatalogQuery, auditCatalogCsv, searchAuditCatalog, type AuditCatalogQuery, type AuditCatalogSnapshot } from '@/lib/rider-audit-catalog';
+import { initialAuditCatalogQuery, searchAuditCatalog, type AuditCatalogQuery } from '@/lib/rider-audit-catalog';
 import { capturePrivateTask } from '@/lib/private-task';
 import { downloadCSV } from '@/lib/csv-export';
 
@@ -48,7 +49,7 @@ export function useRiderAuditCatalog() {
     try {
       task = capturePrivateTask(); const rows = searchAuditCatalog(snapshot.rows, searchRef.current);
       if (!rows.length) return;
-      const csv = auditCatalogCsv(rows, { ...snapshot.query, search: searchRef.current }); task.assertCurrent();
+      const csv = exactAuditCsv(rows, { ...snapshot.query, search: searchRef.current }, snapshot); task.assertCurrent();
       if (!downloadCSV(csv, `auditoria_riders_pagina_${snapshot.query.offset / AUDIT_PAGE_SIZE + 1}_${rows.length}_filas`)) throw new Error('No se generó CSV');
       setExportError(null);
     } catch { if (alive.current && (!task || task.isCurrent())) setExportError('No se pudo generar el CSV de la página. Los datos se conservan.'); }

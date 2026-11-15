@@ -22,7 +22,7 @@ const currency = (value: unknown): string | null => value == null ? null : typeo
 const sameId = (value: unknown, expected: string): string => auditId(value) === expected ? expected : invalid();
 const coordinate = (value: unknown, max: number): number | null => value == null ? null : typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= max ? value : invalid();
 
-export function normalizeAuditSummary(value: unknown) {
+export function normalizeAuditOperational(value: unknown) {
   const row = record(value);
   const counts = {
     orders_assigned: count(row.orders_assigned), orders_delivered: count(row.orders_delivered), orders_active: count(row.orders_active),
@@ -34,12 +34,6 @@ export function normalizeAuditSummary(value: unknown) {
   const rate = row.sla_compliance_rate;
   const expectedRate = counts.deliveries_total ? counts.sla_compliant / counts.deliveries_total * 100 : 0;
   if (typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0 || rate > 100 || Math.abs(rate - expectedRate) > 0.005 + Number.EPSILON * 100) return invalid();
-  const earned = auditMoney(row.total_earned), pending = auditMoney(row.pending_payouts);
-  // This legacy derived field subtracts binary floats in Python, without rounding.
-  // Validate its calculation without applying cent precision to the float residue.
-  const available = typeof row.available_to_payout === 'number' ? row.available_to_payout : auditMoney(row.available_to_payout);
-  const expectedAvailable = Math.max(0, earned - pending);
-  if (pending < 0 || !Number.isFinite(available) || Math.abs(available - expectedAvailable) > Number.EPSILON * Math.max(1, Math.abs(expectedAvailable)) * 4) return invalid();
   if (row.status != null && !RIDER_AUDIT_STATUSES.includes(row.status as never)) return invalid();
   if (row.is_online != null && typeof row.is_online !== 'boolean') return invalid();
   return { ...counts, rider_id: auditId(row.rider_id), user_id: auditId(row.user_id),
@@ -48,7 +42,17 @@ export function normalizeAuditSummary(value: unknown) {
     zone_id: row.zone_id == null ? null : auditId(row.zone_id), current_order_id: row.current_order_id == null ? null : auditId(row.current_order_id),
     is_online: row.is_online == null ? null : row.is_online as boolean,
     last_lat: coordinate(row.last_lat, 90), last_lng: coordinate(row.last_lng, 180), last_location_at: date(row.last_location_at),
-    sla_compliance_rate: rate, total_earned: earned, pending_payouts: pending, currency: currency(row.currency) };
+    sla_compliance_rate: rate };
+}
+export function normalizeAuditSummary(value: unknown) {
+  const row=record(value), base=normalizeAuditOperational(value);
+  const earned = auditMoney(row.total_earned), pending = auditMoney(row.pending_payouts);
+  // This legacy derived field subtracts binary floats in Python, without rounding.
+  // Validate its calculation without applying cent precision to the float residue.
+  const available = typeof row.available_to_payout === 'number' ? row.available_to_payout : auditMoney(row.available_to_payout);
+  const expectedAvailable = Math.max(0, earned - pending);
+  if (pending < 0 || !Number.isFinite(available) || Math.abs(available - expectedAvailable) > Number.EPSILON * Math.max(1, Math.abs(expectedAvailable)) * 4) return invalid();
+  return { ...base,total_earned:earned,pending_payouts:pending,currency:currency(row.currency) };
 }
 export type AuditSummary = ReturnType<typeof normalizeAuditSummary>;
 export function normalizeSummaryPage(value: unknown, offset: number, limit = AUDIT_SUMMARY_PAGE_SIZE) {

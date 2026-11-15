@@ -9,10 +9,12 @@ import json
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import sync_playwright, expect
+from rider_audit_fixture import money, envelope as exact_envelope
 
 
 def summary(rider="rider-1"):
     return dict(
+        money=money(),
         rider_id=rider,
         user_id="user-" + rider,
         full_name="Rider dos" if rider == "rider-2" else "José Rider",
@@ -38,13 +40,9 @@ def summary(rider="rider-1"):
 
 
 def summary_page(query):
-    limit, offset = int(query.get("limit", ["100"])[0]), int(
-        query.get("offset", ["0"])[0]
-    )
-    rows = [summary("rider-1"), summary("rider-2")]
-    if limit == 100 and offset == 0:
-        rows = [summary(f"other-{i}") for i in range(100)]
-    return dict(items=rows, limit=limit, offset=offset, total=len(rows))
+    rider = query.get("rider_id", [None])[0]
+    rows = [summary(rider)] if rider else [summary("rider-1"), summary("rider-2")]
+    return exact_envelope(rows, query)
 
 
 def order(index, rider):
@@ -163,7 +161,7 @@ def main():
                 target.netloc != urlparse(base).netloc or path.startswith("/api/v1/")
             ) and path.endswith(
                 (
-                    "/riders/audit/summary",
+                    "/riders/audit/summary/exact",
                     "/orders",
                     "/deliveries",
                     "/financial/transactions",
@@ -183,15 +181,15 @@ def main():
                     )
                 elif (
                     state["mode"] == "defer_summary"
-                    and path.endswith("/riders/audit/summary")
-                    and query.get("limit") == ["100"]
+                    and path.endswith("/riders/audit/summary/exact")
+                    and query.get("rider_id") is not None
                     and query.get("offset") == ["0"]
                 ):
                     state["pending"] = (route, query, headers)
                 else:
                     data = (
                         summary_page(query)
-                        if path.endswith("/riders/audit/summary")
+                        if path.endswith("/riders/audit/summary/exact")
                         else batch(path, query)
                     )
                     if state["mode"] == "wrong_rider" and path.endswith("/orders"):
@@ -247,8 +245,9 @@ def main():
             "COP" not in confirmed.inner_text() and "+25" not in confirmed.inner_text()
         )
         assert any(
-            r["path"].endswith("/riders/audit/summary")
-            and r["query"].get("offset") == ["100"]
+            r["path"].endswith("/riders/audit/summary/exact")
+            and r["query"].get("rider_id") == ["rider-1"]
+            and r["query"].get("limit") == ["1"]
             for r in requests
         )
         expect(
@@ -263,7 +262,7 @@ def main():
             animations="disabled",
         )
         passed(
-            "bounded_first_pages_second_summary_page_zero_values_and_separate_fallback"
+            "bounded_first_pages_direct_exact_profile_zero_values_and_separate_fallback"
         )
 
         for title, marker in [
@@ -303,7 +302,7 @@ def main():
         assert all(
             r["query"].get("offset") == ["50"]
             for r in requests[-5:]
-            if not r["path"].endswith("/riders/audit/summary")
+            if not r["path"].endswith("/riders/audit/summary/exact")
         )
         passed("failed_block_keeps_complete_confirmed_set_and_exact_retry")
 
@@ -364,7 +363,7 @@ def main():
                 "Repartidor de la consulta confirmada: rider-1", exact=True
             )
         ).to_have_count(0)
-        passed("retired_route_cannot_continue_summary_scan_or_replace_next_rider")
+        passed("retired_direct_profile_cannot_replace_next_rider")
 
         state["mode"] = "defer_summary"
         page.get_by_role("button", name="Actualizar auditoría").click()
@@ -383,7 +382,7 @@ def main():
         )
         expect(page.get_by_role("region", name="Auditoría confirmada")).to_have_count(0)
         assert not writes and not errors
-        passed("logout_prevents_late_snapshot_and_additional_summary_pages")
+        passed("logout_prevents_late_snapshot")
         (artifacts / "browser-results.json").write_text(
             json.dumps(
                 {

@@ -11,10 +11,12 @@ import json
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import sync_playwright, expect
+from rider_audit_fixture import money, envelope as exact_envelope
 
 
 def summary(index, query):
     return dict(
+        money=money(),
         rider_id=f"rider-{index}",
         user_id=f"actual-user-{index}",
         full_name="=SUM(1,1)" if index == 50 else f"José Rider {index}",
@@ -54,7 +56,7 @@ def envelope(query):
         query.get("limit", ["51"])[0]
     )
     rows = [summary(index, query) for index in range(offset, min(offset + limit, 73))]
-    return dict(items=rows, total=len(rows), limit=limit, offset=offset)
+    return exact_envelope(rows, query)
 
 
 def main():
@@ -112,7 +114,7 @@ def main():
                 target.netloc != urlparse(base).netloc or path.startswith("/api/v1/")
             ) and path.endswith(
                 (
-                    "/riders/audit/summary",
+                    "/riders/audit/summary/exact",
                     "/orders",
                     "/deliveries",
                     "/financial/transactions",
@@ -125,7 +127,7 @@ def main():
                     writes.append(path)
                     route.abort()
                     return
-                catalog = path.endswith("/riders/audit/summary") and query.get(
+                catalog = path.endswith("/riders/audit/summary/exact") and query.get(
                     "limit"
                 ) == ["51"]
                 if catalog and state["mode"] == "failure":
@@ -136,7 +138,7 @@ def main():
                     )
                 elif catalog and state["mode"] == "defer":
                     state["pending"] = (route, query, headers)
-                elif path.endswith("/riders/audit/summary"):
+                elif path.endswith("/riders/audit/summary/exact"):
                     route.fulfill(json=envelope(query), headers=headers)
                 elif path.endswith("/deliveries"):
                     route.fulfill(
@@ -217,8 +219,8 @@ def main():
         assert row["zona"] == 'José, "Centro"\nSector'
         assert (
             row["online"] == "false"
-            and row["creditos_procesado"] == "0"
-            and row["moneda"] == ""
+            and row["creditos_usd"] == "0.00"
+            and row["moneda"] == "USD"
         )
         assert (
             row["latitud"] == "0"

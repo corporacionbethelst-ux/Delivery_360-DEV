@@ -12,7 +12,7 @@ import {
   auditOnlineLabel,
 } from "@/lib/rider-audit-catalog";
 import { transactionDateLabel } from "@/lib/transaction-contract";
-import { payoutAmountLabel } from "@/lib/payout-contract";
+import { auditExactMoney } from "@/lib/rider-audit-exact";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -65,7 +65,7 @@ function Catalog() {
         audit
         icon={ClipboardCheck}
         title="Auditoría por repartidor"
-        description="Resumen operativo y contable en páginas de hasta 50 repartidores."
+        description="Actividad operativa e importes USD exactos, en páginas de hasta 50 repartidores."
         actions={
           <>
             <Button
@@ -205,7 +205,12 @@ function Catalog() {
             <p>
               Las métricas y el CSV solo abarcan las coincidencias de esta
               página. No se informa un total global de repartidores ni se suman
-              importes de moneda desconocida.
+              importes de moneda desconocida. Los registros excluidos se indican
+              por separado; los totales no acreditan saldo disponible ni pago
+              bancario.
+            </p>
+            <p>
+              Corte del resumen USD: {transactionDateLabel(data.generated_at)}.
             </p>
           </OperationNotice>
           <section
@@ -334,18 +339,27 @@ function Catalog() {
                         }
                       />
                       <Field
-                        label="Créditos PROCESADO (acumulado)"
-                        value={payoutAmountLabel(
-                          item.total_earned,
-                          item.currency ?? undefined,
+                        label="Créditos USD registrados"
+                        value={auditExactMoney(item.money.credit_usd, "USD")}
+                      />
+                      <Field
+                        label="Solicitudes USD pendientes"
+                        value={auditExactMoney(item.money.pending_usd, "USD")}
+                      />
+                      <Field
+                        label="Cambio neto del libro USD"
+                        value={auditExactMoney(
+                          item.money.net_change_usd,
+                          "USD",
                         )}
                       />
                       <Field
-                        label="Retiros PENDIENTE (agregado)"
-                        value={payoutAmountLabel(
-                          item.pending_payouts,
-                          item.currency ?? undefined,
-                        )}
+                        label="Registros excluidos del cálculo USD"
+                        value={`${item.money.ledger_rows - item.money.ledger_included} movimientos · ${item.money.payout_rows - item.money.payout_included} solicitudes`}
+                      />
+                      <Field
+                        label="Corte del resumen"
+                        value={transactionDateLabel(data?.generated_at)}
                       />
                       <Field
                         label="Tipo de vehículo"

@@ -21,12 +21,12 @@ export function normalizeAuditCatalogPage(value: unknown, query: Readonly<AuditC
 }
 export type AuditCatalogSnapshot = ReturnType<typeof normalizeAuditCatalogPage>;
 export const auditOnlineLabel = (value: AuditCatalogQuery['online']) => ({ ALL: 'Todos', true: 'Online', false: 'Offline' })[value];
-export function searchAuditCatalog(rows: AuditSummary[], search: string) {
+export function searchAuditCatalog<T extends Pick<AuditSummary,'rider_id'|'user_id'|'full_name'|'email'|'phone'|'vehicle_plate'|'operating_zone'|'status'>>(rows: T[], search: string) {
   const fold = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es');
   const term = fold(search.trim());
   return rows.filter(row => [row.rider_id, row.user_id, row.full_name, row.email, row.phone, row.vehicle_plate, row.operating_zone, row.status].some(value => value != null && fold(value).includes(term)));
 }
-export function auditCatalogMetrics(rows: AuditSummary[]) {
+export function auditCatalogMetrics(rows: Pick<AuditSummary,'orders_active'|'is_online'>[]) {
   const active = rows.reduce((sum, row) => sum + row.orders_active, 0);
   return { online: rows.filter(row => row.is_online === true).length, unknownOnline: rows.filter(row => row.is_online === null).length,
     activeOrders: Number.isSafeInteger(active) ? active : null };

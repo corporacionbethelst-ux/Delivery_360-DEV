@@ -4,7 +4,7 @@ import axios, { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from
 import client from '@/lib/api';
 import Page from '@/app/(dashboard)/manager/operations/rider-audit/[id]/page';
 import { clearStoredTokens, storeTokens } from '@/lib/auth-session';
-import { auditHttpResponse, auditOrderResponse, auditSummaryPage, auditSummaryResponse } from '../../test-fixtures/rider-audit';
+import { auditHttpResponse, auditOrderResponse } from '../../test-fixtures/rider-audit';
 const mockRouter = { replace: jest.fn() }; let mockUser = { id: 'a', role: 'GERENTE' };
 jest.mock('next/navigation', () => ({ useRouter: () => mockRouter, useParams: () => ({ id: 'rider-1' }) }));
 jest.mock('@/stores/authStore', () => ({ useAuthStore: () => ({ user: mockUser, isAuthenticated: true }) }));
@@ -36,10 +36,10 @@ it('rejects another rider in a later HTTP response and preserves every confirmed
   render(<Page />); await screen.findByRole('region', { name: 'Auditoría confirmada' }); wrong = true;
   fireEvent.click(screen.getByRole('button', { name: 'Actualizar auditoría' })); await screen.findByRole('alert'); expect(screen.getByRole('link', { name: 'Ver orden o-0' })).toBeInTheDocument(); expect(screen.queryByRole('link', { name: 'Ver orden wrong' })).not.toBeInTheDocument(); expect(screen.getByRole('link', { name: 'Ver transacción tx-0' })).toBeInTheDocument();
 });
-it('continues summary pagination through the real chain without treating the page count as a global total', async () => {
+it('looks up the requested profile directly without a bounded catalog scan', async () => {
   const summaries: string[] = []; client.defaults.adapter = async config => {
-    const url = String(config.url); if (url.startsWith('/riders/')) { summaries.push(url); const offset = Number(new URL(url, 'https://test.invalid').searchParams.get('offset')); return reply(config, auditSummaryPage(offset === 0 ? Array.from({ length: 100 }, (_, i) => auditSummaryResponse(`other-${i}`)) : [auditSummaryResponse()], offset)); }
+    const url = String(config.url); if (url.startsWith('/riders/')) summaries.push(url);
     return reply(config, auditHttpResponse(url, 1));
   };
-  render(<Page />); await screen.findByText('José Rider', { exact: true }); expect(summaries).toEqual(['/riders/audit/summary?limit=100&offset=0', '/riders/audit/summary?limit=100&offset=100']);
+  render(<Page />); await screen.findByText('José Rider', { exact: true }); expect(summaries).toEqual(['/riders/audit/summary/exact?rider_id=rider-1&limit=1&offset=0']);
 });

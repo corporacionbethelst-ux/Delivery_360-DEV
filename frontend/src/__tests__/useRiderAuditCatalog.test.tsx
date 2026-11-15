@@ -18,7 +18,7 @@ it('navigates both ways, accepts the previous hidden lookahead and stops at the 
 it('preserves data/filters on a later failure, blocks CSV and retries the exact page', async () => {
   const h = renderHook(useRiderAuditCatalog); await waitFor(() => expect(h.result.current.data).not.toBeNull()); const initial = h.result.current.data; get.mockRejectedValueOnce(new Error('offline'));
   await act(async () => { await h.result.current.navigate(1); }); expect(h.result.current.data).toBe(initial); expect(h.result.current.error).not.toBeNull(); act(() => h.result.current.exportPage()); expect(download).not.toHaveBeenCalled();
-  await act(async () => { await h.result.current.retry(); }); expect(h.result.current.data?.query.offset).toBe(50); expect(get.mock.calls.slice(-2).map(([url]) => url)).toEqual(['/riders/audit/summary?limit=51&offset=50', '/riders/audit/summary?limit=51&offset=50']);
+  await act(async () => { await h.result.current.retry(); }); expect(h.result.current.data?.query.offset).toBe(50); expect(get.mock.calls.slice(-2).map(([url]) => url)).toEqual(['/riders/audit/summary/exact?limit=51&offset=50', '/riders/audit/summary/exact?limit=51&offset=50']);
 });
 it.each(['success', 'failure'])('combines rapid filters, resets offset and retires the older %s', async mode => {
   const h = renderHook(useRiderAuditCatalog); await waitFor(() => expect(h.result.current.data).not.toBeNull()); await act(async () => { await h.result.current.navigate(1); }); const old = deferred(); get.mockReturnValueOnce(old.promise);
@@ -46,7 +46,7 @@ it('blocks duplicate navigation synchronously and lets a newer refresh supersede
 });
 it('exports only current-page search matches and captured context, excludes lookahead, without more HTTP', async () => {
   const h = renderHook(useRiderAuditCatalog); await waitFor(() => expect(h.result.current.data).not.toBeNull());
-  act(() => { h.result.current.setSearch('rider-49'); h.result.current.exportPage(); }); expect(download).toHaveBeenCalledWith([expect.objectContaining({ id_rider: 'rider-49', moneda: '', busqueda_local: 'rider-49', desplazamiento_consulta: 0 })], 'auditoria_riders_pagina_1_1_filas'); expect(get).toHaveBeenCalledTimes(1);
+  act(() => { h.result.current.setSearch('rider-49'); h.result.current.exportPage(); }); expect(download).toHaveBeenCalledWith([expect.objectContaining({ id_rider: 'rider-49', moneda: 'USD', busqueda_local: 'rider-49', desplazamiento_consulta: 0 })], 'auditoria_riders_pagina_1_1_filas'); expect(get).toHaveBeenCalledTimes(1);
   act(() => { h.result.current.setSearch('rider-50'); h.result.current.exportPage(); }); expect(download).toHaveBeenCalledTimes(1); await act(async () => { await h.result.current.navigate(1); }); act(() => h.result.current.exportPage()); expect(download).toHaveBeenLastCalledWith([expect.objectContaining({ id_rider: 'rider-50', desplazamiento_consulta: 50 })], 'auditoria_riders_pagina_2_1_filas');
 });
 it.each(['throw', 'false'])('keeps data and recovers from CSV failure (%s)', async kind => {

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { capturePrivateTask } from '@/lib/private-task';
 import { AUDIT_PAGE_SIZE, initialAuditOffsets, type AuditOffsets } from '@/lib/rider-audit-contract';
-import { readRiderAudit, type RiderAuditSnapshot } from '@/services/rider-audit.service';
+import { readExactRiderAudit as readRiderAudit, type ExactRiderAuditSnapshot as RiderAuditSnapshot } from '@/services/rider-audit-exact.service';
 
 export function useRiderAudit(riderId: string) {
   const [data, setData] = useState<RiderAuditSnapshot | null>(null), [isLoading, setLoading] = useState(true), [error, setError] = useState<string | null>(null);
