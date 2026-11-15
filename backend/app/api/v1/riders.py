@@ -1529,3 +1529,26 @@ async def get_rider_documents(
         }
         for doc in documents
     ]
+
+
+@router.get("/audit/summary/exact")
+async def get_exact_rider_audit_summary(
+    status_filter: Optional[RiderStatus] = Query(None),
+    is_online: Optional[bool] = Query(None),
+    rider_id: Optional[uuid.UUID] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+):
+    from app.services.rider_audit_exact import report
+
+    return await report(
+        db,
+        current_user,
+        status_filter.value if status_filter else None,
+        is_online,
+        limit,
+        offset,
+        rider_id,
+    )

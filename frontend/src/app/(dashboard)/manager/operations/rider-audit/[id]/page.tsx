@@ -7,6 +7,7 @@ import { useRiderAudit } from "@/hooks/useRiderAudit";
 import { AUDIT_PAGE_SIZE, type AuditPage } from "@/lib/rider-audit-contract";
 import { transactionDateLabel } from "@/lib/transaction-contract";
 import { payoutAmountLabel } from "@/lib/payout-contract";
+import { auditExactMoney } from "@/lib/rider-audit-exact";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
@@ -184,18 +185,36 @@ function Detail({ riderId }: { riderId: string }) {
                           : "Sin entregas en el denominador",
                       ],
                       [
-                        "Créditos PROCESADO (acumulado)",
-                        payoutAmountLabel(
-                          summary.total_earned,
-                          summary.currency ?? undefined,
-                        ),
+                        "Créditos USD registrados",
+                        auditExactMoney(summary.money.credit_usd, "USD"),
                       ],
                       [
-                        "Retiros PENDIENTE (agregado)",
-                        payoutAmountLabel(
-                          summary.pending_payouts,
-                          summary.currency ?? undefined,
-                        ),
+                        "Solicitudes USD pendientes",
+                        auditExactMoney(summary.money.pending_usd, "USD"),
+                      ],
+                      [
+                        "Débitos USD registrados",
+                        auditExactMoney(summary.money.debit_usd, "USD"),
+                      ],
+                      [
+                        "Ajustes USD firmados",
+                        auditExactMoney(summary.money.adjustment_usd, "USD"),
+                      ],
+                      [
+                        "Cambio neto del libro USD",
+                        auditExactMoney(summary.money.net_change_usd, "USD"),
+                      ],
+                      [
+                        "Corte del resumen",
+                        transactionDateLabel(data.summary.generated_at),
+                      ],
+                      [
+                        "Movimientos incluidos",
+                        `${summary.money.ledger_included} de ${summary.money.ledger_rows}`,
+                      ],
+                      [
+                        "Solicitudes incluidas",
+                        `${summary.money.payout_included} de ${summary.money.payout_rows}`,
                       ],
                       [
                         "Última ubicación informada",
@@ -221,6 +240,32 @@ function Detail({ riderId }: { riderId: string }) {
                       </div>
                     ))}
                   </dl>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+                    <p className="font-semibold">Alcance del cálculo USD</p>
+                    <p>
+                      Se excluyen registros sin moneda USD verificada, sin
+                      fecha, futuros o con estado o tipo no admitido. No se
+                      convierten importes antiguos a USD.
+                    </p>
+                    <ul className="mt-2 space-y-1">
+                      {summary.money.ledger_exclusions
+                        .filter((r) => r.count > 0)
+                        .map((r) => (
+                          <li key={r.reason}>
+                            Movimientos · {r.reason.replaceAll("_", " ")}:{" "}
+                            {r.count}
+                          </li>
+                        ))}
+                      {summary.money.payout_exclusions
+                        .filter((r) => r.count > 0)
+                        .map((r) => (
+                          <li key={r.reason}>
+                            Solicitudes · {r.reason.replaceAll("_", " ")}:{" "}
+                            {r.count}
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
                   <p className="text-xs text-gray-600">
                     Los agregados no se calculan desde estas páginas. Créditos
                     procesados y retiros pendientes tienen criterios distintos;
@@ -230,13 +275,8 @@ function Detail({ riderId }: { riderId: string }) {
                 </div>
               ) : (
                 <p role="status">
-                  Resumen no localizado en {data.summary.scanned} registros
-                  consultados
-                  {data.summary.limitReached
-                    ? " (límite de búsqueda de 500 alcanzado)"
-                    : ""}
-                  . Esto no confirma que el repartidor no exista. Las tablas
-                  corresponden al ID solicitado.
+                  No se encontró un perfil de repartidor para este ID. Las
+                  tablas corresponden al ID solicitado.
                 </p>
               )}
             </CardContent>

@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import Page from '@/app/(dashboard)/manager/operations/rider-audit/[id]/page';
 import { api } from '@/lib/api';
 import { clearStoredTokens, storeTokens } from '@/lib/auth-session';
-import { auditHttpResponse, auditSummaryPage, auditSummaryResponse, auditOrderResponse, auditDeliveryResponse, auditDeliveryPage } from '../../test-fixtures/rider-audit';
+import { auditHttpResponse, exactAuditEnvelope, auditSummaryResponse, auditOrderResponse, auditDeliveryResponse, auditDeliveryPage } from '../../test-fixtures/rider-audit';
 const mockRouter = { replace: jest.fn() }; let mockParams: { id: string | string[] } = { id: 'rider-1' }, mockUser: { id: string; role: string } | null = { id: 'a', role: 'GERENTE' }, mockAuthenticated = true;
 jest.mock('next/navigation', () => ({ useRouter: () => mockRouter, useParams: () => mockParams }));
 jest.mock('@/stores/authStore', () => ({ useAuthStore: () => ({ user: mockUser, isAuthenticated: mockAuthenticated }) }));
@@ -15,7 +15,7 @@ afterEach(() => clearStoredTokens());
 it('shows exact identities, legitimate zero values, UTC and unknown currencies', async () => {
   render(<Page />); await screen.findByRole('region', { name: 'Auditoría confirmada' });
   expect(screen.getByText('0, 0', { exact: true })).toBeInTheDocument(); expect(screen.getByText('Offline', { exact: true })).toBeInTheDocument();
-  expect(screen.getAllByText('0,00 (moneda no informada)')).toHaveLength(2); expect(screen.queryByText(/COP|USD|\$0/)).not.toBeInTheDocument();
+  expect(screen.getAllByText('0,00 (moneda no informada)')).toHaveLength(2); expect(screen.getAllByText('USD 25,00')).toHaveLength(2);
   expect(screen.getByRole('link', { name: 'Ver orden o-0' })).toHaveAttribute('href', '/manager/operations/orders/o-0'); expect(screen.getByRole('link', { name: 'Ver transacción tx-0' })).toHaveAttribute('href', '/manager/financial/transactions/tx-0');
   expect(screen.getAllByText(/UTC/).length).toBeGreaterThan(0); expect(screen.getByText(/no acreditan una transferencia bancaria/)).toBeInTheDocument();
 });
@@ -47,7 +47,7 @@ it('navigates independent bounded tables without displaying hidden lookahead row
   expect(within(nav).getByText('Página 2')).toBeInTheDocument(); expect(screen.getByRole('link', { name: 'Ver transacción tx-0' })).toBeInTheDocument(); expect(screen.queryByRole('link', { name: 'Ver transacción tx-50' })).not.toBeInTheDocument();
 });
 it('labels an exhausted summary lookup as absent within its scope, not a nonexistent rider', async () => {
-  get.mockImplementation(async url => url.startsWith('/riders/') ? auditSummaryPage([]) : auditHttpResponse(url, 1)); render(<Page />); await screen.findByText(/Esto no confirma que el repartidor no exista/); expect(screen.getByRole('link', { name: 'Ver orden o-0' })).toBeInTheDocument();
+  get.mockImplementation(async url => url.startsWith('/riders/') ? exactAuditEnvelope([], new URL(url, 'https://test.invalid').searchParams) : auditHttpResponse(url, 1)); render(<Page />); await screen.findByText(/No se encontró un perfil de repartidor/); expect(screen.getByRole('link', { name: 'Ver orden o-0' })).toBeInTheDocument();
 });
 it('clears all old blocks on route change and ignores an old success', async () => {
   const old = deferred(); get.mockImplementation(async url => url.startsWith('/orders') ? old.promise : auditHttpResponse(url, 1)); const view = render(<Page />);
@@ -67,5 +67,5 @@ it('ends invalid array route parameters with a visible recoverable error, withou
   mockParams = { id: [] }; render(<Page />); await screen.findByRole('alert'); expect(get).not.toHaveBeenCalled(); expect(screen.queryByRole('status')).not.toBeInTheDocument();
 });
 it('keeps the zero-delivery SLA denominator explicit', async () => {
-  get.mockImplementation(async url => url.startsWith('/riders/') ? auditSummaryPage([auditSummaryResponse('rider-1', { deliveries_total: 0, deliveries_completed: 0, deliveries_failed: 0, deliveries_in_progress: 0, sla_compliant: 0, sla_compliance_rate: 0 })]) : auditHttpResponse(url, 1)); render(<Page />); await screen.findByText('Sin entregas en el denominador');
+  get.mockImplementation(async url => url.startsWith('/riders/') ? exactAuditEnvelope([auditSummaryResponse('rider-1', { deliveries_total: 0, deliveries_completed: 0, deliveries_failed: 0, deliveries_in_progress: 0, sla_compliant: 0, sla_compliance_rate: 0 })], new URL(url, 'https://test.invalid').searchParams) : auditHttpResponse(url, 1)); render(<Page />); await screen.findByText('Sin entregas en el denominador');
 });

@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 100. Este registro distingue implementación local,
+Actualizado con la entrega 101. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -76,6 +76,15 @@ exacto conserva el cálculo canónico de reservas, verifica el libro USD y no
 habilita retiros con cifras por confirmar. El formulario de solicitud conserva
 su contrato e idempotencia anteriores; sigue pendiente migrar sus límites de
 compatibilidad y los demás consumidores numéricos.
+
+La entrega 99 completa el formulario de retiro con importes exactos e
+idempotencia conservada. La entrega 100 resuelve la carga del catálogo de órdenes
+cuando una asignación necesita revisión, conservando las referencias originales.
+La entrega 101 migra el resumen y catálogo de auditoría de repartidores a cadenas
+USD exactas, con corte de una sola sentencia, exclusiones trazables y consulta
+directa por perfil. No resta solicitudes pendientes para inventar disponibilidad.
+Las tablas de movimientos, órdenes y entregas del detalle, historial de retiros,
+bonos y otros consumidores numéricos siguen pendientes de migración.
 
 Faltan la revisión explícita de moneda histórica, el cierre de los demás reportes
 monetarios sobre decimales, la conciliación bancaria automática de cobros y devoluciones y la

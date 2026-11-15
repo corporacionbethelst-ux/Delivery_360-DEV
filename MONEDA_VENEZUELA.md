@@ -574,3 +574,21 @@ sobre fondos, concurrencia e idempotencia. No se amplían métodos, no se introd
 conversión VES ni se confirma una transferencia bancaria. Las respuestas
 numéricas de compatibilidad del servidor se conservan; su migración y los demás
 consumidores activos siguen en el registro de producción.
+
+
+## Entrega 101: resumen exacto de auditoría de repartidores
+
+El listado y resumen del detalle consultan `/riders/audit/summary/exact`, para
+SUPERADMIN/GERENTE. La página conserva créditos, débitos, ajustes firmados y
+solicitudes pendientes como cadenas USD, con un mismo corte PostgreSQL y
+exclusiones por moneda/fecha/estado/tipo. No se infiere saldo disponible ni se
+convierte VES o moneda desconocida a USD. El detalle obtiene el perfil por ID
+sin escanear un catálogo limitado a 500 perfiles.
+
+Los importes se validan en centavos con BigInt y se exportan como texto decimal,
+con el corte, huella y filtros confirmados. Los agregados operativos y contables
+no multiplican filas al combinar órdenes, entregas y movimientos. Un importe
+elegible inválido bloquea el resumen, con posibilidad de reintentar y conservar
+el conjunto anterior. La ruta y consumidores numéricos anteriores siguen como
+compatibilidad; las tablas internas del detalle y demás vistas pendientes se
+registran en PRODUCCION_PENDIENTES.md. No hay migración ni cambio de datos previos.
