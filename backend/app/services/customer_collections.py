@@ -146,6 +146,7 @@ async def context(db: AsyncSession, actor: User, order_id: UUID):
             else None
         ),
         "refund_due_usd": money(verified if terminal else 0),
+        "refund_due_scope": "gross_verified_collections",
         "state": state,
         "declaration_count": amounts["count"],
         "review_count": amounts["reviews"],

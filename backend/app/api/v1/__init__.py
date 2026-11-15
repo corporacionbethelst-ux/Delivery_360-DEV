@@ -27,6 +27,7 @@ from . import notifications
 from . import fiscal
 from . import currency
 from . import customer_collections
+from . import customer_refunds
 
 _API_MODULES = (
     auth,
@@ -55,6 +56,7 @@ _API_MODULES = (
     fiscal,
     currency,
     customer_collections,
+    customer_refunds,
 )
 
 for _module in _API_MODULES:

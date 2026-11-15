@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 94. Este registro distingue implementación local,
+Actualizado con la entrega 95. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -49,9 +49,16 @@ referencia única por caja/cuenta, auditoría e historial inmutable, con reinten
 sin duplicados. El precio se protege mientras existan cobros pendientes o
 verificados. Una cancelación expone una devolución pendiente y conserva el cobro.
 
+La entrega 95 añade devoluciones parciales o totales de cobros verificados en
+órdenes canceladas o fallidas. Conserva la moneda y BCV del cobro original, con
+asignación acumulada de centavos y una sola solicitud en curso por cobro.
+Distingue solicitud, aprobación independiente, ejecución declarada y verificación
+independiente de la salida. Una ejecución observada mantiene su reserva hasta
+comprobar el pago o confirmar expresamente que no salió dinero. El historial es
+inmutable y el saldo neto de devolución procede de un libro separado.
+
 Faltan la revisión explícita de moneda histórica, el cierre de reportes monetarios
-sobre decimales, el registro y ejecución controlados de devoluciones, la conciliación bancaria de
-cobros y la
+sobre decimales, la conciliación bancaria automática de cobros y devoluciones y la
 aplicación de tasas BCV conservadas a liquidaciones VES
 y la obtención automática fiable del BCV. La cotización independiente o ligada a la orden sigue siendo
 `quotation_only`; no acredita conversión de saldos anteriores o pago bancario.

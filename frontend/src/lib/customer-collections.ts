@@ -75,6 +75,7 @@ export interface CollectionContext {
     due_usd: string | null;
     available_to_declare_usd: string | null;
     refund_due_usd: string;
+    refund_due_scope?: "gross_verified_collections";
     state: string;
     declaration_count: number;
     review_count: number;
@@ -247,6 +248,8 @@ export function validateCollectionContext(
     !Array.isArray(r.ves_quotes) ||
     r.ves_quotes.length > 10 ||
     s.currency !== "USD" ||
+    (s.refund_due_scope !== undefined &&
+      s.refund_due_scope !== "gross_verified_collections") ||
     (r.order_status !== null &&
       !ORDER_STATUSES.includes(r.order_status as never)) ||
     (r.currency !== null && typeof r.currency !== "string") ||
