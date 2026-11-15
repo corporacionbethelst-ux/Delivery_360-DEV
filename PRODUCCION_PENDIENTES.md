@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 96. Este registro distingue implementación local,
+Actualizado con la entrega 97. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -61,7 +61,13 @@ La entrega 96 añade el libro exacto de cobros y devoluciones verificados: USD
 contable y monedas originales USD/VES separadas, totales por día/medio/caja,
 fechas de Caracas y CSV completo del mismo snapshot. No suma libros de riders,
 no reconoce pendientes y no representa utilidad ni confirmación bancaria.
-Los reportes heredados todavía requieren completar su cierre decimal.
+La entrega 97 migra las pantallas Resumen y Reportes a una consulta decimal:
+precios exactos de órdenes, movimientos procesados del libro canónico y
+solicitudes de retiro se presentan separados, con exclusiones trazables y CSV
+completo del mismo snapshot. Se retiran de estas vistas los indicadores que
+mezclaban devengos con retiros para estimar margen. No se deduce utilidad ni
+confirmación bancaria. Las rutas numéricas anteriores permanecen como
+compatibilidad; falta migrar a sus demás consumidores y revisar moneda histórica.
 
 Faltan la revisión explícita de moneda histórica, el cierre de los demás reportes
 monetarios sobre decimales, la conciliación bancaria automática de cobros y devoluciones y la

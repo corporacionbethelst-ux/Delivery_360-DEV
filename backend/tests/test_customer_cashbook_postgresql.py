@@ -53,17 +53,9 @@ async def migrate(engine, direction):
 
 
 @pytest.fixture
-async def cashbook_db(refund_db, monkeypatch):
-    # Source fixtures declare operations on November 14. Pin the civil window
-    # too, so the last-seven-days tests remain valid after that week has passed.
-    civil_window = service.civil_window
-    monkeypatch.setattr(
-        service,
-        "civil_window",
-        lambda start, end, now=None: civil_window(
-            start, end, now or datetime(2026, 11, 14, 20, tzinfo=timezone.utc)
-        ),
-    )
+async def cashbook_db(refund_db):
+    # quote_db uses the real day for PostgreSQL guards. Keep that same calendar
+    # for the report; a frozen November 14 window loses later real fixtures.
     await migrate(refund_db[3], "upgrade")
     yield refund_db
 

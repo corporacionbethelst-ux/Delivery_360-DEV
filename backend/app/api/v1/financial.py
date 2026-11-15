@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from typing import Annotated
+from app.api.v1.customer_cashbook import CivilDate
+from app.services import financial_reports_exact
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, case
 from sqlalchemy.orm import selectinload
@@ -751,3 +754,21 @@ def _parse_uuid(value: str):
         return uuid.UUID(value)
     except ValueError:
         raise HTTPException(status_code=400, detail="ID inválido")
+
+
+@router.get("/reports/exact")
+async def exact_financial_report(
+    request: Request,
+    date_from: Annotated[CivilDate | None, Query()] = None,
+    date_to: Annotated[CivilDate | None, Query()] = None,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_role(UserRole.GERENTE, UserRole.SUPERADMIN)),
+):
+    allowed = {"date_from", "date_to"}
+    if set(request.query_params) - allowed or any(
+        len(request.query_params.getlist(k)) != 1 for k in request.query_params
+    ):
+        raise HTTPException(
+            422, "Los filtros del reporte son desconocidos o están repetidos"
+        )
+    return await financial_reports_exact.report(db, date_from, date_to)

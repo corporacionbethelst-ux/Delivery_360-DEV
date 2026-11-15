@@ -1,0 +1,403 @@
+{
+  "version": 2,
+  "scope": "exact_management_sources",
+  "currency": "USD",
+  "timezone": "America/Caracas",
+  "date_from": "2026-11-14",
+  "date_to": "2026-11-14",
+  "period_start": "2026-11-14T04:00:00.000000Z",
+  "period_end_exclusive": "2026-11-15T04:00:00.000000Z",
+  "generated_at": "2026-11-15T12:25:08.570337Z",
+  "snapshot_basis": "single_statement_visibility",
+  "recognition_basis": "source_creation_time",
+  "payout_basis": "requests_created_in_period_current_status",
+  "undated_policy": "included_as_excluded",
+  "bank_verified": false,
+  "customer_cashbook_included": false,
+  "wallet_cents_included": false,
+  "maximum_rows": 5000,
+  "export_complete": true,
+  "row_count": 8,
+  "excluded_count": 1,
+  "sources": {
+    "ORDEN": {
+      "row_count": 1,
+      "included_count": 1,
+      "excluded_count": 0
+    },
+    "MOVIMIENTO": {
+      "row_count": 5,
+      "included_count": 4,
+      "excluded_count": 1
+    },
+    "RETIRO": {
+      "row_count": 2,
+      "included_count": 2,
+      "excluded_count": 0
+    }
+  },
+  "orders": {
+    "count": 1,
+    "subtotal_usd": "0.30",
+    "delivery_fee_usd": "0.20",
+    "total_usd": "0.50",
+    "by_status": [
+      {
+        "status": "PENDIENTE",
+        "count": 1,
+        "subtotal_usd": "0.30",
+        "delivery_fee_usd": "0.20",
+        "total_usd": "0.50"
+      },
+      {
+        "status": "ASIGNADO",
+        "count": 0,
+        "subtotal_usd": "0.00",
+        "delivery_fee_usd": "0.00",
+        "total_usd": "0.00"
+      },
+      {
+        "status": "EN_RECOLECCION",
+        "count": 0,
+        "subtotal_usd": "0.00",
+        "delivery_fee_usd": "0.00",
+        "total_usd": "0.00"
+      },
+      {
+        "status": "RECOLECTADO",
+        "count": 0,
+        "subtotal_usd": "0.00",
+        "delivery_fee_usd": "0.00",
+        "total_usd": "0.00"
+      },
+      {
+        "status": "EN_RUTA",
+        "count": 0,
+        "subtotal_usd": "0.00",
+        "delivery_fee_usd": "0.00",
+        "total_usd": "0.00"
+      },
+      {
+        "status": "ENTREGADO",
+        "count": 0,
+        "subtotal_usd": "0.00",
+        "delivery_fee_usd": "0.00",
+        "total_usd": "0.00"
+      },
+      {
+        "status": "FALLIDO",
+        "count": 0,
+        "subtotal_usd": "0.00",
+        "delivery_fee_usd": "0.00",
+        "total_usd": "0.00"
+      },
+      {
+        "status": "CANCELADO",
+        "count": 0,
+        "subtotal_usd": "0.00",
+        "delivery_fee_usd": "0.00",
+        "total_usd": "0.00"
+      }
+    ]
+  },
+  "ledger": {
+    "count": 4,
+    "credit_usd": "0.30",
+    "debit_usd": "0.07",
+    "adjustment_usd": "-0.02",
+    "net_change_usd": "0.21",
+    "by_type": [
+      {
+        "transaction_type": "BONO",
+        "count": 1,
+        "amount_usd": "0.20",
+        "delta_usd": "0.20"
+      },
+      {
+        "transaction_type": "BONO_RENDIMIENTO",
+        "count": 0,
+        "amount_usd": "0.00",
+        "delta_usd": "0.00"
+      },
+      {
+        "transaction_type": "INGRESO",
+        "count": 0,
+        "amount_usd": "0.00",
+        "delta_usd": "0.00"
+      },
+      {
+        "transaction_type": "PAGO_ENTREGA",
+        "count": 1,
+        "amount_usd": "0.10",
+        "delta_usd": "0.10"
+      },
+      {
+        "transaction_type": "PAGO_INTENTO_FALLIDO",
+        "count": 0,
+        "amount_usd": "0.00",
+        "delta_usd": "0.00"
+      },
+      {
+        "transaction_type": "AJUSTE_MANUAL",
+        "count": 0,
+        "amount_usd": "0.00",
+        "delta_usd": "0.00"
+      },
+      {
+        "transaction_type": "DESCUENTO",
+        "count": 0,
+        "amount_usd": "0.00",
+        "delta_usd": "0.00"
+      },
+      {
+        "transaction_type": "PENALIZACION",
+        "count": 0,
+        "amount_usd": "0.00",
+        "delta_usd": "0.00"
+      },
+      {
+        "transaction_type": "RETIRO",
+        "count": 1,
+        "amount_usd": "-0.07",
+        "delta_usd": "-0.07"
+      },
+      {
+        "transaction_type": "AJUSTE",
+        "count": 1,
+        "amount_usd": "-0.02",
+        "delta_usd": "-0.02"
+      }
+    ]
+  },
+  "payouts": {
+    "count": 2,
+    "amount_usd": "0.12",
+    "by_status": [
+      {
+        "status": "PENDIENTE",
+        "count": 1,
+        "amount_usd": "0.07"
+      },
+      {
+        "status": "APROBADO",
+        "count": 0,
+        "amount_usd": "0.00"
+      },
+      {
+        "status": "EN_PROCESO",
+        "count": 1,
+        "amount_usd": "0.05"
+      },
+      {
+        "status": "COMPLETADO",
+        "count": 0,
+        "amount_usd": "0.00"
+      },
+      {
+        "status": "RECHAZADO",
+        "count": 0,
+        "amount_usd": "0.00"
+      },
+      {
+        "status": "FALLIDO",
+        "count": 0,
+        "amount_usd": "0.00"
+      }
+    ]
+  },
+  "exclusions": [
+    {
+      "reason": "FECHA_NO_REGISTRADA",
+      "count": 0
+    },
+    {
+      "reason": "MONEDA_NO_VERIFICADA",
+      "count": 1
+    },
+    {
+      "reason": "PRECIO_NO_EXACTO",
+      "count": 0
+    },
+    {
+      "reason": "ESTADO_NO_PROCESADO",
+      "count": 0
+    },
+    {
+      "reason": "TIPO_NO_ADMITIDO",
+      "count": 0
+    },
+    {
+      "reason": "ESTADO_NO_ADMITIDO",
+      "count": 0
+    }
+  ],
+  "daily": [
+    {
+      "date": "2026-11-14",
+      "orders": {
+        "count": 1,
+        "subtotal_usd": "0.30",
+        "delivery_fee_usd": "0.20",
+        "total_usd": "0.50"
+      },
+      "ledger": {
+        "count": 4,
+        "credit_usd": "0.30",
+        "debit_usd": "0.07",
+        "adjustment_usd": "-0.02",
+        "net_change_usd": "0.21"
+      },
+      "payouts": {
+        "count": 2,
+        "amount_usd": "0.12"
+      }
+    }
+  ],
+  "rows": [
+    {
+      "key": "MOVIMIENTO:21c84dae-86e8-4547-b764-2b1bb948cc0e",
+      "kind": "MOVIMIENTO",
+      "id": "21c84dae-86e8-4547-b764-2b1bb948cc0e",
+      "occurred_at": "2026-11-14T16:00:00.000000Z",
+      "currency": "USD",
+      "status": "PROCESADO",
+      "transaction_type": "RETIRO",
+      "pricing_version": null,
+      "pricing_revision": null,
+      "included": true,
+      "exclusion_reason": null,
+      "subtotal_usd": null,
+      "delivery_fee_usd": null,
+      "total_usd": null,
+      "amount_usd": "-0.07",
+      "delta_usd": "-0.07"
+    },
+    {
+      "key": "MOVIMIENTO:2e4abc37-8535-41f9-af8a-99950a564ac2",
+      "kind": "MOVIMIENTO",
+      "id": "2e4abc37-8535-41f9-af8a-99950a564ac2",
+      "occurred_at": "2026-11-14T16:00:00.000000Z",
+      "currency": "USD",
+      "status": "PROCESADO",
+      "transaction_type": "PAGO_ENTREGA",
+      "pricing_version": null,
+      "pricing_revision": null,
+      "included": true,
+      "exclusion_reason": null,
+      "subtotal_usd": null,
+      "delivery_fee_usd": null,
+      "total_usd": null,
+      "amount_usd": "0.10",
+      "delta_usd": "0.10"
+    },
+    {
+      "key": "MOVIMIENTO:9d02bfea-fb4d-47f4-bf30-c646d24e5311",
+      "kind": "MOVIMIENTO",
+      "id": "9d02bfea-fb4d-47f4-bf30-c646d24e5311",
+      "occurred_at": "2026-11-14T16:00:00.000000Z",
+      "currency": "USD",
+      "status": "PROCESADO",
+      "transaction_type": "BONO",
+      "pricing_version": null,
+      "pricing_revision": null,
+      "included": true,
+      "exclusion_reason": null,
+      "subtotal_usd": null,
+      "delivery_fee_usd": null,
+      "total_usd": null,
+      "amount_usd": "0.20",
+      "delta_usd": "0.20"
+    },
+    {
+      "key": "MOVIMIENTO:d2ab9509-3bd1-4cd2-90bc-85784f4ab993",
+      "kind": "MOVIMIENTO",
+      "id": "d2ab9509-3bd1-4cd2-90bc-85784f4ab993",
+      "occurred_at": "2026-11-14T16:00:00.000000Z",
+      "currency": "USD",
+      "status": "PROCESADO",
+      "transaction_type": "AJUSTE",
+      "pricing_version": null,
+      "pricing_revision": null,
+      "included": true,
+      "exclusion_reason": null,
+      "subtotal_usd": null,
+      "delivery_fee_usd": null,
+      "total_usd": null,
+      "amount_usd": "-0.02",
+      "delta_usd": "-0.02"
+    },
+    {
+      "key": "MOVIMIENTO:d7f1a778-dcda-4c96-baf4-75b815e200fe",
+      "kind": "MOVIMIENTO",
+      "id": "d7f1a778-dcda-4c96-baf4-75b815e200fe",
+      "occurred_at": "2026-11-14T16:00:00.000000Z",
+      "currency": null,
+      "status": "PROCESADO",
+      "transaction_type": "PAGO_ENTREGA",
+      "pricing_version": null,
+      "pricing_revision": null,
+      "included": false,
+      "exclusion_reason": "MONEDA_NO_VERIFICADA",
+      "subtotal_usd": null,
+      "delivery_fee_usd": null,
+      "total_usd": null,
+      "amount_usd": null,
+      "delta_usd": null
+    },
+    {
+      "key": "ORDEN:a7c5f0fa-b6ab-419e-8ebc-156cf88064e0",
+      "kind": "ORDEN",
+      "id": "a7c5f0fa-b6ab-419e-8ebc-156cf88064e0",
+      "occurred_at": "2026-11-14T16:00:00.000000Z",
+      "currency": "USD",
+      "status": "PENDIENTE",
+      "transaction_type": null,
+      "pricing_version": 1,
+      "pricing_revision": 1,
+      "included": true,
+      "exclusion_reason": null,
+      "subtotal_usd": "0.30",
+      "delivery_fee_usd": "0.20",
+      "total_usd": "0.50",
+      "amount_usd": null,
+      "delta_usd": null
+    },
+    {
+      "key": "RETIRO:71b4e436-6687-4c2c-8b03-fe9b27111728",
+      "kind": "RETIRO",
+      "id": "71b4e436-6687-4c2c-8b03-fe9b27111728",
+      "occurred_at": "2026-11-14T16:00:00.000000Z",
+      "currency": "USD",
+      "status": "PENDIENTE",
+      "transaction_type": null,
+      "pricing_version": null,
+      "pricing_revision": null,
+      "included": true,
+      "exclusion_reason": null,
+      "subtotal_usd": null,
+      "delivery_fee_usd": null,
+      "total_usd": null,
+      "amount_usd": "0.07",
+      "delta_usd": null
+    },
+    {
+      "key": "RETIRO:7717a044-5441-40d6-b798-2b380e03fbb2",
+      "kind": "RETIRO",
+      "id": "7717a044-5441-40d6-b798-2b380e03fbb2",
+      "occurred_at": "2026-11-14T16:00:00.000000Z",
+      "currency": "USD",
+      "status": "EN_PROCESO",
+      "transaction_type": null,
+      "pricing_version": null,
+      "pricing_revision": null,
+      "included": true,
+      "exclusion_reason": null,
+      "subtotal_usd": null,
+      "delivery_fee_usd": null,
+      "total_usd": null,
+      "amount_usd": "0.05",
+      "delta_usd": null
+    }
+  ],
+  "content_sha256": "02a1546cf65e797dd2735498b496e6c39af5baa83877540c22babb0ee109e12e"
+}

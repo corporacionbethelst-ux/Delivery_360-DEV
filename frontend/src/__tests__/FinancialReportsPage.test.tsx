@@ -1,95 +1,258 @@
-import '@testing-library/jest-dom';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import Page from '@/app/(dashboard)/manager/financial/reports/page';
-import { api } from '@/lib/api';
-import { downloadCSV } from '@/lib/csv-export';
-import { clearStoredTokens, storeTokens } from '@/lib/auth-session';
-import { emptyOrders, emptyReconciliation, ordersResponse, reconciliationResponse, reportRow } from '../../test-fixtures/financial-reports';
-
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import Page from "@/app/(dashboard)/manager/financial/reports/page";
+import { api } from "@/lib/api";
+import { downloadCSV } from "@/lib/csv-export";
+import { clearStoredTokens, storeTokens } from "@/lib/auth-session";
+import fixture from "../../test-fixtures/financial-exact.json";
 const mockRouter = { replace: jest.fn() };
-let mockUser = { id: 'a', role: 'GERENTE' }, mockAuthenticated = true;
-jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }));
-jest.mock('@/stores/authStore', () => ({ useAuthStore: () => ({ user: mockUser, isAuthenticated: mockAuthenticated }) }));
-jest.mock('@/lib/api', () => ({ api: { get: jest.fn() } }));
-jest.mock('@/lib/csv-export', () => ({ downloadCSV: jest.fn(() => true) }));
-const get = jest.mocked(api.get), download = jest.mocked(downloadCSV);
-const query = (url: string) => { const q = new URL(url, 'https://test.invalid').searchParams; return { date_from: q.get('date_from') ?? undefined, date_to: q.get('date_to') ?? undefined }; };
-const reply = (url: string) => url.includes('/reports/orders') ? ordersResponse(query(url)) : reconciliationResponse(query(url));
-function deferred() { let resolve!: (value: unknown) => void; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; }
-beforeEach(() => { jest.resetAllMocks(); clearStoredTokens(); storeTokens({ access_token: 'a', refresh_token: 'ra' }); mockUser = { id: 'a', role: 'GERENTE' }; mockAuthenticated = true; get.mockImplementation(async url => reply(url)); download.mockReturnValue(true); });
+let mockRole = "GERENTE",
+  mockId = "a",
+  mockAuthenticated = true;
+jest.mock("next/navigation", () => ({ useRouter: () => mockRouter }));
+jest.mock("@/stores/authStore", () => ({
+  useAuthStore: () => ({
+    user: { id: mockId, role: mockRole },
+    isAuthenticated: mockAuthenticated,
+  }),
+}));
+jest.mock("@/lib/api", () => ({ api: { get: jest.fn() } }));
+jest.mock("@/lib/csv-export", () => ({ downloadCSV: jest.fn(() => true) }));
+const get = jest.mocked(api.get);
+const loaded = () =>
+  screen.findByRole("region", { name: "Reporte exacto confirmado" });
+beforeEach(() => {
+  jest.resetAllMocks();
+  clearStoredTokens();
+  storeTokens({ access_token: "a", refresh_token: "ra" });
+  mockId = "a";
+  mockAuthenticated = true;
+  mockRole = "GERENTE";
+  get.mockResolvedValue(fixture);
+  jest.mocked(downloadCSV).mockReturnValue(true);
+});
 afterEach(() => clearStoredTokens());
-const loaded = () => screen.findByRole('region', { name: 'Reporte confirmado' });
+it("separates exact order value, ledger change and withdrawal requests with visible exclusions", async () => {
+  render(<Page />);
+  await loaded();
+  expect(get).toHaveBeenCalledWith("/financial/reports/exact?");
+  expect(
+    screen.getByRole("heading", { name: "Reportes y exportación exactos" }),
+  ).toBeInTheDocument();
+  expect(screen.getByText("Valor de órdenes")).toBeInTheDocument();
+  expect(screen.getByText("Cambio contable de riders")).toBeInTheDocument();
+  expect(
+    screen.getByText("1 registros excluidos de los importes"),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(/Los precios no equivalen a ingresos cobrados/),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(/Una aprobación o un estado EN PROCESO no acredita/),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("Margen neto")).not.toBeInTheDocument();
+});
+it("exports all three sources and exclusions from the loaded snapshot without a second HTTP request", async () => {
+  render(<Page />);
+  await loaded();
+  fireEvent.change(screen.getByLabelText("Mostrar fuente"), {
+    target: { value: "ORDEN" },
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Exportar CSV completo" }),
+  );
+  expect(downloadCSV).toHaveBeenCalledTimes(1);
+  expect(jest.mocked(downloadCSV).mock.calls[0][0]).toHaveLength(
+    fixture.row_count,
+  );
+  expect(get).toHaveBeenCalledTimes(1);
+  expect(await screen.findByText(/CSV generado con/)).toBeInTheDocument();
+});
+it("clears stale data and disables CSV after editing dates, then applies the new range", async () => {
+  render(<Page />);
+  await loaded();
+  fireEvent.change(screen.getByLabelText("Desde", { exact: true }), {
+    target: { value: "2026-11-13" },
+  });
+  expect(
+    screen.queryByRole("region", { name: "Reporte exacto confirmado" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Exportar CSV completo" }),
+  ).toBeDisabled();
+  get.mockResolvedValue({
+    ...fixture,
+    date_from: "2026-11-13",
+    period_start: "2026-11-13T04:00:00.000000Z",
+    daily: [
+      {
+        ...fixture.daily[0],
+        date: "2026-11-13",
+        orders: {
+          count: 0,
+          subtotal_usd: "0.00",
+          delivery_fee_usd: "0.00",
+          total_usd: "0.00",
+        },
+        ledger: {
+          count: 0,
+          credit_usd: "0.00",
+          debit_usd: "0.00",
+          adjustment_usd: "0.00",
+          net_change_usd: "0.00",
+        },
+        payouts: { count: 0, amount_usd: "0.00" },
+      },
+      ...fixture.daily,
+    ],
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Aplicar consulta" }));
+  await loaded();
+  expect(get).toHaveBeenLastCalledWith(
+    "/financial/reports/exact?date_from=2026-11-13&date_to=2026-11-14",
+  );
+});
+it("distinguishes an initial HTTP failure from zero amounts and recovers deliberately", async () => {
+  get.mockRejectedValue(new Error("Sin conexión"));
+  render(<Page />);
+  expect(await screen.findByRole("alert")).toHaveTextContent("Sin conexión");
+  expect(
+    screen.queryByRole("region", { name: "Reporte exacto confirmado" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Exportar CSV completo" }),
+  ).toBeDisabled();
+  get.mockResolvedValue(fixture);
+  fireEvent.click(screen.getByRole("button", { name: "Reintentar consulta" }));
+  await loaded();
+});
+it("rejects inconsistent aggregate data rather than showing it", async () => {
+  get.mockResolvedValue({
+    ...fixture,
+    ledger: { ...fixture.ledger, net_change_usd: "99.99" },
+  });
+  render(<Page />);
+  await screen.findByRole("alert");
+  expect(
+    screen.queryByRole("region", { name: "Reporte exacto confirmado" }),
+  ).not.toBeInTheDocument();
+});
+it("ignores late results after filters have changed", async () => {
+  let resolve!: (v: unknown) => void;
+  get.mockReturnValue(
+    new Promise((r) => {
+      resolve = r;
+    }),
+  );
+  render(<Page />);
+  fireEvent.change(screen.getByLabelText("Hasta", { exact: true }), {
+    target: { value: "2026-11-13" },
+  });
+  await act(async () => resolve(fixture));
+  expect(
+    screen.queryByRole("region", { name: "Reporte exacto confirmado" }),
+  ).not.toBeInTheDocument();
+});
+it("retires private data when the credentials and user change", async () => {
+  const view = render(<Page />);
+  await loaded();
+  mockId = "b";
+  get.mockRejectedValue(new Error("Unavailable"));
+  await act(async () => {
+    storeTokens({ access_token: "b", refresh_token: "rb" });
+    view.rerender(<Page />);
+  });
+  await screen.findByRole("alert");
+  expect(
+    screen.queryByRole("region", { name: "Reporte exacto confirmado" }),
+  ).not.toBeInTheDocument();
+});
+it.each(["OPERADOR", "AUDITOR", "REPARTIDOR", "CLIENTE"])(
+  "prevents private management requests by %s",
+  async (role) => {
+    mockRole = role;
+    render(<Page />);
+    expect(get).not.toHaveBeenCalled();
+    expect(mockRouter.replace).toHaveBeenCalledWith("/login");
+  },
+);
+it("explains a complete-export limit rejected by the server", async () => {
+  get.mockRejectedValue({
+    response: {
+      status: 409,
+      data: { detail: "El rango supera 5000 registros; reduce las fechas" },
+    },
+  });
+  render(<Page />);
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "reduce las fechas",
+  );
+  expect(downloadCSV).not.toHaveBeenCalled();
+});
 
-it('distinguishes order totals from paid-delivery reconciliation and does not invent order currency', async () => {
-  render(<Page />); await loaded();
-  expect(screen.getByText('order-1')).toBeInTheDocument();
-  expect(screen.getByText('Moneda no informada para órdenes')).toBeInTheDocument(); expect(screen.getByText('Moneda informada: COP')).toBeInTheDocument();
-  expect(screen.getByText(/Los importes de órdenes no equivalen a ingresos cobrados/)).toBeInTheDocument();
-  expect(screen.getByText(/no certifican transferencias bancarias/)).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Exportar CSV' })).toBeEnabled();
+it("exports a confirmed empty snapshot with metadata and distinguishes it from an error", async () => {
+  const { emptyExact } = await import("../../test-utils/financial-exact");
+  get.mockResolvedValue(emptyExact());
+  render(<Page />);
+  await loaded();
+  expect(
+    screen.getByText("No hay registros para esta vista del rango confirmado."),
+  ).toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Exportar CSV completo" }),
+  );
+  expect(jest.mocked(downloadCSV).mock.calls[0][0]).toEqual([
+    expect.objectContaining({
+      filas_completas: 0,
+      nota: "Sin registros en el rango confirmado",
+    }),
+  ]);
 });
-it('does not show fictitious zero statistics on an initial failure and recovers via retry', async () => {
-  get.mockRejectedValue(new Error('offline')); render(<Page />); await screen.findByRole('alert');
-  expect(screen.queryByRole('region', { name: 'Reporte confirmado' })).not.toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Exportar CSV' })).toBeDisabled();
-  get.mockImplementation(async url => reply(url)); fireEvent.click(screen.getByRole('button', { name: 'Reintentar consulta' })); await loaded();
+it("does not restore an old result when a newer query finishes first", async () => {
+  let resolve!: (v: unknown) => void;
+  get.mockReturnValueOnce(
+    new Promise((r) => {
+      resolve = r;
+    }),
+  );
+  render(<Page />);
+  fireEvent.change(screen.getByLabelText("Desde", { exact: true }), {
+    target: { value: fixture.date_from },
+  });
+  get.mockResolvedValue(fixture);
+  fireEvent.click(screen.getByRole("button", { name: "Aplicar consulta" }));
+  await loaded();
+  await act(async () => resolve({ ...fixture, row_count: 999 }));
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(
+    screen.getByRole("region", { name: "Reporte exacto confirmado" }),
+  ).toBeInTheDocument();
 });
-it('shows genuine empty data without a CSV download', async () => {
-  get.mockImplementation(async url => url.includes('/reports/orders') ? ordersResponse({}, emptyOrders) : reconciliationResponse({}, emptyReconciliation));
-  render(<Page />); await screen.findByText('No hay órdenes en el rango confirmado.');
-  expect(screen.getByRole('button', { name: 'Exportar CSV' })).toBeDisabled(); expect(download).not.toHaveBeenCalled();
+it("clears the report after the same account loses its management role", async () => {
+  const view = render(<Page />);
+  await loaded();
+  mockRole = "OPERADOR";
+  view.rerender(<Page />);
+  expect(
+    screen.queryByRole("region", { name: "Reporte exacto confirmado" }),
+  ).not.toBeInTheDocument();
+  expect(mockRouter.replace).toHaveBeenCalledWith("/login");
 });
-it('keeps draft dates distinct from the confirmed range and requires applying before export', async () => {
-  render(<Page />); await loaded();
-  fireEvent.change(screen.getByLabelText('Fecha inicio'), { target: { value: '2026-11-01' } });
-  expect(get).toHaveBeenCalledTimes(2); expect(screen.getByText(/Rango confirmado: sin límite inicial/)).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Exportar CSV' })).toBeDisabled();
-  fireEvent.click(screen.getByRole('button', { name: 'Aplicar consulta' })); await screen.findByText(/Rango confirmado: 2026-11-01/);
-  expect(screen.getByRole('button', { name: 'Exportar CSV' })).toBeEnabled();
+it("ignores a pending completion after unmounting", async () => {
+  let resolve!: (v: unknown) => void;
+  get.mockReturnValueOnce(
+    new Promise((r) => {
+      resolve = r;
+    }),
+  );
+  const view = render(<Page />);
+  view.unmount();
+  await act(async () => resolve(fixture));
+  expect(downloadCSV).not.toHaveBeenCalled();
 });
-it('retains both confirmed datasets on a failed apply and retries its original filters', async () => {
-  render(<Page />); await loaded(); fireEvent.change(screen.getByLabelText('Fecha inicio'), { target: { value: '2026-11-01' } });
-  get.mockRejectedValue(new Error('failed')); fireEvent.click(screen.getByRole('button', { name: 'Aplicar consulta' })); await screen.findByRole('alert');
-  expect(screen.getByText(/Rango confirmado: sin límite inicial/)).toBeInTheDocument();
-  get.mockImplementation(async url => reply(url)); fireEvent.click(screen.getByRole('button', { name: 'Reintentar consulta' })); await screen.findByText(/Rango confirmado: 2026-11-01/);
-});
-it('does not mix an updated order report with the old reconciliation during export', async () => {
-  render(<Page />); await loaded();
-  get.mockImplementation(async url => url.includes('/reports/orders') ? ordersResponse({}, { total_revenue: 20, rows: [reportRow('changed', { delivery_fee: 20 })] }) : Promise.reject(new Error('reconciliation failed')));
-  fireEvent.click(screen.getByRole('button', { name: 'Exportar CSV' })); await screen.findByRole('alert');
-  expect(screen.getByText('EXT-1')).toBeInTheDocument(); expect(download).not.toHaveBeenCalled();
-});
-it('cancels a pending CSV when dates are edited and never downloads the old data later', async () => {
-  const pending = deferred(); render(<Page />); await loaded();
-  get.mockImplementation(url => url.includes('/reports/orders') ? pending.promise : Promise.resolve(reconciliationResponse()));
-  fireEvent.click(screen.getByRole('button', { name: 'Exportar CSV' }));
-  fireEvent.change(screen.getByLabelText('Fecha fin'), { target: { value: '2026-11-07' } });
-  await screen.findByText(/La exportación se canceló/); await act(async () => { pending.resolve(ordersResponse()); });
-  expect(download).not.toHaveBeenCalled(); expect(screen.getByRole('button', { name: 'Exportar CSV' })).toBeDisabled();
-});
-it('uses only the applied range in CSV rows and filename and preserves absent payment fields', async () => {
-  render(<Page />); await loaded(); fireEvent.change(screen.getByLabelText('Fecha inicio'), { target: { value: '2026-11-01' } }); fireEvent.change(screen.getByLabelText('Fecha fin'), { target: { value: '2026-11-07' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Aplicar consulta' })); await screen.findByText(/Rango confirmado: 2026-11-01/);
-  fireEvent.click(screen.getByRole('button', { name: 'Exportar CSV' })); await screen.findByText(/CSV generado con 1 orden/);
-  expect(download.mock.calls[0][1]).toContain('2026-11-01_2026-11-07_1_filas');
-  expect(download.mock.calls[0][0][0]).toMatchObject({ id_orden: 'order-1', metodo_pago: '', moneda: '', rango_desde_utc: '2026-11-01T00:00:00Z' });
-});
-it('clears retired account data and blocks an old pending export after switching accounts', async () => {
-  const old = deferred(); render(<Page />); await loaded();
-  get.mockImplementation(url => url.includes('limit=5000') ? old.promise : Promise.resolve(url.includes('/reports/orders') ? ordersResponse({}, { rows: [reportRow('private-b', { external_id: 'B-ref' })] }) : reconciliationResponse()));
-  fireEvent.click(screen.getByRole('button', { name: 'Exportar CSV' }));
-  act(() => { mockUser = { id: 'b', role: 'GERENTE' }; storeTokens({ access_token: 'b', refresh_token: 'rb' }); });
-  await screen.findByText('B-ref'); await act(async () => { old.resolve(ordersResponse()); });
-  expect(screen.queryByText('EXT-1')).not.toBeInTheDocument(); expect(download).not.toHaveBeenCalled();
-});
-it('clears the snapshot when the role changes even without a token generation change', async () => {
-  const pending = deferred(); const view = render(<Page />); await loaded();
-  get.mockReturnValue(pending.promise); mockUser = { id: 'a', role: 'SUPERADMIN' }; view.rerender(<Page />);
-  expect(screen.queryByRole('region', { name: 'Reporte confirmado' })).not.toBeInTheDocument();
-  view.unmount(); await act(async () => { pending.resolve(ordersResponse()); });
-});
-it.each(['OPERADOR', 'REPARTIDOR', 'CLIENTE'])('does not query management reports as %s', async role => {
-  mockUser = { id: 'a', role }; render(<Page />); await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/login')); expect(get).not.toHaveBeenCalled();
-});
-it('does not query reports when authentication is absent', () => {
-  mockAuthenticated = false; render(<Page />); expect(get).not.toHaveBeenCalled();
+
+it("does not request management data before authentication is confirmed", () => {
+  mockAuthenticated = false;
+  render(<Page />);
+  expect(get).not.toHaveBeenCalled();
+  expect(mockRouter.replace).toHaveBeenCalledWith("/login");
 });
