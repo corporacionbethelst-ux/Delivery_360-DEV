@@ -1,0 +1,57 @@
+{
+  "properties": {
+    "request_key": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Request Key"
+    },
+    "collection_id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Collection Id"
+    },
+    "expected_book_revision": {
+      "type": "integer",
+      "maximum": 2147483647.0,
+      "minimum": 0.0,
+      "title": "Expected Book Revision"
+    },
+    "amount_usd": {
+      "anyOf": [
+        {
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "title": "Amount Usd"
+    },
+    "reason": {
+      "type": "string",
+      "maxLength": 500,
+      "minLength": 10,
+      "title": "Reason"
+    },
+    "confirmed_request": {
+      "type": "boolean",
+      "enum": [
+        true
+      ],
+      "const": true,
+      "title": "Confirmed Request"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "request_key",
+    "collection_id",
+    "expected_book_revision",
+    "amount_usd",
+    "reason",
+    "confirmed_request"
+  ],
+  "title": "RefundRequestInput"
+}

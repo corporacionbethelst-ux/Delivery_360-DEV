@@ -200,7 +200,7 @@ it("blocks declarations on terminal orders and indicates refund liability", asyn
     summary: { ...pendingContext.summary, refund_due_usd: "0.20" },
   });
   render(<CustomerCollectionsPanel orderId={orderId} />);
-  await screen.findByText(/pendientes de devolución/);
+  await screen.findByText(/saldo pendiente y los importes ya devueltos/);
   expect(
     screen.queryByRole("button", { name: "Revisar declaración de cobro" }),
   ).not.toBeInTheDocument();

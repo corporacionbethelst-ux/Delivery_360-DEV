@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 94. Este registro distingue implementación local,
+Actualizado con la entrega 96. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -49,9 +49,22 @@ referencia única por caja/cuenta, auditoría e historial inmutable, con reinten
 sin duplicados. El precio se protege mientras existan cobros pendientes o
 verificados. Una cancelación expone una devolución pendiente y conserva el cobro.
 
-Faltan la revisión explícita de moneda histórica, el cierre de reportes monetarios
-sobre decimales, el registro y ejecución controlados de devoluciones, la conciliación bancaria de
-cobros y la
+La entrega 95 añade devoluciones parciales o totales de cobros verificados en
+órdenes canceladas o fallidas. Conserva la moneda y BCV del cobro original, con
+asignación acumulada de centavos y una sola solicitud en curso por cobro.
+Distingue solicitud, aprobación independiente, ejecución declarada y verificación
+independiente de la salida. Una ejecución observada mantiene su reserva hasta
+comprobar el pago o confirmar expresamente que no salió dinero. El historial es
+inmutable y el saldo neto de devolución procede de un libro separado.
+
+La entrega 96 añade el libro exacto de cobros y devoluciones verificados: USD
+contable y monedas originales USD/VES separadas, totales por día/medio/caja,
+fechas de Caracas y CSV completo del mismo snapshot. No suma libros de riders,
+no reconoce pendientes y no representa utilidad ni confirmación bancaria.
+Los reportes heredados todavía requieren completar su cierre decimal.
+
+Faltan la revisión explícita de moneda histórica, el cierre de los demás reportes
+monetarios sobre decimales, la conciliación bancaria automática de cobros y devoluciones y la
 aplicación de tasas BCV conservadas a liquidaciones VES
 y la obtención automática fiable del BCV. La cotización independiente o ligada a la orden sigue siendo
 `quotation_only`; no acredita conversión de saldos anteriores o pago bancario.
@@ -59,7 +72,11 @@ La consulta HTTPS al BCV respondió 503 durante el bloque de referencias; no se
 sustituyó por tasas de prueba ni se omitió TLS. Véase
 [MONEDA_VENEZUELA.md](MONEDA_VENEZUELA.md).
 
-El banco/proveedor de pagos todavía no está seleccionado. La integración exige
+Bancos indicados por el usuario: Banco de Venezuela, Banesco, Provincial,
+Mercantil y BOD. Falta verificar los canales oficiales y la entidad operativa
+actual de BOD, obtener acceso técnico y homologar cada integración. No se
+asocian automáticamente los alias históricos de cajas/cuentas a un banco.
+La integración exige
 confirmación externa verificable, prevención de duplicados y conciliación; no
 se declara un pago ejecutado a partir de un cambio de estado local.
 

@@ -202,8 +202,9 @@ la fuente de este nuevo libro de cobros de clientes.
 Una orden cancelada o fallida no admite declaraciones nuevas. Si ya hay un
 importe verificado, se expone como devolución pendiente, sin ejecutar una salida
 de dinero. Verificar un pendiente de esa orden exige reconocer esa obligación.
-La ejecución, aprobación y conciliación de devoluciones queda para el siguiente
-bloque; tampoco se habilita todavía liquidación VES de repartidores.
+La entrega 95 añade autorización, declaración y conciliación manual de
+devoluciones. La conciliación bancaria automática y la liquidación VES de
+repartidores siguen pendientes.
 
 | Ruta | Función | Roles |
 | --- | --- | --- |
@@ -233,6 +234,89 @@ La migración solo se aplica al laboratorio marcado durante esta entrega.
 Las pruebas `test_customer_collections_postgresql.py` y
 `frontend/e2e/local-customer-collections.browser.py` cubren el libro real y la UI
 con dos cuentas independientes. No se envía dinero, mensajes ni datos a bancos.
+
+## Devoluciones y conciliación manual — entrega 95
+
+Regla confirmada por el usuario: **devolver en la misma moneda y con la tasa BCV
+conservada del cobro original**. No se usa la referencia del día de devolución
+ni una corrección posterior para revalorizar lo recibido. Se admiten devoluciones
+parciales o totales de un cobro ya verificado, cuando la orden esté cancelada o
+fallida. Las solicitudes conservan el cobro original, motivo, solicitante,
+importe USD, moneda de salida y prefijo de devoluciones ya verificadas.
+
+El flujo diferencia estados que no deben confundirse:
+
+1. SOLICITADA: reserva el importe; no registra una salida.
+2. APROBADA: otro gerente o superadministrador autoriza; el dinero sigue pendiente.
+3. EJECUCION_DECLARADA: un responsable registra una salida ya realizada fuera
+   del sistema, con importe exacto aprobado, medio, fecha de Caracas, alias de
+   caja/cuenta y referencia única. Requiere confirmación explícita.
+4. DEVUELTA: otro responsable distinto del ejecutor comprueba la evidencia.
+   Solo este evento reduce el saldo pendiente de devolución.
+
+Una OBSERVADA conserva la reserva y bloquea otro intento. Otro responsable puede
+verificar la salida tras aclararla o confirmar con evidencia que no hubo salida;
+esta última decisión retorna a APROBADA y permite declarar otro intento con una
+referencia nueva. Nunca se reutiliza la referencia de un intento anterior. Se
+puede rechazar una solicitud antes de aprobarla, o anular una aprobación con
+comprobación expresa de que no hubo ejecución; ambas decisiones liberan la
+reserva. Solicitar y revisar la propia autorización está prohibido. Un ejecutor
+no puede verificar, observar ni confirmar la no ejecución de su propia salida.
+
+Hay una sola solicitud sin resolver por cobro. Esto evita pagos simultáneos y
+permite conservar un prefijo exacto de importes ya devueltos. Cada parcial en
+VES se calcula como la diferencia entre convertir el acumulado nuevo y los VES
+previamente verificados. Ejemplo sintético: un cobro de 0,50 USD a 1,5 conserva
+0,75 VES. Parciales de 0,01 + 0,01 + 0,48 USD devuelven 0,02 + 0,01 + 0,72 VES.
+Se conservan exactamente los 0,75 VES originales; no se redondea cada parcial de
+forma independiente. Se rechaza un parcial que no alcance un centavo de salida.
+
+El panel de devoluciones aparece en el detalle de órdenes canceladas o fallidas,
+a ancho completo y adaptable a móvil. Muestra saldo pendiente, importe en trámite
+y total devuelto verificado. Cada acción exige revisar el importe y motivo antes
+de guardar. Los reintentos conservan la misma solicitud tras respuestas ambiguas;
+`?refund=UUID` recupera el historial aunque salga de las veinte solicitudes recientes.
+Los eventos anteriores se consultan por páginas de cincuenta, sin perder historia.
+
+El resumen anterior de cobros conserva sus importes **brutos**. Su clave heredada
+`refund_due_usd` se identifica con `refund_due_scope: gross_verified_collections`;
+no representa el saldo neto después de devoluciones. La UI actual lo explica y
+remite a Devoluciones de clientes. El neto procede exclusivamente de
+`GET /api/v1/customer-refunds/orders/{order_id}` y su `summary.remaining_usd`.
+Se deben actualizar API y frontend de forma coordinada; clientes anteriores no
+conocen este nuevo libro. Los bonos, wallets, retiros y payment_status heredado
+conservan sus contratos y registros.
+
+| Ruta | Función | Roles |
+| --- | --- | --- |
+| `GET /api/v1/customer-refunds/orders/{order_id}` | Resumen neto, cobros y últimas 20 solicitudes visibles | SUPERADMIN, GERENTE, OPERADOR, AUDITOR |
+| `POST /api/v1/customer-refunds/orders/{order_id}` | Solicitar devolución con revisión esperada del libro | SUPERADMIN, GERENTE, OPERADOR |
+| `GET /api/v1/customer-refunds/{refund_id}` | Recuperar solicitud e historial reciente | Consulta; OPERADOR solo sus cobros/solicitudes |
+| `GET /api/v1/customer-refunds/{refund_id}/events?before_revision=N` | Recuperar eventos anteriores | Mismos permisos de consulta |
+| `POST /api/v1/customer-refunds/{refund_id}/events` | Autorizar, declarar o conciliar manualmente | SUPERADMIN, GERENTE, con independencia por acción |
+
+Las escrituras tienen claves UUID idempotentes y revisiones esperadas. Una
+solicitud compara la revisión global del libro de la orden; las acciones comparan
+la revisión del historial de esa devolución. El importe real declarado debe
+coincidir con la moneda y los centavos aprobados. Solo se declaran salidas del
+día actual de Caracas; la revisión puede ocurrir después. Los operadores ven
+los cobros que declararon y sus devoluciones; el resumen agrega toda la orden.
+Auditoría es de solo lectura. Las respuestas indican `bank_verified: false` y
+el contexto `bank_integration_available: false`.
+
+La migración `20261114_customer_refunds` crea dos tablas, sin columnas nuevas en
+los libros anteriores ni UPDATE de historia. Los triggers comprueban importe,
+prefijo acumulado, moneda y BCV originales, estado, revisión, roles activos e
+independencia. También impiden reabrir una orden con devoluciones en curso o ya
+verificadas. Las referencias de ejecución son únicas, incluso en intentos luego
+observados. Solicitud/evento y auditoría se confirman en la misma transacción.
+UPDATE, DELETE y TRUNCATE se rechazan; el downgrade poblado se niega.
+
+Las comprobaciones SQL están en `tests/test_customer_refunds_postgresql.py`.
+El runner `frontend/e2e/local-customer-refunds.browser.py` usa dos cuentas reales,
+datos sintéticos y el marcador del laboratorio. Conserva cobros, eventos y datos
+anteriores, sin llamadas a bancos, transferencias reales ni mensajes. Sigue
+pendiente elegir el proveedor/banco y conciliar automáticamente su confirmación.
 
 ## Uso
 
@@ -328,3 +412,54 @@ PostgreSQL automatizados utilizan una base `test_*` explícita y esquemas propio
 Siguen pendientes la revisión de moneda histórica, el cierre decimal de reportes,
 la aplicación de BCV a liquidaciones VES reales, automatizar BCV con disponibilidad
 y trazabilidad verificables y elegir/homologar pagos y facturación venezolana.
+
+
+## Libro exacto de cobros y devoluciones — entrega 96
+
+`GET /api/v1/customer-cashbook/report` y la pantalla
+`/manager/financial/customer-cashbook` admiten SUPERADMIN, GERENTE y AUDITOR.
+Solo leen cobros con revisión VERIFICADO y eventos VERIFICAR_DEVOLUCION;
+solicitudes, aprobaciones y ejecuciones todavía no verificadas quedan fuera.
+El reconocimiento corresponde a la fecha de verificación manual, no a la fecha
+de la orden o la solicitud. Los documentos originales conservan sus fechas.
+
+Filtros opcionales: `date_from`, `date_to` (YYYY-MM-DD, calendario Caracas),
+`method` (EFECTIVO/TRANSFERENCIA/PAGO_MOVIL), `currency` (USD/VES) y `source_key`
+(alias exacto normalizado). Sin fechas se consultan los últimos siete días.
+El máximo es 31 días, con final no posterior a hoy en Caracas. Los límites UTC
+son medianoche local inclusiva y medianoche siguiente exclusiva. Se rechazan
+filtros desconocidos o repetidos. La operación es exclusivamente GET.
+
+Una sola sentencia PostgreSQL determina filas y momento de lectura. Totales,
+desglose diario, monedas, medios y CSV proceden de esas mismas filas. La prueba
+de concurrencia verifica que una devolución confirmada durante la lectura no
+mezcla filas anteriores con totales posteriores. Los importes viajan como
+cadenas decimales; servidor Decimal y navegador BigInt conservan centavos.
+El neto de un período puede ser negativo por devoluciones de cobros anteriores.
+Los originales USD y VES nunca se suman como una misma unidad.
+
+Cada devolución conserva la tasa del cobro original y la asignación acumulada
+de centavos. El detalle incluye IDs del cobro, devolución, orden y verificación,
+responsables distintos, fechas, alias/referencia y BCV original. Se valida la
+ejecución vinculada a la última declaración anterior a la verificación, también
+cuando hubo observación y reintento. Un origen incoherente produce 409.
+
+Hasta 5.000 movimientos se reciben completos y se paginan visualmente a 50.
+Si el rango supera el límite, la API responde 409 y pide acotarlo: no entrega
+CSV parcial. Editar filtros descarta las cifras anteriores e impide exportarlas
+hasta aplicar la nueva consulta. El CSV incluye todas las filas, rango, hora,
+conteo y huella SHA256 del snapshot; esta huella identifica contenido y no es
+una firma bancaria. También permite exportar un período confirmado vacío con
+sus metadatos. El cambio de sesión invalida solicitudes privadas en curso.
+
+La migración `20261115_cashbook_indexes`, sucesora de devoluciones, crea dos
+índices parciales por fecha de verificación; no transforma filas ni importa
+saldos. Su downgrade solo elimina esos índices, incluso con datos presentes.
+El libro de clientes es independiente de ganancias/retiros de riders y de los
+indicadores Float heredados. Este bloque no cierra todos los reportes antiguos.
+
+Bancos confirmados por el usuario: Banco de Venezuela, Banesco, Provincial,
+Mercantil y BOD. La conciliación automática sigue pendiente de canales
+oficiales, credenciales y homologación. Se verificará la entidad operativa
+actual de BOD antes de diseñar un adaptador. Ningún alias histórico se interpreta
+como banco ni una verificación manual se presenta como confirmación externa.

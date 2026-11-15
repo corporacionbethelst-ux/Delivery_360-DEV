@@ -70,11 +70,12 @@ export const NAVIGATION_CONFIG: NavItem[] = [
     label: 'Finanzas',
     href: '/manager/financial',
     icon: DollarSign,
-    roles: ['SUPERADMIN', 'GERENTE'],
+    roles: ['SUPERADMIN', 'GERENTE', 'AUDITOR'],
     children: [
       { label: 'Resumen', href: '/manager/financial/resumen', icon: LayoutDashboard, roles: ['SUPERADMIN', 'GERENTE'] },
       { label: 'Transacciones', href: '/manager/financial/transactions', icon: CreditCard, roles: ['SUPERADMIN', 'GERENTE'] },
       { label: 'Pagos a Riders', href: '/manager/financial/payouts', icon: Wallet, roles: ['SUPERADMIN', 'GERENTE'] },
+      { label: 'Cobros y devoluciones', href: '/manager/financial/customer-cashbook', icon: Wallet, roles: ['SUPERADMIN', 'GERENTE', 'AUDITOR'] },
       { label: 'Reportes', href: '/manager/financial/reports', icon: PieChart, roles: ['SUPERADMIN', 'GERENTE'] },
     ]
   },

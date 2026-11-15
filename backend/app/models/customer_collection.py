@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Boolean,
     CheckConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
@@ -61,6 +62,12 @@ class CustomerCollection(Base):
 class CustomerCollectionReview(Base):
     __tablename__ = "customer_collection_reviews"
     __table_args__ = (
+        Index(
+            "ix_collection_reviews_verified_at",
+            "reviewed_at",
+            "id",
+            postgresql_where=text("decision='VERIFICADO'"),
+        ),
         CheckConstraint(
             "decision IN ('VERIFICADO','RECHAZADO') AND verified_evidence = (decision='VERIFICADO') AND length(btrim(note)) BETWEEN 10 AND 500 AND note !~ '[[:cntrl:]]'",
             name="ck_collection_review_decision",
