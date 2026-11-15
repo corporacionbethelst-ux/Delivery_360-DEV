@@ -439,6 +439,7 @@ def main():
             "real earned balance is 4 delivery bonuses plus 1 failed-attempt bonus, with no seeded funds"
         )
         # The form uses only funds earned above. Never seed monetary income.
+        rider_page.set_viewport_size({"width": 1440, "height": 1050})
         exact = call(rider_page, own, "GET", "/payouts/balance/exact")
         assert (
             exact["available"] == "11.00" and exact["user_id"] == identity_rider["id"]
@@ -481,6 +482,12 @@ def main():
         passed("three-decimal input is refused before saving or posting a withdrawal")
         amount_field.fill("10,01")
         rider_page.get_by_label("Últimos 4 dígitos (Opcional)", exact=True).fill("1234")
+        rider_page.locator("main > div.overflow-auto").evaluate(
+            "el => el.scrollTo({top: 0, behavior: 'instant'})"
+        )
+        expect(
+            rider_page.get_by_role("heading", name="Solicitar Retiro", exact=True)
+        ).to_be_in_viewport()
         rider_page.screenshot(
             path=str(out / "withdraw-exact-desktop.png"), animations="disabled"
         )
@@ -488,6 +495,12 @@ def main():
         rider_page.wait_for_function(
             "document.querySelector('aside').getBoundingClientRect().right<=1"
         )
+        rider_page.locator("main > div.overflow-auto").evaluate(
+            "el => el.scrollTo({top: 0, behavior: 'instant'})"
+        )
+        expect(
+            rider_page.get_by_role("heading", name="Solicitar Retiro", exact=True)
+        ).to_be_in_viewport()
         assert rider_page.evaluate("document.documentElement.scrollWidth<=innerWidth")
         rider_page.screenshot(
             path=str(out / "withdraw-exact-mobile.png"),
