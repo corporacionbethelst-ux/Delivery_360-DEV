@@ -15,11 +15,11 @@ Utiliza la rama de esta entrega mientras el PR no esté integrado a main:
 
 ```bash
 git fetch origin
-git switch feat/customer-collection-review-v1
+git switch feat/customer-refunds-v1
 ```
 
 Si solo existe la rama remota, utiliza
-`git switch --track origin/feat/customer-collection-review-v1`.
+`git switch --track origin/feat/customer-refunds-v1`.
 Conserva tus cambios locales antes de cambiar de rama. Después de integrar el
 PR, puedes usar main actualizado con `git pull --ff-only`.
 
@@ -258,3 +258,32 @@ escribir. Comprueba efectivo y pago móvil parciales, revisión independiente,
 recuperación de una respuesta perdida, bloqueo del precio, enlace conservado,
 cancelación y diseño móvil. Compara los libros de repartidores antes y después.
 Respeta los límites reales de solicitudes sin desactivarlos.
+
+## Devoluciones — entrega 95
+
+En una orden cancelada o fallida con cobro verificado, abre **Devoluciones de
+clientes**. Selecciona el cobro, indica el parcial USD y revisa su equivalente en
+la moneda original. Otra cuenta GERENTE/SUPERADMIN debe aprobar. Esa aprobación
+no devuelve dinero: después se registra una salida ya realizada fuera del
+sistema y otra persona distinta del ejecutor verifica la evidencia. En el
+laboratorio usa exclusivamente importes y referencias sintéticos; no envíes dinero.
+
+Una ejecución observada conserva la reserva. Solo se permite otro intento tras
+una comprobación independiente que confirme que no hubo salida. Las referencias
+anteriores permanecen reservadas para evitar reutilizarlas. La pantalla muestra
+el saldo neto pendiente separado del total bruto de cobros.
+
+```bash
+python frontend/e2e/local-customer-refunds.browser.py --wait-request-window --artifacts-dir browser-real/customer-refunds
+```
+
+El runner comprueba identidades, cobro original, aprobación y verificación por
+otra cuenta, respuesta perdida, devolución parcial, observación y conciliación
+manual, cambio BCV posterior, centavos acumulados y vista móvil. Respeta las
+ventanas de solicitudes y no altera los límites de la aplicación. El historial
+y los documentos de prueba se conservan al detener el laboratorio sin borrar
+sus volúmenes.
+
+Esta rama incorpora la entrega 94. Mientras su PR336 siga abierto, el nuevo PR
+se apoya en esa rama para revisar solamente las devoluciones. La rama de pruebas
+contiene ambas entregas y puede probarse directamente sin fusionar PRs.

@@ -378,9 +378,10 @@ function Panel({
             </div>
             {context.summary.refund_due_usd !== "0.00" && (
               <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-                Orden cancelada o fallida:{" "}
-                {moneyText(context.summary.refund_due_usd, "USD")} pendientes de
-                devolución. Este panel no ejecuta reembolsos.
+                Total verificado en orden cancelada o fallida:{" "}
+                {moneyText(context.summary.refund_due_usd, "USD")} cobrados.
+                Consulta Devoluciones de clientes para conocer el saldo
+                pendiente y los importes ya devueltos.
               </p>
             )}
             {context.price_locked && (

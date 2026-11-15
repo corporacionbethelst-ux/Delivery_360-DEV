@@ -1,0 +1,141 @@
+{
+  "properties": {
+    "request_key": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Request Key"
+    },
+    "expected_revision": {
+      "type": "integer",
+      "maximum": 2147483646.0,
+      "minimum": 0.0,
+      "title": "Expected Revision"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "APROBAR",
+        "RECHAZAR",
+        "DECLARAR_EJECUCION",
+        "VERIFICAR_DEVOLUCION",
+        "OBSERVAR_EJECUCION",
+        "CONFIRMAR_NO_EJECUTADA",
+        "ANULAR_APROBACION"
+      ],
+      "title": "Kind"
+    },
+    "note": {
+      "type": "string",
+      "maxLength": 500,
+      "minLength": 10,
+      "title": "Note"
+    },
+    "verified_evidence": {
+      "type": "boolean",
+      "title": "Verified Evidence"
+    },
+    "confirmed_no_execution": {
+      "type": "boolean",
+      "title": "Confirmed No Execution",
+      "default": false
+    },
+    "confirmed_execution": {
+      "type": "boolean",
+      "title": "Confirmed Execution",
+      "default": false
+    },
+    "method": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "EFECTIVO",
+            "TRANSFERENCIA",
+            "PAGO_MOVIL"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Method"
+    },
+    "source_key": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Key"
+    },
+    "reference_key": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 120,
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reference Key"
+    },
+    "paid_amount": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Paid Amount"
+    },
+    "paid_currency": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "USD",
+            "VES"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Paid Currency"
+    },
+    "executed_on": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Executed On"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "request_key",
+    "expected_revision",
+    "kind",
+    "note",
+    "verified_evidence"
+  ],
+  "title": "RefundEventInput"
+}
