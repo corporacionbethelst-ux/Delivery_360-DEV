@@ -463,3 +463,54 @@ Mercantil y BOD. La conciliación automática sigue pendiente de canales
 oficiales, credenciales y homologación. Se verificará la entidad operativa
 actual de BOD antes de diseñar un adaptador. Ningún alias histórico se interpreta
 como banco ni una verificación manual se presenta como confirmación externa.
+
+## Reportes gerenciales exactos — entrega 97
+
+Las pantallas **Finanzas → Resumen** y **Finanzas → Reportes** utilizan
+`GET /api/v1/financial/reports/exact`, con acceso de GERENTE y SUPERADMIN.
+La consulta devuelve un único snapshot de tres fuentes separadas:
+
+- **Órdenes:** paquetes de precio versión 1 en USD, con subtotal, envío y total
+  NUMERIC. Las órdenes con precio Float anterior quedan identificadas como
+  excluidas; no se convierten ni copian importes aproximados. Su valor no
+  acredita un cobro. Incluye todos los estados, con desglose explícito.
+- **Movimientos:** `financials` en USD con estado PROCESADO/PAGADO y tipos del
+  libro canónico. Los créditos usan magnitud positiva, los débitos negativa y
+  AJUSTE conserva signo. AJUSTE_MANUAL sigue siendo débito, según el servicio
+  existente. El cambio del período no es un saldo disponible ni un costo global.
+- **Retiros:** solicitudes USD creadas en el rango, agrupadas por su estado al
+  consultar. Pendientes, aprobadas, en proceso, completadas, rechazadas y fallidas
+  se presentan por separado. No se restan otra vez de los movimientos ni se
+  interpretan como transferencias bancarias confirmadas.
+
+El rango usa la fecha de creación de cada fuente; en órdenes, `ordered_at` es
+el respaldo si falta `created_at`. Los precios y estados son los observados al
+consultar. No reconstruye un cierre histórico, una utilidad o un estado bancario.
+Los cobros y devoluciones verificados conservan su libro independiente de la
+entrega 96, enlazado desde ambas pantallas. El libro de wallets en centavos no
+se incorpora al de `financials`.
+
+Los filtros `date_from` y `date_to` admiten fechas YYYY-MM-DD de Caracas, hasta
+hoy y con máximo 31 días. Sin filtros se usan los últimos siete días. Una sola
+sentencia PostgreSQL reúne filas, reloj y visibilidad de las tres fuentes.
+Los importes viajan como cadenas; servidor Decimal y navegador BigInt validan
+centavos, direcciones y totales. Un origen monetario incoherente produce 409.
+
+Los registros sin fecha aparecen como excluidos en cualquier rango, sin
+asignarles un día ficticio. La moneda no verificada, los precios anteriores,
+los movimientos no procesados y los tipos/estados no admitidos también se
+identifican, con conteos y detalle. Cada fila tiene una sola razón principal de
+exclusión; sus importes no se suman ni se muestran como USD.
+
+Hasta 5.000 registros entre las tres fuentes se reciben completos. Superar el
+límite responde 409 y no permite descargar un CSV parcial. La tabla pagina a
+50 filas; elegir una fuente solo cambia la vista. El CSV conserva todas las
+fuentes y exclusiones del snapshot cargado, sin una segunda consulta, junto a
+rango, corte, conteos y huella SHA256. Un rango confirmado vacío puede exportar
+metadatos. Cambiar fechas o sesión invalida lecturas anteriores.
+
+La entrega es de solo lectura y no necesita migración de tablas ni reescribe
+historial. Las rutas numéricas anteriores de resumen/reporte/conciliación se
+conservan para compatibilidad con clientes previos; estas dos pantallas ya no
+las consultan. Su retirada exige migrar a esos consumidores. Tampoco se completa
+la revisión de moneda histórica ni la conciliación bancaria automática.
