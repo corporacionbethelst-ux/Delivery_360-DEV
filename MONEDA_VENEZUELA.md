@@ -202,8 +202,9 @@ la fuente de este nuevo libro de cobros de clientes.
 Una orden cancelada o fallida no admite declaraciones nuevas. Si ya hay un
 importe verificado, se expone como devolución pendiente, sin ejecutar una salida
 de dinero. Verificar un pendiente de esa orden exige reconocer esa obligación.
-La ejecución, aprobación y conciliación de devoluciones queda para el siguiente
-bloque; tampoco se habilita todavía liquidación VES de repartidores.
+La entrega 95 añade autorización, declaración y conciliación manual de
+devoluciones. La conciliación bancaria automática y la liquidación VES de
+repartidores siguen pendientes.
 
 | Ruta | Función | Roles |
 | --- | --- | --- |
@@ -233,6 +234,89 @@ La migración solo se aplica al laboratorio marcado durante esta entrega.
 Las pruebas `test_customer_collections_postgresql.py` y
 `frontend/e2e/local-customer-collections.browser.py` cubren el libro real y la UI
 con dos cuentas independientes. No se envía dinero, mensajes ni datos a bancos.
+
+## Devoluciones y conciliación manual — entrega 95
+
+Regla confirmada por el usuario: **devolver en la misma moneda y con la tasa BCV
+conservada del cobro original**. No se usa la referencia del día de devolución
+ni una corrección posterior para revalorizar lo recibido. Se admiten devoluciones
+parciales o totales de un cobro ya verificado, cuando la orden esté cancelada o
+fallida. Las solicitudes conservan el cobro original, motivo, solicitante,
+importe USD, moneda de salida y prefijo de devoluciones ya verificadas.
+
+El flujo diferencia estados que no deben confundirse:
+
+1. SOLICITADA: reserva el importe; no registra una salida.
+2. APROBADA: otro gerente o superadministrador autoriza; el dinero sigue pendiente.
+3. EJECUCION_DECLARADA: un responsable registra una salida ya realizada fuera
+   del sistema, con importe exacto aprobado, medio, fecha de Caracas, alias de
+   caja/cuenta y referencia única. Requiere confirmación explícita.
+4. DEVUELTA: otro responsable distinto del ejecutor comprueba la evidencia.
+   Solo este evento reduce el saldo pendiente de devolución.
+
+Una OBSERVADA conserva la reserva y bloquea otro intento. Otro responsable puede
+verificar la salida tras aclararla o confirmar con evidencia que no hubo salida;
+esta última decisión retorna a APROBADA y permite declarar otro intento con una
+referencia nueva. Nunca se reutiliza la referencia de un intento anterior. Se
+puede rechazar una solicitud antes de aprobarla, o anular una aprobación con
+comprobación expresa de que no hubo ejecución; ambas decisiones liberan la
+reserva. Solicitar y revisar la propia autorización está prohibido. Un ejecutor
+no puede verificar, observar ni confirmar la no ejecución de su propia salida.
+
+Hay una sola solicitud sin resolver por cobro. Esto evita pagos simultáneos y
+permite conservar un prefijo exacto de importes ya devueltos. Cada parcial en
+VES se calcula como la diferencia entre convertir el acumulado nuevo y los VES
+previamente verificados. Ejemplo sintético: un cobro de 0,50 USD a 1,5 conserva
+0,75 VES. Parciales de 0,01 + 0,01 + 0,48 USD devuelven 0,02 + 0,01 + 0,72 VES.
+Se conservan exactamente los 0,75 VES originales; no se redondea cada parcial de
+forma independiente. Se rechaza un parcial que no alcance un centavo de salida.
+
+El panel de devoluciones aparece en el detalle de órdenes canceladas o fallidas,
+a ancho completo y adaptable a móvil. Muestra saldo pendiente, importe en trámite
+y total devuelto verificado. Cada acción exige revisar el importe y motivo antes
+de guardar. Los reintentos conservan la misma solicitud tras respuestas ambiguas;
+`?refund=UUID` recupera el historial aunque salga de las veinte solicitudes recientes.
+Los eventos anteriores se consultan por páginas de cincuenta, sin perder historia.
+
+El resumen anterior de cobros conserva sus importes **brutos**. Su clave heredada
+`refund_due_usd` se identifica con `refund_due_scope: gross_verified_collections`;
+no representa el saldo neto después de devoluciones. La UI actual lo explica y
+remite a Devoluciones de clientes. El neto procede exclusivamente de
+`GET /api/v1/customer-refunds/orders/{order_id}` y su `summary.remaining_usd`.
+Se deben actualizar API y frontend de forma coordinada; clientes anteriores no
+conocen este nuevo libro. Los bonos, wallets, retiros y payment_status heredado
+conservan sus contratos y registros.
+
+| Ruta | Función | Roles |
+| --- | --- | --- |
+| `GET /api/v1/customer-refunds/orders/{order_id}` | Resumen neto, cobros y últimas 20 solicitudes visibles | SUPERADMIN, GERENTE, OPERADOR, AUDITOR |
+| `POST /api/v1/customer-refunds/orders/{order_id}` | Solicitar devolución con revisión esperada del libro | SUPERADMIN, GERENTE, OPERADOR |
+| `GET /api/v1/customer-refunds/{refund_id}` | Recuperar solicitud e historial reciente | Consulta; OPERADOR solo sus cobros/solicitudes |
+| `GET /api/v1/customer-refunds/{refund_id}/events?before_revision=N` | Recuperar eventos anteriores | Mismos permisos de consulta |
+| `POST /api/v1/customer-refunds/{refund_id}/events` | Autorizar, declarar o conciliar manualmente | SUPERADMIN, GERENTE, con independencia por acción |
+
+Las escrituras tienen claves UUID idempotentes y revisiones esperadas. Una
+solicitud compara la revisión global del libro de la orden; las acciones comparan
+la revisión del historial de esa devolución. El importe real declarado debe
+coincidir con la moneda y los centavos aprobados. Solo se declaran salidas del
+día actual de Caracas; la revisión puede ocurrir después. Los operadores ven
+los cobros que declararon y sus devoluciones; el resumen agrega toda la orden.
+Auditoría es de solo lectura. Las respuestas indican `bank_verified: false` y
+el contexto `bank_integration_available: false`.
+
+La migración `20261114_customer_refunds` crea dos tablas, sin columnas nuevas en
+los libros anteriores ni UPDATE de historia. Los triggers comprueban importe,
+prefijo acumulado, moneda y BCV originales, estado, revisión, roles activos e
+independencia. También impiden reabrir una orden con devoluciones en curso o ya
+verificadas. Las referencias de ejecución son únicas, incluso en intentos luego
+observados. Solicitud/evento y auditoría se confirman en la misma transacción.
+UPDATE, DELETE y TRUNCATE se rechazan; el downgrade poblado se niega.
+
+Las comprobaciones SQL están en `tests/test_customer_refunds_postgresql.py`.
+El runner `frontend/e2e/local-customer-refunds.browser.py` usa dos cuentas reales,
+datos sintéticos y el marcador del laboratorio. Conserva cobros, eventos y datos
+anteriores, sin llamadas a bancos, transferencias reales ni mensajes. Sigue
+pendiente elegir el proveedor/banco y conciliar automáticamente su confirmación.
 
 ## Uso
 
