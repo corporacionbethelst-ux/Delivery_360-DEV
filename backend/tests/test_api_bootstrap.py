@@ -84,6 +84,8 @@ CURRENCY_PATHS = {
 
 def before_currency_schema(application):
     schema = deepcopy(application.openapi())
+    del schema["paths"]["/api/v1/financial/riders/me/report"]
+    del schema["paths"]["/api/v1/payouts/balance/exact"]
     del schema["paths"]["/api/v1/financial/reports/exact"]
     cashbook_paths = {
         key for key in schema["paths"] if key.startswith("/api/v1/customer-cashbook/")
@@ -176,12 +178,17 @@ def surface_before_currency(application):
                 or (
                     row["path"].startswith("/api/v1/customer-refunds/")
                     or row["path"].startswith("/api/v1/customer-cashbook/")
-                    or row["path"] == "/api/v1/financial/reports/exact"
+                    or row["path"]
+                    in (
+                        "/api/v1/financial/reports/exact",
+                        "/api/v1/financial/riders/me/report",
+                        "/api/v1/payouts/balance/exact",
+                    )
                 )
             )
         )
     ]
-    assert len(removed) == 18
+    assert len(removed) == 20
     current["routes"] = [
         row
         for row in current["routes"]
@@ -191,7 +198,12 @@ def surface_before_currency(application):
             or (
                 row["path"].startswith("/api/v1/customer-refunds/")
                 or row["path"].startswith("/api/v1/customer-cashbook/")
-                or row["path"] == "/api/v1/financial/reports/exact"
+                or row["path"]
+                in (
+                    "/api/v1/financial/reports/exact",
+                    "/api/v1/financial/riders/me/report",
+                    "/api/v1/payouts/balance/exact",
+                )
             )
         )
     ]

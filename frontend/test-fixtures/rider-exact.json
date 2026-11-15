@@ -1,0 +1,199 @@
+{
+  "report": {
+    "version": 1,
+    "scope": "own_recorded_usd_earnings",
+    "user_id": "8cb40738-8031-49a8-980d-e5a034052f55",
+    "rider_id": "6f1b149c-89ff-4325-ac2d-77aa364dca1c",
+    "currency": "USD",
+    "timezone": "America/Caracas",
+    "generated_at": "2026-11-15T16:42:40.927497Z",
+    "today": "2026-11-15",
+    "week_from": "2026-11-09",
+    "snapshot_basis": "single_statement_visibility",
+    "earnings_basis": "processed_ledger_credits",
+    "available_balance_included": false,
+    "order_values_included": false,
+    "wallet_cents_included": false,
+    "bank_verified": false,
+    "maximum_rows": 10000,
+    "export_complete": true,
+    "row_count": 3,
+    "excluded_count": 1,
+    "lifetime": {
+      "count": 2,
+      "credit_usd": "25.30",
+      "debit_usd": "0.00",
+      "adjustment_usd": "-0.10",
+      "net_change_usd": "25.20",
+      "completed_delivery_count": 1
+    },
+    "day": {
+      "count": 0,
+      "credit_usd": "0.00",
+      "debit_usd": "0.00",
+      "adjustment_usd": "0.00",
+      "net_change_usd": "0.00",
+      "completed_delivery_count": 0
+    },
+    "week": {
+      "count": 2,
+      "credit_usd": "25.30",
+      "debit_usd": "0.00",
+      "adjustment_usd": "-0.10",
+      "net_change_usd": "25.20",
+      "completed_delivery_count": 1
+    },
+    "daily": [
+      {
+        "date": "2026-11-09",
+        "count": 0,
+        "credit_usd": "0.00",
+        "debit_usd": "0.00",
+        "adjustment_usd": "0.00",
+        "net_change_usd": "0.00",
+        "completed_delivery_count": 0
+      },
+      {
+        "date": "2026-11-10",
+        "count": 0,
+        "credit_usd": "0.00",
+        "debit_usd": "0.00",
+        "adjustment_usd": "0.00",
+        "net_change_usd": "0.00",
+        "completed_delivery_count": 0
+      },
+      {
+        "date": "2026-11-11",
+        "count": 0,
+        "credit_usd": "0.00",
+        "debit_usd": "0.00",
+        "adjustment_usd": "0.00",
+        "net_change_usd": "0.00",
+        "completed_delivery_count": 0
+      },
+      {
+        "date": "2026-11-12",
+        "count": 0,
+        "credit_usd": "0.00",
+        "debit_usd": "0.00",
+        "adjustment_usd": "0.00",
+        "net_change_usd": "0.00",
+        "completed_delivery_count": 0
+      },
+      {
+        "date": "2026-11-13",
+        "count": 0,
+        "credit_usd": "0.00",
+        "debit_usd": "0.00",
+        "adjustment_usd": "0.00",
+        "net_change_usd": "0.00",
+        "completed_delivery_count": 0
+      },
+      {
+        "date": "2026-11-14",
+        "count": 2,
+        "credit_usd": "25.30",
+        "debit_usd": "0.00",
+        "adjustment_usd": "-0.10",
+        "net_change_usd": "25.20",
+        "completed_delivery_count": 1
+      },
+      {
+        "date": "2026-11-15",
+        "count": 0,
+        "credit_usd": "0.00",
+        "debit_usd": "0.00",
+        "adjustment_usd": "0.00",
+        "net_change_usd": "0.00",
+        "completed_delivery_count": 0
+      }
+    ],
+    "exclusions": [
+      {
+        "reason": "MONEDA_NO_VERIFICADA",
+        "count": 1
+      },
+      {
+        "reason": "FECHA_NO_REGISTRADA",
+        "count": 0
+      },
+      {
+        "reason": "ESTADO_NO_PROCESADO",
+        "count": 0
+      },
+      {
+        "reason": "TIPO_NO_ADMITIDO",
+        "count": 0
+      },
+      {
+        "reason": "FECHA_FUTURA",
+        "count": 0
+      }
+    ],
+    "rows": [
+      {
+        "key": "MOVIMIENTO:5b1a4db0-8359-4f7a-9597-bdcc42fd256e",
+        "id": "5b1a4db0-8359-4f7a-9597-bdcc42fd256e",
+        "occurred_at": "2026-11-14T16:00:00.000002Z",
+        "currency": null,
+        "status": "PROCESADO",
+        "transaction_type": "PAGO_ENTREGA",
+        "included": false,
+        "exclusion_reason": "MONEDA_NO_VERIFICADA",
+        "amount_usd": null,
+        "delta_usd": null,
+        "rider_id": "6f1b149c-89ff-4325-ac2d-77aa364dca1c",
+        "description": null
+      },
+      {
+        "key": "MOVIMIENTO:75748cdd-21aa-49ab-9b1e-73597d6a1c5d",
+        "id": "75748cdd-21aa-49ab-9b1e-73597d6a1c5d",
+        "occurred_at": "2026-11-14T16:00:00.000001Z",
+        "currency": "USD",
+        "status": "PROCESADO",
+        "transaction_type": "AJUSTE",
+        "included": true,
+        "exclusion_reason": null,
+        "amount_usd": "-0.10",
+        "delta_usd": "-0.10",
+        "rider_id": "6f1b149c-89ff-4325-ac2d-77aa364dca1c",
+        "description": null
+      },
+      {
+        "key": "MOVIMIENTO:0cc520c9-dcfa-4707-b608-8c6c9a9f29f0",
+        "id": "0cc520c9-dcfa-4707-b608-8c6c9a9f29f0",
+        "occurred_at": "2026-11-14T16:00:00.000000Z",
+        "currency": "USD",
+        "status": "PROCESADO",
+        "transaction_type": "PAGO_ENTREGA",
+        "included": true,
+        "exclusion_reason": null,
+        "amount_usd": "25.30",
+        "delta_usd": "25.30",
+        "rider_id": "6f1b149c-89ff-4325-ac2d-77aa364dca1c",
+        "description": null
+      }
+    ],
+    "content_sha256": "6732712758c75d687b7479879e8e52d96612500af21ff7dc5d664baedc4f4649"
+  },
+  "balance": {
+    "available": "15.20",
+    "pending": "10.00",
+    "processed": "0.00",
+    "total_earned": "25.30",
+    "currency": "USD",
+    "ledger_balance": "25.20",
+    "reserved": "10.00",
+    "version": 1,
+    "scope": "own_canonical_usd_balance",
+    "user_id": "8cb40738-8031-49a8-980d-e5a034052f55",
+    "rider_id": "6f1b149c-89ff-4325-ac2d-77aa364dca1c",
+    "generated_at": "2026-11-15T16:42:41.271418Z",
+    "snapshot_basis": "rider_row_lock",
+    "ledger_integrity": "verified",
+    "bank_verified": false,
+    "unverified_financial_count": 1,
+    "unverified_payout_count": 1,
+    "minimum_withdrawal_usd": "10.00"
+  }
+}

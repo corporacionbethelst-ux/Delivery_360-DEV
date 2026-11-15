@@ -772,3 +772,19 @@ async def exact_financial_report(
             422, "Los filtros del reporte son desconocidos o están repetidos"
         )
     return await financial_reports_exact.report(db, date_from, date_to)
+
+
+@router.get("/riders/me/report")
+async def own_exact_earnings(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_role(UserRole.REPARTIDOR)),
+):
+    if request.query_params:
+        raise HTTPException(
+            422,
+            "El reporte usa exclusivamente la identidad autenticada y no admite filtros de otra cuenta",
+        )
+    from app.services import rider_earnings_exact
+
+    return await rider_earnings_exact.report(db, actor.id)

@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 97. Este registro distingue implementación local,
+Actualizado con la entrega 98. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -68,6 +68,14 @@ completo del mismo snapshot. Se retiran de estas vistas los indicadores que
 mezclaban devengos con retiros para estimar margen. No se deduce utilidad ni
 confirmación bancaria. Las rutas numéricas anteriores permanecen como
 compatibilidad; falta migrar a sus demás consumidores y revisar moneda histórica.
+
+La entrega 98 migra las lecturas de Inicio, Productividad y Mis Ganancias del
+repartidor a importes exactos. Corrige las ganancias inferidas desde el precio
+de órdenes y separa los créditos registrados del saldo disponible. El saldo
+exacto conserva el cálculo canónico de reservas, verifica el libro USD y no
+habilita retiros con cifras por confirmar. El formulario de solicitud conserva
+su contrato e idempotencia anteriores; sigue pendiente migrar sus límites de
+compatibilidad y los demás consumidores numéricos.
 
 Faltan la revisión explícita de moneda histórica, el cierre de los demás reportes
 monetarios sobre decimales, la conciliación bancaria automática de cobros y devoluciones y la
