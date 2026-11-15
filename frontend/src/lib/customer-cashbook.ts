@@ -126,15 +126,16 @@ function time(value: unknown): string {
   day(value.slice(0, 10));
   return value;
 }
+const caracasFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Caracas",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 export function cashDay(value: string): string {
-  const p = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Caracas",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date(value));
+  const parts = caracasFormatter.formatToParts(new Date(value));
   return ["year", "month", "day"]
-    .map((k) => p.find((v) => v.type === k)!.value)
+    .map((key) => parts.find((part) => part.type === key)!.value)
     .join("-");
 }
 const methods: CashMethod[] = ["EFECTIVO", "TRANSFERENCIA", "PAGO_MOVIL"];
@@ -230,7 +231,8 @@ export function validateCashReport(
   for (const key of ["method", "currency", "source_key"] as const)
     if (filters[key] !== (input[key] ?? null)) return fail();
   if (!Array.isArray(v.rows) || v.rows.length > 5000) return fail();
-  const seen = new Set<string>();
+  const seen = new Set<string>(),
+    rowDays = new Map<string, string>();
   const rows = v.rows.map((raw) => {
     const r = obj(raw);
     for (const key of [
@@ -259,6 +261,7 @@ export function validateCashReport(
     )
       return fail();
     seen.add(r.key as string);
+    rowDays.set(r.key as string, cashDay(verified));
     for (const key of ["source_key", "reference_key"] as const)
       if (
         typeof r[key] !== "string" ||
@@ -357,7 +360,7 @@ export function validateCashReport(
     if (daily.date !== expected) return fail();
     checkTotals(
       daily,
-      rows.filter((r) => cashDay(r.verified_at) === expected),
+      rows.filter((r) => rowDays.get(r.key) === expected),
     );
   }
   return { ...v, rows } as unknown as CashReport;
