@@ -379,3 +379,23 @@ export function cashbookCSV(value: CashReport): Record<string, unknown>[] {
     ? value.rows.map((row) => ({ ...metadata, ...row }))
     : [{ ...metadata, nota: "Sin movimientos verificados en el rango" }];
 }
+
+export function cashbookError(error: unknown): string {
+  if (error && typeof error === "object") {
+    const response = (
+      error as { response?: { status?: number; data?: { detail?: unknown } } }
+    ).response;
+    const detail = response?.data?.detail;
+    if (typeof detail === "string" && detail.trim() && detail.length <= 1000)
+      return detail;
+    if (response?.status === 422)
+      return "Revisa los filtros: usa fechas válidas de Caracas, hasta hoy y con un máximo de 31 días.";
+    if (response?.status === 429)
+      return "Se alcanzó el límite de consultas. Espera un minuto y vuelve a aplicar el rango.";
+    if (response?.status && response.status >= 500)
+      return "El reporte no está disponible temporalmente. Vuelve a aplicar la consulta.";
+  }
+  return error instanceof Error
+    ? error.message
+    : "No se pudo cargar el libro. Vuelve a aplicar la consulta.";
+}

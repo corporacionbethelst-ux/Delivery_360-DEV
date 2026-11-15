@@ -18,6 +18,7 @@ import { capturePrivateTask } from "@/lib/private-task";
 import { customerCashbookService } from "@/services/customer-cashbook.service";
 import {
   cashbookCSV,
+  cashbookError,
   cashCents,
   cashText,
   type CashFilters,
@@ -91,9 +92,7 @@ function CashbookView() {
       }
     } catch (e) {
       if (mounted.current && request === sequence.current && task.isCurrent())
-        setError(
-          e instanceof Error ? e.message : "No se pudo cargar el libro.",
-        );
+        setError(cashbookError(e));
     } finally {
       if (mounted.current && request === sequence.current && task.isCurrent())
         setPending(false);
@@ -104,7 +103,6 @@ function CashbookView() {
     void load({});
     return () => {
       mounted.current = false;
-      sequence.current++;
     };
   }, []);
   function edit(key: keyof CashFilters, value: string) {

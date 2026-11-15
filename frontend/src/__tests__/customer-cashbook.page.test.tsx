@@ -122,3 +122,19 @@ it("rejects an operator before requesting private financial data", async () => {
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/login"));
   expect(customerCashbookService.report).not.toHaveBeenCalled();
 });
+
+it("shows the server guidance when a range cannot be exported completely", async () => {
+  (customerCashbookService.report as jest.Mock).mockRejectedValue({
+    response: {
+      status: 409,
+      data: { detail: "El rango supera 5000 movimientos; reduce las fechas" },
+    },
+  });
+  render(<CustomerCashbookPage />);
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "reduce las fechas",
+  );
+  expect(
+    screen.getByRole("button", { name: "Exportar CSV completo" }),
+  ).toBeDisabled();
+});

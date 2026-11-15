@@ -34,7 +34,7 @@ curso antes de integrar las ramas y se reaplicaron sin perderlos.
   preservó los hashes de todas las tablas anteriores, incluidas devoluciones.
 - Chromium real comprobó carga, exportaciones USD/VES, filtros, vacío, errores,
   escritorio y móvil: ocho comprobaciones, cero errores JavaScript y escrituras.
-  Las pruebas de contrato/pantalla frontend del bloque son 38.
+  Las pruebas de contrato/pantalla frontend del bloque son 39.
 
 La validación completa, CI del commit final y recuperación de fuente se registran
 en los artefactos de entrega. Las pruebas nuevas también se ejecutan en CI junto
