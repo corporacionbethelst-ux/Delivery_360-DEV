@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
@@ -164,7 +164,7 @@ def _serialize_status_history(row: PayoutStatusHistory):
     }
 
 
-async def _calculate_available_balance(
+async def _calculate_available_balance_values(
     db: AsyncSession, rider_id, exclude_payout_id=None
 ) -> dict:
     rider_uuid = uuid.UUID(str(rider_id))
@@ -233,13 +233,23 @@ async def _calculate_available_balance(
         if not row.posted:
             reserved += amount
     return {
-        "available": _float_money(max(Decimal("0.00"), ledger_balance - reserved)),
-        "pending": _float_money(pending),
-        "processed": _float_money(processed),
-        "total_earned": _float_money(total_earned),
+        "available": max(Decimal("0.00"), ledger_balance - reserved),
+        "pending": pending,
+        "processed": processed,
+        "total_earned": total_earned,
         "currency": "USD",
-        "ledger_balance": _float_money(ledger_balance),
-        "reserved": _float_money(reserved),
+        "ledger_balance": ledger_balance,
+        "reserved": reserved,
+    }
+
+
+async def _calculate_available_balance(
+    db: AsyncSession, rider_id, exclude_payout_id=None
+) -> dict:
+    values = await _calculate_available_balance_values(db, rider_id, exclude_payout_id)
+    return {
+        key: _float_money(value) if isinstance(value, Decimal) else value
+        for key, value in values.items()
     }
 
 
@@ -914,3 +924,103 @@ async def reject_payout(
             logger.warning(f"Dispatch Fase 9 payout_rechazado omitido: {e}")
 
     return _serialize_payout(payout)
+
+
+@router.get("/balance/exact")
+async def own_exact_balance(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    if actor.role != UserRole.REPARTIDOR:
+        raise HTTPException(403, "Solo repartidores pueden consultar su saldo personal")
+    if request.query_params:
+        raise HTTPException(
+            422,
+            "El saldo usa la identidad autenticada y no admite seleccionar otra cuenta",
+        )
+    rider = await _get_rider_from_user(db, actor)
+    await _lock_payout_rider(db, rider.id)
+    from app.services.legacy_ledger import LedgerEntry, analyze_ledger, MAX_LEDGER_ROWS
+    from app.services.customer_cashbook import utc
+    from datetime import datetime, timezone
+
+    records = (
+        (
+            await db.execute(
+                select(Financial)
+                .where(Financial.rider_id == rider.id, Financial.currency_code == "USD")
+                .order_by(Financial.created_at.asc().nulls_first(), Financial.id)
+                .limit(MAX_LEDGER_ROWS + 1)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    generated = await db.scalar(
+        select(func.timezone("UTC", func.statement_timestamp()))
+    )
+    if not isinstance(generated, datetime):
+        raise HTTPException(503, "No se pudo confirmar el corte del saldo")
+    integrity = analyze_ledger(
+        rider.id,
+        [
+            LedgerEntry(
+                r.id,
+                r.amount,
+                r.balance_before,
+                r.balance_after,
+                _enum_value(r.transaction_type),
+                _enum_value(r.status),
+                r.created_at,
+            )
+            for r in records
+        ],
+        truncated=len(records) > MAX_LEDGER_ROWS,
+        now=generated.replace(tzinfo=timezone.utc),
+    )
+    if integrity.status == "requires_review":
+        raise HTTPException(
+            409,
+            "El libro USD requiere revisión; no se publica un saldo disponible inventado",
+        )
+    values = await _calculate_available_balance_values(db, rider.id)
+    expected = Decimal(integrity.verified_balance or "0.00")
+    if values["ledger_balance"] != expected:
+        raise HTTPException(409, "El saldo no coincide con el historial USD verificado")
+    for key, value in values.items():
+        if isinstance(value, Decimal) and (
+            not value.is_finite() or value != value.quantize(Decimal("0.01"))
+        ):
+            raise HTTPException(409, "Un importe del saldo requiere revisión")
+    unknown = (
+        await db.execute(
+            select(
+                select(func.count(Financial.id))
+                .where(
+                    Financial.rider_id == rider.id, Financial.currency_code.is_(None)
+                )
+                .scalar_subquery(),
+                select(func.count(Payout.id))
+                .where(Payout.rider_id == rider.id, Payout.currency_code.is_(None))
+                .scalar_subquery(),
+            )
+        )
+    ).one()
+    return {
+        **{
+            key: format(value, ".2f") if isinstance(value, Decimal) else value
+            for key, value in values.items()
+        },
+        "version": 1,
+        "scope": "own_canonical_usd_balance",
+        "user_id": str(actor.id),
+        "rider_id": str(rider.id),
+        "generated_at": utc(generated),
+        "snapshot_basis": "rider_row_lock",
+        "ledger_integrity": integrity.status,
+        "bank_verified": False,
+        "unverified_financial_count": int(unknown[0]),
+        "unverified_payout_count": int(unknown[1]),
+        "minimum_withdrawal_usd": "10.00",
+    }

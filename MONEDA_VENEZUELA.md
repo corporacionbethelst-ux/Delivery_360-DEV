@@ -514,3 +514,47 @@ historial. Las rutas numéricas anteriores de resumen/reporte/conciliación se
 conservan para compatibilidad con clientes previos; estas dos pantallas ya no
 las consultan. Su retirada exige migrar a esos consumidores. Tampoco se completa
 la revisión de moneda histórica ni la conciliación bancaria automática.
+
+## Ganancias exactas del repartidor — entrega 98
+
+Inicio, Productividad y Mis Ganancias del repartidor consultan ahora
+`GET /api/v1/financial/riders/me/report`. El servidor toma la identidad de la
+sesión; no acepta seleccionar `rider_id` o `user_id`. Devuelve un snapshot
+completo de sus movimientos, totales históricos, créditos de hoy y de los últimos
+siete días en Caracas, más exclusiones y detalle exportable. Una sola sentencia
+PostgreSQL proporciona filas, propietario y corte. Hasta 10.000 movimientos;
+superar el límite produce 409, sin cifras ni CSV parciales.
+
+Solo Financial en USD y PROCESADO/PAGADO aporta cifras, con las direcciones
+canónicas de créditos, débitos y ajuste con signo. Una orden ENTREGADA sin asiento
+no acredita ganancias; tampoco se usa su precio o valor a cobrar como bono. Se
+retira ese cálculo del inicio, incluyendo el fallback que mostraba el total
+histórico cuando una semana valía cero. Las fechas inválidas, futuras, monedas
+sin verificar y tipos no admitidos quedan identificados sin aportar importes.
+Los registros del libro de wallets en centavos permanecen separados.
+
+`GET /api/v1/payouts/balance/exact` publica el saldo disponible como cadenas
+decimales. Comparte el cálculo canónico de reservas con los endpoints anteriores:
+los retiros ya asentados no se descuentan otra vez y los completados históricos
+sin débito conciliado mantienen su reserva. La extracción de valores Decimal
+conserva la conversión numérica en el adaptador de compatibilidad. No modifica
+las solicitudes ni efectúa transferencias.
+
+La lectura exacta del saldo bloquea brevemente la fila del rider, igual que los
+escritores canónicos, y revisa la continuidad del libro USD. Un historial
+incoherente o que exceda el límite devuelve 409; no publica un cero ficticio. Un
+libro vacío puede demostrar cero con `ledger_integrity: no_evidence`. Los
+registros sin moneda no se reetiquetan ni financian USD.
+
+Historial y saldo son lecturas con sus propios cortes, indicados en la pantalla.
+No se combinan para inventar otra disponibilidad. El formulario de retiro sigue
+revalidando el saldo al guardar y conserva su protocolo de idempotencia; su
+contrato numérico de compatibilidad y otros clientes aún quedan por migrar.
+Las decisiones de moneda USD/VES y devolución a tasa original no se alteran.
+
+Las pantallas conservan el diseño colorido y adaptable. Las consultas privadas
+se invalidan por cambio de cuenta/rol y las cargas se vinculan al ID de sesión,
+sin reconsultar por cada objeto de usuario recreado. Un fallo financiero deja
+las cifras por confirmar; no rellena ingresos con órdenes ni monedas de prueba.
+La exportación incluye todas las filas y exclusiones del historial cargado,
+propietario, corte y huella SHA256, sin una segunda consulta.

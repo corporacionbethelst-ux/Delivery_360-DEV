@@ -1,554 +1,501 @@
 "use client";
-
-import React, { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuthStore } from "@/stores/authStore";
 import {
-  DollarSign,
+  Download,
+  RefreshCw,
+  ShieldCheck,
+  Wallet,
   TrendingUp,
   Clock,
-  CheckCircle,
-  ShieldCheck,
-  AlertCircle,
-  ArrowRight,
-  Download,
-  Loader2,
-  Wallet,
-  BarChart3,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { payoutAmountLabel } from "@/lib/payout-contract";
+import { useAuthStore } from "@/stores/authStore";
 import { PayoutSessionBoundary } from "@/components/financial/PayoutSessionBoundary";
-const formatCurrency = (value: number) => payoutAmountLabel(value, "USD");
+import { capturePrivateTask } from "@/lib/private-task";
+import { riderExactService } from "@/services/rider-earnings-exact.service";
 import {
-  financialService,
-  RiderEarnings,
-  FinancialTransaction,
-} from "@/services/financial.service";
-import { payoutService, PayoutBalance } from "@/services/payout.service";
-
-// Importaciones directas de Recharts para asegurar el renderizado
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  Cell,
-} from "recharts";
-
-const MIN_WITHDRAWAL_AMOUNT = 10;
-
-const getErrorMessage = (error: unknown, fallback: string): string => {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "object" && error !== null && "detail" in error) {
-    const detail = (error as { detail?: unknown }).detail;
-    if (typeof detail === "string") return detail;
-  }
-  return fallback;
-};
-
+  riderMoney,
+  riderEarningsCSV,
+  riderExclusions,
+  type RiderExactReport,
+  type RiderExactBalance,
+} from "@/lib/rider-earnings-exact";
+import { cashCents, cashbookError } from "@/lib/customer-cashbook";
+import { downloadCSV } from "@/lib/csv-export";
+import { Button } from "@/components/ui/button";
+const stamp = (value: string) =>
+  new Intl.DateTimeFormat("es-VE", {
+    timeZone: "America/Caracas",
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
 export default function RiderEarningsPage() {
   return (
     <PayoutSessionBoundary>
-      <RiderUsdEarnings />
+      <ExactRiderEarnings />
     </PayoutSessionBoundary>
   );
 }
-function RiderUsdEarnings() {
-  const router = useRouter();
-  const { user, isAuthenticated } = useAuthStore();
-
-  const [earnings, setEarnings] = useState<RiderEarnings | null>(null);
-  const [balance, setBalance] = useState<PayoutBalance | null>(null);
-  const [recentMovements, setRecentMovements] = useState<
-    FinancialTransaction[]
-  >([]);
-  const [loadingData, setLoadingData] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [historyError, setHistoryError] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isMounted || !isAuthenticated || !user) return;
-
-    if (user.role !== "REPARTIDOR") {
-      router.push("/login");
-      return;
-    }
-
-    let active = true;
-    const loadEarnings = async () => {
-      setLoadingData(true);
-      setError(null);
-      try {
-        const [earningsResult, balanceResult, breakdownResult] =
-          await Promise.allSettled([
-            financialService.getMyEarnings(),
-            payoutService.getAvailableBalance(),
-            financialService.getMyEarningsBreakdown({ limit: 5 }),
-          ]);
-
-        if (earningsResult.status === "rejected") {
-          throw earningsResult.reason;
-        }
-
-        if (!active) return;
-        const earningsData = earningsResult.value;
-        if (earningsData.currency !== "USD")
-          throw new Error("La moneda de tus ganancias requiere revisión.");
-        setEarnings(earningsData);
-
-        if (balanceResult.status === "rejected") throw balanceResult.reason;
-        if (balanceResult.value.currency !== "USD")
-          throw new Error("El saldo disponible no está confirmado en USD.");
-        if (
-          balanceResult.value.processed === undefined ||
-          balanceResult.value.total_earned === undefined
-        )
-          throw new Error(
-            "El servidor no confirmó todos los totales del libro USD.",
-          );
-        setBalance(balanceResult.value);
-        setHistoryError(breakdownResult.status === "rejected");
-
-        setRecentMovements(
-          breakdownResult.status === "fulfilled"
-            ? breakdownResult.value.items
-            : [],
+function ExactRiderEarnings() {
+  const router = useRouter(),
+    { user, isAuthenticated } = useAuthStore(),
+    allowed = isAuthenticated && user?.role === "REPARTIDOR";
+  const [report, setReport] = useState<RiderExactReport | null>(null),
+    [balance, setBalance] = useState<RiderExactBalance | null>(null),
+    [reportError, setReportError] = useState(""),
+    [balanceError, setBalanceError] = useState(""),
+    [busy, setBusy] = useState(true),
+    [page, setPage] = useState(0),
+    [notice, setNotice] = useState("");
+  const alive = useRef(false),
+    sequence = useRef(0);
+  async function load() {
+    if (!allowed || !user) return;
+    const ticket = ++sequence.current;
+    let task: ReturnType<typeof capturePrivateTask> | undefined;
+    const current = () =>
+      alive.current &&
+      ticket === sequence.current &&
+      (!task || task.isCurrent());
+    setBusy(true);
+    setReport(null);
+    setBalance(null);
+    setReportError("");
+    setBalanceError("");
+    setNotice("");
+    setPage(0);
+    try {
+      task = capturePrivateTask();
+      const [income, funds] = await Promise.allSettled([
+        riderExactService.report(user.id),
+        riderExactService.balance(user.id),
+      ]);
+      task.assertCurrent();
+      if (!current()) return;
+      if (
+        income.status === "fulfilled" &&
+        funds.status === "fulfilled" &&
+        income.value.rider_id !== funds.value.rider_id
+      )
+        throw new Error(
+          "Las respuestas no corresponden al mismo perfil de repartidor.",
         );
-      } catch (err) {
-        if (!active) return;
-        console.error("Error loading rider earnings:", err);
-        setError(
-          getErrorMessage(err, "No se pudieron cargar tus ganancias reales."),
-        );
-        setEarnings(null);
-        setBalance(null);
-        setRecentMovements([]);
-      } finally {
-        if (active) setLoadingData(false);
+      if (income.status === "fulfilled") setReport(income.value);
+      else setReportError(cashbookError(income.reason));
+      if (funds.status === "fulfilled") setBalance(funds.value);
+      else setBalanceError(cashbookError(funds.reason));
+    } catch (e) {
+      if (current()) {
+        setReportError(cashbookError(e));
+        setBalanceError(cashbookError(e));
       }
-    };
-
-    void loadEarnings();
-    return () => {
-      active = false;
-    };
-  }, [user, isAuthenticated, router, isMounted]);
-
-  if (!isMounted || !isAuthenticated || !user || loadingData) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-center">
-          <Loader2 className="animate-spin h-12 w-12 text-green-600 mx-auto mb-4" />
-          <p className="text-gray-600">Cargando tus ganancias...</p>
-        </div>
-      </div>
-    );
+    } finally {
+      if (current()) setBusy(false);
+    }
   }
-
-  if (!balance || !earnings)
+  useEffect(() => {
+    alive.current = true;
+    if (allowed) void load();
+    else if (isAuthenticated) router.push("/login");
+    return () => {
+      alive.current = false;
+    };
+  }, [allowed, user?.id]);
+  const canWithdraw =
+    !!report &&
+    !!balance &&
+    !busy &&
+    cashCents(balance.available) >= cashCents(balance.minimum_withdrawal_usd);
+  const rows = report?.rows.slice(page * 50, (page + 1) * 50) ?? [],
+    pages = Math.max(1, Math.ceil((report?.row_count ?? 0) / 50));
+  const max =
+    report?.daily.reduce((n, d) => {
+      const value = cashCents(d.credit_usd);
+      return value > n ? value : n;
+    }, BigInt(1)) ?? BigInt(1);
+  function exportCSV() {
+    try {
+      capturePrivateTask().assertCurrent();
+      if (
+        report &&
+        !busy &&
+        downloadCSV(riderEarningsCSV(report), "mis_movimientos_usd")
+      )
+        setNotice(
+          `CSV generado con ${report.row_count} movimientos completos.`,
+        );
+    } catch (e) {
+      setReportError(cashbookError(e));
+    }
+  }
+  if (!allowed)
     return (
-      <div
-        className="m-6 rounded-2xl border border-amber-200 bg-amber-50 p-6"
-        role="alert"
-      >
-        <h1 className="text-xl font-bold text-amber-950">
-          Saldo USD por confirmar
-        </h1>
-        <p className="mt-2 text-amber-900">
-          {error ??
-            "No se pudo consultar tu saldo. No se habilitan retiros sin confirmación del servidor."}
-        </p>
-        <Button className="mt-4" onClick={() => window.location.reload()}>
-          Volver a consultar
-        </Button>
-      </div>
+      <p role="status" className="p-6">
+        Verificando acceso a tus ganancias…
+      </p>
     );
-
-  const totalEarned = Number(balance.total_earned);
-  const availableBalance = balance.available;
-  const pendingWithdrawals = balance.pending;
-  const processedWithdrawals = Number(balance.processed);
-  const completedDeliveries = Number(earnings?.completed_deliveries ?? 0);
-  const canRequestWithdrawal =
-    balance.currency === "USD" && availableBalance >= MIN_WITHDRAWAL_AMOUNT;
-
-  // Datos formateados para el gráfico
-  const chartData = [
-    { name: "Total Ganado", value: totalEarned, color: "#16a34a" }, // green-600
-    { name: "Disponible", value: availableBalance, color: "#2563eb" }, // blue-600
-    { name: "En Proceso", value: pendingWithdrawals, color: "#9333ea" }, // purple-600
-    {
-      name: "Retiro registrado",
-      value: processedWithdrawals,
-      color: "#f97316",
-    }, // orange-500
-  ];
-
   return (
-    <div className="p-6 bg-gray-50 min-h-screen pb-20">
-      <div className="max-w-5xl mx-auto space-y-6">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-white to-blue-50 p-6 shadow-sm">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Mis Ganancias</h1>
-            <p className="text-gray-500">
-              Libro USD · Ganancias registradas, reservas y saldo disponible.
+    <div className="min-h-screen bg-slate-50 p-4 pb-20 md:p-6">
+      <div className="mx-auto max-w-6xl space-y-6">
+        <header className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-emerald-950 to-cyan-900 p-6 text-white shadow-lg md:p-8">
+          <div
+            aria-hidden="true"
+            className="absolute -right-16 -top-20 h-64 w-64 rounded-full bg-emerald-300/10"
+          />
+          <div className="relative space-y-3">
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs">
+              <ShieldCheck size={15} /> Tu libro USD · cifras exactas
+            </span>
+            <h1 className="text-2xl font-bold md:text-3xl">Mis Ganancias</h1>
+            <p className="max-w-2xl text-sm leading-relaxed text-emerald-100">
+              Créditos registrados, movimientos y saldo disponible. El valor de
+              una orden entregada no se convierte en ganancia si no existe su
+              asiento contable.
+            </p>
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button
+                variant="outline"
+                className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                disabled={busy}
+                onClick={() => {
+                  void load();
+                }}
+              >
+                <RefreshCw
+                  size={15}
+                  className={`mr-2 ${busy ? "animate-spin" : ""}`}
+                />
+                Actualizar
+              </Button>
+              <Button
+                variant="outline"
+                className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                disabled={!report || busy}
+                onClick={exportCSV}
+              >
+                <Download size={15} className="mr-2" />
+                Exportar movimientos
+              </Button>
+              <Button
+                variant="outline"
+                className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                onClick={() => router.push("/rider/earnings/payouts")}
+              >
+                Historial de retiros
+              </Button>
+            </div>
+          </div>
+        </header>
+        {busy && (
+          <p
+            role="status"
+            className="rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-cyan-950"
+          >
+            Consultando tus movimientos y el saldo USD…
+          </p>
+        )}
+        {reportError && (
+          <div
+            role="alert"
+            className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950"
+          >
+            <h2 className="font-semibold">Ganancias por confirmar</h2>
+            <p className="mt-1">{reportError}</p>
+          </div>
+        )}
+        {balanceError && (
+          <div
+            role="alert"
+            className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-950"
+          >
+            <h2 className="font-semibold">Saldo USD por confirmar</h2>
+            <p className="mt-1">{balanceError}</p>
+            <p className="mt-2 text-sm">
+              No se habilitan retiros hasta confirmar tu saldo con el servidor.
             </p>
           </div>
-          <div className="flex gap-2">
+        )}
+        {notice && (
+          <p
+            role="status"
+            className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950"
+          >
+            {notice}
+          </p>
+        )}
+        {report && (
+          <section
+            aria-label="Ganancias exactas confirmadas"
+            className="space-y-5"
+          >
+            <p className="text-xs text-slate-500">
+              Corte del historial: {stamp(report.generated_at)} · Caracas ·{" "}
+              {report.row_count} movimientos completos
+            </p>
+            <div className="grid gap-4 md:grid-cols-3">
+              {[
+                {
+                  label: "Total Ganado",
+                  value: report.lifetime.credit_usd,
+                  note: "Créditos procesados registrados en tu historial USD",
+                  tone: "border-emerald-200 bg-emerald-50 text-emerald-950",
+                  Icon: TrendingUp,
+                },
+                {
+                  label: "Ganancias de hoy",
+                  value: report.day.credit_usd,
+                  note: `${report.today} · ${report.day.completed_delivery_count} abonos de entrega`,
+                  tone: "border-cyan-200 bg-cyan-50 text-cyan-950",
+                  Icon: Clock,
+                },
+                {
+                  label: "Últimos 7 días",
+                  value: report.week.credit_usd,
+                  note: `${report.week_from} → ${report.today} · calendario Caracas`,
+                  tone: "border-violet-200 bg-violet-50 text-violet-950",
+                  Icon: Wallet,
+                },
+              ].map(({ label, value, note, tone, Icon }) => (
+                <article
+                  key={label}
+                  className={`rounded-2xl border p-5 ${tone}`}
+                >
+                  <div className="flex justify-between gap-2">
+                    <h2 className="text-sm font-semibold">{label}</h2>
+                    <Icon size={21} />
+                  </div>
+                  <p className="mt-3 break-words text-2xl font-bold">
+                    {riderMoney(value)}
+                  </p>
+                  <p className="mt-3 text-xs">{note}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+        <section
+          aria-label="Saldo para retiro"
+          className="rounded-2xl border border-blue-200 bg-gradient-to-br from-white to-blue-50 p-5 shadow-sm"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="font-semibold text-blue-950">
+                Disponible para Retiro
+              </h2>
+              <p className="mt-2 break-words text-3xl font-bold text-blue-950">
+                {balance ? riderMoney(balance.available) : "Por confirmar"}
+              </p>
+              {balance && (
+                <p className="mt-2 text-xs text-slate-500">
+                  Corte del saldo: {stamp(balance.generated_at)} · mínimo{" "}
+                  {riderMoney(balance.minimum_withdrawal_usd)}
+                </p>
+              )}
+            </div>
             <Button
-              variant="outline"
-              size="sm"
-              onClick={() => router.push("/rider/earnings/payouts")}
-            >
-              <Download className="w-4 h-4 mr-2" /> Historial
-            </Button>
-            <Button
-              className="bg-green-600 hover:bg-green-700 text-white shadow-md shadow-green-200"
+              disabled={!canWithdraw}
+              className="bg-emerald-700 hover:bg-emerald-800"
               onClick={() => router.push("/rider/earnings/withdraw")}
-              disabled={!canRequestWithdrawal}
             >
               Solicitar Retiro
             </Button>
           </div>
-        </div>
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg flex items-center gap-2">
-            <AlertCircle className="w-5 h-5" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        <div
-          role="note"
-          className="rounded-xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-950"
-        >
-          <strong>Tu saldo está denominado en USD.</strong> Los movimientos
-          históricos sin moneda confirmada no se suman a este libro.
-          {(balance.unverified_financial_count ?? 0) > 0 && (
-            <p className="mt-1">
-              {balance.unverified_financial_count} movimientos anteriores
-              requieren revisión de moneda.
-            </p>
-          )}
-          {(balance.unverified_payout_count ?? 0) > 0 && (
-            <p className="mt-1">
-              {balance.unverified_payout_count} retiros anteriores conservan su
-              moneda sin verificar.
-            </p>
-          )}
-          <p className="mt-1">
-            Un retiro aprobado contablemente no confirma una transferencia
-            bancaria.
-          </p>
-        </div>
-        {/* Tarjetas de Métricas Superiores */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="border-t-4 border-t-green-500 shadow-sm">
-            <CardHeader className="pb-2">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-sm font-medium text-gray-500">
-                    Total Ganado
-                  </p>
-                  <h3 className="text-3xl font-bold text-gray-900 mt-1">
-                    {formatCurrency(totalEarned)}
-                  </h3>
-                </div>
-                <div className="p-2 bg-green-100 rounded-full">
-                  <DollarSign className="w-6 h-6 text-green-600" />
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center text-xs text-green-600 font-medium">
-                <TrendingUp className="w-3 h-3 mr-1" />
-                <span>Calculado desde entregas reales</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-t-4 border-t-blue-500 shadow-sm">
-            <CardHeader className="pb-2">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-sm font-medium text-gray-500">
-                    Disponible para Retiro
-                  </p>
-                  <h3 className="text-3xl font-bold text-gray-900 mt-1">
-                    {formatCurrency(availableBalance)}
-                  </h3>
-                </div>
-                <div className="p-2 bg-blue-100 rounded-full">
-                  <Wallet className="w-6 h-6 text-blue-600" />
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-gray-500">
-                Mínimo para retiro: {formatCurrency(MIN_WITHDRAWAL_AMOUNT)}
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-t-4 border-t-purple-500 shadow-sm">
-            <CardHeader className="pb-2">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-sm font-medium text-gray-500">
-                    Entregas Completadas
-                  </p>
-                  <h3 className="text-3xl font-bold text-gray-900 mt-1">
-                    {completedDeliveries}
-                  </h3>
-                </div>
-                <div className="p-2 bg-purple-100 rounded-full">
-                  <TrendingUp className="w-6 h-6 text-purple-600" />
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center text-xs text-gray-500">
-                <span>Histórico real del backend</span>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Gráfico de Barras Implementado Directamente con Recharts */}
-        <Card className="shadow-sm overflow-hidden">
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-blue-600" />
-              Estado de tus ganancias
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-4">
-            <div className="h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={chartData}
-                  margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    vertical={false}
-                    stroke="#e5e7eb"
-                  />
-                  <XAxis
-                    dataKey="name"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: "#6b7280", fontSize: 12 }}
-                    dy={10}
-                  />
-                  <YAxis
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: "#6b7280", fontSize: 12 }}
-                    tickFormatter={(value) => `$${value.toLocaleString()}`}
-                  />
-                  <Tooltip
-                    cursor={{ fill: "#f3f4f6" }}
-                    contentStyle={{
-                      backgroundColor: "#fff",
-                      borderRadius: "8px",
-                      border: "1px solid #e5e7eb",
-                      boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                    }}
-                    formatter={(value: number) => formatCurrency(value)}
-                  />
-                  <Legend wrapperStyle={{ paddingTop: "20px" }} />
-                  <Bar dataKey="value" radius={[4, 4, 0, 0]} barSize={60}>
-                    {chartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Últimos Movimientos */}
-        <Card className="shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-lg">
-              Últimos movimientos financieros
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {historyError ? (
-              <p role="alert" className="p-4 text-amber-900">
-                El historial no está disponible. Vuelve a consultar para revisar
-                los movimientos.
-              </p>
-            ) : recentMovements.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-4">
-                Aún no hay movimientos financieros para mostrar.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {recentMovements.map((movement) => (
+          {balance && (
+            <>
+              <dl className="mt-5 grid gap-3 sm:grid-cols-3">
+                {[
+                  ["Saldo del libro", balance.ledger_balance],
+                  ["Reservado sin débito", balance.reserved],
+                  ["Solicitudes pendientes", balance.pending],
+                ].map(([label, value]) => (
                   <div
-                    key={movement.id}
-                    className="flex items-center justify-between border rounded-lg p-3 bg-white hover:shadow-sm transition-shadow"
+                    key={label}
+                    className="rounded-xl border bg-white p-3 text-sm"
                   >
-                    <div>
-                      <p className="font-semibold text-gray-900">
-                        {movement.description}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {movement.transaction_type} ·{" "}
-                        {movement.created_at
-                          ? new Date(movement.created_at).toLocaleString()
-                          : "Sin fecha"}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p
-                        className={`font-bold ${movement.amount >= 0 ? "text-green-600" : "text-red-600"}`}
-                      >
-                        {movement.amount >= 0 ? "+" : ""}
-                        {payoutAmountLabel(
-                          movement.amount,
-                          movement.currency ?? undefined,
-                        )}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        Saldo:{" "}
-                        {payoutAmountLabel(
-                          movement.balance_after,
-                          movement.currency ?? undefined,
-                        )}
-                      </p>
-                    </div>
+                    <dt className="text-xs text-slate-500">{label}</dt>
+                    <dd className="mt-1 break-words font-semibold">
+                      {riderMoney(value)}
+                    </dd>
                   </div>
                 ))}
-              </div>
+              </dl>
+              <p className="mt-3 text-xs text-slate-600">
+                Un retiro ya descontado del libro no vuelve a reservarse. Las
+                solicitudes históricas completadas sin débito conciliado
+                conservan su reserva.
+              </p>
+            </>
+          )}
+          <p className="mt-4 text-sm text-blue-950">
+            El saldo y el historial tienen sus propios cortes de consulta. El
+            formulario de retiro vuelve a verificar disponibilidad antes de
+            guardar. Un retiro aprobado contablemente no confirma una
+            transferencia bancaria.
+          </p>
+        </section>
+        {(balance || report) && (
+          <aside
+            role="note"
+            className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"
+          >
+            <strong>Tu saldo está denominado en USD.</strong> Los registros sin
+            moneda confirmada permanecen separados.
+            {!!balance?.unverified_financial_count && (
+              <p className="mt-2">
+                {balance.unverified_financial_count} movimientos anteriores
+                requieren revisión de moneda.
+              </p>
             )}
-          </CardContent>
-        </Card>
-
-        {/* Tarjetas de Retiros en Proceso y Completados */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Tarjeta: Retiros en Proceso */}
-          <Card className="relative overflow-hidden border-l-4 border-l-indigo-500 shadow-sm hover:shadow-md transition-shadow duration-200">
-            <div className="absolute top-0 right-0 p-4 opacity-10">
-              <Clock className="w-24 h-24 text-indigo-600" />
+            {!!balance?.unverified_payout_count && (
+              <p className="mt-1">
+                {balance.unverified_payout_count} retiros anteriores conservan
+                su moneda sin verificar.
+              </p>
+            )}
+            {report && (
+              <p className="mt-2">
+                {report.excluded_count} movimientos excluidos de los importes.
+                El libro de wallets en centavos y las cotizaciones VES
+                permanecen separados.
+              </p>
+            )}
+          </aside>
+        )}
+        {report && (
+          <>
+            <div className="grid gap-5 lg:grid-cols-2">
+              <article className="rounded-2xl border bg-white p-5">
+                <h2 className="mb-4 font-semibold">
+                  Créditos registrados por día
+                </h2>
+                <ul className="space-y-3">
+                  {report.daily.map((d) => (
+                    <li key={d.date} className="text-xs">
+                      <div className="mb-1 flex justify-between gap-2">
+                        <span>{d.date}</span>
+                        <span>{riderMoney(d.credit_usd)}</span>
+                      </div>
+                      <div
+                        className="h-2 rounded-full bg-slate-100"
+                        aria-hidden="true"
+                      >
+                        <div
+                          className="h-2 rounded-full bg-emerald-500"
+                          style={{
+                            width: `${Number((cashCents(d.credit_usd) * BigInt(10000)) / max) / 100}%`,
+                          }}
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </article>
+              <article className="rounded-2xl border bg-white p-5">
+                <h2 className="font-semibold">
+                  Movimientos históricos incluidos
+                </h2>
+                <dl className="mt-4 space-y-3 text-sm">
+                  {[
+                    ["Créditos", report.lifetime.credit_usd],
+                    ["Débitos, incluidos retiros", report.lifetime.debit_usd],
+                    ["Ajustes con signo", report.lifetime.adjustment_usd],
+                    ["Cambio neto del libro", report.lifetime.net_change_usd],
+                  ].map(([label, value]) => (
+                    <div
+                      key={label}
+                      className="flex flex-wrap justify-between gap-2 rounded-xl bg-slate-50 p-3"
+                    >
+                      <dt>{label}</dt>
+                      <dd className="font-semibold">{riderMoney(value)}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <p className="mt-4 text-xs text-slate-500">
+                  {report.lifetime.completed_delivery_count} entregas con abono
+                  registrado. El cambio neto no equivale al saldo disponible
+                  después de reservas.
+                </p>
+              </article>
             </div>
-
-            <CardContent className="p-6 relative z-10">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-indigo-100 rounded-lg">
-                    <Clock className="w-6 h-6 text-indigo-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-gray-900 text-lg leading-tight">
-                      En Proceso
-                    </h3>
-                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">
-                      Solicitudes Pendientes
-                    </p>
-                  </div>
+            <article className="rounded-2xl border bg-white p-5">
+              <div className="mb-4 flex flex-wrap justify-between gap-2">
+                <h2 className="font-semibold">
+                  Últimos movimientos financieros
+                </h2>
+                <p className="text-xs text-slate-500">
+                  {report.row_count} registros completos · CSV del mismo corte
+                </p>
+              </div>
+              {!rows.length ? (
+                <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+                  Aún no hay movimientos financieros para mostrar.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {rows.map((r) => (
+                    <article
+                      key={r.id}
+                      className={`flex flex-wrap justify-between gap-3 rounded-xl border p-4 ${r.included ? "border-slate-200 bg-white" : "border-amber-200 bg-amber-50"}`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <h3 className="break-words text-sm font-semibold">
+                          {r.description ?? "Sin descripción"}
+                        </h3>
+                        <p className="mt-1 break-words text-xs text-slate-500">
+                          {r.transaction_type ?? "Tipo sin identificar"} ·{" "}
+                          {r.status ?? "Sin estado"} ·{" "}
+                          {r.occurred_at ? stamp(r.occurred_at) : "Sin fecha"}
+                        </p>
+                        <p className="mt-1 break-all font-mono text-xs text-slate-500">
+                          {r.id}
+                        </p>
+                      </div>
+                      <div className="text-right text-sm">
+                        <p
+                          className={`font-semibold ${r.included && cashCents(r.delta_usd!, true) < BigInt(0) ? "text-rose-700" : "text-emerald-800"}`}
+                        >
+                          {r.included ? riderMoney(r.delta_usd!) : "Excluido"}
+                        </p>
+                        <p className="mt-1 text-xs text-amber-900">
+                          {r.exclusion_reason
+                            ? riderExclusions[
+                                r.exclusion_reason as keyof typeof riderExclusions
+                              ]
+                            : "Movimiento USD registrado"}
+                        </p>
+                      </div>
+                    </article>
+                  ))}
                 </div>
-                <Badge
-                  variant="outline"
-                  className="bg-indigo-50 text-indigo-700 border-indigo-200"
-                >
-                  Activo
-                </Badge>
-              </div>
-
-              <div className="mb-4">
-                <p className="text-3xl font-extrabold text-indigo-900 tracking-tight">
-                  {formatCurrency(pendingWithdrawals)}
-                </p>
-                <p className="text-sm text-gray-600 mt-2 leading-relaxed">
-                  Tienes este monto en solicitudes que están siendo revisadas o
-                  procesadas.
-                </p>
-              </div>
-
-              <Button
-                variant="outline"
-                className="w-full justify-between group border-indigo-200 text-indigo-700 hover:bg-indigo-50 hover:text-indigo-900"
-                onClick={() => router.push("/rider/earnings/payouts")}
+              )}
+              <nav
+                aria-label="Páginas de movimientos"
+                className="mt-4 flex items-center justify-between gap-2"
               >
-                <span className="font-semibold">Ver historial detallado</span>
-                <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-1" />
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Tarjeta: Pagos Procesados */}
-          <Card className="relative overflow-hidden border-l-4 border-l-orange-500 shadow-sm hover:shadow-md transition-shadow duration-200">
-            <div className="absolute top-0 right-0 p-4 opacity-10">
-              <CheckCircle className="w-24 h-24 text-orange-600" />
-            </div>
-
-            <CardContent className="p-6 relative z-10">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-orange-100 rounded-lg">
-                    <CheckCircle className="w-6 h-6 text-orange-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-gray-900 text-lg leading-tight">
-                      Retiros registrados
-                    </h3>
-                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">
-                      Historial contable
-                    </p>
-                  </div>
-                </div>
-                <Badge
+                <Button
                   variant="outline"
-                  className="bg-orange-50 text-orange-700 border-orange-200"
+                  disabled={!page}
+                  onClick={() => setPage((n) => n - 1)}
                 >
-                  Registrado
-                </Badge>
-              </div>
-
-              <div className="mb-4">
-                <p className="text-3xl font-extrabold text-orange-900 tracking-tight">
-                  {formatCurrency(processedWithdrawals)}
-                </p>
-                <p className="text-sm text-gray-600 mt-2 leading-relaxed">
-                  Total de retiros registrados contablemente; no confirma abonos
-                  bancarios.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 p-3 bg-orange-50/50 rounded-lg border border-orange-100">
-                <div className="p-1.5 bg-white rounded-md shadow-sm">
-                  <ShieldCheck className="w-4 h-4 text-orange-600" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs font-semibold text-orange-800">
-                    Datos Verificados
-                  </p>
-                  <p className="text-[10px] text-orange-600/80 font-mono truncate">
-                    Fuente: /payouts/balance + /financial/riders/me
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+                  Anterior
+                </Button>
+                <span className="text-xs">
+                  Página {page + 1} de {pages}
+                </span>
+                <Button
+                  variant="outline"
+                  disabled={page + 1 >= pages}
+                  onClick={() => setPage((n) => n + 1)}
+                >
+                  Siguiente
+                </Button>
+              </nav>
+              <p className="mt-4 break-all text-xs text-slate-500">
+                Huella del historial: {report.content_sha256}
+              </p>
+            </article>
+          </>
+        )}
       </div>
     </div>
   );

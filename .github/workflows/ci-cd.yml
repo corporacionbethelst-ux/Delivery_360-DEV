@@ -337,6 +337,7 @@ jobs:
           python frontend/e2e/local-customer-refunds.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/customer-refunds
           python frontend/e2e/local-customer-cashbook.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/customer-cashbook
           python frontend/e2e/local-financial-exact.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/financial-exact
+          python frontend/e2e/local-rider-exact.browser.py --chromium "$chromium" --wait-request-window --lifecycle-results browser-real/lifecycle/results.json --artifacts-dir browser-real/rider-exact
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && hashFiles('browser-real/**') != '' }}
         with:

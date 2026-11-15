@@ -600,12 +600,26 @@ def main():
             )
             == "1000.00:0.00:1000.00"
         )
+        call(rider_page, own, "PATCH", "/riders/" + rider_id + "/online?online=false")
         for context in contexts:
             context.close()
         browser.close()
     assert not errors, errors
     passed(
         "zero JavaScript exceptions; user actions use real authenticated endpoints and unknown-unit fixtures are explicitly synthetic"
+    )
+    # Keep the test-only continuation outside uploaded browser artifacts.
+    # Unique names and O_EXCL preserve earlier runs; permissions are 0600.
+    local_test.write_private(
+        local_test.STATE / ("lifecycle-rider-" + run + ".json"),
+        json.dumps(
+            {
+                "instance": state["instance"],
+                "run": run,
+                "rider_id": rider_id,
+                "account": account,
+            }
+        ),
     )
     (out / "results.json").write_text(
         json.dumps(
