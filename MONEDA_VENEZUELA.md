@@ -610,3 +610,20 @@ de transferencia. Los contratos numéricos anteriores y sus consumidores no
 migrados permanecen intactos. No hay migración, reetiquetado de moneda histórica
 ni integración bancaria nueva. La política USD/BCV y las devoluciones a la tasa
 original siguen vigentes.
+
+
+## Entrega 103: historial exacto de retiros
+
+Las lecturas de retiros conservan cadenas decimales, moneda original y saldos
+ausentes. La página mantiene cursores firmados y el detalle consulta solicitud
+e historial completo en una sola sentencia. Los registros con importe, moneda
+o destino por revisar permanecen visibles, con decisiones bloqueadas cuando
+sus datos no permiten confirmarlas. El subtotal USD utiliza BigInt y explicita
+exclusiones; el CSV corresponde solo a la página y su corte confirmado.
+
+La aprobación/rechazo mantiene el contrato anterior y se comprueba contra los
+centavos del registro exacto. No se reemplaza la lectura con una confirmación
+numérica ni se reintenta una decisión automáticamente. Los saldos históricos
+no representan disponibilidad ni verificación bancaria. No hay migración ni
+reetiquetado de moneda; la política USD/BCV y la tasa original de devoluciones
+siguen vigentes.

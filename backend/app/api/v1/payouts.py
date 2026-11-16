@@ -1024,3 +1024,80 @@ async def own_exact_balance(
         "unverified_payout_count": int(unknown[1]),
         "minimum_withdrawal_usd": "10.00",
     }
+
+
+@router.get("/exact/page")
+async def exact_payout_page(
+    request: Request,
+    rider_id: Optional[uuid.UUID] = Query(None),
+    audience: Optional[Literal["STAFF", "OWNER"]] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    cursor: Optional[str] = Query(None, min_length=1, max_length=2048),
+    status_filter: Optional[PayoutStatus] = Query(None, alias="status"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services import payout_records_exact
+
+    if set(request.query_params) - {
+        "rider_id",
+        "limit",
+        "cursor",
+        "status",
+        "audience",
+    }:
+        raise HTTPException(
+            422, "La lectura exacta usa cursor; no admite parámetros adicionales"
+        )
+    if (
+        audience == "OWNER"
+        and current_user.role != UserRole.REPARTIDOR
+        or audience == "STAFF"
+        and current_user.role not in (UserRole.GERENTE, UserRole.SUPERADMIN)
+    ):
+        raise HTTPException(403, "El rol actual no corresponde a esta vista de retiros")
+    stmt, target = await _payout_list_scope(
+        db, current_user, str(rider_id) if rider_id else None
+    )
+    if (
+        current_user.role == UserRole.REPARTIDOR
+        and rider_id is not None
+        and rider_id != target
+    ):
+        raise HTTPException(403, "No puedes seleccionar otro repartidor")
+    return await payout_records_exact.page(
+        db,
+        current_user,
+        stmt,
+        target,
+        rider_id,
+        status_filter.value if status_filter else None,
+        limit,
+        cursor,
+        audience,
+    )
+
+
+@router.get("/exact/{payout_id}")
+async def exact_payout_detail(
+    request: Request,
+    payout_id: uuid.UUID,
+    audience: Optional[Literal["STAFF", "OWNER"]] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services import payout_records_exact
+
+    if set(request.query_params) - {"audience"}:
+        raise HTTPException(422, "El detalle no admite seleccionar otro ámbito")
+    if (
+        audience == "OWNER"
+        and current_user.role != UserRole.REPARTIDOR
+        or audience == "STAFF"
+        and current_user.role not in (UserRole.GERENTE, UserRole.SUPERADMIN)
+    ):
+        raise HTTPException(403, "El rol actual no corresponde a esta vista de retiros")
+    stmt, target = await _payout_list_scope(db, current_user, None)
+    return await payout_records_exact.detail(
+        db, current_user, stmt, target, payout_id, audience
+    )

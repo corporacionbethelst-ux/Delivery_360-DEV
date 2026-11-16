@@ -21,6 +21,7 @@ const utcTime = (v: unknown): string => {
     return fail();
   return v;
 };
+export const exactRecordTime = utcTime;
 const filterTime = (v: string | undefined) =>
   v === undefined
     ? null

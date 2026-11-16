@@ -2,6 +2,7 @@ import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AxiosHeaders, type InternalAxiosRequestConfig } from 'axios';
 import client from '@/lib/api';
+import { payoutEnvelope } from '../../test-fixtures/payout-exact';
 import Page from '@/app/(dashboard)/rider/earnings/payouts/page';
 import { storeTokens, clearStoredTokens } from '@/lib/auth-session';
 
@@ -10,7 +11,7 @@ let mockUser = { id: 'a', role: 'REPARTIDOR' };
 jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }));
 jest.mock('@/stores/authStore', () => ({ useAuthStore: () => ({ user: mockUser, isAuthenticated: true }) }));
 const originalAdapter = client.defaults.adapter;
-const reply = (config: InternalAxiosRequestConfig, data: unknown) => ({ config, data, status: 200, statusText: 'OK', headers: new AxiosHeaders() });
+const reply = (config: InternalAxiosRequestConfig, data: unknown) => ({ config, data: payoutEnvelope(data, String(config.url)), status: 200, statusText: 'OK', headers: new AxiosHeaders() });
 const cursor50 = `c50.${'a'.repeat(64)}`;
 const page = (items: unknown[], next_cursor: string | null = null) => ({ items, next_cursor });
 const rows = (start: number, count: number, status = 'PENDIENTE', prefix = 'p') => Array.from({ length: count }, (_, i) => ({ id: `${prefix}${start + i}`, rider_id: 'r', amount: 10, total_amount: 10, status, method: 'EFECTIVO' }));
@@ -22,14 +23,14 @@ it('navigates and filters through the actual Axios/API/service chain with opaque
   client.defaults.adapter = async config => {
     const query = new URL(String(config.url), 'https://test.invalid').searchParams;
     requests.push(Object.fromEntries(query));
-    expect(config.method).toBe('get'); expect(config.url).toContain('/payouts/page?'); expect(query.has('offset')).toBe(false);
+    expect(config.method).toBe('get'); expect(config.url).toContain('/payouts/exact/page?'); expect(query.has('offset')).toBe(false);
     expect(config.headers.get('Authorization')).toBe('Bearer access-a');
     return reply(config, query.get('status') === 'COMPLETADO' ? page(rows(100, 1, 'COMPLETADO')) : query.get('cursor') === cursor50 ? page(rows(50, 1)) : page(rows(0, 50), cursor50));
   };
   render(<Page />); await screen.findByText('#p0'); expect(screen.queryByText('#p50')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Siguiente' })); await screen.findByText('#p50');
   fireEvent.change(screen.getByLabelText('Estado del retiro'), { target: { value: 'COMPLETADO' } }); await screen.findByText('#p100');
-  expect(requests).toEqual([{ limit: '50' }, { limit: '50', cursor: cursor50 }, { status: 'COMPLETADO', limit: '50' }]);
+  expect(requests).toEqual([{ audience:'OWNER', limit: '50' }, { audience:'OWNER', limit: '50', cursor: cursor50 }, { audience:'OWNER', status: 'COMPLETADO', limit: '50' }]);
 });
 it.each(['envelope', 'duplicate', 'ignored-filter'])('keeps the previously confirmed page after a malformed/contradictory HTTP page (%s)', async mode => {
   let calls = 0;
