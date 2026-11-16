@@ -6,7 +6,10 @@ import { RiderAuditAccess } from "@/components/audit/RiderAuditAccess";
 import { useRiderAudit } from "@/hooks/useRiderAudit";
 import { AUDIT_PAGE_SIZE, type AuditPage } from "@/lib/rider-audit-contract";
 import { transactionDateLabel } from "@/lib/transaction-contract";
-import { payoutAmountLabel } from "@/lib/payout-contract";
+import {
+  exactTransactionMoney as payoutAmountLabel,
+  type TransactionReadContext,
+} from "@/lib/transaction-exact";
 import { auditExactMoney } from "@/lib/rider-audit-exact";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -14,6 +17,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ClipboardCheck,
+  Download,
   ClipboardList,
   Package,
   Receipt,
@@ -57,6 +61,24 @@ function Detail({ riderId }: { riderId: string }) {
         }
         actions={
           <>
+            <Button
+              className={operationStyles.primaryButton}
+              disabled={
+                page.isLoading ||
+                !!page.error ||
+                !data ||
+                ![
+                  ...data.orders.rows,
+                  ...data.deliveries.rows,
+                  ...data.transactions.rows,
+                  ...data.deliveries.fallback,
+                ].length
+              }
+              onClick={page.exportTables}
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Exportar tablas CSV
+            </Button>
             <Button
               className={operationStyles.button}
               variant="outline"
@@ -281,6 +303,13 @@ function Detail({ riderId }: { riderId: string }) {
               )}
             </CardContent>
           </Card>
+          <OperationNotice>
+            Los precios exactos de órdenes no son ganancias del repartidor. Los
+            precios anteriores sin registro decimal requieren revisión y no se
+            convierten desde cifras históricas. El bono conservado en la entrega
+            no guarda una moneda propia: se muestra sin inferir USD desde la
+            orden o un movimiento contable.
+          </OperationNotice>
           <Panel
             icon={ClipboardList}
             tone="blue"
@@ -315,10 +344,23 @@ function Detail({ riderId }: { riderId: string }) {
                     </Td>
                     <Td>{row.customer_name ?? "No informado"}</Td>
                     <Td>
-                      <OperationPill>{row.status}</OperationPill>
+                      <OperationPill>
+                        {row.status ?? "No informado"}
+                      </OperationPill>
                     </Td>
                     <Td>
-                      {payoutAmountLabel(row.amount, row.currency ?? undefined)}
+                      {payoutAmountLabel(
+                        row.amount,
+                        row.currency,
+                        !!row.price_review,
+                      )}
+                      {row.price_review && (
+                        <p className="text-xs text-amber-800">
+                          {row.price_review === "PRECIO_HISTORICO_NO_EXACTO"
+                            ? "Precio histórico sin registro exacto"
+                            : "Precio por revisar"}
+                        </p>
+                      )}
                     </Td>
                     <Td>{transactionDateLabel(row.created_at)}</Td>
                     <Td>
@@ -377,12 +419,17 @@ function Detail({ riderId }: { riderId: string }) {
                     </Td>
                     <Td>{row.customer_name ?? "No informado"}</Td>
                     <Td>
-                      <OperationPill>{row.status}</OperationPill>
+                      <OperationPill>
+                        {row.status ?? "No informado"}
+                      </OperationPill>
                     </Td>
                     <Td>
                       {payoutAmountLabel(
                         row.locked_bonus_amount,
-                        row.currency ?? undefined,
+                        row.currency,
+                        row.money_review.some(
+                          (r) => r.field === "locked_bonus_amount",
+                        ),
                       )}
                     </Td>
                     <Td>{transactionDateLabel(row.updated_at)}</Td>
@@ -413,7 +460,9 @@ function Detail({ riderId }: { riderId: string }) {
                 <>
                   <p>
                     {data.deliveries.fallback.length} órdenes de apoyo cargadas;
-                    alcance acotado, sin total global.
+                    alcance acotado, sin total global.{" "}
+                    {data.deliveries.fallback_has_more &&
+                      "Hay más órdenes de apoyo fuera de este bloque."}
                   </p>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -439,7 +488,9 @@ function Detail({ riderId }: { riderId: string }) {
                               </Link>
                             </Td>
                             <Td>
-                              <OperationPill>{row.status}</OperationPill>
+                              <OperationPill>
+                                {row.status ?? "No informado"}
+                              </OperationPill>
                             </Td>
                           </tr>
                         ))}
@@ -491,12 +542,21 @@ function Detail({ riderId }: { riderId: string }) {
                       <p>{row.status}</p>
                     </Td>
                     <Td>
-                      {payoutAmountLabel(row.amount, row.currency ?? undefined)}
+                      {payoutAmountLabel(
+                        row.amount,
+                        row.currency,
+                        "price_review" in row
+                          ? !!row.price_review
+                          : row.money_review.some((r) => r.field === "amount"),
+                      )}
                     </Td>
                     <Td>
                       {payoutAmountLabel(
                         row.balance_after,
-                        row.currency ?? undefined,
+                        row.currency,
+                        row.money_review.some(
+                          (r) => r.field === "balance_after",
+                        ),
                       )}
                     </Td>
                     <Td>{transactionDateLabel(row.created_at)}</Td>
@@ -536,7 +596,7 @@ function Panel({
   title: string;
   icon: LucideIcon;
   tone: OperationTone;
-  page: AuditPage<{ id: string }>;
+  page: AuditPage<{ id: string }> & { read_context: TransactionReadContext };
   loading: boolean;
   navigate: (direction: -1 | 1) => unknown;
   children: ReactNode;
@@ -551,6 +611,11 @@ function Panel({
           <p className="mb-3 text-sm text-slate-600">
             {page.rows.length} filas cargadas en la página{" "}
             {page.offset / AUDIT_PAGE_SIZE + 1}.
+          </p>
+          <p className="break-all text-xs text-slate-500">
+            Corte de esta tabla:{" "}
+            {transactionDateLabel(page.read_context.generated_at)} · Huella
+            SHA-256: {page.read_context.content_sha256}
           </p>
           <div
             className="overflow-x-auto rounded-xl border border-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 [&_table]:min-w-[760px]"

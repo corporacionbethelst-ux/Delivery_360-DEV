@@ -163,7 +163,13 @@ def main():
             passed(
                 role + ": CSV preserves decimal strings, exclusions, cut and page scope"
             )
-            target = raw["items"][0]["rider_id"]
+            target = next(
+                r["rider_id"]
+                for r in raw["items"]
+                if r["orders_assigned"]
+                or r["deliveries_total"]
+                or r["money"]["ledger_rows"]
+            )
             page.get_by_role(
                 "link", name="Ver auditoría de " + target, exact=True
             ).click()
@@ -179,6 +185,92 @@ def main():
             expect(detail).to_contain_text("no acreditan una transferencia bancaria")
             passed(
                 role + ": direct identity detail and independent ledger/request totals"
+            )
+            # Each table has its own SQL cut; neither price nor bonus is a ledger balance.
+            order_records = get(
+                "/riders/audit/records/exact?kind=orders&rider_id="
+                + target
+                + "&limit=51&offset=0"
+            )
+            delivery_records = get(
+                "/riders/audit/records/exact?kind=deliveries&rider_id="
+                + target
+                + "&limit=51&offset=0"
+            )
+            transactions = get(
+                "/financial/transactions/exact/page?rider_id="
+                + target
+                + "&limit=51&offset=0"
+            )
+            for data in (order_records, delivery_records, transactions):
+                assert (
+                    data["snapshot_basis"] == "single_statement_visibility"
+                    and not data["available_balance_included"]
+                    and not data["bank_verified"]
+                )
+                assert (
+                    data["viewer_user_id"] == exact["viewer_user_id"]
+                    and data["viewer_role"] == role
+                )
+                assert all(r["rider_id"] == target for r in data["items"])
+            assert all(
+                r["currency"] is None and r["currency_recorded"] is None
+                for r in delivery_records["items"]
+            )
+            assert all(
+                (
+                    r["amount"] is None
+                    if r["price_review"]
+                    else isinstance(r["amount"], str)
+                )
+                for r in order_records["items"]
+            )
+            passed(
+                role
+                + ": exact scoped order prices, locked bonuses and ledger records remain independent"
+            )
+            with page.expect_download() as export:
+                page.get_by_role(
+                    "button", name="Exportar tablas CSV", exact=True
+                ).click()
+            export_file = out / (role.lower() + "-audit-tables.csv")
+            export.value.save_as(str(export_file))
+            exported = list(
+                csv.DictReader(io.StringIO(export_file.read_text(encoding="utf-8-sig")))
+            )
+            originals = {
+                k: {r["id"]: r for r in values}
+                for k, values in [
+                    ("orders", order_records["items"][:50]),
+                    ("deliveries", delivery_records["items"][:50]),
+                    ("transactions", transactions["items"][:50]),
+                    ("support_orders", delivery_records["fallback"]),
+                ]
+            }
+            assert len(exported) == sum(len(v) for v in originals.values())
+            for r in exported:
+                source = originals[r["clase_registro"]][r["id"]]
+                for key, column in [
+                    ("amount", "importe_registrado"),
+                    ("locked_bonus_amount", "bono_conservado"),
+                    ("balance_after", "saldo_posterior_registrado"),
+                ]:
+                    value = source.get(key) or ""
+                    literal = "'" + value if value.startswith("-") else value
+                    assert r[column] == literal
+                assert (
+                    r["moneda"] == (source["currency"] or "")
+                    and r["rider_id"] == target
+                )
+                assert r["huella_sha256"] in detail.inner_text()
+                assert (
+                    r["saldo_disponible_incluido"]
+                    == r["verificado_por_banco"]
+                    == "false"
+                )
+            passed(
+                role
+                + ": table CSV preserves visible exact strings, source kind, missing units and per-table cut"
             )
             page.screenshot(
                 path=str(out / (role.lower() + "-desktop.png")), full_page=True
@@ -234,6 +326,42 @@ def main():
             expect(audit_error).to_have_count(0)
             expect(detail).to_be_visible()
             passed(role + ": clean response recovers without business writes")
+            table_mode = {"bad": True}
+
+            def corrupt_table(route):
+                if route.request.method != "GET":
+                    route.continue_()
+                    return
+                response = route.fetch()
+                assert response.status == 200
+                if table_mode["bad"]:
+                    data = response.json()
+                    data["amount_basis"] = "available_funds"
+                    route.fulfill(response=response, json=data)
+                else:
+                    route.fulfill(response=response)
+
+            page.route(
+                re.compile(r"/api/v1/riders/audit/records/exact\?.*kind=orders"),
+                corrupt_table,
+            )
+            page.get_by_role("button", name="Actualizar auditoría", exact=True).click()
+            expect(audit_error).to_be_visible()
+            expect(detail).to_be_visible()
+            expect(
+                page.get_by_role("button", name="Exportar tablas CSV", exact=True)
+            ).to_be_disabled()
+            table_mode["bad"] = False
+            page.get_by_role("button", name="Reintentar auditoría", exact=True).click()
+            expect(detail).to_have_attribute("aria-busy", "false")
+            expect(audit_error).to_have_count(0)
+            expect(
+                page.get_by_role("button", name="Exportar tablas CSV", exact=True)
+            ).to_be_enabled()
+            passed(
+                role
+                + ": corrupt exact table retains every confirmed block and blocks export until explicit recovery"
+            )
             ctx.close()
         browser.close()
     after = snapshot()

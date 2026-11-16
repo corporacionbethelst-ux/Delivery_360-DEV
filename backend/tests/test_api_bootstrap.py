@@ -84,6 +84,7 @@ CURRENCY_PATHS = {
 
 def before_currency_schema(application):
     schema = deepcopy(application.openapi())
+    del schema["paths"]["/api/v1/riders/audit/records/exact"]
     del schema["paths"]["/api/v1/riders/audit/summary/exact"]
     del schema["paths"]["/api/v1/payouts/exact/page"]
     del schema["paths"]["/api/v1/payouts/exact/{payout_id}"]
@@ -189,6 +190,7 @@ def surface_before_currency(application):
                         "/api/v1/financial/riders/me/report",
                         "/api/v1/payouts/balance/exact",
                         "/api/v1/riders/audit/summary/exact",
+                        "/api/v1/riders/audit/records/exact",
                         "/api/v1/payouts/exact/page",
                         "/api/v1/payouts/exact/{payout_id}",
                         "/api/v1/financial/transactions/exact/page",
@@ -198,7 +200,7 @@ def surface_before_currency(application):
             )
         )
     ]
-    assert len(removed) == 25
+    assert len(removed) == 26
     current["routes"] = [
         row
         for row in current["routes"]
@@ -214,6 +216,7 @@ def surface_before_currency(application):
                     "/api/v1/financial/riders/me/report",
                     "/api/v1/payouts/balance/exact",
                     "/api/v1/riders/audit/summary/exact",
+                    "/api/v1/riders/audit/records/exact",
                     "/api/v1/payouts/exact/page",
                     "/api/v1/payouts/exact/{payout_id}",
                     "/api/v1/financial/transactions/exact/page",

@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 103. Este registro distingue implementación local,
+Actualizado con la entrega 104. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -90,9 +90,14 @@ La entrega 103 migra el historial y la administración de retiros a páginas
 decimales exactas y un detalle con historial completo del mismo corte SQL. Conserva
 cursores HMAC y contratos de mutación, con confirmación de decisiones comprobada
 en centavos y recuperación explícita. Añade CSV de página y separa saldos históricos,
-subtotal de solicitudes y disponibilidad. Las tablas de movimientos, órdenes y
-entregas del detalle de auditoría, bonos y otros consumidores numéricos siguen
-pendientes de migración.
+subtotal de solicitudes y disponibilidad.
+La entrega 104 migra las tablas del detalle de auditoría: precios NUMERIC
+versionados, bonos conservados y movimientos exactos, con CSV de las páginas y
+metadatos independientes. No convierte precios Float históricos ni deduce la
+moneda del bono desde la orden. El modelo de entrega no registra una moneda propia
+en el snapshot; falta definirla explícitamente para nuevos cierres, mantenerla
+inmutable y conservar desconocida la moneda histórica. Bonos y otros consumidores
+numéricos todavía requieren revisión.
 
 Faltan la revisión explícita de moneda histórica, el cierre de los demás reportes
 monetarios sobre decimales, la conciliación bancaria automática de cobros y devoluciones y la
