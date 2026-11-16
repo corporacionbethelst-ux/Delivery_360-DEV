@@ -8,6 +8,7 @@ import argparse
 import csv
 import io
 import json
+import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import sync_playwright, expect
@@ -61,6 +62,15 @@ def main():
     def passed(name):
         checks.append(name)
         print("passed: " + name, flush=True)
+
+    def pending_request(page):
+        deadline = time.monotonic() + 10
+        while state["pending"] is None and time.monotonic() < deadline:
+            page.wait_for_timeout(20)
+        assert (
+            state["pending"] is not None
+        ), "Deferred request did not reach the interceptor"
+        return state["pending"]
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
@@ -294,12 +304,13 @@ def main():
         )
         passed("detail_link_rejects_wrong_identity_retry_and_honest_print")
 
+        state["pending"] = None
         state["mode"] = "defer"
         page.get_by_role("button", name="Consultar transacción").click()
         expect(
             page.get_by_role("status").filter(has_text="Consultando el registro")
         ).to_be_visible()
-        old = state["pending"]
+        old = pending_request(page)
         state["mode"] = "normal"
         page.get_by_role("link", name="Volver al historial").click()
         expect(
@@ -313,15 +324,16 @@ def main():
         expect(page.get_by_text("ID confirmado: tx-0", exact=True)).to_have_count(0)
         passed("old_detail_response_cannot_replace_another_route")
 
+        state["pending"] = None
         state["mode"] = "defer"
         page.get_by_role("button", name="Consultar transacción").click()
         expect(
             page.get_by_role("status").filter(has_text="Consultando el registro")
         ).to_be_visible()
+        pending = pending_request(page)
         page.evaluate("window.dispatchEvent(new Event('delivery360-session-expired'))")
         page.wait_for_url("**/login")
         assert page.evaluate("localStorage.getItem('access_token')") is None
-        pending = state["pending"]
         pending[0].fulfill(
             json=envelope([transaction(1)], pending[1], "tx-1"), headers=pending[2]
         )
