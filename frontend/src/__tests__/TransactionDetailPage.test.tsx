@@ -1,14 +1,14 @@
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import Page from '@/app/(dashboard)/manager/financial/transactions/[id]/page';
-import { api } from '@/lib/api';
 import { storeTokens, clearStoredTokens } from '@/lib/auth-session';
 import { transactionResponse } from '../../test-fixtures/transactions';
 const mockRouter = { replace: jest.fn() }; let mockParams: { id: string | string[] } = { id: 'tx-1' }, mockUser = { id: 'a', role: 'GERENTE' };
 jest.mock('next/navigation', () => ({ useRouter: () => mockRouter, useParams: () => mockParams }));
 jest.mock('@/stores/authStore', () => ({ useAuthStore: () => ({ user: mockUser, isAuthenticated: true }) }));
-jest.mock('@/lib/api', () => ({ api: { get: jest.fn() } }));
-const get = jest.mocked(api.get);
+const mockGet=jest.fn();
+jest.mock('@/lib/api',()=>({api:{get:(url:string)=>Promise.resolve(mockGet(url)).then(value=>jest.requireActual('../../test-fixtures/transactions').exactTransactionReply(value,url))}}));
+const get = mockGet;
 function deferred() { let resolve!: (value: unknown) => void, reject!: (error: Error) => void; const promise = new Promise((done, fail) => { resolve = done; reject = fail; }); return { promise, resolve, reject }; }
 beforeEach(() => { jest.resetAllMocks(); clearStoredTokens(); storeTokens({ access_token: 'a', refresh_token: 'ra' }); mockParams = { id: 'tx-1' }; mockUser = { id: 'a', role: 'GERENTE' }; get.mockResolvedValue(transactionResponse()); jest.spyOn(window, 'print').mockImplementation(() => {}); });
 afterEach(() => { clearStoredTokens(); jest.restoreAllMocks(); });
@@ -63,4 +63,10 @@ it('prints a confirmed UUID even when the requested UUID uses uppercase characte
   render(<Page />); await screen.findByText('ID confirmado: 12345678-abcd-1234-abcd-123456789012');
   fireEvent.click(screen.getByRole('button', { name: 'Imprimir registro' }));
   expect(window.print).toHaveBeenCalledTimes(1);
+});
+
+it('labels an invalid stored balance for review while preserving the confirmed record',async()=>{
+ get.mockResolvedValue(transactionResponse('tx-1',{balance_before:null,money_review:[{field:'balance_before',reason:'IMPORTE_NO_VALIDO'}]}));
+ render(<Page/>);await screen.findByText('ID confirmado: tx-1');expect(screen.getByText('Importe por revisar')).toBeInTheDocument();expect(screen.getByText('Datos monetarios por revisar')).toBeInTheDocument();
+ expect(screen.getByRole('button',{name:'Imprimir registro'})).toBeEnabled();
 });

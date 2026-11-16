@@ -288,6 +288,7 @@ jobs:
         run: |
           chromium=$(python -c 'from playwright.sync_api import sync_playwright; p = sync_playwright().start(); print(p.chromium.executable_path); p.stop()')
           python frontend/e2e/production-smoke.browser.py --chromium "$chromium" --artifacts-dir browser-artifacts/production
+          python frontend/e2e/transactions.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/transactions
           python frontend/e2e/rider-audit-catalog.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/catalog
           python frontend/e2e/rider-audit.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/detail
           python frontend/e2e/delivery-catalog.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/deliveries
@@ -340,6 +341,7 @@ jobs:
           python frontend/e2e/local-rider-exact.browser.py --chromium "$chromium" --wait-request-window --lifecycle-results browser-real/lifecycle/results.json --artifacts-dir browser-real/rider-exact
           python frontend/e2e/local-manager-orders.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/manager-orders
           python frontend/e2e/local-rider-audit-exact.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/rider-audit-exact
+          python frontend/e2e/local-transaction-exact.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/transaction-exact
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && hashFiles('browser-real/**') != '' }}
         with:

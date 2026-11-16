@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from typing import Annotated
+from uuid import UUID
 from app.api.v1.customer_cashbook import CivilDate
 from app.services import financial_reports_exact
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -788,3 +789,57 @@ async def own_exact_earnings(
     from app.services import rider_earnings_exact
 
     return await rider_earnings_exact.report(db, actor.id)
+
+
+@router.get("/transactions/exact/page")
+async def get_exact_transaction_records(
+    transaction_type: Optional[TransactionType] = Query(None, alias="type"),
+    status: Optional[PaymentStatus] = Query(None),
+    rider_id: Optional[UUID] = Query(None),
+    date_from: Optional[datetime] = Query(None),
+    date_to: Optional[datetime] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0, le=9007199254740991),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+):
+    from app.services.transaction_records_exact import report
+
+    return await report(
+        db,
+        current_user,
+        dict(
+            transaction_id=None,
+            rider_id=rider_id,
+            type=transaction_type.value if transaction_type else None,
+            status=status.value if status else None,
+            date_from=date_from,
+            date_to=date_to,
+        ),
+        limit,
+        offset,
+    )
+
+
+@router.get("/transactions/exact/{transaction_id}")
+async def get_exact_transaction_record(
+    transaction_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+):
+    from app.services.transaction_records_exact import report
+
+    return await report(
+        db,
+        current_user,
+        dict(
+            transaction_id=transaction_id,
+            rider_id=None,
+            type=None,
+            status=None,
+            date_from=None,
+            date_to=None,
+        ),
+        1,
+        0,
+    )

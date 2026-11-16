@@ -27,23 +27,27 @@ const money = (value: unknown): number => {
 };
 const optionalMoney = (value: unknown) => value == null ? null : money(value);
 
-export function normalizeTransaction(value: unknown, expectedId?: string): Transaction {
+export function normalizeTransactionIdentity(value: unknown, expectedId?: string) {
   const data = object(value), id = transactionId(data.id);
   if (expectedId !== undefined && transactionId(expectedId) !== id) return invalid();
   const primary = data.transaction_type == null ? undefined : transactionId(data.transaction_type);
   const alias = data.type == null ? undefined : transactionId(data.type);
   const type = primary ?? alias;
-  if (!type || !TRANSACTION_TYPES.includes(type as never) || primary && alias && primary !== alias || !TRANSACTION_RESPONSE_STATUSES.includes(data.status as never)) return invalid();
+  if (!type || !TRANSACTION_TYPES.includes(type as never) || primary && alias && primary !== alias || data.status != null && !TRANSACTION_RESPONSE_STATUSES.includes(data.status as never)) return invalid();
   const currency = data.currency == null ? null : typeof data.currency === 'string' && /^[A-Z]{3}$/.test(data.currency) ? data.currency : invalid();
   return {
     id, rider_id: data.rider_id == null ? null : transactionId(data.rider_id),
-    transaction_type: type as Transaction['type'], type: type as Transaction['type'], status: data.status as Transaction['status'],
-    amount: money(data.amount), currency, description: text(data.description), reference_id: text(data.reference_id),
+    transaction_type: type as Transaction['type'], type: type as Transaction['type'], status: data.status == null ? null : data.status as Transaction['status'],
+    currency, description: text(data.description), reference_id: text(data.reference_id),
     created_at: date(data.created_at), updated_at: date(data.updated_at), processed_at: date(data.processed_at),
-    balance_before: optionalMoney(data.balance_before), balance_after: optionalMoney(data.balance_after),
     source_type: text(data.source_type), source_id: text(data.source_id), idempotency_key: text(data.idempotency_key),
     created_by_user_id: data.created_by_user_id == null ? null : transactionId(data.created_by_user_id),
   };
+}
+export function normalizeTransaction(value: unknown, expectedId?: string): Transaction {
+  const data=object(value),identity=normalizeTransactionIdentity(value,expectedId);
+  if(identity.status===null)return invalid();
+  return {...identity,status:identity.status,amount:money(data.amount),balance_before:optionalMoney(data.balance_before),balance_after:optionalMoney(data.balance_after)};
 }
 
 export interface PreparedTransactionQuery {

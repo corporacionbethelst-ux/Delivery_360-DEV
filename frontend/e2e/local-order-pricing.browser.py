@@ -78,11 +78,22 @@ def main():
         headers = {"Authorization": "Bearer " + token}
 
         def call(method, path, body=None, status=200):
-            result = page.request.fetch(
-                api + path, method=method, headers=headers, data=body
-            )
-            assert result.status == status, (method, path, result.status, result.text())
-            return result.json()
+            # Use a fresh transport for an explicit API operation. Never retry a
+            # write after a lost response; the pricing revision assertions remain.
+            request = pw.request.new_context()
+            try:
+                result = request.fetch(
+                    api + path, method=method, headers=headers, data=body
+                )
+                assert result.status == status, (
+                    method,
+                    path,
+                    result.status,
+                    result.text(),
+                )
+                return result.json()
+            finally:
+                request.dispose()
 
         me = call("GET", "/auth/me")
         assert me["id"] == sql(

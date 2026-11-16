@@ -592,3 +592,21 @@ elegible inválido bloquea el resumen, con posibilidad de reintentar y conservar
 el conjunto anterior. La ruta y consumidores numéricos anteriores siguen como
 compatibilidad; las tablas internas del detalle y demás vistas pendientes se
 registran en PRODUCCION_PENDIENTES.md. No hay migración ni cambio de datos previos.
+
+
+## Entrega 102: registros de transacciones exactos
+
+El gerente consulta páginas y detalles decimales en `/financial/transactions/exact`.
+Las cadenas preservan el signo del movimiento y su moneda guardada; VES y moneda
+no informada no se convierten en USD. Los códigos monetarios inválidos y los
+importes no finitos se marcan para revisión sin perder la fila ni inventar ceros.
+Los saldos ausentes permanecen desconocidos y los saldos registrados no se
+presentan como disponibilidad actual. No se agrega el libro de wallets en centavos
+ni el de cobros y devoluciones de clientes.
+
+La lectura conserva corte, actor y filtros; el CSV usa cadenas decimales y señala
+las revisiones. La impresión sigue siendo un registro contable, no un comprobante
+de transferencia. Los contratos numéricos anteriores y sus consumidores no
+migrados permanecen intactos. No hay migración, reetiquetado de moneda histórica
+ni integración bancaria nueva. La política USD/BCV y las devoluciones a la tasa
+original siguen vigentes.
