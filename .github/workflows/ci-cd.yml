@@ -342,6 +342,7 @@ jobs:
           python frontend/e2e/local-manager-orders.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/manager-orders
           python frontend/e2e/local-rider-audit-exact.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/rider-audit-exact
           python frontend/e2e/local-transaction-exact.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/transaction-exact
+          python frontend/e2e/local-payout-exact.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/payout-exact
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && hashFiles('browser-real/**') != '' }}
         with:

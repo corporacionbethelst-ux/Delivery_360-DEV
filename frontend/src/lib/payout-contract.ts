@@ -75,6 +75,7 @@ const date = (value: unknown): string | null => {
     ? value
     : null;
 };
+export const payoutStatusValue = status;
 export const payoutAmountLabel = (
   amount: number | null | undefined,
   currency?: string,

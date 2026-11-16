@@ -16,13 +16,11 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   ArrowLeft,
   Wallet,
-  DollarSign,
   Calendar,
   User,
   Banknote,
@@ -42,13 +40,19 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { payoutDateLabel, payoutAmountLabel } from "@/lib/payout-contract";
+import { transactionDateLabel as payoutDateLabel } from "@/lib/transaction-contract";
 import {
-  payoutService,
-  Payout,
-  PayoutStatus,
-  PayoutStatusHistory,
-} from "@/services/payout.service";
+  payoutExactMoney as payoutAmountLabel,
+  canReviewPayout,
+  confirmExactPayoutDecision,
+  type ExactPayout as Payout,
+  type ExactPayoutHistory as PayoutStatusHistory,
+  type PayoutReadContext,
+} from "@/lib/payout-exact";
+import { exactPayoutService } from "@/services/payout-exact.service";
+import { TransactionAccess } from "@/components/financial/TransactionAccess";
+import { OperationNotice } from "@/components/operations/OperationsUI";
+import { payoutService, PayoutStatus } from "@/services/payout.service";
 
 const getErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
@@ -73,9 +77,11 @@ const METHOD_LABELS: Record<string, string> = {
 export default function PayoutDetailPage() {
   const params = useParams();
   return (
-    <PayoutSessionBoundary>
-      <PayoutContent key={String(params.id)} />
-    </PayoutSessionBoundary>
+    <TransactionAccess resource={String(params.id)}>
+      <PayoutSessionBoundary>
+        <PayoutContent key={String(params.id)} />
+      </PayoutSessionBoundary>
+    </TransactionAccess>
   );
 }
 
@@ -94,6 +100,12 @@ function PayoutContent() {
   }, []);
   const [payout, setPayout] = useState<Payout | null>(null);
   const [history, setHistory] = useState<PayoutStatusHistory[]>([]);
+  const [readContext, setReadContext] = useState<PayoutReadContext | null>(
+    null,
+  );
+  const [confirmedDecision, setConfirmedDecision] = useState<string | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -109,13 +121,12 @@ function PayoutContent() {
     setLoading(true);
     setError(null);
     try {
-      const [data, historyData] = await Promise.all([
-        payoutService.getById(payoutId),
-        payoutService.getHistory(payoutId),
-      ]);
+      const data = await exactPayoutService.getDetail(payoutId, "STAFF");
       if (!current()) return;
-      setPayout(data);
-      setHistory(historyData);
+      setPayout(data.payout);
+      setHistory(data.history);
+      setReadContext(data.read_context);
+      setConfirmedDecision(null);
       setDecisionUnconfirmed(false);
     } catch (err: unknown) {
       if (!current()) return;
@@ -137,6 +148,8 @@ function PayoutContent() {
   const handleApprove = async () => {
     if (
       !payout ||
+      !canReviewPayout(payout) ||
+      loading ||
       payout.currency !== "USD" ||
       payout.status !== "PENDIENTE" ||
       decisionUnconfirmed ||
@@ -154,18 +167,8 @@ function PayoutContent() {
       const confirmed = await payoutService.approve(payout.id);
       task.assertCurrent();
       if (!current()) return;
-      if (
-        confirmed.id !== payout.id ||
-        confirmed.currency !== payout.currency ||
-        confirmed.rider_id !== payout.rider_id ||
-        confirmed.amount !== payout.amount ||
-        confirmed.method !== payout.method ||
-        (confirmed.bank_account_last4 ?? null) !==
-          (payout.bank_account_last4 ?? null)
-      )
-        throw new Error("La confirmación corresponde a otros datos de retiro");
-      setPayout(confirmed);
-      setDecisionUnconfirmed(false);
+      confirmExactPayoutDecision(confirmed, payout, "approve");
+      setConfirmedDecision(confirmed.status);
       await loadPayout();
       task.assertCurrent();
     } catch (err: unknown) {
@@ -182,6 +185,8 @@ function PayoutContent() {
   const handleReject = async () => {
     if (
       !payout ||
+      !canReviewPayout(payout) ||
+      loading ||
       payout.status !== "PENDIENTE" ||
       decisionUnconfirmed ||
       error ||
@@ -199,18 +204,8 @@ function PayoutContent() {
       const confirmed = await payoutService.reject(payout.id, rejectReason);
       task.assertCurrent();
       if (!current()) return;
-      if (
-        confirmed.id !== payout.id ||
-        confirmed.currency !== payout.currency ||
-        confirmed.rider_id !== payout.rider_id ||
-        confirmed.amount !== payout.amount ||
-        confirmed.method !== payout.method ||
-        (confirmed.bank_account_last4 ?? null) !==
-          (payout.bank_account_last4 ?? null)
-      )
-        throw new Error("La confirmación corresponde a otros datos de retiro");
-      setPayout(confirmed);
-      setDecisionUnconfirmed(false);
+      confirmExactPayoutDecision(confirmed, payout, "reject");
+      setConfirmedDecision(confirmed.status);
       setShowRejectDialog(false);
       setRejectReason("");
       await loadPayout();
@@ -263,11 +258,37 @@ function PayoutContent() {
   }
 
   const isPending =
-    payout.status === "PENDIENTE" && !error && !decisionUnconfirmed;
+    payout.status === "PENDIENTE" &&
+    canReviewPayout(payout) &&
+    !error &&
+    !decisionUnconfirmed;
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
+    <div className="p-4 sm:p-6 bg-gray-50 min-h-screen">
       <div className="max-w-4xl mx-auto space-y-6">
+        {confirmedDecision && (
+          <OperationNotice tone="warning">
+            Respuesta contable de la acción recibida:{" "}
+            {confirmedDecision.replaceAll("_", " ")}. Vuelve a consultar para
+            comprobar el retiro y su historial juntos.
+          </OperationNotice>
+        )}
+        <OperationNotice>
+          Los saldos son registros históricos. No representan disponibilidad
+          actual ni verificación bancaria.
+        </OperationNotice>
+        {readContext && (
+          <p className="break-all text-xs text-slate-500">
+            Consulta: {payoutDateLabel(readContext.generated_at)} · Huella
+            SHA-256: {readContext.content_sha256}
+          </p>
+        )}
+        {!canReviewPayout(payout) && (
+          <OperationNotice tone="warning">
+            Registro por revisar. Las decisiones permanecen bloqueadas hasta
+            verificar sus datos.
+          </OperationNotice>
+        )}
         {error && (
           <p role="alert" className="text-red-700">
             {error}
@@ -292,8 +313,8 @@ function PayoutContent() {
           </p>
         )}
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-6 rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-cyan-50 p-5 shadow-sm">
+          <div className="flex min-w-0 items-start gap-4">
             <Button
               variant="outline"
               size="icon"
@@ -307,15 +328,15 @@ function PayoutContent() {
                 <Wallet className="w-6 h-6 text-indigo-600" />
                 Detalle de Pago a Rider
               </h1>
-              <p className="text-gray-500 text-sm">
-                ID: <span className="font-mono">{payout.id}</span>
+              <p className="min-w-0 break-all text-gray-500 text-sm">
+                ID: <span className="break-all font-mono">{payout.id}</span>
               </p>
             </div>
           </div>
           <Badge
-            className={`${STATUS_COLORS[payout.status]} border px-4 py-1.5 text-sm font-bold shadow-sm`}
+            className={`${payout.status ? STATUS_COLORS[payout.status] : "bg-slate-100 text-slate-800"} border px-4 py-1.5 text-sm font-bold shadow-sm`}
           >
-            {payout.status.replace("_", " ")}
+            {payout.status?.replaceAll("_", " ") ?? "No informado"}
           </Badge>
         </div>
 
@@ -339,10 +360,14 @@ function PayoutContent() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="p-6 bg-indigo-50 rounded-xl border border-indigo-100 flex flex-col justify-center">
                 <span className="text-indigo-600 font-medium text-sm uppercase tracking-wide">
-                  Monto a Pagar
+                  Importe solicitado
                 </span>
-                <span className="text-4xl font-bold text-indigo-900 mt-1">
-                  {payoutAmountLabel(payout.amount, payout.currency)}
+                <span className="break-words text-3xl sm:text-4xl font-bold text-indigo-900 mt-1">
+                  {payoutAmountLabel(
+                    payout.amount,
+                    payout.currency,
+                    payout.money_review.some((r) => r.field === "amount"),
+                  )}
                 </span>
               </div>
 
@@ -351,8 +376,10 @@ function PayoutContent() {
                   <span className="text-gray-500 flex items-center gap-2">
                     <Banknote className="w-4 h-4" /> Método
                   </span>
-                  <span className="font-bold text-gray-900">
-                    {METHOD_LABELS[payout.method] || payout.method}
+                  <span className="break-all font-bold text-gray-900">
+                    {payout.method
+                      ? METHOD_LABELS[payout.method]
+                      : "No informado"}
                   </span>
                 </div>
                 {payout.bank_account_last4 && (
@@ -389,7 +416,7 @@ function PayoutContent() {
                   R
                 </div>
                 <div>
-                  <p className="font-bold text-gray-900">
+                  <p className="break-all font-bold text-gray-900">
                     ID Rider: {payout.rider_id}
                   </p>
                   <p className="text-sm text-gray-500">
@@ -432,7 +459,13 @@ function PayoutContent() {
                     Saldo antes
                   </p>
                   <p className="text-lg font-bold text-gray-900">
-                    {payoutAmountLabel(payout.balance_before, payout.currency)}
+                    {payoutAmountLabel(
+                      payout.balance_before,
+                      payout.currency,
+                      payout.money_review.some(
+                        (r) => r.field === "balance_before",
+                      ),
+                    )}
                   </p>
                 </div>
                 <div className="bg-gray-50 p-4 rounded border">
@@ -440,7 +473,13 @@ function PayoutContent() {
                     Saldo después
                   </p>
                   <p className="text-lg font-bold text-gray-900">
-                    {payoutAmountLabel(payout.balance_after, payout.currency)}
+                    {payoutAmountLabel(
+                      payout.balance_after,
+                      payout.currency,
+                      payout.money_review.some(
+                        (r) => r.field === "balance_after",
+                      ),
+                    )}
                   </p>
                 </div>
               </div>
@@ -457,25 +496,35 @@ function PayoutContent() {
                     >
                       <div>
                         <p className="font-semibold text-gray-900">
-                          {item.old_status || "Inicio"} → {item.new_status}
+                          {item.old_status ?? "Inicio"} →{" "}
+                          {item.new_status ?? "No informado"}
                         </p>
+                        {(item.money_review.length > 0 ||
+                          item.currency_review) && (
+                          <p className="text-amber-800">Registro por revisar</p>
+                        )}
                         {item.reason && (
                           <p className="text-gray-500">{item.reason}</p>
                         )}
                       </div>
                       <div className="text-xs text-gray-500 md:text-right">
-                        <p>
-                          {item.created_at
-                            ? new Date(item.created_at).toLocaleString()
-                            : "Fecha no disponible"}
-                        </p>
+                        <p>{payoutDateLabel(item.created_at)}</p>
                         <p>
                           {payoutAmountLabel(
                             item.balance_before,
                             item.currency,
+                            item.money_review.some(
+                              (r) => r.field === "balance_before",
+                            ),
                           )}{" "}
                           →{" "}
-                          {payoutAmountLabel(item.balance_after, item.currency)}
+                          {payoutAmountLabel(
+                            item.balance_after,
+                            item.currency,
+                            item.money_review.some(
+                              (r) => r.field === "balance_after",
+                            ),
+                          )}
                         </p>
                       </div>
                     </div>
@@ -493,7 +542,7 @@ function PayoutContent() {
                 </h4>
                 <p className="text-gray-700 text-sm">
                   Registrada el {payoutDateLabel(payout.processed_at)}. Estado:{" "}
-                  {payout.status.replaceAll("_", " ")}.
+                  {payout.status?.replaceAll("_", " ") ?? "No informado"}.
                 </p>
               </div>
             )}

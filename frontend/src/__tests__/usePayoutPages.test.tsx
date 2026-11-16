@@ -4,8 +4,12 @@ import { PayoutSessionBoundary } from '@/components/financial/PayoutSessionBound
 import { payoutService, type Payout, type PayoutPage } from '@/services/payout.service';
 import { storeTokens, clearStoredTokens } from '@/lib/auth-session';
 
+const mockGetPage = jest.fn();
+jest.mock('@/services/payout-exact.service', () => ({ exactPayoutService: {
+  getPage: (...args: any[]) => mockGetPage(...args).then((p: any) => jest.requireActual('../../test-fixtures/payout-exact').payoutModelPage(p)),
+} }));
 jest.mock('@/services/payout.service', () => ({ payoutService: { getPage: jest.fn() } }));
-const get = jest.mocked(payoutService.getPage);
+const get = mockGetPage;
 const rows = (start: number, count: number, status: Payout['status'] = 'PENDIENTE'): Payout[] => Array.from({ length: count }, (_, index) => ({ id: `p-${start + index}`, rider_id: 'r', amount: 10, total_amount: 10, method: 'EFECTIVO', status, requested_at: null, created_at: null, updated_at: null }));
 
 const page = (items: Payout[]): PayoutPage => ({ items: items.slice(0, 50), next_cursor: items.length > 50 ? `after-${items[49].id}` : null });
@@ -16,7 +20,7 @@ afterEach(() => clearStoredTokens());
 it.each([0, 1, 49, 50, 51])('uses the server continuation and displays at most 50 rows (%s)', async count => {
   get.mockResolvedValue(page(rows(0, count))); const h = renderHook(() => usePayoutPages());
   await waitFor(() => expect(h.result.current.loaded).toBe(true));
-  expect(get).toHaveBeenCalledWith({ limit: 50, cursor: null, status: undefined });
+  expect(get).toHaveBeenCalledWith({ audience: 'STAFF', limit: 50, cursor: null, status: undefined });
   expect(get).toHaveBeenCalledTimes(1); expect(h.result.current.rows).toHaveLength(Math.min(count, 50));
   expect(h.result.current.hasNext).toBe(count === 51);
 });
@@ -37,7 +41,7 @@ it('resets the offset for server status filters and commits the selection with i
   const h = renderHook(() => usePayoutPages()); await waitFor(() => expect(h.result.current.loaded).toBe(true));
   await act(async () => { await h.result.current.next(); });
   await act(async () => { await h.result.current.setStatus('EN_PROCESO'); });
-  expect(get).toHaveBeenLastCalledWith({ limit: 50, cursor: null, status: 'EN_PROCESO' });
+  expect(get).toHaveBeenLastCalledWith({ audience: 'STAFF', limit: 50, cursor: null, status: 'EN_PROCESO' });
   expect(h.result.current).toMatchObject({ offset: 0, status: 'EN_PROCESO', selectedStatus: 'EN_PROCESO', hasNext: false });
 });
 it('retains the confirmed page after a later-page failure and retries the same query', async () => {
@@ -54,7 +58,7 @@ it('reverts a failed filter to the label of the retained data and retains the fa
   const h = renderHook(() => usePayoutPages()); await waitFor(() => expect(h.result.current.loaded).toBe(true));
   await act(async () => { await h.result.current.setStatus('COMPLETADO'); });
   expect(h.result.current).toMatchObject({ status: 'ALL', selectedStatus: 'ALL', offset: 0 });
-  await act(async () => { await h.result.current.retry(); }); expect(get).toHaveBeenLastCalledWith({ limit: 50, cursor: null, status: 'COMPLETADO' });
+  await act(async () => { await h.result.current.retry(); }); expect(get).toHaveBeenLastCalledWith({ audience: 'STAFF', limit: 50, cursor: null, status: 'COMPLETADO' });
 });
 it.each(['success', 'failure'])('does not publish an earlier filter completion/error after the newer one (%s)', async mode => {
   const old = deferred(); get.mockResolvedValueOnce(page(rows(0, 1))).mockReturnValueOnce(old.promise).mockResolvedValueOnce(page(rows(100, 1, 'COMPLETADO')));
@@ -92,7 +96,7 @@ it('refreshes the current cursor instead of silently returning to the first page
   get.mockResolvedValueOnce(page(rows(0, 51))).mockResolvedValueOnce(page(rows(50, 1))).mockResolvedValueOnce(page(rows(50, 1)));
   const h = renderHook(() => usePayoutPages()); await waitFor(() => expect(h.result.current.loaded).toBe(true));
   await act(async () => { await h.result.current.next(); }); await act(async () => { await h.result.current.refresh(); });
-  expect(get).toHaveBeenLastCalledWith({ limit: 50, cursor: 'after-p-49', status: undefined });
+  expect(get).toHaveBeenLastCalledWith({ audience: 'STAFF', limit: 50, cursor: 'after-p-49', status: undefined });
 });
 it('clears retired credentials and does not continue their navigation under the new account', async () => {
   const old = deferred(); get.mockResolvedValueOnce(page(rows(0, 51))).mockReturnValueOnce(old.promise).mockResolvedValueOnce(page(rows(200, 1)));

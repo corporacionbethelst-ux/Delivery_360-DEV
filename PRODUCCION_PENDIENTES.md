@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 102. Este registro distingue implementación local,
+Actualizado con la entrega 103. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -86,8 +86,12 @@ directa por perfil. No resta solicitudes pendientes para inventar disponibilidad
 La entrega 102 migra el listado y detalle de transacciones del gerente a registros
 decimales: conserva signo, moneda original, saldos ausentes y filas con importes
 por revisar. Añade lectura coherente, CSV trazable y una presentación adaptable.
-Las tablas de movimientos, órdenes y entregas del detalle de auditoría, historial
-y administración de retiros, bonos y otros consumidores numéricos siguen
+La entrega 103 migra el historial y la administración de retiros a páginas
+decimales exactas y un detalle con historial completo del mismo corte SQL. Conserva
+cursores HMAC y contratos de mutación, con confirmación de decisiones comprobada
+en centavos y recuperación explícita. Añade CSV de página y separa saldos históricos,
+subtotal de solicitudes y disponibilidad. Las tablas de movimientos, órdenes y
+entregas del detalle de auditoría, bonos y otros consumidores numéricos siguen
 pendientes de migración.
 
 Faltan la revisión explícita de moneda histórica, el cierre de los demás reportes
