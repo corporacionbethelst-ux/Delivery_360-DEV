@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 101. Este registro distingue implementación local,
+Actualizado con la entrega 102. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -83,8 +83,12 @@ cuando una asignación necesita revisión, conservando las referencias originale
 La entrega 101 migra el resumen y catálogo de auditoría de repartidores a cadenas
 USD exactas, con corte de una sola sentencia, exclusiones trazables y consulta
 directa por perfil. No resta solicitudes pendientes para inventar disponibilidad.
-Las tablas de movimientos, órdenes y entregas del detalle, historial de retiros,
-bonos y otros consumidores numéricos siguen pendientes de migración.
+La entrega 102 migra el listado y detalle de transacciones del gerente a registros
+decimales: conserva signo, moneda original, saldos ausentes y filas con importes
+por revisar. Añade lectura coherente, CSV trazable y una presentación adaptable.
+Las tablas de movimientos, órdenes y entregas del detalle de auditoría, historial
+y administración de retiros, bonos y otros consumidores numéricos siguen
+pendientes de migración.
 
 Faltan la revisión explícita de moneda histórica, el cierre de los demás reportes
 monetarios sobre decimales, la conciliación bancaria automática de cobros y devoluciones y la

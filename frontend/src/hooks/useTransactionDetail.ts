@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { capturePrivateTask } from '@/lib/private-task';
-import { transactionService, type Transaction } from '@/services/transaction.service';
+import { exactTransactionService as transactionService, type ExactTransactionDetail as Transaction } from '@/services/transaction-exact.service';
 
 export function useTransactionDetail(id: string) {
   const [data, setData] = useState<Transaction | null>(null), [isLoading, setIsLoading] = useState(true), [error, setError] = useState<string | null>(null);

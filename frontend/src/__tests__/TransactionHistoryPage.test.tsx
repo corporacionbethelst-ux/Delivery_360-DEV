@@ -1,16 +1,16 @@
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import Page from '@/app/(dashboard)/manager/financial/transactions/page';
-import { api } from '@/lib/api';
 import { downloadCSV } from '@/lib/csv-export';
 import { clearStoredTokens, storeTokens } from '@/lib/auth-session';
-import { transactionRows } from '../../test-fixtures/transactions';
+import { transactionRows, transactionResponse } from '../../test-fixtures/transactions';
 const mockRouter = { replace: jest.fn() }; let mockUser = { id: 'a', role: 'GERENTE' }, mockAuthenticated = true;
 jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }));
 jest.mock('@/stores/authStore', () => ({ useAuthStore: () => ({ user: mockUser, isAuthenticated: mockAuthenticated }) }));
-jest.mock('@/lib/api', () => ({ api: { get: jest.fn() } }));
+const mockGet=jest.fn();
+jest.mock('@/lib/api',()=>({api:{get:(url:string)=>Promise.resolve(mockGet(url)).then(value=>jest.requireActual('../../test-fixtures/transactions').exactTransactionReply(value,url))}}));
 jest.mock('@/lib/csv-export', () => ({ downloadCSV: jest.fn(() => true) }));
-const get = jest.mocked(api.get), download = jest.mocked(downloadCSV);
+const get = mockGet, download = jest.mocked(downloadCSV);
 beforeEach(() => { jest.resetAllMocks(); clearStoredTokens(); storeTokens({ access_token: 'a', refresh_token: 'ra' }); mockUser = { id: 'a', role: 'GERENTE' }; mockAuthenticated = true; download.mockReturnValue(true); });
 afterEach(() => clearStoredTokens());
 it('reaches records beyond the first 50 and does not expose the lookahead before navigating', async () => {
@@ -29,7 +29,7 @@ it('queries new backend types and canonical statuses rather than silently filter
   render(<Page />); await screen.findByRole('region', { name: 'Página confirmada' });
   fireEvent.change(screen.getByLabelText('Tipo en el servidor'), { target: { value: 'BANK_TRANSFER' } }); await screen.findByText('tx-20', { exact: true });
   fireEvent.change(screen.getByLabelText('Estado en el servidor'), { target: { value: 'PENDIENTE' } }); await screen.findByText('tx-30', { exact: true });
-  expect(get).toHaveBeenLastCalledWith('/financial/transactions?type=BANK_TRANSFER&status=PENDIENTE&limit=51&offset=0');
+  expect(get).toHaveBeenLastCalledWith('/financial/transactions/exact/page?type=BANK_TRANSFER&status=PENDIENTE&limit=51&offset=0');
 });
 it('does not invent COP/USD or a credit sign for a positive withdrawal', async () => {
   get.mockResolvedValue(transactionRows(0, 1, { type: 'RETIRO', transaction_type: 'RETIRO', amount: 20, created_at: null })); render(<Page />); await screen.findByText('20,00 (moneda no informada)');
@@ -53,3 +53,11 @@ it.each(['OPERADOR', 'REPARTIDOR', 'CLIENTE'])('does not request a management le
   mockUser = { id: 'a', role }; render(<Page />); await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/login')); expect(get).not.toHaveBeenCalled();
 });
 it('does not load unauthenticated requests', () => { mockAuthenticated = false; render(<Page />); expect(get).not.toHaveBeenCalled(); });
+
+it('keeps reviewed amounts and healthy VES rows visible without inventing zero or USD', async()=>{
+ get.mockResolvedValue([transactionResponse('bad',{amount:null,money_review:[{field:'amount',reason:'IMPORTE_NO_VALIDO'}]}),transactionResponse('healthy',{amount:0,currency:'VES',status:null})]);
+ render(<Page/>);await screen.findByRole('region',{name:'Página confirmada'});
+ expect(screen.getByText('bad',{exact:true})).toBeInTheDocument();expect(screen.getByText('healthy',{exact:true})).toBeInTheDocument();
+ expect(screen.getByText('Importe por revisar')).toBeInTheDocument();expect(screen.getByText('0,00 VES')).toBeInTheDocument();expect(screen.getByText('No informado',{exact:true})).toBeInTheDocument();
+ expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});

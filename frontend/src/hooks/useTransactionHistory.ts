@@ -1,14 +1,16 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { transactionService, type Transaction, type TransactionType } from '@/services/transaction.service';
-import { TRANSACTION_STATUSES, TRANSACTION_TYPES, transactionCsv } from '@/lib/transaction-contract';
+import type { TransactionType } from '@/services/transaction.service';
+import { exactTransactionService as transactionService } from '@/services/transaction-exact.service';
+import { exactTransactionCsv as transactionCsv, type ExactTransaction as Transaction, type TransactionReadContext } from '@/lib/transaction-exact';
+import { TRANSACTION_STATUSES, TRANSACTION_TYPES } from '@/lib/transaction-contract';
 import { capturePrivateTask } from '@/lib/private-task';
 import { downloadCSV } from '@/lib/csv-export';
 
 export const TRANSACTION_PAGE_SIZE = 50;
 export interface TransactionQuery { type: TransactionType | 'ALL'; status: typeof TRANSACTION_STATUSES[number] | 'ALL'; offset: number; restart?: boolean }
-interface Snapshot extends TransactionQuery { rows: Transaction[]; hasNext: boolean; loaded: boolean }
-const initial: Snapshot = { type: 'ALL', status: 'ALL', offset: 0, rows: [], hasNext: false, loaded: false };
+interface Snapshot extends TransactionQuery { read_context: TransactionReadContext | null; rows: Transaction[]; hasNext: boolean; loaded: boolean }
+const initial: Snapshot = { type: 'ALL', status: 'ALL', offset: 0, read_context:null, rows: [], hasNext: false, loaded: false };
 class ChangedPageError extends Error {}
 const matches = (rows: Transaction[], term: string) => rows.filter(row => [row.id, row.rider_id, row.description, row.reference_id, row.source_id].some(value => value?.toLowerCase().includes(term.trim().toLowerCase())));
 
@@ -29,12 +31,12 @@ export function useTransactionHistory() {
       task = capturePrivateTask();
       const response = await transactionService.getAll({ type: query.type, status: query.status, limit: TRANSACTION_PAGE_SIZE + 1, offset: query.offset });
       task.assertCurrent(); if (!current()) return;
-      const rows = response.slice(0, TRANSACTION_PAGE_SIZE);
+      const rows = response.items.slice(0, TRANSACTION_PAGE_SIZE);
       if (!query.restart && previous.loaded && previous.type === query.type && previous.status === query.status && Math.abs(previous.offset - query.offset) === TRANSACTION_PAGE_SIZE) {
         const ids = new Set(previous.rows.map(row => row.id));
         if (rows.some(row => ids.has(row.id))) throw new ChangedPageError();
       }
-      const next = { ...query, rows, hasNext: response.length > TRANSACTION_PAGE_SIZE, loaded: true };
+      const next = { ...query, rows, read_context:response.read_context, hasNext: response.items.length > TRANSACTION_PAGE_SIZE, loaded: true };
       latest.current = next; setSnapshot(next);
     } catch (failure) {
       if (current()) {
@@ -63,7 +65,7 @@ export function useTransactionHistory() {
       task = capturePrivateTask();
       const rows = matches(s.rows, searchRef.current);
       if (!rows.length) return;
-      const data = transactionCsv(rows, { type: s.type, status: s.status, offset: s.offset, search: searchRef.current });
+      const data = transactionCsv(rows, { type: s.type, status: s.status, offset: s.offset, search: searchRef.current }, s.read_context);
       task.assertCurrent();
       if (!downloadCSV(data, `transacciones_pagina_${s.offset / TRANSACTION_PAGE_SIZE + 1}_${rows.length}_filas`)) throw new Error('No se generó CSV');
       setExportError(null);

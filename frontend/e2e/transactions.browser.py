@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import sync_playwright, expect
+from transaction_exact_fixture import envelope
 
 
 def transaction(index, query=None):
@@ -95,9 +96,8 @@ def main():
             }
             if route.request.method == "OPTIONS":
                 route.fulfill(status=204, headers=headers)
-            elif (
-                "/financial/transactions" in path
-                and target.netloc != urlparse(base).netloc
+            elif "/financial/transactions/exact/" in path and (
+                target.netloc != urlparse(base).netloc or path.startswith("/api/v1/")
             ):
                 requests.append(
                     {"path": path, "query": query, "method": route.request.method}
@@ -106,7 +106,7 @@ def main():
                     writes.append(path)
                     route.abort()
                     return
-                detail = not path.endswith("/transactions")
+                detail = not path.endswith("/page")
                 if state["mode"] == "failure":
                     route.fulfill(
                         status=503,
@@ -120,9 +120,11 @@ def main():
                     row = transaction(index)
                     if state["mode"] == "wrong_id":
                         row["id"] = "another-id"
-                    route.fulfill(json=row, headers=headers)
+                    route.fulfill(
+                        json=envelope([row], query, f"tx-{index}"), headers=headers
+                    )
                 else:
-                    route.fulfill(json=batch(query), headers=headers)
+                    route.fulfill(json=envelope(batch(query), query), headers=headers)
             elif path.endswith(("/auth/me", "/users/me")):
                 route.fulfill(
                     json={
@@ -136,7 +138,9 @@ def main():
                     },
                     headers=headers,
                 )
-            elif route.request.url.startswith(base + "/"):
+            elif route.request.url.startswith(base + "/") and not path.startswith(
+                "/api/v1/"
+            ):
                 route.continue_()
             else:
                 if route.request.method != "GET":
@@ -191,14 +195,14 @@ def main():
             csv.DictReader(io.StringIO(csv_path.read_text(encoding="utf-8-sig")))
         )
         assert len(rows) == 1 and rows[0]["id"] == "tx-50"
-        assert rows[0]["importe_registrado"] == "0" and rows[0]["moneda"] == ""
+        assert rows[0]["importe_registrado"] == "0.00" and rows[0]["moneda"] == ""
         assert rows[0]["descripcion"] == "'=SUM(1,1)"
-        assert rows[0]["saldo_anterior"] == "0" and rows[0]["saldo_posterior"] == ""
+        assert rows[0]["saldo_anterior"] == "0.00" and rows[0]["saldo_posterior"] == ""
         assert (
             rows[0]["desplazamiento_consulta"] == "50"
             and rows[0]["busqueda_local"] == "tx-50"
         )
-        assert rows[0]["fecha_creacion_utc"] == "2026-11-07T12:00:00Z"
+        assert rows[0]["fecha_creacion_utc"] == "2026-11-07T12:00:00.000000Z"
         assert "no es el historial completo" in rows[0]["alcance"]
         assert "pagina_2_1_filas" in download.suggested_filename
         passed("second_page_local_search_and_actual_partial_csv")
@@ -254,7 +258,11 @@ def main():
         ):
             box = page.get_by_label(label, exact=True).bounding_box()
             assert box["x"] >= 0 and box["x"] + box["width"] <= 390
-        page.screenshot(path=str(artifacts / "transactions-mobile.png"), full_page=True)
+        page.screenshot(
+            path=str(artifacts / "transactions-mobile.png"),
+            full_page=True,
+            animations="disabled",
+        )
         passed("mobile_filters_fit_and_table_scrolls_locally")
 
         state["mode"] = "wrong_id"
@@ -299,7 +307,7 @@ def main():
         ).to_be_visible()
         page.get_by_role("link", name="Ver transacción tx-1", exact=True).click()
         expect(page.get_by_text("ID confirmado: tx-1", exact=True)).to_be_visible()
-        old[0].fulfill(json=transaction(0), headers=old[2])
+        old[0].fulfill(json=envelope([transaction(0)], old[1], "tx-0"), headers=old[2])
         state["pending"] = None
         page.wait_for_timeout(150)
         expect(page.get_by_text("ID confirmado: tx-0", exact=True)).to_have_count(0)
@@ -314,7 +322,9 @@ def main():
         page.wait_for_url("**/login")
         assert page.evaluate("localStorage.getItem('access_token')") is None
         pending = state["pending"]
-        pending[0].fulfill(json=transaction(1), headers=pending[2])
+        pending[0].fulfill(
+            json=envelope([transaction(1)], pending[1], "tx-1"), headers=pending[2]
+        )
         page.wait_for_timeout(150)
         expect(page.get_by_role("region", name="Transacción confirmada")).to_have_count(
             0
