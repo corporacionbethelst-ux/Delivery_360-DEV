@@ -8,6 +8,8 @@ from typing import AsyncGenerator, Generator
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
+from sqlalchemy.ext.compiler import compiles
 
 from app.main import app
 from app.core.database import get_db, Base
@@ -18,6 +20,14 @@ from app.core.security import get_password_hash
 
 # Test database configuration - using SQLite for simplicity in unit tests
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
+
+@compiles(PostgreSQLUUID, "sqlite")
+def sqlite_uuid_as_text(type_, compiler, **kwargs):
+    # SQLite gives a column named UUID numeric affinity. Valid UUID hex strings
+    # containing only digits or scientific notation can become integers/Inf.
+    # Match SQLAlchemy's generic SQLite UUID storage; PostgreSQL is unaffected.
+    return "CHAR(32)"
 
 
 @pytest.fixture(scope="session")

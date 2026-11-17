@@ -55,7 +55,10 @@ WebSocket reales del laboratorio.
 Las pruebas incluyen JSON con precisión que Float oculta, CAS entre versiones,
 auditoría atómica, exclusiones monetarias, límites, lectura de propietario,
 componentes, cero, ausencia y cambio de sesión. Los contratos anteriores siguen
-verificándose. El frontend aprobó 3406 pruebas en 153 suites con cobertura y
+verificándose. La DDL de UUID de PostgreSQL se representa como CHAR(32) solo en
+SQLite de pruebas: evita que identificadores numéricos o con forma de exponente
+se conviertan en enteros o infinito. Dos casos reproducen esta corrupción sin
+depender del UUID aleatorio; la representación PostgreSQL permanece igual. El frontend aprobó 3406 pruebas en 153 suites con cobertura y
 caché fría. Los resultados finales de PostgreSQL, Chromium y CI y los archivos
 de recuperación se conservan en `work/entrega106`.
 
