@@ -33,7 +33,7 @@ import {
   settingsService,
   type PlatformSettings,
   type PlatformSettingsUpdate,
-} from "@/services/settings.service";
+} from "@/services/bonus-settings-exact.service";
 import {
   SETTING_LABELS,
   SETTING_NUMBERS,
@@ -44,7 +44,7 @@ import {
   settingsValue,
   type SettingsDraft,
   type SettingsKey,
-} from "@/lib/platform-settings";
+} from "@/lib/bonus-settings-exact";
 
 type Snapshot = { data: PlatformSettings; at: Date; version: number };
 type Confirmation = { base: PlatformSettings; patch: PlatformSettingsUpdate };
@@ -175,7 +175,15 @@ function SettingsForm() {
       const fresh = await settingsService.getSettings();
       if (!alive.current || confirmed.current !== captured) return;
       const keys = Object.keys(captured.patch) as SettingsKey[];
-      if (keys.some((key) => !sameSetting(fresh[key], captured.base[key]))) {
+      if (
+        keys.some((key) => !sameSetting(fresh[key], captured.base[key])) ||
+        (fresh.revision !== captured.base.revision &&
+          keys.some(
+            (key) =>
+              fresh.field_issues.some((i) => i.field === key) ||
+              captured.base.field_issues.some((i) => i.field === key),
+          ))
+      ) {
         setRequiresReload(true);
         setError(
           "Alguno de los campos que vas a guardar cambió desde la lectura. Recarga y revisa la configuración antes de continuar.",
@@ -225,6 +233,7 @@ function SettingsForm() {
   const field = (key: (typeof SETTING_NUMBERS)[number]) => (
     <label key={key} className="space-y-2 text-sm font-medium">
       {SETTING_LABELS[key]}
+      {key === "commission_percentage" ? "" : " (USD)"}
       <input
         className={operationStyles.field}
         inputMode="decimal"
@@ -243,7 +252,7 @@ function SettingsForm() {
         icon={Settings}
         eyebrow="Administración · Plataforma"
         title="Configuración de la Plataforma"
-        description="Revisa los parámetros guardados y prepara cambios de tarifas, bonos y operación."
+        description="Revisa los importes USD guardados para nuevas operaciones. Los cambios no reescriben precios ni bonos históricos."
         actions={
           <button
             className={operationStyles.button}
@@ -290,6 +299,16 @@ function SettingsForm() {
       )}
       {snapshot && draft && (
         <>
+          {snapshot.data.field_issues.length > 0 && (
+            <OperationNotice tone="warning">
+              Requieren revisión:{" "}
+              {snapshot.data.field_issues
+                .map((i) => SETTING_LABELS[i.field])
+                .join(", ")}
+              . Los valores inválidos no se convierten a cero. Revisa esos
+              campos antes de guardarlos.
+            </OperationNotice>
+          )}
           <div className="grid gap-4 sm:grid-cols-3">
             <OperationMetric
               icon={Shield}
@@ -338,7 +357,7 @@ function SettingsForm() {
                   icon={BadgeDollarSign}
                   title="Bonos del repartidor"
                   tone="violet"
-                  description="Importes guardados para entregas e intentos fallidos. Se conserva la precisión introducida."
+                  description="Importes USD para nuevos cierres, con hasta dos decimales. Los cambios no recalculan bonos históricos."
                 />
                 <div className="grid gap-4 md:grid-cols-2">
                   {SETTING_NUMBERS.slice(3).map(field)}

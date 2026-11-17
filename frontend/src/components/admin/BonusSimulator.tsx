@@ -1,5 +1,7 @@
 "use client";
 import axios from "axios";
+import { useAuthStore } from "@/stores/authStore";
+import { cashCents } from "@/lib/customer-cashbook";
 import { useEffect, useRef, useState } from "react";
 import {
   Calculator,
@@ -16,20 +18,23 @@ import {
 import {
   settingsService,
   type BonusSimulationResponse,
-} from "@/services/settings.service";
+} from "@/services/bonus-settings-exact.service";
 import {
-  settingsNumber,
+  parameterInput,
+  usdText,
+  decimalText,
   settingsTime,
   validateBonusRequest,
-} from "@/lib/platform-settings";
+} from "@/lib/bonus-settings-exact";
 
 export function BonusSimulator({
   currentBase,
   disabled = false,
 }: {
-  currentBase: number | null;
+  currentBase: string | null;
   disabled?: boolean;
 }) {
+  const { user } = useAuthStore();
   const [proposal, setProposal] = useState(
       currentBase === null ? "" : String(currentBase),
     ),
@@ -38,7 +43,7 @@ export function BonusSimulator({
     [error, setError] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<{
       result: BonusSimulationResponse;
-      proposed: number;
+      proposed: string;
       days: number;
       at: Date;
     } | null>(null),
@@ -55,11 +60,12 @@ export function BonusSimulator({
   const simulate = async (event: React.FormEvent) => {
     event.preventDefault();
     if (disabled || currentBase === null || writing.current) return;
-    let bonus: number, period: number;
+    let bonus: string, period: number;
     try {
-      bonus = settingsNumber(proposal, "bono propuesto");
-      period = settingsNumber(days, "días históricos");
-      validateBonusRequest({ new_base_bonus: bonus, days_projection: period });
+      bonus = parameterInput(proposal);
+      if (!/^(?:[1-9]|[1-8][0-9]|90)$/.test(days.trim()))
+        throw new Error("Usa entre 1 y 90 días enteros.");
+      period = Number(days.trim());
     } catch (error) {
       setError(
         error instanceof Error
@@ -78,10 +84,17 @@ export function BonusSimulator({
         throw new Error(
           "El bono guardado cambió. Recarga la configuración antes de simular.",
         );
-      const result = await settingsService.simulateBonusImpact({
+      if (!user)
+        throw new Error("La sesión no permite confirmar el escenario.");
+      const request = {
         new_base_bonus: bonus,
         days_projection: period,
         expected_settings_revision: fresh.revision,
+      };
+      validateBonusRequest(request);
+      const result = await settingsService.simulateBonusImpact(request, {
+        user_id: user.id,
+        role: user.role,
       });
       if (alive.current && !paused.current)
         setSnapshot({ result, proposed: bonus, days: period, at: new Date() });
@@ -101,11 +114,7 @@ export function BonusSimulator({
       if (alive.current) setPending(false);
     }
   };
-  const amount = (value: number) =>
-    value.toLocaleString("es-VE", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
+  const amount = usdText;
   return (
     <section
       className={`${operationStyles.panel} space-y-5 border-violet-200 p-5`}
@@ -119,8 +128,9 @@ export function BonusSimulator({
       />
       <p className="text-sm text-slate-600">
         Bono guardado:{" "}
-        {currentBase === null ? "Sin configurar" : String(currentBase)}. Moneda
-        no informada en el registro de bonos.
+        {currentBase === null ? "Sin configurar" : amount(currentBase)}. Los
+        bonos históricos conservan su propia moneda; solo los snapshots USD
+        entran al cálculo.
       </p>
       {currentBase === null && (
         <OperationNotice tone="warning">
@@ -146,7 +156,8 @@ export function BonusSimulator({
               id="uniform-bonus-help"
               className="block text-xs font-normal text-slate-600"
             >
-              Importe uniforme; redondeo a dos decimales por entrega.
+              Importe USD uniforme con hasta dos decimales; no modifica los
+              bonos guardados.
             </span>
           </div>
           <label className="space-y-2 text-sm font-medium">
@@ -178,7 +189,7 @@ export function BonusSimulator({
           aria-label="Resultado confirmado de simulación"
         >
           <p className="text-sm text-slate-600">
-            Resultado para bono {String(snapshot.proposed)} y {snapshot.days}{" "}
+            Resultado para bono {amount(snapshot.proposed)} y {snapshot.days}{" "}
             días de histórico. Consulta: {settingsTime(snapshot.at)} ·
             America/Caracas.
           </p>
@@ -198,25 +209,37 @@ export function BonusSimulator({
             multiplicadores de zona ni nivel, no predice actividad futura y no
             confirma pagos. No modifica los bonos congelados.
           </OperationNotice>
-          {snapshot.result.undated_bonus_deliveries > 0 && (
+          {snapshot.result.exclusions.unknown_currency +
+            snapshot.result.exclusions.other_currency +
+            snapshot.result.exclusions.no_bonus +
+            snapshot.result.exclusions.invalid_snapshot >
+            0 && (
             <OperationNotice tone="warning">
-              Existen {snapshot.result.undated_bonus_deliveries} entregas
-              bonificadas sin fecha de cierre ni fecha del bono en el histórico
-              global. Quedan fuera del cálculo porque no se pueden ubicar en
-              este período.
+              Fuera del cálculo: {snapshot.result.exclusions.unknown_currency}{" "}
+              sin moneda registrada; {snapshot.result.exclusions.other_currency}{" "}
+              de otra moneda; {snapshot.result.exclusions.no_bonus} sin bono;{" "}
+              {snapshot.result.exclusions.invalid_snapshot} con snapshot por
+              revisar. Ninguno de esos importes se convierte a USD.
+            </OperationNotice>
+          )}
+          {snapshot.result.exclusions.undated > 0 && (
+            <OperationNotice tone="warning">
+              Existen {snapshot.result.exclusions.undated} cierres sin fecha de
+              cierre ni fecha del bono en el histórico global. Quedan fuera del
+              cálculo porque no se pueden ubicar en este período.
             </OperationNotice>
           )}
           {snapshot.result.completed_deliveries === 0 &&
             snapshot.result.failed_bonus_deliveries === 0 && (
               <OperationNotice tone="warning">
-                Sin entregas bonificadas en el período consultado. Los ceros
+                Sin bonos USD elegibles en el período consultado. Los ceros
                 corresponden a esta muestra vacía.
               </OperationNotice>
             )}
           <div className="grid gap-4 sm:grid-cols-2">
             <OperationMetric
               icon={TrendingUp}
-              label="Bonos históricos registrados"
+              label="Bonos USD históricos registrados"
               value={amount(snapshot.result.historical_cost)}
             />
             <OperationMetric
@@ -229,7 +252,11 @@ export function BonusSimulator({
               icon={TrendingUp}
               label="Diferencia"
               value={amount(snapshot.result.difference)}
-              tone={snapshot.result.difference > 0 ? "amber" : "emerald"}
+              tone={
+                cashCents(snapshot.result.difference, true) > BigInt(0)
+                  ? "amber"
+                  : "emerald"
+              }
             />
             <OperationMetric
               icon={Calculator}
@@ -237,7 +264,7 @@ export function BonusSimulator({
               value={
                 snapshot.result.percentage_change === null
                   ? "Sin base porcentual"
-                  : `${amount(snapshot.result.percentage_change)} %`
+                  : `${decimalText(snapshot.result.percentage_change)} %`
               }
               tone="violet"
             />
@@ -253,11 +280,16 @@ export function BonusSimulator({
               tone="amber"
             />
           </div>
+          <p className="break-all text-xs text-slate-500">
+            Huella del escenario: {snapshot.result.content_sha256} · Corte SQL:{" "}
+            {settingsTime(snapshot.result.generated_at)}
+          </p>
           <p className="rounded-xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-950">
             Cálculo: {snapshot.result.completed_deliveries} entregas ×{" "}
             {amount(snapshot.result.applied_bonus)} de bono uniforme +{" "}
             {amount(snapshot.result.recorded_failed_bonus)} de bonos fallidos
-            registrados. Importes sin moneda identificada.
+            registrados, todos en USD. No representa saldo disponible ni
+            verificación bancaria.
           </p>
         </div>
       )}
