@@ -1,6 +1,7 @@
 """Real HTTP/browser checks; writes only after verifying the dedicated lab marker."""
 
 import argparse
+from decimal import Decimal
 import json
 from pathlib import Path
 import re
@@ -126,23 +127,37 @@ def main():
                 restored.status == 200
             ), "The lab configuration changed concurrently; original value was not overwritten"
         page.reload(wait_until="domcontentloaded")
-        expect(fee).to_have_value(str(original).removesuffix(".0"))
+        exact_restored = page.request.get(
+            api + "/settings/exact/v2", headers=headers
+        ).json()
+        assert exact_restored["version"] == 2 and exact_restored["currency"] == "USD"
+        assert exact_restored["delivery_fee_base"] == format(
+            Decimal(str(original)), ".2f"
+        )
+        expect(fee).to_have_value(exact_restored["delivery_fee_base"])
         page.get_by_role("textbox", name="Bono propuesto", exact=True).fill("0")
         page.get_by_role("textbox", name=re.compile("^Días de histórico")).fill("7")
         with page.expect_response(
-            lambda response: response.url.endswith("/settings/simulate-bonus")
+            lambda response: response.url.endswith("/settings/simulate-bonus/exact/v2")
             and response.request.method == "POST"
         ) as calculation:
             page.get_by_role("button", name="Simular impacto", exact=True).click()
         assert calculation.value.status == 200
         sample = calculation.value.json()
+        assert sample["version"] == 2 and sample["currency"] == "USD"
+        assert sample["applied_bonus"] == "0.00"
+        assert sample["settings_revision"] == exact_restored["revision"]
         region = page.get_by_role("region", name="Resultado confirmado de simulación")
         expect(region).to_be_visible(timeout=20000)
         expect(region).to_contain_text("Período histórico consultado")
         if sample["completed_deliveries"] + sample["failed_bonus_deliveries"] == 0:
-            expect(region).to_contain_text("Sin entregas bonificadas en el período")
+            expect(region).to_contain_text(
+                "Sin bonos USD elegibles en el período consultado"
+            )
         else:
-            expect(region).not_to_contain_text("Sin entregas bonificadas en el período")
+            expect(region).not_to_contain_text(
+                "Sin bonos USD elegibles en el período consultado"
+            )
         passed(
             "real simulation displays the actual historical sample, including previously completed lab orders"
         )
