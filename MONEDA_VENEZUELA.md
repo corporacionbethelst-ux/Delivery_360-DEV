@@ -627,3 +627,19 @@ numérica ni se reintenta una decisión automáticamente. Los saldos históricos
 no representan disponibilidad ni verificación bancaria. No hay migración ni
 reetiquetado de moneda; la política USD/BCV y la tasa original de devoluciones
 siguen vigentes.
+
+
+## Entrega 104: tablas de auditoría exactas
+
+Las tablas de órdenes, entregas y movimientos del detalle de auditoría ya usan
+lecturas decimales. El precio versionado de la orden se comprueba contra sus
+artículos y revisión; los Float históricos no se convierten ni se presentan como
+cero. Los bonos conservados salen de NUMERIC y los movimientos del libro preservan
+signo, moneda original y saldos ausentes. Cada tabla identifica su propio corte,
+actor y huella; el CSV conserva ese alcance sin sumar fuentes independientes.
+
+La entrega no tiene una moneda registrada propia para el bono. La auditoría
+conserva esa ausencia y no adopta la moneda de la orden, un asiento o la configuración
+actual. Se registra como pendiente denominar explícitamente nuevos snapshots, sin
+reetiquetar los anteriores. No hay migración ni escritura histórica en esta entrega.
+USD/BCV y la política de devolución a la tasa original permanecen vigentes.

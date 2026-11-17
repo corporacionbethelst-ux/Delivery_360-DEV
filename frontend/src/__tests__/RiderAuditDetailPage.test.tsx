@@ -7,21 +7,25 @@ import { auditHttpResponse, exactAuditEnvelope, auditSummaryResponse, auditOrder
 const mockRouter = { replace: jest.fn() }; let mockParams: { id: string | string[] } = { id: 'rider-1' }, mockUser: { id: string; role: string } | null = { id: 'a', role: 'GERENTE' }, mockAuthenticated = true;
 jest.mock('next/navigation', () => ({ useRouter: () => mockRouter, useParams: () => mockParams }));
 jest.mock('@/stores/authStore', () => ({ useAuthStore: () => ({ user: mockUser, isAuthenticated: mockAuthenticated }) }));
-jest.mock('@/lib/api', () => ({ api: { get: jest.fn() } }));
-const get = jest.mocked(api.get);
+const mockGet = jest.fn<Promise<unknown>, [url:string]>();
+jest.mock('@/lib/api', () => ({ api: { get: (url:string) => {
+ const f=jest.requireActual('../../test-fixtures/rider-audit');
+ return mockGet(f.auditFixtureLegacyUrl(url)).then((raw:unknown)=>f.auditRecordsReply(raw,url));
+} } }));
+const get = mockGet;
 function deferred() { let resolve!: (v: unknown) => void, reject!: (e: Error) => void; const promise = new Promise((r, j) => { resolve = r; reject = j; }); return { promise, resolve, reject }; }
 beforeEach(() => { jest.resetAllMocks(); storeTokens({ access_token: 'a', refresh_token: 'ra' }); mockParams = { id: 'rider-1' }; mockUser = { id: 'a', role: 'GERENTE' }; mockAuthenticated = true; get.mockImplementation(async url => auditHttpResponse(url, 1)); });
 afterEach(() => clearStoredTokens());
 it('shows exact identities, legitimate zero values, UTC and unknown currencies', async () => {
   render(<Page />); await screen.findByRole('region', { name: 'Auditoría confirmada' });
   expect(screen.getByText('0, 0', { exact: true })).toBeInTheDocument(); expect(screen.getByText('Offline', { exact: true })).toBeInTheDocument();
-  expect(screen.getAllByText('0,00 (moneda no informada)')).toHaveLength(2); expect(screen.getAllByText('USD 25,00')).toHaveLength(2);
+  expect(screen.getAllByText('0,00 (moneda no informada)')).toHaveLength(1); expect(screen.getByText('0,00 USD')).toBeInTheDocument(); expect(screen.getAllByText('USD 25,00')).toHaveLength(2);
   expect(screen.getByRole('link', { name: 'Ver orden o-0' })).toHaveAttribute('href', '/manager/operations/orders/o-0'); expect(screen.getByRole('link', { name: 'Ver transacción tx-0' })).toHaveAttribute('href', '/manager/financial/transactions/tx-0');
   expect(screen.getAllByText(/UTC/).length).toBeGreaterThan(0); expect(screen.getByText(/no acreditan una transferencia bancaria/)).toBeInTheDocument();
 });
 it('leaves absent amounts, dates and snapshots unknown rather than inventing zero or pending payment', async () => {
   get.mockImplementation(async url => url.startsWith('/orders') ? [auditOrderResponse('o', 'rider-1', { total: null, created_at: null })] : url.startsWith('/deliveries') ? auditDeliveryPage([auditDeliveryResponse('d', 'rider-1', { locked_bonus_amount: null, updated_at: null })]) : auditHttpResponse(url, 1));
-  render(<Page />); await screen.findByRole('region', { name: 'Auditoría confirmada' }); expect(screen.getAllByText('Monto no informado')).toHaveLength(2); expect(screen.getAllByText('Fecha no informada')).toHaveLength(2); expect(screen.queryByText('Pendiente', { exact: true })).not.toBeInTheDocument();
+  render(<Page />); await screen.findByRole('region', { name: 'Auditoría confirmada' }); expect(screen.getAllByText('Monto no informado')).toHaveLength(1); expect(screen.getByText('Importe por revisar')).toBeInTheDocument(); expect(screen.getAllByText('Fecha no informada')).toHaveLength(2); expect(screen.queryByText('Pendiente', { exact: true })).not.toBeInTheDocument();
 });
 it('separates fallback orders and does not count their derived completed status as a real delivery', async () => {
   get.mockImplementation(async url => url.startsWith('/deliveries') ? auditDeliveryPage([auditDeliveryResponse('order-support', 'rider-1', { order_id: 'support', locked_bonus_amount: null })]) : auditHttpResponse(url, 1));

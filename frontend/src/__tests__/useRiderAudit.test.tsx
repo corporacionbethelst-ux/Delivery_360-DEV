@@ -1,10 +1,16 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useRiderAudit } from '@/hooks/useRiderAudit';
 import { api } from '@/lib/api';
+import { downloadCSV } from '@/lib/csv-export';
+jest.mock('@/lib/csv-export',()=>({downloadCSV:jest.fn()}));
 import { clearStoredTokens, storeTokens } from '@/lib/auth-session';
 import { auditHttpResponse, auditOrderResponse } from '../../test-fixtures/rider-audit';
-jest.mock('@/lib/api', () => ({ api: { get: jest.fn() } }));
-const get = jest.mocked(api.get);
+const mockGet = jest.fn<Promise<unknown>, [url:string]>();
+jest.mock('@/lib/api', () => ({ api: { get: (url:string) => {
+ const f=jest.requireActual('../../test-fixtures/rider-audit');
+ return mockGet(f.auditFixtureLegacyUrl(url)).then((raw:unknown)=>f.auditRecordsReply(raw,url));
+} } }));
+const get = mockGet;
 function deferred() { let resolve!: (v: unknown) => void, reject!: (e: Error) => void; const promise = new Promise((r, j) => { resolve = r; reject = j; }); return { promise, resolve, reject }; }
 beforeEach(() => { jest.resetAllMocks(); storeTokens({ access_token: 'a', refresh_token: 'ra' }); get.mockImplementation(async url => auditHttpResponse(url)); });
 afterEach(() => clearStoredTokens());
@@ -54,4 +60,17 @@ it('refreshes current offsets and retires continuations on unmount', async () =>
 });
 it('ends missing credentials with an error and no business HTTP', async () => {
   clearStoredTokens(); const h = renderHook(() => useRiderAudit('rider-1')); await waitFor(() => expect(h.result.current.isLoading).toBe(false)); expect(h.result.current.error).not.toBeNull(); expect(get).not.toHaveBeenCalled();
+});
+
+it('exports exact visible table cuts only after a complete read and blocks a synchronous pending refresh or failed set',async()=>{
+ get.mockImplementation(async url=>auditHttpResponse(url,1));
+ const h=renderHook(()=>useRiderAudit('rider-1'));await waitFor(()=>expect(h.result.current.data).not.toBeNull());
+ const pending=deferred();get.mockImplementation(async url=>url.startsWith('/orders')?pending.promise:auditHttpResponse(url,1));
+ const retainedExport=h.result.current.exportTables;let read:Promise<void>;
+ act(()=>{read=h.result.current.refresh();retainedExport();});expect(downloadCSV).not.toHaveBeenCalled();
+ await act(async()=>{pending.resolve([auditOrderResponse()]);await read!;});
+ act(()=>h.result.current.exportTables());
+ expect(downloadCSV).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({clase_registro:'orders',importe_registrado:'0.00',moneda:'USD'}),expect.objectContaining({clase_registro:'deliveries',bono_conservado:'0.00',moneda:''}),expect.objectContaining({clase_registro:'transactions',importe_registrado:'10.25'})]),'auditoria_tablas');
+ jest.mocked(downloadCSV).mockClear();get.mockRejectedValue(new Error('offline'));
+ await act(async()=>{await h.result.current.refresh();});act(()=>h.result.current.exportTables());expect(downloadCSV).not.toHaveBeenCalled();
 });

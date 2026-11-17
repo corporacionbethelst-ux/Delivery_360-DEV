@@ -1,5 +1,6 @@
 from fastapi import (
     APIRouter,
+    Request,
     Depends,
     HTTPException,
     Query,
@@ -13,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
 from sqlalchemy.orm import joinedload, load_only
 from pydantic import BaseModel, Field
-from typing import Optional, Any, List
+from typing import Optional, Any, List, Literal
 from datetime import datetime, timezone, timedelta
 import uuid
 import logging
@@ -1552,3 +1553,20 @@ async def get_exact_rider_audit_summary(
         offset,
         rider_id,
     )
+
+
+@router.get("/audit/records/exact")
+async def get_exact_rider_audit_records(
+    request: Request,
+    rider_id: uuid.UUID = Query(...),
+    kind: Literal["orders", "deliveries"] = Query(...),
+    limit: int = Query(51, ge=1, le=51),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+):
+    from app.services.rider_audit_records_exact import report
+
+    if set(request.query_params) - {"rider_id", "kind", "limit", "offset"}:
+        raise HTTPException(422, "La consulta no admite filtros adicionales")
+    return await report(db, current_user, rider_id, kind, limit, offset)

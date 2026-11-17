@@ -9,7 +9,12 @@ import json
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import sync_playwright, expect
-from rider_audit_fixture import money, envelope as exact_envelope
+from rider_audit_fixture import (
+    money,
+    envelope as exact_envelope,
+    records_envelope,
+    transaction_envelope,
+)
 
 
 def summary(rider="rider-1"):
@@ -162,9 +167,8 @@ def main():
             ) and path.endswith(
                 (
                     "/riders/audit/summary/exact",
-                    "/orders",
-                    "/deliveries",
-                    "/financial/transactions",
+                    "/riders/audit/records/exact",
+                    "/financial/transactions/exact/page",
                 )
             ):
                 requests.append(
@@ -173,7 +177,7 @@ def main():
                 if route.request.method != "GET":
                     writes.append(path)
                     route.abort()
-                elif state["mode"] == "failure" and path.endswith("/deliveries"):
+                elif state["mode"] == "failure" and query.get("kind") == ["deliveries"]:
                     route.fulfill(
                         status=503,
                         json={"detail": "Synthetic failure"},
@@ -190,11 +194,20 @@ def main():
                     data = (
                         summary_page(query)
                         if path.endswith("/riders/audit/summary/exact")
-                        else batch(path, query)
+                        else (
+                            records_envelope(
+                                batch("/" + query["kind"][0], query), query
+                            )
+                            if path.endswith("/riders/audit/records/exact")
+                            else transaction_envelope(
+                                batch("/transactions", query), query
+                            )
+                        )
                     )
-                    if state["mode"] == "wrong_rider" and path.endswith("/orders"):
-                        data[0]["rider_id"] = "another-rider"
-                        data[0]["assigned_rider_id"] = "another-rider"
+                    if state["mode"] == "wrong_rider" and query.get("kind") == [
+                        "orders"
+                    ]:
+                        data["items"][0]["rider_id"] = "another-rider"
                     route.fulfill(json=data, headers=headers)
             elif path.endswith(("/auth/me", "/users/me")):
                 route.fulfill(

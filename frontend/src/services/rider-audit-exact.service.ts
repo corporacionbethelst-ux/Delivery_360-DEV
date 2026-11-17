@@ -14,14 +14,14 @@ import {
   auditId,
   prepareAuditOffsets,
   boundedAuditPage,
-  normalizeAuditOrder,
-  normalizeAuditDeliveries,
   type AuditOffsets,
 } from "@/lib/rider-audit-contract";
+import { prepareTransactionQuery } from "@/lib/transaction-contract";
 import {
-  normalizeTransactionPage,
-  prepareTransactionQuery,
-} from "@/lib/transaction-contract";
+  normalizeExactAuditOrders,
+  normalizeExactAuditDeliveries,
+} from "@/lib/rider-audit-records-exact";
+import { normalizeExactTransactionPage } from "@/lib/transaction-exact";
 export async function readExactAuditCatalogPage(
   input: Readonly<AuditCatalogQuery> = initialAuditCatalogQuery,
 ) {
@@ -80,30 +80,42 @@ export async function readExactRiderAudit(
           offset: 0,
         }),
       ),
-      get(`/orders?${params(query.orders)}`).then((raw) =>
-        boundedAuditPage(raw, query.orders, (row) =>
-          normalizeAuditOrder(row, riderId),
-        ),
+      get(
+        `/riders/audit/records/exact?kind=orders&${params(query.orders)}`,
+      ).then((raw) => normalizeExactAuditOrders(raw, riderId, query.orders)),
+      get(
+        `/riders/audit/records/exact?kind=deliveries&${params(query.deliveries)}`,
+      ).then((raw) =>
+        normalizeExactAuditDeliveries(raw, riderId, query.deliveries),
       ),
-      get(`/deliveries?${params(query.deliveries)}&include_total=true`).then(
-        (raw) => normalizeAuditDeliveries(raw, riderId, query.deliveries),
-      ),
-      get(`/financial/transactions?${params(query.transactions)}`).then((raw) =>
-        boundedAuditPage(
-          normalizeTransactionPage(
-            raw,
-            prepareTransactionQuery({
-              rider_id: riderId,
-              limit: AUDIT_PAGE_SIZE + 1,
-              offset: query.transactions,
-            }),
+      get(
+        `/financial/transactions/exact/page?${params(query.transactions)}`,
+      ).then((raw) => {
+        const page = normalizeExactTransactionPage(
+          raw,
+          prepareTransactionQuery({
+            rider_id: riderId,
+            limit: 51,
+            offset: query.transactions,
+          }),
+        );
+        return {
+          ...boundedAuditPage(
+            page.items,
+            query.transactions,
+            (row) => row as (typeof page.items)[number],
           ),
-          query.transactions,
-          (row) => row as ReturnType<typeof normalizeTransactionPage>[number],
-        ),
-      ),
+          read_context: page.read_context,
+        };
+      }),
     ]);
     assertCurrent();
+    for (const page of [orders, deliveries, transactions])
+      if (
+        page.read_context.viewer_user_id !== exact.viewer_user_id ||
+        page.read_context.viewer_role !== exact.viewer_role
+      )
+        throw new Error("El actor de la auditoría cambió entre consultas");
     return {
       riderId,
       offsets: query,

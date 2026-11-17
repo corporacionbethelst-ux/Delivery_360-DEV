@@ -11,7 +11,12 @@ import json
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import sync_playwright, expect
-from rider_audit_fixture import money, envelope as exact_envelope
+from rider_audit_fixture import (
+    money,
+    envelope as exact_envelope,
+    records_envelope,
+    transaction_envelope,
+)
 
 
 def summary(index, query):
@@ -115,9 +120,8 @@ def main():
             ) and path.endswith(
                 (
                     "/riders/audit/summary/exact",
-                    "/orders",
-                    "/deliveries",
-                    "/financial/transactions",
+                    "/riders/audit/records/exact",
+                    "/financial/transactions/exact/page",
                 )
             ):
                 requests.append(
@@ -140,13 +144,11 @@ def main():
                     state["pending"] = (route, query, headers)
                 elif path.endswith("/riders/audit/summary/exact"):
                     route.fulfill(json=envelope(query), headers=headers)
-                elif path.endswith("/deliveries"):
-                    route.fulfill(
-                        json={"items": [], "total": 0, "limit": 51, "offset": 0},
-                        headers=headers,
-                    )
+                elif path.endswith("/riders/audit/records/exact"):
+                    value = {"items": []} if query["kind"] == ["deliveries"] else []
+                    route.fulfill(json=records_envelope(value, query), headers=headers)
                 else:
-                    route.fulfill(json=[], headers=headers)
+                    route.fulfill(json=transaction_envelope([], query), headers=headers)
             elif path.endswith(("/auth/me", "/users/me")):
                 route.fulfill(
                     json={
