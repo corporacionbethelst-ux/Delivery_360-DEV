@@ -1555,6 +1555,7 @@ async def get_exact_rider_audit_summary(
     )
 
 
+@router.get("/audit/records/exact/v2")
 @router.get("/audit/records/exact")
 async def get_exact_rider_audit_records(
     request: Request,
@@ -1569,4 +1570,12 @@ async def get_exact_rider_audit_records(
 
     if set(request.query_params) - {"rider_id", "kind", "limit", "offset"}:
         raise HTTPException(422, "La consulta no admite filtros adicionales")
-    return await report(db, current_user, rider_id, kind, limit, offset)
+    return await report(
+        db,
+        current_user,
+        rider_id,
+        kind,
+        limit,
+        offset,
+        2 if request.url.path.endswith("/v2") else 1,
+    )

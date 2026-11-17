@@ -118,11 +118,11 @@ def records_envelope(value, query):
                 locked_bonus_amount=format(bonus, ".2f") if bonus is not None else None,
                 money_review=[],
                 fallback=fallback,
-                currency_basis="not_recorded_on_delivery",
+                currency_basis="locked_bonus_snapshot",
             )
         (support if fallback else items).append(r)
     return dict(
-        version=1,
+        version=2,
         scope="rider_audit_registered_records",
         kind=kind,
         units_basis="recorded_currency_no_conversion",

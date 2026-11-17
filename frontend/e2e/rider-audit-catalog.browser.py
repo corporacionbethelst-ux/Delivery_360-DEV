@@ -120,7 +120,7 @@ def main():
             ) and path.endswith(
                 (
                     "/riders/audit/summary/exact",
-                    "/riders/audit/records/exact",
+                    "/riders/audit/records/exact/v2",
                     "/financial/transactions/exact/page",
                 )
             ):
@@ -144,7 +144,7 @@ def main():
                     state["pending"] = (route, query, headers)
                 elif path.endswith("/riders/audit/summary/exact"):
                     route.fulfill(json=envelope(query), headers=headers)
-                elif path.endswith("/riders/audit/records/exact"):
+                elif path.endswith("/riders/audit/records/exact/v2"):
                     value = {"items": []} if query["kind"] == ["deliveries"] else []
                     route.fulfill(json=records_envelope(value, query), headers=headers)
                 else:

@@ -213,6 +213,12 @@ class Delivery(Base):
         comment="Monto del bono congelado en el momento de finalizar la entrega. Inmutable.",
     )
 
+    locked_bonus_currency: Mapped[str | None] = mapped_column(
+        String(3).evaluates_none(),
+        nullable=True,
+        comment="Moneda explícita del nuevo bono congelado; NULL conserva historia sin verificar.",
+    )
+
     # Tipo de bono aplicado: SUCCESS (entrega completada) o FAILED_ATTEMPT (fallida bonificable)
     locked_bonus_type: Mapped[LockedBonusType | None] = mapped_column(
         SQLEnum(LockedBonusType),

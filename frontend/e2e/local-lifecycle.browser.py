@@ -1,6 +1,8 @@
 """Exercise real operational/ledger endpoints only in the marked local lab."""
 
 import argparse
+import csv
+import io
 from decimal import Decimal
 import json
 from pathlib import Path
@@ -260,6 +262,20 @@ def main():
                 data={"lat": 0, "lng": 0},
             )
 
+        completed_snapshots = []
+
+        def bonus_snapshot(delivery_id):
+            response = call(
+                admin,
+                staff,
+                "GET",
+                "/riders/audit/records/exact/v2?kind=deliveries&rider_id="
+                + rider_id
+                + "&limit=51&offset=0",
+            )
+            assert response["version"] == 2
+            return next(row for row in response["items"] if row["id"] == delivery_id)
+
         for index in range(4):
             order_id = first_order if index == 0 else create_order()
             delivery_id = assigned(order_id)
@@ -308,6 +324,12 @@ def main():
                 order["status"] == "ENTREGADO"
                 and order["delivery"]["status"] == "COMPLETADA"
             )
+            frozen = bonus_snapshot(delivery_id)
+            assert (
+                frozen["locked_bonus_amount"] == "2.50"
+                and frozen["currency"] == frozen["currency_recorded"] == "USD"
+            )
+            completed_snapshots.append(frozen)
             call(
                 rider_page,
                 own,
@@ -316,6 +338,13 @@ def main():
                 expected=400,
                 data={},
             )
+            assert (
+                bonus_snapshot(delivery_id)["locked_bonus_amount"]
+                == frozen["locked_bonus_amount"]
+            )
+        passed(
+            "new success snapshots preserve exact USD in both order and delivery closure paths"
+        )
         passed(
             "four completed orders agree with their deliveries; completion replay cannot pay twice"
         )
@@ -386,6 +415,10 @@ def main():
             else:
                 assert failed["locked_bonus_amount"] is None
                 assert failed["locked_bonus_type"] is None
+            frozen = bonus_snapshot(delivery_id)
+            assert frozen["currency"] == ("USD" if reward > 0 else None)
+            assert frozen["locked_bonus_amount"] == ("1.00" if reward > 0 else None)
+
             assert (
                 call(operator, operations, "GET", "/orders/" + order_id)["status"]
                 == "FALLIDO"
@@ -402,6 +435,60 @@ def main():
             "a closed business is reported from pickup in the real UI; its bonus is exact, rider-caused failure earns zero and neither can become success"
         )
 
+        passed(
+            "failed bonus snapshots record their own USD; nonbonifiable failures do not invent a unit"
+        )
+        admin.goto(
+            base + "/manager/operations/rider-audit/" + rider_id,
+            wait_until="domcontentloaded",
+        )
+        audit = admin.get_by_role("region", name="Auditoría confirmada")
+        expect(audit).to_be_visible(timeout=30000)
+        deliveries_panel = admin.get_by_role(
+            "region", name="Entregas registradas del repartidor", exact=True
+        )
+        expect(
+            deliveries_panel.get_by_text("2,50 USD", exact=True).first
+        ).to_be_visible()
+        expect(deliveries_panel.get_by_text("1,00 USD", exact=True)).to_be_visible()
+        with admin.expect_download() as exported:
+            admin.get_by_role("button", name="Exportar tablas CSV", exact=True).click()
+        csv_file = out / "new-bonus-usd-snapshots.csv"
+        exported.value.save_as(str(csv_file))
+        rows = list(
+            csv.DictReader(io.StringIO(csv_file.read_text(encoding="utf-8-sig")))
+        )
+        bonus_rows = [
+            r
+            for r in rows
+            if r["clase_registro"] == "deliveries" and r["bono_conservado"]
+        ]
+        assert len(bonus_rows) == 5 and all(
+            r["moneda"] == r["moneda_original"] == "USD" for r in bonus_rows
+        )
+        admin.screenshot(
+            path=str(out / "new-bonus-usd-desktop.png"),
+            full_page=True,
+            animations="disabled",
+        )
+        admin.set_viewport_size({"width": 390, "height": 844})
+        admin.wait_for_function(
+            "document.querySelector('aside').getBoundingClientRect().right <= 1"
+        )
+        deliveries_panel.get_by_text(
+            "2,50 USD", exact=True
+        ).first.scroll_into_view_if_needed()
+        expect(
+            deliveries_panel.get_by_text("2,50 USD", exact=True).first
+        ).to_be_in_viewport()
+        assert admin.evaluate("document.documentElement.scrollWidth <= innerWidth+1")
+        admin.screenshot(
+            path=str(out / "new-bonus-usd-mobile.png"), animations="disabled"
+        )
+        admin.set_viewport_size({"width": 1440, "height": 1050})
+        passed(
+            "real audit and CSV show the stored USD bonus unit on desktop and mobile without labelling absent historical units"
+        )
         cancelled_order = create_order()
         cancelled_delivery = assigned(cancelled_order)
         call(

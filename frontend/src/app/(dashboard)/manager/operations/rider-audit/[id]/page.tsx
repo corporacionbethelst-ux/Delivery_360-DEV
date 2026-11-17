@@ -306,9 +306,9 @@ function Detail({ riderId }: { riderId: string }) {
           <OperationNotice>
             Los precios exactos de órdenes no son ganancias del repartidor. Los
             precios anteriores sin registro decimal requieren revisión y no se
-            convierten desde cifras históricas. El bono conservado en la entrega
-            no guarda una moneda propia: se muestra sin inferir USD desde la
-            orden o un movimiento contable.
+            convierten desde cifras históricas. Cada bono muestra la moneda
+            guardada en su snapshot. Los registros anteriores sin moneda se
+            conservan sin inferir USD desde la orden o un movimiento contable.
           </OperationNotice>
           <Panel
             icon={ClipboardList}

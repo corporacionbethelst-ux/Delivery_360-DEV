@@ -167,7 +167,7 @@ def main():
             ) and path.endswith(
                 (
                     "/riders/audit/summary/exact",
-                    "/riders/audit/records/exact",
+                    "/riders/audit/records/exact/v2",
                     "/financial/transactions/exact/page",
                 )
             ):
@@ -198,7 +198,7 @@ def main():
                             records_envelope(
                                 batch("/" + query["kind"][0], query), query
                             )
-                            if path.endswith("/riders/audit/records/exact")
+                            if path.endswith("/riders/audit/records/exact/v2")
                             else transaction_envelope(
                                 batch("/transactions", query), query
                             )

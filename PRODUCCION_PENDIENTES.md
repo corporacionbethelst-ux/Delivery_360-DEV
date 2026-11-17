@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 104. Este registro distingue implementación local,
+Actualizado con la entrega 105. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -94,10 +94,12 @@ subtotal de solicitudes y disponibilidad.
 La entrega 104 migra las tablas del detalle de auditoría: precios NUMERIC
 versionados, bonos conservados y movimientos exactos, con CSV de las páginas y
 metadatos independientes. No convierte precios Float históricos ni deduce la
-moneda del bono desde la orden. El modelo de entrega no registra una moneda propia
-en el snapshot; falta definirla explícitamente para nuevos cierres, mantenerla
-inmutable y conservar desconocida la moneda histórica. Bonos y otros consumidores
-numéricos todavía requieren revisión.
+moneda del bono desde la orden. La entrega 105 registra USD en los nuevos snapshots de bono, junto con importe,
+tipo y fecha, y protege su identidad y campos contra cambios, borrado y truncado
+en PostgreSQL. Los snapshots anteriores mantienen la moneda NULL, incluidos los
+bonos cero y cierres sin snapshot. Los fallos no bonificables no crean moneda ni
+un crédito cero. La auditoría v2 muestra la unidad conservada; la v1 permanece
+compatible. Quedan los demás consumidores numéricos de bonos y su configuración.
 
 Faltan la revisión explícita de moneda histórica, el cierre de los demás reportes
 monetarios sobre decimales, la conciliación bancaria automática de cobros y devoluciones y la

@@ -8,6 +8,8 @@ from app.services.delivery_ledger import (
     calculated_bonus,
     bonus_component,
     ensure_bonus_outcome,
+    ensure_empty_bonus_snapshot,
+    ensure_new_bonus_snapshot,
 )
 from app.core.exceptions import ValidationError
 
@@ -278,6 +280,8 @@ class DeliveryService:
         now = datetime.utcnow()
 
         # Actualizar campos de snapshot en el objeto delivery
+        ensure_empty_bonus_snapshot(delivery)
+        delivery.locked_bonus_currency = "USD"
         delivery.locked_bonus_amount = money(bonus_amount)
         delivery.locked_bonus_type = bonus_type
         delivery.bonus_snapshot_date = now
@@ -465,7 +469,7 @@ class DeliveryService:
                 action="completar entrega",
             )
             validate_delivery_otp(delivery, proof_data.otp_code)
-            await ensure_bonus_outcome(db, delivery.order_id, success=True)
+            await ensure_new_bonus_snapshot(db, delivery, success=True)
             now = datetime.utcnow()
 
             # =========================================================================
@@ -491,6 +495,7 @@ class DeliveryService:
                 "current_longitude": proof_data.delivery_longitude,
                 # Snapshot financiero inmutable
                 "locked_bonus_amount": money(bonus_amount),
+                "locked_bonus_currency": "USD",
                 "locked_bonus_type": LockedBonusType.SUCCESS,
                 "bonus_snapshot_date": now,
                 "bonus_config_warning_snapshot": config_warning,
@@ -567,7 +572,7 @@ class DeliveryService:
             )
 
             # 1. Importar Enum y validar causa
-            await ensure_bonus_outcome(db, delivery.order_id, success=False)
+            await ensure_new_bonus_snapshot(db, delivery, success=False)
             from app.models.enums import DeliveryFailureCause
 
             try:
@@ -612,6 +617,7 @@ class DeliveryService:
                 "issue_analysis_result": f"Causa: {failure_cause.value}. Bonificable: {failure_cause.is_bonificable}",
                 # Snapshot financiero inmutable
                 "locked_bonus_amount": money(bonus_amount) if bonus_type else None,
+                "locked_bonus_currency": "USD" if bonus_type else None,
                 "locked_bonus_type": bonus_type,
                 "bonus_snapshot_date": datetime.utcnow() if bonus_type else None,
                 "bonus_config_warning_snapshot": config_warning,

@@ -109,11 +109,13 @@ function normalizeDelivery(value: unknown, riderId: string) {
     order_id = auditId(r.order_id);
   if (
     typeof r.fallback !== "boolean" ||
-    r.currency_basis !== "not_recorded_on_delivery" ||
-    u.currency_recorded !== null ||
-    u.currency !== null ||
-    u.currency_review ||
+    r.currency_basis !== "locked_bonus_snapshot" ||
     !Array.isArray(r.money_review)
+  )
+    return fail();
+  if (
+    r.fallback &&
+    (u.currency_recorded !== null || u.currency !== null || u.currency_review)
   )
     return fail();
   if (r.fallback ? b.id !== `order-${order_id}` : b.id.startsWith("order-"))
@@ -149,7 +151,7 @@ function envelope(
 ) {
   const p = record(value);
   if (
-    p.version !== 1 ||
+    p.version !== 2 ||
     p.scope !== "rider_audit_registered_records" ||
     p.kind !== kind ||
     p.rider_id !== riderId ||

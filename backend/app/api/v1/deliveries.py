@@ -45,6 +45,7 @@ from app.services.delivery_ledger import (
     validate_bonus_receipt,
     lock_delivery_transition,
     ensure_bonus_outcome,
+    ensure_new_bonus_snapshot,
 )
 from app.models.platform_setting import PlatformSetting
 from app.models.zone import Zone  # Importado para Fase 3
@@ -1031,7 +1032,7 @@ async def update_delivery_status(
     elif new_status == DeliveryStatus.COMPLETADA:
         # Validación OTP
         validate_delivery_otp(delivery, body.otp_code)
-        await ensure_bonus_outcome(db, delivery.order_id, success=True)
+        await ensure_new_bonus_snapshot(db, delivery, success=True)
 
         delivery.status = DeliveryStatus.COMPLETADA
         delivery.completed_at = now
@@ -1135,6 +1136,7 @@ async def update_delivery_status(
             )
 
             # 6. PERSISTIR EN LOCKED_BONUS_AMOUNT Y CAMPOS DE DESGLOSE (FASE 5)
+            delivery.locked_bonus_currency = "USD"
             delivery.locked_bonus_amount = money(final_payment)
             delivery.locked_bonus_type = LockedBonusType.SUCCESS
             delivery.bonus_snapshot_date = now
@@ -1173,7 +1175,7 @@ async def update_delivery_status(
             )
 
     elif new_status == DeliveryStatus.FALLIDA:
-        await ensure_bonus_outcome(db, delivery.order_id, success=False)
+        await ensure_new_bonus_snapshot(db, delivery, success=False)
         # Validar causa de fallo
         failure_cause = None
         is_bonificable = False
@@ -1240,6 +1242,7 @@ async def update_delivery_status(
                 failed_payment = calculated_bonus(
                     bonus_value if bonus_value is not None else 0
                 )
+                delivery.locked_bonus_currency = "USD"
                 delivery.locked_bonus_amount = failed_payment
                 delivery.locked_bonus_type = LockedBonusType.FAILED_ATTEMPT
                 delivery.bonus_snapshot_date = now
