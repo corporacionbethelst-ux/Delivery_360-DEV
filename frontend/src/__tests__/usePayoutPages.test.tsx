@@ -5,9 +5,13 @@ import { payoutService, type Payout, type PayoutPage } from '@/services/payout.s
 import { storeTokens, clearStoredTokens } from '@/lib/auth-session';
 
 const mockGetPage = jest.fn();
-jest.mock('@/services/payout-exact.service', () => ({ exactPayoutService: {
-  getPage: (...args: any[]) => mockGetPage(...args).then((p: any) => jest.requireActual('../../test-fixtures/payout-exact').payoutModelPage(p)),
-} }));
+jest.mock('@/services/payout-exact.service', () => {
+  // Load/instrument the fixture before waitFor starts, rather than in its first microtask.
+  const { payoutModelPage } = jest.requireActual('../../test-fixtures/payout-exact');
+  return { exactPayoutService: {
+    getPage: (...args: any[]) => mockGetPage(...args).then(payoutModelPage),
+  } };
+});
 jest.mock('@/services/payout.service', () => ({ payoutService: { getPage: jest.fn() } }));
 const get = mockGetPage;
 const rows = (start: number, count: number, status: Payout['status'] = 'PENDIENTE'): Payout[] => Array.from({ length: count }, (_, index) => ({ id: `p-${start + index}`, rider_id: 'r', amount: 10, total_amount: 10, method: 'EFECTIVO', status, requested_at: null, created_at: null, updated_at: null }));
