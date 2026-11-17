@@ -276,15 +276,19 @@ def main():
                 path=str(out / (role.lower() + "-desktop.png")), full_page=True
             )
             page.set_viewport_size({"width": 390, "height": 844})
-            expect(page.locator("aside")).to_have_class(re.compile("-translate-x-full"))
+            page.wait_for_function(
+                "document.querySelector('aside').getBoundingClientRect().right <= 1"
+            )
             assert page.evaluate(
                 "document.documentElement.scrollWidth <= window.innerWidth + 1"
             )
-            page.get_by_text(
-                "Créditos USD registrados", exact=True
+            page.get_by_role(
+                "heading", name="Órdenes del repartidor", exact=True
             ).scroll_into_view_if_needed()
             page.screenshot(
-                path=str(out / (role.lower() + "-mobile.png")), full_page=False
+                path=str(out / (role.lower() + "-mobile.png")),
+                full_page=False,
+                animations="disabled",
             )
             passed(role + ": responsive mobile audit without document overflow")
 
