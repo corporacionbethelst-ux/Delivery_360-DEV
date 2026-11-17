@@ -165,7 +165,7 @@ export function auditHttpResponse(
 export function auditFixtureLegacyUrl(url: string) {
   const p = new URL(url, "https://test.invalid"),
     q = p.searchParams;
-  if (p.pathname === "/riders/audit/records/exact")
+  if (p.pathname === "/riders/audit/records/exact/v2")
     return `/${q.get("kind")}?rider_id=${q.get("rider_id")}&limit=${q.get("limit")}&offset=${q.get("offset")}${q.get("kind") === "deliveries" ? "&include_total=true" : ""}`;
   if (p.pathname === "/financial/transactions/exact/page")
     return `/financial/transactions?${q}`;
@@ -177,7 +177,7 @@ export function auditRecordsReply(value: unknown, url: string) {
   if (value && typeof value === "object" && "scope" in value) return value;
   if (p.pathname === "/financial/transactions/exact/page")
     return exactTransactionReply(value, url);
-  if (p.pathname !== "/riders/audit/records/exact") return value;
+  if (p.pathname !== "/riders/audit/records/exact/v2") return value;
   const kind = q.get("kind"),
     offset = Number(q.get("offset") ?? 0),
     delivery = kind === "deliveries";
@@ -196,7 +196,9 @@ export function auditRecordsReply(value: unknown, url: string) {
   const rows = input.map((v) => {
     const r = v as Record<string, unknown>,
       fallback = delivery && String(r.id).startsWith("order-");
-    const currency = delivery ? null : (r.currency ?? null);
+    const currency = delivery
+      ? (r.locked_bonus_currency ?? null)
+      : (r.currency ?? null);
     const raw = {
       ...r,
       rider_id: r.rider_id ?? r.assigned_rider_id,
@@ -214,7 +216,7 @@ export function auditRecordsReply(value: unknown, url: string) {
           ...raw,
           locked_bonus_amount: money(r.locked_bonus_amount),
           money_review: [],
-          currency_basis: "not_recorded_on_delivery",
+          currency_basis: "locked_bonus_snapshot",
           fallback,
         }
       : {
@@ -234,7 +236,7 @@ export function auditRecordsReply(value: unknown, url: string) {
   const items = rows.filter((r) => !("fallback" in r) || !r.fallback),
     fallback = rows.filter((r) => "fallback" in r && r.fallback);
   return {
-    version: 1,
+    version: 2,
     scope: "rider_audit_registered_records",
     kind,
     units_basis: "recorded_currency_no_conversion",

@@ -19,8 +19,8 @@ it("uses only exact table APIs with the captured rider and independent offsets",
   });
   expect(get.mock.calls.map(([url]) => url)).toEqual([
     "/riders/audit/summary/exact?rider_id=rider-1&limit=1&offset=0",
-    "/riders/audit/records/exact?kind=orders&rider_id=rider-1&limit=51&offset=50",
-    "/riders/audit/records/exact?kind=deliveries&rider_id=rider-1&limit=51&offset=0",
+    "/riders/audit/records/exact/v2?kind=orders&rider_id=rider-1&limit=51&offset=50",
+    "/riders/audit/records/exact/v2?kind=deliveries&rider_id=rider-1&limit=51&offset=0",
     "/financial/transactions/exact/page?rider_id=rider-1&limit=51&offset=100",
   ]);
   expect(r.deliveries.rows[0].locked_bonus_amount).toBe("0.00");

@@ -16,7 +16,7 @@ it('uses the real Axios/API chain for independent bounded navigation and actual 
   const urls: string[] = []; client.defaults.adapter = async config => { expect(config.method).toBe('get'); expect(config.headers.get('Authorization')).toBe('Bearer a'); urls.push(String(config.url)); return reply(config, auditHttpResponse(String(config.url))); };
   render(<Page />); await screen.findByRole('region', { name: 'Auditoría confirmada' });
   fireEvent.click(within(screen.getByRole('navigation', { name: 'Páginas de Entregas registradas del repartidor' })).getByRole('button', { name: 'Siguiente' }));
-  await screen.findByText('d-50', { exact: true }); expect(urls).toHaveLength(8); expect(urls[6]).toBe('/riders/audit/records/exact?kind=deliveries&rider_id=rider-1&limit=51&offset=50');
+  await screen.findByText('d-50', { exact: true }); expect(urls).toHaveLength(8); expect(urls[6]).toBe('/riders/audit/records/exact/v2?kind=deliveries&rider_id=rider-1&limit=51&offset=50');
   expect(screen.getByRole('link', { name: 'Ver orden o-0' })).toBeInTheDocument();
 });
 it('retires the interceptor continuation gap when another account takes over', async () => {

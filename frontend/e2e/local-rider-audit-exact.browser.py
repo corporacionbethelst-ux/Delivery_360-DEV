@@ -188,12 +188,12 @@ def main():
             )
             # Each table has its own SQL cut; neither price nor bonus is a ledger balance.
             order_records = get(
-                "/riders/audit/records/exact?kind=orders&rider_id="
+                "/riders/audit/records/exact/v2?kind=orders&rider_id="
                 + target
                 + "&limit=51&offset=0"
             )
             delivery_records = get(
-                "/riders/audit/records/exact?kind=deliveries&rider_id="
+                "/riders/audit/records/exact/v2?kind=deliveries&rider_id="
                 + target
                 + "&limit=51&offset=0"
             )
@@ -214,7 +214,8 @@ def main():
                 )
                 assert all(r["rider_id"] == target for r in data["items"])
             assert all(
-                r["currency"] is None and r["currency_recorded"] is None
+                r["currency"] in (None, "USD")
+                and r["currency_recorded"] == r["currency"]
                 for r in delivery_records["items"]
             )
             assert all(
@@ -346,7 +347,7 @@ def main():
                     route.fulfill(response=response)
 
             page.route(
-                re.compile(r"/api/v1/riders/audit/records/exact\?.*kind=orders"),
+                re.compile(r"/api/v1/riders/audit/records/exact/v2\?.*kind=orders"),
                 corrupt_table,
             )
             page.get_by_role("button", name="Actualizar auditoría", exact=True).click()

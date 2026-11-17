@@ -105,3 +105,41 @@ async def ensure_bonus_outcome(
             "La orden ya registra un bono de resultado contrario; requiere revisión",
             409,
         )
+
+
+BONUS_SNAPSHOT_FIELDS = (
+    "locked_bonus_amount",
+    "locked_bonus_currency",
+    "locked_bonus_type",
+    "bonus_snapshot_date",
+    "bonus_config_warning_snapshot",
+    "locked_bonus_base",
+    "locked_bonus_zone_multiplier",
+    "locked_bonus_tier_multiplier",
+    "locked_bonus_tier_level",
+)
+
+
+def ensure_empty_bonus_snapshot(delivery: Delivery) -> None:
+    if any(
+        getattr(delivery, field, None) is not None for field in BONUS_SNAPSHOT_FIELDS
+    ):
+        raise AppException(
+            "Existe un bono congelado; la entrega requiere revisión", 409
+        )
+
+
+async def ensure_new_bonus_snapshot(
+    db: AsyncSession, delivery: Delivery, *, success: bool
+) -> None:
+    ensure_empty_bonus_snapshot(delivery)
+    await ensure_bonus_outcome(db, delivery.order_id, success=success)
+    key = ("pago_entrega_" if success else "pago_fallido_") + str(delivery.order_id)
+    if (
+        await db.scalar(select(Financial.id).where(Financial.idempotency_key == key))
+        is not None
+    ):
+        raise AppException(
+            "Existe un movimiento previo del bono; requiere revisión sin reetiquetar su historia",
+            409,
+        )

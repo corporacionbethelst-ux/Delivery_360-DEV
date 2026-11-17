@@ -121,7 +121,7 @@ def declared_usd_contract(expected):
             anchor, "\n\t" + column + " VARCHAR(3), " + anchor, 1
         )
         data["defaults"][column] = [default, None]
-    return exact_pricing_contract(result)
+    return exact_pricing_contract(bonus_currency_contract(result))
 
 
 def exact_pricing_contract(expected):
@@ -148,4 +148,23 @@ def exact_pricing_contract(expected):
         for name, _ in fields:
             assert name not in row["defaults"]
             row["defaults"][name] = [None, None]
+    return result
+
+
+def bonus_currency_contract(expected):
+    """Only the nullable, default-free snapshot unit added by 20261117_bonus_currency."""
+    from copy import deepcopy
+
+    result = deepcopy(expected)
+    if "deliveries" in result:
+        row = result["deliveries"]
+        anchor = "\n\tlocked_bonus_type"
+        assert (
+            row["ddl"].count(anchor) == 1
+            and "locked_bonus_currency" not in row["defaults"]
+        )
+        row["ddl"] = row["ddl"].replace(
+            anchor, "\n\tlocked_bonus_currency VARCHAR(3), " + anchor, 1
+        )
+        row["defaults"]["locked_bonus_currency"] = [None, None]
     return result

@@ -208,7 +208,16 @@ async def test_page_reuses_legacy_cursor_and_stable_null_boundary(exact_db):
         and c["next_cursor"] is None
     )
     assert not a["history_included"] and not a["history_complete"]
-    await payout(f, "10.04")
+    newer = await payout(f, "10.04")
+    # A later insertion must sort before the cursor by date, not by random UUID.
+    # The shared payout fixture otherwise gives every request the same timestamp.
+    async with f[1]() as db:
+        await db.execute(
+            text("UPDATE payouts SET requested_at=:at WHERE id=:id"),
+            {"at": STAMP, "id": newer},
+        )
+        await db.commit()
+    assert get(f, params={"limit": 1})["items"][0]["id"] == str(newer)
     again = get(f, params={"limit": 1, "cursor": a["next_cursor"]})
     assert again["items"][0]["id"] == b["items"][0]["id"]
 

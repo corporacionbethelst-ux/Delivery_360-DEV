@@ -217,6 +217,7 @@ async def cancel_order(
                 value is not None
                 for value in (
                     delivery.locked_bonus_amount,
+                    delivery.locked_bonus_currency,
                     delivery.locked_bonus_type,
                     delivery.bonus_snapshot_date,
                 )

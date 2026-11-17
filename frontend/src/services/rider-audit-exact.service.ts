@@ -81,10 +81,10 @@ export async function readExactRiderAudit(
         }),
       ),
       get(
-        `/riders/audit/records/exact?kind=orders&${params(query.orders)}`,
+        `/riders/audit/records/exact/v2?kind=orders&${params(query.orders)}`,
       ).then((raw) => normalizeExactAuditOrders(raw, riderId, query.orders)),
       get(
-        `/riders/audit/records/exact?kind=deliveries&${params(query.deliveries)}`,
+        `/riders/audit/records/exact/v2?kind=deliveries&${params(query.deliveries)}`,
       ).then((raw) =>
         normalizeExactAuditDeliveries(raw, riderId, query.deliveries),
       ),

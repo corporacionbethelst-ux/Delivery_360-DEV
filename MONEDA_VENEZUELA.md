@@ -643,3 +643,30 @@ conserva esa ausencia y no adopta la moneda de la orden, un asiento o la configu
 actual. Se registra como pendiente denominar explícitamente nuevos snapshots, sin
 reetiquetar los anteriores. No hay migración ni escritura histórica en esta entrega.
 USD/BCV y la política de devolución a la tasa original permanecen vigentes.
+
+
+## Entrega 105: moneda propia e inmutable de los bonos nuevos
+
+Cada cierre bonificable nuevo conserva `locked_bonus_currency = USD` junto con
+importe NUMERIC, tipo y fecha. También se conserva la unidad si el bono elegible
+es 0.00; no se crea un movimiento financiero de importe cero. Los fallos no
+bonificables no inventan importe, tipo, fecha ni moneda de bono. Las cinco rutas
+de cierre usan la misma protección contra snapshots o asientos previos ambiguos.
+
+La migración `20261117_bonus_currency` añade una columna nullable sin default ni
+backfill. Todos los registros previos conservan NULL, incluidos bonos cero y
+cierres históricos sin snapshot. Los triggers PostgreSQL impiden modificar el
+snapshot congelado, su orden, repartidor o estado, eliminarlo y truncar historia
+congelada. Un snapshot nuevo incompleto o sin USD se rechaza. Si ya se registró
+una unidad explícita, el downgrade se niega para evitar perderla.
+
+La lectura `/riders/audit/records/exact/v2` presenta únicamente la unidad guardada
+en la entrega; las órdenes de apoyo siguen sin bono ni moneda de bono. La pantalla
+y el CSV exactos usan esta versión. La lectura v1 conserva su contrato anterior y
+no añade unidades a sus respuestas. No se deduce la moneda histórica desde una
+orden, el libro financiero o la configuración. No se recalculan importes previos.
+
+La base USD, la conversión VES con BCV conservado y la devolución en moneda y tasa
+originales permanecen vigentes. Este bloque no cambia liquidaciones bancarias ni
+convierte saldos históricos. Continúa pendiente la revisión de los demás
+consumidores numéricos y la configuración decimal de bonos.

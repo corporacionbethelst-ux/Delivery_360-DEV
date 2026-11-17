@@ -42,7 +42,7 @@ def order_query(rider_id, limit, offset):
     )
 
 
-def delivery_query(rider_id, limit, offset):
+def delivery_query(rider_id, limit, offset, version=1):
     real = (
         select(
             cast(Delivery.id, String).label("id"),
@@ -54,6 +54,9 @@ def delivery_query(rider_id, limit, offset):
             Delivery.created_at,
             Delivery.updated_at,
             Delivery.locked_bonus_amount,
+            (
+                Delivery.locked_bonus_currency if version == 2 else cast(null(), String)
+            ).label("locked_bonus_currency"),
             literal(False).label("fallback"),
         )
         .outerjoin(Order, Delivery.order_id == Order.id)
@@ -78,6 +81,7 @@ def delivery_query(rider_id, limit, offset):
             cast(null(), Delivery.locked_bonus_amount.type).label(
                 "locked_bonus_amount"
             ),
+            cast(null(), String).label("locked_bonus_currency"),
             literal(True).label("fallback"),
         )
         .where(
@@ -132,7 +136,7 @@ def order_row(raw):
     return item
 
 
-def delivery_row(raw):
+def delivery_row(raw, version=1):
     item = base_row(raw)
     fallback = raw["fallback"]
     if fallback:
@@ -152,7 +156,7 @@ def delivery_row(raw):
     if bonus is not None and Decimal(bonus) < 0:
         bonus = None
         issues.append(dict(field="locked_bonus_amount", reason="IMPORTE_NO_VALIDO"))
-    # Delivery has no recorded currency column. A price or linked ledger is not its denomination.
+    # v1 retains its historical unknown-unit contract; v2 exposes only the stored snapshot unit.
     item.update(
         order_id=str(raw["order_id"]),
         fallback=fallback,
@@ -160,17 +164,21 @@ def delivery_row(raw):
         currency=None,
         currency_recorded=None,
         currency_review=False,
-        currency_basis="not_recorded_on_delivery",
+        currency_basis=(
+            "locked_bonus_snapshot" if version == 2 else "not_recorded_on_delivery"
+        ),
         money_review=issues,
     )
+    if version == 2:
+        item.update(currency({"currency_code": raw["locked_bonus_currency"]}))
     return item
 
 
-async def report(db, actor, rider_id, kind, limit, offset):
+async def report(db, actor, rider_id, kind, limit, offset, version=1):
     records = (
         order_query(rider_id, limit, offset)
         if kind == "orders"
-        else delivery_query(rider_id, limit, offset)
+        else delivery_query(rider_id, limit, offset, version)
     ).cte("exact_audit_records")
     clock = select(
         func.timezone("UTC", func.statement_timestamp()).label("generated_at")
@@ -189,15 +197,17 @@ async def report(db, actor, rider_id, kind, limit, offset):
         raise HTTPException(503, "No se pudo confirmar el corte de auditoría")
     source = [r for r in rows if r["id"] is not None]
     items = [
-        order_row(r) if kind == "orders" else delivery_row(r)
+        order_row(r) if kind == "orders" else delivery_row(r, version)
         for r in source
         if kind == "orders" or not r["fallback"]
     ]
     fallback = [
-        delivery_row(r) for r in source if kind == "deliveries" and r["fallback"]
+        delivery_row(r, version)
+        for r in source
+        if kind == "deliveries" and r["fallback"]
     ]
     result = dict(
-        version=1,
+        version=version,
         scope="rider_audit_registered_records",
         kind=kind,
         units_basis="recorded_currency_no_conversion",

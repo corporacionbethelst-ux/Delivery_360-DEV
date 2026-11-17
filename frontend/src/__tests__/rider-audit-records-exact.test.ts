@@ -12,7 +12,7 @@ import {
 } from "../../test-fixtures/rider-audit";
 import { serializeCSV } from "@/lib/csv-export";
 const url = (kind = "orders", offset = 0) =>
-  `/riders/audit/records/exact?kind=${kind}&rider_id=rider-1&limit=51&offset=${offset}`;
+  `/riders/audit/records/exact/v2?kind=${kind}&rider_id=rider-1&limit=51&offset=${offset}`;
 const orders = () => auditRecordsReply([auditOrderResponse()], url()) as any;
 const deliveries = () =>
   auditRecordsReply(auditDeliveryPage(), url("deliveries")) as any;
@@ -69,7 +69,7 @@ it("preserves exact bonus zero and missing values, but cannot inherit denominati
     normalizeExactAuditDeliveries(p, "rider-1", 0).rows[0].locked_bonus_amount,
   ).toBeNull();
   for (const patch of [
-    { currency: "USD", currency_recorded: "USD" },
+    { currency: "USD", currency_recorded: null },
     { currency_basis: "order_currency" },
     { locked_bonus_amount: 0.1 },
     { locked_bonus_amount: "-0.01" },
@@ -177,4 +177,33 @@ it("exports only the visible exact table cut without numeric conversion, includi
   expect(csv).toContain('"USD"');
   expect(csv).toContain("a".repeat(64));
   expect(csv).toContain("lecturas independientes");
+});
+
+it("shows only the stored bonus unit in v2 and exports it without inheriting the order currency", () => {
+  const p = deliveries();
+  Object.assign(p.items[0], {
+    locked_bonus_amount: "0.10",
+    currency: "USD",
+    currency_recorded: "USD",
+  });
+  const page = normalizeExactAuditDeliveries(p, "rider-1", 0),
+    r = page.rows[0];
+  expect(r.currency).toBe("USD");
+  expect(exactTransactionMoney(r.locked_bonus_amount, r.currency)).toBe(
+    "0,10 USD",
+  );
+  const csv = exactAuditTableCsv(
+    "deliveries",
+    page.rows,
+    page.read_context,
+    "rider-1",
+    0,
+  );
+  expect(csv[0]).toMatchObject({
+    bono_conservado: "0.10",
+    moneda: "USD",
+    moneda_original: "USD",
+  });
+  p.version = 1;
+  expect(() => normalizeExactAuditDeliveries(p, "rider-1", 0)).toThrow();
 });

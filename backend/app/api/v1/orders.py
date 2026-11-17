@@ -32,11 +32,12 @@ from app.services import order_pricing
 from app.services.order_pricing import MoneyInput
 from app.models.rider import Rider, RiderStatus, utc_now_naive
 from app.models.user import User, UserRole
-from app.models.delivery import Delivery, DeliveryStatus
+from app.models.delivery import Delivery, DeliveryStatus, LockedBonusType
 from app.models.financial import Financial, TransactionType, PaymentStatus
 from app.models.platform_setting import PlatformSetting
 from app.services.financial_service import FinancialService
 from app.services.delivery_ledger import (
+    ensure_new_bonus_snapshot,
     calculated_bonus,
     validate_bonus_receipt,
     ensure_bonus_outcome,
@@ -959,6 +960,27 @@ async def _ensure_delivery_and_financial_records(
     )
     delivery = delivery_result.scalar_one_or_none()
 
+    if delivery is not None:
+        await ensure_new_bonus_snapshot(db, delivery, success=True)
+    elif (
+        await db.scalar(
+            select(Financial.id).where(
+                Financial.idempotency_key == f"pago_entrega_{order.id}"
+            )
+        )
+        is not None
+    ):
+        raise HTTPException(
+            409, "Existe un bono previo sin snapshot; requiere revisión"
+        )
+    settings_result = await db.execute(
+        select(PlatformSetting.value).where(
+            PlatformSetting.key == "rider_delivery_bonus"
+        )
+    )
+    bonus_value = settings_result.scalar_one_or_none()
+    base_payment = calculated_bonus(bonus_value if bonus_value is not None else "2.50")
+
     if not delivery:
         # Calcular SLA si es posible
         sla_actual_minutes = None
@@ -984,8 +1006,8 @@ async def _ensure_delivery_and_financial_records(
             sla_actual_minutes=sla_actual_minutes,
             sla_compliant=sla_compliant,
         )
+        delivery.id = uuid.uuid4()
         db.add(delivery)
-        await db.flush()  # Obtener ID generado
         logger.info(f"Registro de entrega creado automáticamente para orden {order.id}")
     else:
         # Actualizar entrega existente si está en estado adecuado
@@ -1006,38 +1028,20 @@ async def _ensure_delivery_and_financial_records(
                         elapsed_minutes <= delivery.sla_expected_minutes
                     )
 
-            await db.flush()
             logger.info(f"Registro de entrega actualizado para orden {order.id}")
 
-    # 2. Verificar/Crear registro en financials (pago al repartidor)
-    # Usamos idempotency_key para evitar duplicados
-    idempotency_key = f"pago_entrega_{order.id}"
-
-    financial_result = await db.execute(
-        select(Financial).where(Financial.idempotency_key == idempotency_key)
+    delivery.locked_bonus_amount = base_payment
+    delivery.locked_bonus_currency = "USD"
+    delivery.locked_bonus_type = LockedBonusType.SUCCESS
+    delivery.bonus_snapshot_date = now
+    delivery.bonus_config_warning_snapshot = (
+        "rider_delivery_bonus no configurado; se conserva fallback 2.50"
+        if bonus_value is None
+        else None
     )
-    existing_financial = financial_result.scalar_one_or_none()
-
-    if existing_financial is not None:
-        validate_bonus_receipt(
-            existing_financial, rider_id, order.id, TransactionType.PAGO_ENTREGA
-        )
-
-    if not existing_financial:
-        # Obtener el bono base configurable desde platform_settings (FASE 1)
-        # Si no existe configuración, usar 2.50 como fallback para retrocompatibilidad
-        settings_result = await db.execute(
-            select(PlatformSetting.value).where(
-                PlatformSetting.key == "rider_delivery_bonus"
-            )
-        )
-        bonus_value = settings_result.scalar_one_or_none()
-        base_payment = calculated_bonus(
-            bonus_value if bonus_value is not None else "2.50"
-        )
-        if base_payment == 0:
-            return
-
+    await db.flush()
+    idempotency_key = f"pago_entrega_{order.id}"
+    if base_payment > 0:
         # Crear registro financiero
         await FinancialService(db).create_ledger_entry(
             rider_id=rider_id,
