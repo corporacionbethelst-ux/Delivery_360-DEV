@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 106. Este registro distingue implementación local,
+Actualizado con la entrega 107. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -109,6 +109,14 @@ lectura exacta del propietario, sin COP, estimaciones desde configuración actua
 ni aritmética Float del desglose. Cero y ausencia siguen separados. Los contratos
 numéricos anteriores permanecen como compatibilidad; continúa la revisión de los
 demás consumidores monetarios y de los requisitos externos.
+
+La entrega 107 migra los precios de los listados de operador y repartidor y los
+detalles de orden/entrega a la lectura versionada de la orden. Conserva centavos,
+artículos y revisión, separa cero y ausencia, y comprueba el vínculo entrega/orden.
+Los errores de precio no ocultan el detalle operativo ni reconstruyen importes.
+El total se presenta como precio registrado, sin afirmar deuda pendiente, cobro
+verificado o ganancia. No añade endpoints ni migra datos. Quedan los saldos del
+perfil y las tarifas de zonas, además de los consumidores aún no revisados.
 
 Faltan la revisión explícita de moneda histórica, el cierre de los demás reportes
 monetarios sobre decimales, la conciliación bancaria automática de cobros y devoluciones y la

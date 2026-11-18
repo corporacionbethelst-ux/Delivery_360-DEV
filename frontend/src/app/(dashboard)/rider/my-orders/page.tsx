@@ -1,77 +1,90 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/stores/authStore';
-import { orderService, Order } from '@/services/order.service';
-import { Package, Clock, MapPin, DollarSign, Loader2, RefreshCw } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { OrderSkeleton } from '@/components/loaders/OrderSkeleton';
-import { formatCurrency } from '@/lib/formatters';
-import { resolveOrderCollectAmount } from '@/lib/order-amount';
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { orderService, Order } from "@/services/order.service";
+import {
+  Package,
+  Clock,
+  MapPin,
+  DollarSign,
+  Loader2,
+  RefreshCw,
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { OrderSkeleton } from "@/components/loaders/OrderSkeleton";
+import { OrderPriceAmount } from "@/components/orders/OperationalOrderPrice";
+import { ManagerPageBoundary } from "@/components/layout/ManagerPageBoundary";
+import { capturePrivateTask } from "@/lib/private-task";
 
 export default function MyOrdersPage() {
+  return (
+    <ManagerPageBoundary scope="rider-orders-prices" roles={["REPARTIDOR"]}>
+      <MyOrdersContent />
+    </ManagerPageBoundary>
+  );
+}
+function MyOrdersContent() {
   const router = useRouter();
-  const { user, isAuthenticated } = useAuthStore();
-  
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  // Función centralizada para cargar datos
-  const loadOrders = async () => {
-    try {
-      // El backend filtra automáticamente por el rider autenticado
-      const data = await orderService.getAll({ limit: 50 }); // Aumentado ligeramente para mejor UX
-      setOrders(data);
-    } catch (error) {
-      console.error('Error loading orders:', error);
-    }
-  };
-
-  useEffect(() => {
-    if (!isMounted || !isAuthenticated || !user) return;
-
-    if (user.role !== 'REPARTIDOR') {
-      router.push('/login'); 
-      return;
-    }
-
-    const init = async () => {
-      setLoading(true);
-      await loadOrders();
-      setLoading(false);
-    };
-    
-    init();
-  }, [user, isAuthenticated, router, isMounted]);
-
-  const handleRefresh = async () => {
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const sequence = useRef(0);
+  const loadOrders = useCallback(async () => {
+    const ticket = ++sequence.current;
     setIsRefreshing(true);
-    await loadOrders();
-    setIsRefreshing(false);
+    let current = () => ticket === sequence.current;
+    try {
+      const task = capturePrivateTask();
+      current = () => ticket === sequence.current && task.isCurrent();
+      const data = await orderService.getAll({ limit: 50 });
+      if (!current()) return;
+      if (!Array.isArray(data)) throw new Error("Catálogo de órdenes inválido");
+      setOrders(data);
+      setLoadError(null);
+    } catch {
+      if (current())
+        setLoadError(
+          "No se pudieron consultar las órdenes. Se conserva la última lectura confirmada; vuelve a actualizar antes de usar sus precios.",
+        );
+    } finally {
+      if (current()) {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
+    }
+  }, []);
+  useEffect(() => {
+    void loadOrders();
+    return () => {
+      sequence.current++;
+    };
+  }, [loadOrders]);
+  const handleRefresh = () => {
+    void loadOrders();
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'ENTREGADO': return 'bg-green-100 text-green-800 border-green-200';
-      case 'ASIGNADO': return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'EN_RUTA': 
-      case 'EN_RECOLECCION': 
-      case 'RECOLECTADO': return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'CANCELADO': return 'bg-red-100 text-red-800 border-red-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
+      case "ENTREGADO":
+        return "bg-green-100 text-green-800 border-green-200";
+      case "ASIGNADO":
+        return "bg-blue-100 text-blue-800 border-blue-200";
+      case "EN_RUTA":
+      case "EN_RECOLECCION":
+      case "RECOLECTADO":
+        return "bg-purple-100 text-purple-800 border-purple-200";
+      case "CANCELADO":
+        return "bg-red-100 text-red-800 border-red-200";
+      default:
+        return "bg-gray-100 text-gray-800 border-gray-200";
     }
   };
 
-  if (!isMounted || !isAuthenticated || !user || loading) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
@@ -85,13 +98,20 @@ export default function MyOrdersPage() {
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-5xl mx-auto space-y-6">
-        
+        {loadError && (
+          <p
+            role="alert"
+            className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+          >
+            {loadError}
+          </p>
+        )}
         {/* Header con Título y Botón Actualizar */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-xl border shadow-sm">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gradient-to-br from-blue-50 via-white to-cyan-50 p-5 rounded-2xl border border-blue-200 shadow-sm">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Mis Entregas</h1>
             <p className="text-sm text-gray-500 mt-1">
-              Historial y estado de tus asignaciones recientes
+              Estado de tus asignaciones y precio registrado de cada orden
             </p>
           </div>
           <Button
@@ -100,8 +120,10 @@ export default function MyOrdersPage() {
             disabled={isRefreshing}
             className="gap-2 bg-white min-w-[120px]"
           >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            {isRefreshing ? 'Actualizando...' : 'Actualizar'}
+            <RefreshCw
+              className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`}
+            />
+            {isRefreshing ? "Actualizando..." : "Actualizar"}
           </Button>
         </div>
 
@@ -110,15 +132,17 @@ export default function MyOrdersPage() {
           {loading && orders.length === 0
             ? Array.from({ length: 4 }).map((_, i) => <OrderSkeleton key={i} />)
             : orders.map((order) => (
-                <Card 
-                  key={order.id} 
+                <Card
+                  key={order.id}
                   className="group hover:shadow-lg transition-all duration-200 cursor-pointer border-l-4 border-l-blue-500 hover:border-l-blue-600 bg-white"
                   onClick={() => router.push(`/rider/my-orders/${order.id}`)}
                 >
                   <CardHeader className="pb-3">
                     <div className="flex justify-between items-start">
-                      <Badge className={`${getStatusColor(order.status)} border font-semibold text-xs uppercase tracking-wide`}>
-                        {order.status.replace('_', ' ')}
+                      <Badge
+                        className={`${getStatusColor(order.status)} border font-semibold text-xs uppercase tracking-wide`}
+                      >
+                        {order.status.replace("_", " ")}
                       </Badge>
                       <span className="text-xs text-gray-400 font-mono bg-gray-50 px-2 py-1 rounded">
                         #{order.external_id}
@@ -131,19 +155,25 @@ export default function MyOrdersPage() {
                   <CardContent className="space-y-3">
                     <div className="flex items-start gap-2 text-sm text-gray-600">
                       <MapPin className="w-4 h-4 mt-0.5 text-gray-400 shrink-0" />
-                      <span className="line-clamp-2 font-medium">{order.delivery_address}</span>
+                      <span className="line-clamp-2 font-medium">
+                        {order.delivery_address}
+                      </span>
                     </div>
-                    
+
                     <div className="flex items-center justify-between pt-2">
                       <div className="flex items-center gap-2 text-sm text-gray-500">
                         <Clock className="w-4 h-4" />
-                        <span>{new Date(order.created_at).toLocaleDateString()}</span>
+                        <span>
+                          {new Date(order.created_at).toLocaleDateString()}
+                        </span>
                       </div>
                       <div className="text-right">
-                        <p className="text-[10px] text-gray-400 uppercase font-semibold">A cobrar</p>
-                        <p className="font-bold text-lg text-green-600">
-                          {formatCurrency(resolveOrderCollectAmount(order))}
+                        <p className="text-[10px] text-gray-500 uppercase font-semibold">
+                          Precio de la orden
                         </p>
+                        <div className="text-lg">
+                          <OrderPriceAmount order={order} />
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -152,22 +182,25 @@ export default function MyOrdersPage() {
         </div>
 
         {/* Estado Vacío */}
-        {!loading && orders.length === 0 && (
+        {!loading && !loadError && orders.length === 0 && (
           <div className="text-center py-16 bg-white rounded-lg border border-dashed border-gray-300 shadow-sm">
             <div className="bg-gray-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
               <Package className="w-10 h-10 text-gray-400" />
             </div>
-            <h3 className="text-lg font-bold text-gray-900">No tienes entregas aún</h3>
+            <h3 className="text-lg font-bold text-gray-900">
+              No tienes entregas aún
+            </h3>
             <p className="text-gray-500 mt-2 max-w-md mx-auto">
-              Las asignaciones aparecerán aquí automáticamente cuando estés en línea y haya disponibilidad en tu zona.
+              Las asignaciones aparecerán aquí automáticamente cuando estés en
+              línea y haya disponibilidad en tu zona.
             </p>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               className="mt-6"
               onClick={handleRefresh}
               disabled={isRefreshing}
             >
-              {isRefreshing ? 'Buscando...' : 'Buscar nuevamente'}
+              {isRefreshing ? "Buscando..." : "Buscar nuevamente"}
             </Button>
           </div>
         )}

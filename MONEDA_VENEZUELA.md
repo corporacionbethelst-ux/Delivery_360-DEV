@@ -713,3 +713,19 @@ El backfill legado migrate_historical_snapshots queda retirado: se detiene antes
 de abrir una conexión o mostrar una URL. La moneda USD de nuevos snapshots y los
 triggers de la entrega 105 permanecen vigentes. Esta entrega no añade migración,
 reescribe snapshots anteriores ni incorpora conciliación bancaria o BCV automático.
+
+
+## Entrega 107: precios registrados en las vistas operativas
+
+Operador y repartidor consultan `pricing` de la orden: importes y artículos de
+texto decimal con revisión. Se mantienen centavos con BigInt y se muestra USD
+solo cuando el precio versionado declara esa unidad coherente con la orden.
+Un precio inexistente o inválido no se reconstruye desde Float ni se convierte
+en cero; la revisión histórica y la información almacenada permanecen intactas.
+El detalle de entrega confirma la identidad de la orden y el vínculo inverso
+antes de mostrar su precio, con reintento independiente de la lectura operativa.
+
+«Precio de la orden» describe el total de esa revisión, no un saldo a cobrar.
+Cobros parciales, devoluciones, créditos del rider y disponibilidad siguen en
+sus libros separados. No se deduce deuda ni pago bancario desde el precio.
+No hay migración ni cambios de contratos del servidor o de reglas de cobro.

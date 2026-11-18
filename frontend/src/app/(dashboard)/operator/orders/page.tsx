@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { payoutAmountLabel } from '@/lib/payout-contract';
+import { OrderPriceAmount } from '@/components/orders/OperationalOrderPrice';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 // Definición explícita de roles permitidos para este dashboard
@@ -181,10 +181,10 @@ function SessionOrdersPage() {
       <div className="max-w-7xl mx-auto space-y-6">
         
         {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 via-white to-cyan-50 p-5 shadow-sm">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Gestión de Órdenes</h1>
-            <p className="text-gray-500">Monitoreo y control de pedidos en tiempo real</p>
+            <p className="text-gray-500">Precios registrados por revisión y seguimiento de pedidos</p>
           </div>
           <Button 
             variant="outline" 
@@ -302,7 +302,7 @@ function SessionOrdersPage() {
                         {order.customer_name || order.customer?.first_name || 'N/A'}
                       </td>
                       <td className="px-6 py-4 text-right font-bold text-gray-900">
-                        {order.total !== undefined && order.total !== null ? payoutAmountLabel(order.total, order.currency ?? undefined) : order.total_amount !== undefined && order.total_amount !== null ? payoutAmountLabel(order.total_amount, order.currency ?? undefined) : 'No informado'}
+                        <OrderPriceAmount order={order} />
                       </td>
                       <td className="px-6 py-4 text-gray-500 text-xs">
                         {order.created_at ? new Date(order.created_at).toLocaleString() : '-'}
