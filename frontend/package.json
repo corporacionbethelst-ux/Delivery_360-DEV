@@ -41,7 +41,6 @@
     "recharts": "^2.12.7",
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.4.0",
-    "tailwindcss-animate": "^1.0.7",
     "zod": "^4.6.7",
     "zustand": "^4.5.4"
   },
@@ -64,6 +63,7 @@
     "jest-environment-jsdom": "^29.7.0",
     "postcss": "^8.5.32",
     "tailwindcss": "^3.4.7",
+    "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.5.4"
   },
   "engines": {
