@@ -117,6 +117,10 @@ Los errores de precio no ocultan el detalle operativo ni reconstruyen importes.
 El total se presenta como precio registrado, sin afirmar deuda pendiente, cobro
 verificado o ganancia. No añade endpoints ni migra datos. Quedan los saldos del
 perfil y las tarifas de zonas, además de los consumidores aún no revisados.
+El plugin tailwindcss-animate se clasifica como herramienta de construcción,
+con versiones intactas y controles de seguridad conservados. El aviso abierto
+GHSA-fc5q-39xc-vjpf de picomatch sigue pendiente para esas herramientas; la
+clasificación no equivale a un parche del proveedor.
 
 Faltan la revisión explícita de moneda histórica, el cierre de los demás reportes
 monetarios sobre decimales, la conciliación bancaria automática de cobros y devoluciones y la

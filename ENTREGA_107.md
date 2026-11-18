@@ -61,3 +61,19 @@ El laboratorio conserva sus 123 órdenes, 90 entregas y 52 documentos, con respa
 privado antes y después. No se fusiona main, despliega ni migra producción.
 El siguiente bloque revisa saldos del perfil y tarifas de zonas. Bancos, BCV
 automático, staging y aceptación siguen en PRODUCCION_PENDIENTES.md.
+
+## Dependencias de compilación
+
+El CI identificó GHSA-fc5q-39xc-vjpf en picomatch, incorporado al árbol de
+producción por el peer de tailwindcss-animate. Ese plugin solo se usa en
+`tailwind.config.ts` al compilar estilos. Se clasifica en devDependencies junto
+con Tailwind. El lock conserva todos los paquetes, versiones, URLs e integridades;
+solo cambia su clasificación. No se modifica ningún control de seguridad.
+
+La auditoría de dependencias de producción ya no incluye ese compilador ni el
+plugin. Esto no constituye un parche de picomatch: la referencia oficial todavía
+no publica una versión corregida y el aviso de las herramientas de construcción
+sigue pendiente de seguimiento. Los globs de compilación proceden de la
+configuración del proyecto; no se aceptan patrones enviados por usuarios al
+compilador. CI mantiene las pruebas y la compilación con las herramientas de
+desarrollo instaladas y valida por separado los artefactos de producción.
