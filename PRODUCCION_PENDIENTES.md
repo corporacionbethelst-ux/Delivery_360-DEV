@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 105. Este registro distingue implementación local,
+Actualizado con la entrega 106. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -99,7 +99,16 @@ tipo y fecha, y protege su identidad y campos contra cambios, borrado y truncado
 en PostgreSQL. Los snapshots anteriores mantienen la moneda NULL, incluidos los
 bonos cero y cierres sin snapshot. Los fallos no bonificables no crean moneda ni
 un crédito cero. La auditoría v2 muestra la unidad conservada; la v1 permanece
-compatible. Quedan los demás consumidores numéricos de bonos y su configuración.
+compatible.
+La entrega 106 migra la configuración y simulación de bonos a texto decimal,
+con revisión s2 sobre el JSON almacenado, auditoría del valor original y guardado
+concurrente protegido. El escenario usa exclusivamente snapshots USD del mismo
+corte SQL y hace explícitos los registros excluidos. Productividad y el detalle
+de órdenes del repartidor consultan bonos y componentes conservados por una
+lectura exacta del propietario, sin COP, estimaciones desde configuración actual
+ni aritmética Float del desglose. Cero y ausencia siguen separados. Los contratos
+numéricos anteriores permanecen como compatibilidad; continúa la revisión de los
+demás consumidores monetarios y de los requisitos externos.
 
 Faltan la revisión explícita de moneda histórica, el cierre de los demás reportes
 monetarios sobre decimales, la conciliación bancaria automática de cobros y devoluciones y la

@@ -13,7 +13,7 @@ import logging
 from typing import Optional, Dict, Any, List
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -505,6 +505,23 @@ async def delivery_catalog_page(
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.get("/bonuses/exact")
+async def get_exact_delivery_bonuses(
+    request: Request,
+    order_ids: str = Query(..., min_length=36, max_length=369),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.delivery_bonus_exact import report
+
+    if (
+        set(request.query_params) != {"order_ids"}
+        or len(request.query_params.multi_items()) != 1
+    ):
+        raise HTTPException(422, "La consulta solo admite order_ids")
+    return await report(db, current_user, order_ids)
 
 
 @router.get("/{delivery_id}")

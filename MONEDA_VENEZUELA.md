@@ -670,3 +670,46 @@ La base USD, la conversión VES con BCV conservado y la devolución en moneda y 
 originales permanecen vigentes. Este bloque no cambia liquidaciones bancarias ni
 convierte saldos históricos. Continúa pendiente la revisión de los demás
 consumidores numéricos y la configuración decimal de bonos.
+
+
+## Entrega 106: parámetros, escenario y componentes de bono exactos
+
+La configuración activa usa `/settings/exact/v2` (GET/PATCH). Los importes llegan
+y se guardan como texto decimal de hasta dos decimales; la comisión porcentual
+conserva hasta 18 decimales. La lectura interpreta el texto JSON almacenado con
+Decimal, sin pasar por Float. Un valor ausente permanece null; uno inválido o con
+precisión incompatible se identifica para revisión, sin convertirlo a cero. Las
+claves faltantes se inicializan en null, con el comportamiento anterior y sin
+montos predeterminados. No se migran valores existentes en bloque.
+
+La revisión s2 incluye el JSON original, fecha y actor: detecta diferencias que
+una conversión binaria podría ocultar. If-Match es obligatorio. Los escritores
+antiguos y exactos comparten los mismos bloqueos; un cambio concurrente recibe
+412 y debe revisarse. La API anterior conserva sus respuestas y revisión s1; la
+v2 informa legacy_revision cuando puede calcularse. La auditoría nueva conserva
+el JSON anterior y los textos enviados, incluidos valores inválidos reparados.
+
+`/settings/simulate-bonus/exact/v2` compara el bono uniforme propuesto con los
+bonos USD conservados de las mismas entregas. Una sentencia PostgreSQL captura
+configuración, revisión, reloj y candidatos. Se conservan los intentos fallidos
+USD y se reemplaza únicamente el bono de las entregas completadas elegibles.
+Moneda desconocida, otra moneda, ausencia de bono, snapshot inválido y cierre sin
+fecha se excluyen con conteos explícitos. Los registros sin fecha se informan
+como alcance global, sin asignarlos a un día supuesto. Una muestra superior a
+10000 se rechaza, sin presentar una lectura truncada como completa. No aplica
+zonas/niveles, no predice nuevas entregas ni confirma pago o disponibilidad.
+
+`/deliveries/bonuses/exact` obtiene hasta diez órdenes con sus bonos conservados
+en un solo corte SQL. El repartidor solo consulta asignaciones propias; se
+comprueban identidad, origen y estado del snapshot. Una orden sin entrega no se
+convierte en entrega ni en un bono cero. Productividad y el detalle del repartidor
+usan esa lectura para importe, base y factores guardados, sin recalcular un
+desglose monetario ni sustituir una unidad desconocida por USD o COP. Un fallo
+de lectura mantiene el importe por confirmar y permite reintentar sin repetir
+el cierre de la entrega. Los créditos y el saldo siguen procediendo de sus
+libros canónicos separados.
+
+El backfill legado migrate_historical_snapshots queda retirado: se detiene antes
+de abrir una conexión o mostrar una URL. La moneda USD de nuevos snapshots y los
+triggers de la entrega 105 permanecen vigentes. Esta entrega no añade migración,
+reescribe snapshots anteriores ni incorpora conciliación bancaria o BCV automático.

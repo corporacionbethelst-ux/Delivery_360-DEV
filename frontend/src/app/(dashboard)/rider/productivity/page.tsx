@@ -32,13 +32,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { formatCurrency } from "@/lib/formatters";
+import { settingsTime } from "@/lib/bonus-settings-exact";
 import { riderExactService } from "@/services/rider-earnings-exact.service";
 import { cashText } from "@/lib/customer-cashbook";
 import { capturePrivateTask } from "@/lib/private-task";
 import { PayoutSessionBoundary } from "@/components/financial/PayoutSessionBoundary";
 import { orderService, Order } from "@/services/order.service";
 import { riderService } from "@/services/rider.service";
+import { deliveryBonusService } from "@/services/delivery-bonus-exact.service";
+import type { BonusRecord } from "@/lib/delivery-bonus-exact";
 import { BonusBreakdownCard } from "@/components/productivity/BonusBreakdownCard";
 import { deliveryService } from "@/services/delivery.service";
 import {
@@ -74,14 +76,8 @@ interface RecentDelivery {
   customer_name: string;
   completed_at: string;
   status: string;
-  locked_bonus_amount: number | null;
-  bonus_breakdown: {
-    base: number | null;
-    zone_multiplier: number | null;
-    tier_multiplier: number | null;
-    tier_level: string | null;
-    total: number;
-  } | null;
+  order_id: string;
+  bonus: BonusRecord | null;
   delivery_address?: string;
   distance_total?: number;
   total_time?: number;
@@ -133,6 +129,11 @@ function PrivateRiderProductivity() {
     };
   }, []);
   const [stats, setStats] = useState<ProductivityStats | null>(null);
+  const [bonusContext, setBonusContext] = useState<{
+    at: string;
+    hash: string;
+  } | null>(null);
+  const [bonusError, setBonusError] = useState<string | null>(null);
   const [recentDeliveries, setRecentDeliveries] = useState<RecentDelivery[]>(
     [],
   );
@@ -243,16 +244,52 @@ function PrivateRiderProductivity() {
         ],
       });
 
-      // Transformar entregas recientes con desglose de bonos
-      const recentDeliveriesData: RecentDelivery[] = (
-        deliveriesResponse.items || []
-      ).map((d: any) => ({
+      // Real delivery metadata and stored bonuses are independent reads.
+      const recent = (deliveriesResponse.items || [])
+        .filter((d: any) => !d.id.startsWith("order-") && d.order_id)
+        .slice(0, 10);
+      let records: BonusRecord[] = [];
+      try {
+        if (recent.length) {
+          const bonuses = await deliveryBonusService.read(
+            recent.map((d: any) => d.order_id),
+            { user_id: user!.id, role: user!.role },
+          );
+          task.assertCurrent();
+          records = bonuses.records;
+          if (current())
+            setBonusContext({
+              at: bonuses.generated_at,
+              hash: bonuses.content_sha256,
+            });
+          if (
+            recent.some(
+              (d: any) =>
+                records.find((r) => r.order_id === d.order_id)?.delivery_id !==
+                d.id,
+            )
+          )
+            throw new Error("Identidad de bono contradictoria");
+        }
+        if (!current()) return;
+        setBonusError(null);
+        if (!recent.length) setBonusContext(null);
+      } catch {
+        if (!current()) return;
+        records = [];
+        setBonusContext(null);
+        setBonusError(
+          "No se pudieron confirmar los bonos. Los importes no se sustituyen por cero; recarga la productividad para reintentar.",
+        );
+      }
+      if (!current()) return;
+      const recentDeliveriesData: RecentDelivery[] = recent.map((d: any) => ({
         id: d.id,
+        order_id: d.order_id,
         customer_name: d.customer_name || "Cliente",
         completed_at: d.completed_at || "",
         status: d.status,
-        locked_bonus_amount: d.locked_bonus_amount,
-        bonus_breakdown: d.bonus_breakdown || null,
+        bonus: records.find((r) => r.order_id === d.order_id) ?? null,
         delivery_address: d.delivery_address,
         distance_total: d.distance_total,
         total_time: d.total_time,
@@ -597,6 +634,20 @@ function PrivateRiderProductivity() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {bonusContext && (
+            <p className="mb-3 break-all text-xs text-slate-500">
+              Bonos consultados: {settingsTime(bonusContext.at)} ·
+              America/Caracas. Huella: {bonusContext.hash}
+            </p>
+          )}
+          {bonusError && (
+            <p
+              role="alert"
+              className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"
+            >
+              {bonusError}
+            </p>
+          )}
           {recentDeliveries.length > 0 ? (
             <div className="space-y-4">
               {recentDeliveries.map((delivery) => (
@@ -633,18 +684,7 @@ function PrivateRiderProductivity() {
 
                   {/* Componente de desglose del bono */}
                   <BonusBreakdownCard
-                    breakdown={delivery.bonus_breakdown}
-                    locked_bonus_base={delivery.bonus_breakdown?.base}
-                    locked_bonus_zone_multiplier={
-                      delivery.bonus_breakdown?.zone_multiplier
-                    }
-                    locked_bonus_tier_multiplier={
-                      delivery.bonus_breakdown?.tier_multiplier
-                    }
-                    locked_bonus_tier_level={
-                      delivery.bonus_breakdown?.tier_level
-                    }
-                    locked_bonus_amount={delivery.locked_bonus_amount}
+                    snapshot={delivery.bonus}
                     compact={true}
                     hideIfEmpty={false}
                   />

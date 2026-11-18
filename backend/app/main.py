@@ -12,6 +12,7 @@ from app.core.document_files import PublicUploads
 from typing import AsyncGenerator
 from pathlib import Path
 import logging
+from app.core.log_redaction import install_log_redaction
 
 from app.core.config import settings
 from app.core.database import engine, Base
@@ -57,6 +58,9 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+install_log_redaction()
 
 
 @asynccontextmanager

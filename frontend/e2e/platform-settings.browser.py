@@ -28,22 +28,27 @@ def main():
         "role": "GERENTE",
         "read_failure": False,
         "invalid": False,
-        "fee": 0,
-        "bonus": 0,
+        "fee": "0.00",
+        "bonus": "0.00",
         "calculation_failure": False,
         "hold": False,
-        "revision": "s1-" + "a" * 64,
+        "revision": "s2-" + "a" * 64,
         "save_outcome": "unexpected",
         "empty_history": False,
         "undated": 0,
         "wrong_calculation": False,
     }
     saved = {
-        "revision": "s1-" + "a" * 64,
-        "delivery_fee_base": 0,
-        "commission_percentage": 12.12345,
+        "version": 2,
+        "currency": "USD",
+        "units_basis": "prospective_usd_parameters",
+        "field_issues": [],
+        "legacy_revision": "s1-" + "a" * 64,
+        "revision": "s2-" + "a" * 64,
+        "delivery_fee_base": "0.00",
+        "commission_percentage": "12.12345",
         "min_order_amount": None,
-        "rider_delivery_bonus": 0,
+        "rider_delivery_bonus": "0.00",
         "rider_failed_attempt_bonus": None,
         "active_zones": ["Centro, Norte", "Sur"],
         "support_email": None,
@@ -90,13 +95,13 @@ def main():
             if route.request.method == "OPTIONS":
                 route.fulfill(status=204, headers=headers)
             elif (
-                path == "/api/v1/settings"
+                path == "/api/v1/settings/exact/v2"
                 and route.request.method == "PATCH"
                 and state["save_outcome"] in ("conflict", "confirmed")
             ):
                 body = route.request.post_data_json
                 precondition = route.request.headers.get("if-match")
-                assert body == {"delivery_fee_base": 4}
+                assert body == {"delivery_fee_base": "4.00"}
                 assert precondition == '"' + state["revision"] + '"'
                 conflict = state["save_outcome"] == "conflict"
                 conditional_updates.append(
@@ -107,8 +112,8 @@ def main():
                     }
                 )
                 if not conflict:
-                    state["fee"] = 4
-                    state["revision"] = "s1-" + "b" * 64
+                    state["fee"] = "4.00"
+                    state["revision"] = "s2-" + "b" * 64
                 route.fulfill(
                     status=412 if conflict else 200,
                     json=(
@@ -123,10 +128,11 @@ def main():
                     headers=headers,
                 )
             elif (
-                path == "/api/v1/settings/simulate-bonus"
+                path == "/api/v1/settings/simulate-bonus/exact/v2"
                 and route.request.method == "POST"
             ):
                 request = route.request.post_data_json
+                assert isinstance(request["new_base_bonus"], str)
                 calculations.append(request)
                 assert request["expected_settings_revision"] == state["revision"]
                 applied = Decimal(str(request["new_base_bonus"])).quantize(
@@ -140,43 +146,60 @@ def main():
                 scenario = applied * completed + recorded_failed
                 difference = scenario - historical
                 percentage = (
-                    float(
-                        (difference / historical * 100).quantize(
-                            Decimal("0.01"), rounding=ROUND_HALF_UP
-                        )
+                    (difference / historical * 100).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP
                     )
                     if historical
                     else None
                 )
                 end = datetime(2026, 11, 13, 2, tzinfo=timezone.utc)
                 result = {
-                    "current_monthly_cost": historical,
-                    "projected_monthly_cost": float(scenario),
-                    "difference": float(difference),
-                    "percentage_increase": percentage if percentage is not None else 0,
-                    "message": "Cálculo sintético del período",
-                    "comparison_basis": "flat_bonus_same_deliveries",
+                    "version": 2,
+                    "scope": "uniform_bonus_usd_scenario",
+                    "currency": "USD",
+                    "actor": {"user_id": "settings-actor-85", "role": state["role"]},
+                    "snapshot_basis": "single_statement_visibility",
+                    "bank_verified": False,
+                    "comparison_basis": "flat_bonus_same_usd_deliveries",
                     "history_days": request["days_projection"],
                     "period_start": (end - timedelta(days=request["days_projection"]))
-                    .isoformat()
+                    .isoformat(timespec="microseconds")
                     .replace("+00:00", "Z"),
-                    "period_end": end.isoformat().replace("+00:00", "Z"),
+                    "period_end": end.isoformat(timespec="microseconds").replace(
+                        "+00:00", "Z"
+                    ),
+                    "generated_at": end.isoformat(timespec="microseconds").replace(
+                        "+00:00", "Z"
+                    ),
                     "completed_deliveries": completed,
                     "failed_bonus_deliveries": failed,
-                    "undated_bonus_deliveries": state["undated"],
-                    "recorded_completed_bonus": recorded_success,
-                    "recorded_failed_bonus": recorded_failed,
-                    "historical_cost": historical,
-                    "scenario_cost": float(scenario),
-                    "applied_bonus": float(applied),
+                    "recorded_completed_bonus": format(
+                        Decimal(recorded_success), ".2f"
+                    ),
+                    "recorded_failed_bonus": format(Decimal(recorded_failed), ".2f"),
+                    "historical_cost": format(Decimal(historical), ".2f"),
+                    "scenario_cost": format(scenario, ".2f"),
+                    "difference": format(difference, ".2f"),
+                    "percentage_change": (
+                        format(Decimal(str(percentage)), ".2f")
+                        if percentage is not None
+                        else None
+                    ),
+                    "applied_bonus": format(applied, ".2f"),
                     "current_base_bonus": state["bonus"],
-                    "proposed_base_bonus": request["new_base_bonus"],
                     "settings_revision": state["revision"],
-                    "percentage_change": percentage,
-                    "currency": None,
+                    "candidate_deliveries": completed + failed + state["undated"] + 2,
+                    "exclusions": {
+                        "undated": state["undated"],
+                        "unknown_currency": 2,
+                        "other_currency": 0,
+                        "no_bonus": 0,
+                        "invalid_snapshot": 0,
+                    },
+                    "content_sha256": "e" * 64,
                 }
                 if state["wrong_calculation"]:
-                    result["settings_revision"] = "s1-" + "c" * 64
+                    result["settings_revision"] = "s2-" + "c" * 64
                 if state["hold"]:
                     pending.append((route, result, headers))
                     page.evaluate("window.__settingsCalculationHeld = true")
@@ -206,7 +229,7 @@ def main():
                     },
                     headers=headers,
                 )
-            elif path == "/api/v1/settings":
+            elif path == "/api/v1/settings/exact/v2":
                 reads.append(path)
                 row = {
                     **saved,
@@ -252,7 +275,7 @@ def main():
         result = page.get_by_role(
             "region", name="Resultado confirmado de simulación", exact=True
         )
-        expect(fee).to_have_value("0")
+        expect(fee).to_have_value("0.00")
         expect(fee).to_be_disabled()
         expect(commission).to_have_value("12.12345")
         expect(minimum).to_have_value("")
@@ -261,16 +284,16 @@ def main():
         expect(
             page.get_by_role("button", name="Revisar cambios", exact=True)
         ).to_have_count(0)
-        expect(proposal).to_have_value("0")
+        expect(proposal).to_have_value("0.00")
         passed(
             "manager reads actual zero, nulls, precision and comma-containing zones with no save control or invented baseline"
         )
         days.fill("7")
         page.get_by_role("button", name="Simular impacto", exact=True).click()
         expect(result).to_be_visible()
-        expect(result).to_contain_text("Resultado para bono 0 y 7 días")
+        expect(result).to_contain_text("Resultado para bono USD 0,00 y 7 días")
         assert calculations[-1] == {
-            "new_base_bonus": 0,
+            "new_base_bonus": "0.00",
             "days_projection": 7,
             "expected_settings_revision": state["revision"],
         }
@@ -280,29 +303,27 @@ def main():
         )
         expect(result).to_contain_text("Período histórico consultado")
         expect(result).to_contain_text("No aplica multiplicadores de zona ni nivel")
-        expect(result).to_contain_text("10 entregas × 0,00")
+        expect(result).to_contain_text("10 entregas × USD 0,00")
         page.screenshot(
             path=str(out / "scenario-desktop.png"),
             animations="disabled",
             full_page=True,
         )
         passed(
-            "scenario identifies its actual historical bounds, flat-rate formula, sample counts and unknown currency"
+            "scenario identifies its actual historical bounds, flat-rate formula, sample counts and explicit USD-only exclusions"
         )
         state["wrong_calculation"] = True
         page.get_by_role("button", name="Simular impacto", exact=True).click()
-        expect(content.get_by_role("alert")).to_contain_text(
-            "no informa importes coherentes"
-        )
-        expect(result).to_contain_text("Resultado para bono 0 y 7 días")
+        expect(content.get_by_role("alert")).to_contain_text("No se pudo confirmar")
+        expect(result).to_contain_text("Resultado para bono USD 0,00 y 7 días")
         state["wrong_calculation"] = False
         passed(
             "response from another settings revision is rejected while the previous confirmed scenario remains visible"
         )
         state["empty_history"], state["undated"] = True, 3
         page.get_by_role("button", name="Simular impacto", exact=True).click()
-        expect(result).to_contain_text("Sin entregas bonificadas en el período")
-        expect(result).to_contain_text("Existen 3 entregas bonificadas")
+        expect(result).to_contain_text("Sin bonos USD elegibles en el período")
+        expect(result).to_contain_text("Existen 3 cierres")
         expect(result).to_contain_text("histórico global")
         expect(result).to_contain_text("Sin base porcentual")
         state["empty_history"], state["undated"] = False, 0
@@ -355,13 +376,13 @@ def main():
         reload_dialog.get_by_role(
             "button", name="Descartar borrador y recargar", exact=True
         ).click()
-        expect(fee).to_have_value("0")
+        expect(fee).to_have_value("0.00")
         passed(
             "reloading a dirty form explicitly preserves or discards its draft instead of silently losing edits"
         )
         fee.fill("4")
         page.get_by_role("button", name="Revisar cambios", exact=True).click()
-        state["fee"] = 9
+        state["fee"] = "9.00"
         confirmation.get_by_role(
             "button", name="Confirmar guardado", exact=True
         ).click()
@@ -375,10 +396,10 @@ def main():
         reload_dialog.get_by_role(
             "button", name="Descartar borrador y recargar", exact=True
         ).click()
-        expect(fee).to_have_value("9")
-        state["fee"] = 0
+        expect(fee).to_have_value("9.00")
+        state["fee"] = "0.00"
         page.get_by_role("button", name="Recargar configuración", exact=True).click()
-        expect(fee).to_have_value("0")
+        expect(fee).to_have_value("0.00")
         passed(
             "preflight detects a changed target value and stops before PATCH, with a confirmed reload of the actual new value"
         )
@@ -415,7 +436,7 @@ def main():
         reload_dialog.get_by_role(
             "button", name="Descartar borrador y recargar", exact=True
         ).click()
-        expect(fee).to_have_value("0")
+        expect(fee).to_have_value("0.00")
         page.set_viewport_size({"width": 1440, "height": 1150})
         passed(
             "synthetic server conflict preserves the mobile draft, blocks retries and asks before discarding edits"
@@ -429,12 +450,12 @@ def main():
         expect(content.get_by_role("status")).to_contain_text(
             "Configuración guardada y confirmada"
         )
-        expect(fee).to_have_value("4")
+        expect(fee).to_have_value("4.00")
         assert len(conditional_updates) == 2
         state["save_outcome"] = "unexpected"
-        state["fee"] = 0
+        state["fee"] = "0.00"
         page.get_by_role("button", name="Recargar configuración", exact=True).click()
-        expect(fee).to_have_value("0")
+        expect(fee).to_have_value("0.00")
         passed(
             "synthetic save sends the exact If-Match revision and minimal body, then confirms the returned values"
         )
@@ -454,11 +475,11 @@ def main():
         reload_dialog.get_by_role(
             "button", name="Descartar borrador y recargar", exact=True
         ).click()
-        expect(fee).to_have_value("0")
+        expect(fee).to_have_value("0.00")
         days.fill("91")
         before = len(calculations)
         page.get_by_role("button", name="Simular impacto", exact=True).click()
-        expect(content.get_by_role("alert")).to_contain_text("1 a 90")
+        expect(content.get_by_role("alert")).to_contain_text("1 y 90")
         assert len(calculations) == before
         days.fill("30")
         proposal.fill("2,5")
@@ -474,7 +495,7 @@ def main():
         route, body, headers = pending.pop()
         state["hold"] = False
         route.fulfill(json=body, headers=headers)
-        expect(result).to_contain_text("Resultado para bono 2.5 y 30 días")
+        expect(result).to_contain_text("Resultado para bono USD 2,50 y 30 días")
         passed(
             "invalid history windows do not calculate and pending simulation locks controls until its exact response arrives"
         )
@@ -484,7 +505,7 @@ def main():
         expect(content.get_by_role("alert")).to_contain_text(
             "No se pudo confirmar el cálculo"
         )
-        expect(result).to_contain_text("Resultado para bono 2.5 y 30 días")
+        expect(result).to_contain_text("Resultado para bono USD 2,50 y 30 días")
         state["calculation_failure"] = False
         page.set_viewport_size({"width": 390, "height": 844})
         result.scroll_into_view_if_needed()
@@ -514,7 +535,7 @@ def main():
         expect(fee).to_have_count(0)
         state["read_failure"] = False
         page.get_by_role("button", name="Reintentar configuración", exact=True).click()
-        expect(fee).to_have_value("0")
+        expect(fee).to_have_value("0.00")
         passed(
             "initial read failure exposes retry without an editable form of default values"
         )

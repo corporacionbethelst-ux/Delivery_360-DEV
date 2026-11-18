@@ -11,10 +11,10 @@ import Page from "@/app/(dashboard)/manager/admin/settings/page";
 import {
   settingsService,
   type PlatformSettings,
-} from "@/services/settings.service";
+} from "@/services/bonus-settings-exact.service";
 import { storeTokens } from "@/lib/auth-session";
 import { BonusSimulator } from "@/components/admin/BonusSimulator";
-import { bonusScenario } from "../../test-fixtures/bonus-scenario";
+import { bonusScenario } from "../../test-fixtures/bonus-exact";
 const mockRouter = { replace: jest.fn() };
 let mockUser: { id: string; role: string } | null = {
     id: "admin",
@@ -25,7 +25,7 @@ jest.mock("next/navigation", () => ({ useRouter: () => mockRouter }));
 jest.mock("@/stores/authStore", () => ({
   useAuthStore: () => ({ user: mockUser, isAuthenticated: mockAuthenticated }),
 }));
-jest.mock("@/services/settings.service", () => ({
+jest.mock("@/services/bonus-settings-exact.service", () => ({
   settingsService: {
     getSettings: jest.fn(),
     updateSettings: jest.fn(),
@@ -34,12 +34,17 @@ jest.mock("@/services/settings.service", () => ({
 }));
 const service = jest.mocked(settingsService),
   saved: PlatformSettings = {
-    revision: "s1-" + "a".repeat(64),
-    delivery_fee_base: 0,
-    commission_percentage: 12.1234,
+    version: 2,
+    currency: "USD",
+    units_basis: "prospective_usd_parameters",
+    field_issues: [],
+    legacy_revision: "s1-" + "a".repeat(64),
+    revision: "s2-" + "a".repeat(64),
+    delivery_fee_base: "0.00",
+    commission_percentage: "12.1234",
     min_order_amount: null,
-    rider_delivery_bonus: 2.50001,
-    rider_failed_attempt_bonus: 0,
+    rider_delivery_bonus: "2.50",
+    rider_failed_attempt_bonus: "0.00",
     active_zones: ["Centro, Norte", "Sur"],
     support_email: null,
     maintenance_mode: false,
@@ -60,12 +65,16 @@ beforeEach(() => {
   mockUser = { id: "admin", role: "SUPERADMIN" };
   mockAuthenticated = true;
   service.getSettings.mockResolvedValue(saved);
-  service.updateSettings.mockResolvedValue({ ...saved, delivery_fee_base: 4 });
+  service.updateSettings.mockResolvedValue({
+    ...saved,
+    delivery_fee_base: "4.00",
+  });
   service.simulateBonusImpact.mockImplementation(async (request) =>
     bonusScenario({
       proposed: request.new_base_bonus,
       days: request.days_projection,
       revision: request.expected_settings_revision,
+      actor: { user_id: mockUser!.id, role: mockUser!.role },
     }),
   );
 });
@@ -87,9 +96,9 @@ const simulate = () =>
 it("pausing the simulator retires its pending preflight before calculation", async () => {
   const pending = deferred<PlatformSettings>();
   service.getSettings.mockReturnValueOnce(pending.promise);
-  const view = render(<BonusSimulator currentBase={2.50001} />);
+  const view = render(<BonusSimulator currentBase="2.50" />);
   simulate();
-  view.rerender(<BonusSimulator currentBase={2.50001} disabled />);
+  view.rerender(<BonusSimulator currentBase="2.50" disabled />);
   await act(async () => pending.resolve(saved));
   expect(service.simulateBonusImpact).not.toHaveBeenCalled();
 });
@@ -131,12 +140,12 @@ it("does not read configuration without confirmed authentication", () => {
 it("keeps zero, null, exact precision and comma-containing zones in the loaded form", async () => {
   render(<Page />);
   await loaded();
-  expect(field("Tarifa base de envío")).toHaveValue("0");
+  expect(field("Tarifa base de envío")).toHaveValue("0.00");
   expect(field("Pedido mínimo")).toHaveValue("");
-  expect(field("Bono por entrega")).toHaveValue("2.50001");
+  expect(field("Bono por entrega")).toHaveValue("2.50");
   expect(field("Email de soporte")).toHaveValue("");
   expect(field("Zonas activas")).toHaveValue("Centro, Norte\nSur");
-  expect(screen.getByLabelText("Bono propuesto")).toHaveValue("2.50001");
+  expect(screen.getByLabelText("Bono propuesto")).toHaveValue("2.50");
   expect(
     screen.getByRole("button", { name: "Revisar cambios" }),
   ).toBeDisabled();
@@ -175,7 +184,7 @@ it("failed refresh preserves fields and reading time but locks editing until a c
   );
   await screen.findByText(/No se pudo confirmar la configuración/);
   expect(screen.getByText(/Consulta confirmada:/).textContent).toBe(before);
-  expect(field("Tarifa base de envío")).toHaveValue("0");
+  expect(field("Tarifa base de envío")).toHaveValue("0.00");
   expect(field("Tarifa base de envío")).toBeDisabled();
 });
 it.each(["", "-1", "NaN"])(
@@ -194,8 +203,8 @@ it("reviews the exact diff and cancels without issuing PATCH or another GET", as
   render(<Page />);
   await loaded();
   const dialog = await review();
-  expect(dialog).toHaveTextContent("Guardado: 0");
-  expect(dialog).toHaveTextContent("Propuesto: 4");
+  expect(dialog).toHaveTextContent("Guardado: 0.00");
+  expect(dialog).toHaveTextContent("Propuesto: 4.00");
   expect(within(dialog).queryByText("Comisión (%)")).not.toBeInTheDocument();
   fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
   expect(service.getSettings).toHaveBeenCalledTimes(1);
@@ -208,21 +217,21 @@ it("preflights the target values and sends only edited fields while preserving c
   const dialog = await review();
   service.getSettings.mockResolvedValueOnce({
     ...saved,
-    revision: "s1-" + "b".repeat(64),
-    commission_percentage: 17,
+    revision: "s2-" + "b".repeat(64),
+    commission_percentage: "17",
   });
   service.updateSettings.mockResolvedValueOnce({
     ...saved,
-    delivery_fee_base: 4,
-    commission_percentage: 17,
+    delivery_fee_base: "4.00",
+    commission_percentage: "17",
   });
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Confirmar guardado" }),
   );
   await screen.findByText("Configuración guardada y confirmada correctamente.");
   expect(service.updateSettings).toHaveBeenCalledWith(
-    { delivery_fee_base: 4 },
-    "s1-" + "b".repeat(64),
+    { delivery_fee_base: "4.00" },
+    "s2-" + "b".repeat(64),
   );
   expect(field("Comisión")).toHaveValue("17");
 });
@@ -230,7 +239,10 @@ it("changed target values stop before PATCH and require reloading", async () => 
   render(<Page />);
   await loaded();
   const dialog = await review();
-  service.getSettings.mockResolvedValueOnce({ ...saved, delivery_fee_base: 9 });
+  service.getSettings.mockResolvedValueOnce({
+    ...saved,
+    delivery_fee_base: "9.00",
+  });
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Confirmar guardado" }),
   );
@@ -291,7 +303,9 @@ it("pending save locks close and duplicates, then confirms the actual response",
   ).toBeDisabled();
   fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
   expect(screen.getByRole("dialog")).toBeInTheDocument();
-  await act(async () => pending.resolve({ ...saved, delivery_fee_base: 4 }));
+  await act(async () =>
+    pending.resolve({ ...saved, delivery_fee_base: "4.00" }),
+  );
   await screen.findByText("Configuración guardada y confirmada correctamente.");
 });
 it.each(["rejected", "wrong-ack"])(
@@ -347,13 +361,16 @@ it("accepts zero proposal and binds a result to its actual request window", asyn
   await screen.findByRole("region", {
     name: "Resultado confirmado de simulación",
   });
-  expect(service.simulateBonusImpact).toHaveBeenCalledWith({
-    new_base_bonus: 0,
-    days_projection: 7,
-    expected_settings_revision: saved.revision,
-  });
+  expect(service.simulateBonusImpact).toHaveBeenCalledWith(
+    {
+      new_base_bonus: "0.00",
+      days_projection: 7,
+      expected_settings_revision: saved.revision,
+    },
+    { user_id: "admin", role: "SUPERADMIN" },
+  );
   expect(
-    screen.getByText(/Resultado para bono 0 y 7 días/),
+    screen.getByText(/Resultado para bono USD 0,00 y 7 días/),
   ).toBeInTheDocument();
   expect(
     screen.queryByText(/COP|Costo Mensual|2.500,00/),
@@ -392,7 +409,7 @@ it("simulation preflight stops when the saved base has changed", async () => {
   await loaded();
   service.getSettings.mockResolvedValueOnce({
     ...saved,
-    rider_delivery_bonus: 9,
+    rider_delivery_bonus: "9.00",
   });
   simulate();
   await screen.findByText(/El bono guardado cambió/);
@@ -429,20 +446,19 @@ it("failed simulation preserves the old result and its actual proposal", async (
   simulate();
   await screen.findByRole("alert");
   expect(
-    screen.getByText(/Resultado para bono 2.50001 y 30 días/),
+    screen.getByText(/Resultado para bono USD 2,50 y 30 días/),
   ).toBeInTheDocument();
 });
 it("zero historical cost is not displayed as a meaningful zero-percent base", async () => {
-  service.simulateBonusImpact.mockResolvedValue({
-    ...calculation,
-    current_monthly_cost: 0,
-    projected_monthly_cost: 10,
-    difference: 10,
-    percentage_increase: 0,
-    historical_cost: 0,
-    scenario_cost: 10,
-    percentage_change: null,
-  });
+  service.simulateBonusImpact.mockResolvedValue(
+    bonusScenario({
+      completed: 10,
+      failed: 0,
+      proposed: "1.00",
+      recordedCompleted: "0.00",
+      recordedFailed: "0.00",
+    }),
+  );
   render(<Page />);
   await loaded();
   simulate();
@@ -461,27 +477,38 @@ it("identifies the sample, actual period and flat-rate assumptions instead of cl
   expect(
     within(result).getByText(/No aplica multiplicadores de zona ni nivel/),
   ).toBeInTheDocument();
-  expect(within(result).getByText(/10 entregas × 2,50/)).toBeInTheDocument();
+  expect(
+    within(result).getByText(/10 entregas × USD 2,50/),
+  ).toBeInTheDocument();
   expect(
     within(result).getByText("Entregas completadas de la muestra"),
   ).toBeInTheDocument();
-  expect(screen.getByText(/Moneda no informada/)).toBeInTheDocument();
+  expect(
+    screen.getByText(/solo los snapshots USD entran al cálculo/),
+  ).toBeInTheDocument();
 });
 it("shows an empty sample and globally undated records without assigning them to the period", async () => {
   service.simulateBonusImpact.mockResolvedValue({
     ...bonusScenario({
       completed: 0,
       failed: 0,
-      recordedCompleted: 0,
-      recordedFailed: 0,
+      recordedCompleted: "0.00",
+      recordedFailed: "0.00",
     }),
-    undated_bonus_deliveries: 3,
+    exclusions: {
+      undated: 3,
+      unknown_currency: 0,
+      other_currency: 0,
+      no_bonus: 0,
+      invalid_snapshot: 0,
+    },
+    candidate_deliveries: 3,
   });
   render(<Page />);
   await loaded();
   simulate();
-  await screen.findByText(/Sin entregas bonificadas en el período/);
-  expect(screen.getByText(/Existen 3 entregas bonificadas/)).toHaveTextContent(
+  await screen.findByText(/Sin bonos USD elegibles en el período/);
+  expect(screen.getByText(/Existen 3 cierres/)).toHaveTextContent(
     "histórico global",
   );
   expect(screen.getByText("Sin base porcentual")).toBeInTheDocument();
@@ -509,28 +536,31 @@ it.each([412, 409])(
         : /histórico no permiten confirmar/,
     );
     expect(
-      screen.getByText(/Resultado para bono 2.50001 y 30 días/),
+      screen.getByText(/Resultado para bono USD 2,50 y 30 días/),
     ).toBeInTheDocument();
   },
 );
 it("binds the scenario to the fresh revision even when another setting changed", async () => {
   render(<Page />);
   await loaded();
-  const revision = "s1-" + "b".repeat(64);
+  const revision = "s2-" + "b".repeat(64);
   service.getSettings.mockResolvedValueOnce({
     ...saved,
     revision,
-    commission_percentage: 17,
+    commission_percentage: "17",
   });
   simulate();
   await screen.findByRole("region", {
     name: "Resultado confirmado de simulación",
   });
-  expect(service.simulateBonusImpact).toHaveBeenCalledWith({
-    new_base_bonus: 2.50001,
-    days_projection: 30,
-    expected_settings_revision: revision,
-  });
+  expect(service.simulateBonusImpact).toHaveBeenCalledWith(
+    {
+      new_base_bonus: "2.50",
+      days_projection: 30,
+      expected_settings_revision: revision,
+    },
+    { user_id: "admin", role: "SUPERADMIN" },
+  );
 });
 it.each(["account", "credentials"])(
   "retired %s preflight cannot proceed to PATCH",

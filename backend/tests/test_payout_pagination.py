@@ -38,13 +38,15 @@ async def add_row(session, rider_id, number, at, status=PayoutStatus.PENDIENTE):
 
 
 @pytest.fixture
-async def page_context(test_engine, db_session, test_user):
+async def page_context(test_engine, db_session, test_user, request):
     async with test_engine.begin() as connection:
         await connection.run_sync(lambda conn: Payout.__table__.create(conn))
     raw = await (await db_session.connection()).get_raw_connection()
     await raw.driver_connection.create_function("AsEWKB", 1, lambda value: None)
     test_user.role = UserRole.GERENTE
     rider = Rider(user_id=test_user.id, status=RiderStatus.ACTIVO)
+    if hasattr(request, "param"):
+        rider.id = request.param
     db_session.add(rider)
     await db_session.commit()
     for number, at in [
@@ -78,6 +80,22 @@ async def read(client, **params):
     response = await client.get("/payouts/page", params={"limit": 2, **params})
     assert response.status_code == 200, response.text
     return response.json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "page_context",
+    [
+        UUID("00000000-0000-0000-0000-000000000001"),
+        UUID("11111111-1111-4111-8111-11111111e999"),
+    ],
+    indirect=True,
+)
+async def test_sqlite_preserves_numeric_and_exponent_shaped_uuid_text(page_context):
+    client, _, rider_id, *_ = page_context
+    page = await read(client)
+    assert ids(page) == [9, 8]
+    assert all(row["rider_id"] == str(rider_id) for row in page["items"])
 
 
 @pytest.mark.asyncio

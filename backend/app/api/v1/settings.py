@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
-from typing import Any, List, Literal, Optional
+from typing import Annotated, Any, List, Literal, Optional
 from decimal import Decimal
 import hashlib
 import json
 import re
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from pydantic import BaseModel, BeforeValidator, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -337,19 +337,32 @@ async def update_platform_settings(
     if_match: Optional[str] = Header(None),
 ):
     """Actualizar configuración global de plataforma y registrar auditoría."""
+    return await _persist_settings_update(
+        db, current_user, if_match, _update_payload(body), _legacy_settings_reader
+    )
+
+
+async def _legacy_settings_reader(db, rows):
+    return _coerce_settings(rows)
+
+
+async def _persist_settings_update(
+    db, current_user, if_match, payload, reader, *, exact=False
+):
     if if_match is None:
         raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
             detail="Consulta la configuración y envía su revisión en If-Match.",
         )
-    if not re.fullmatch(r'"s1-[0-9a-f]{64}"', if_match):
+    if not re.fullmatch(
+        r'"s2-[0-9a-f]{64}"' if exact else r'"s1-[0-9a-f]{64}"', if_match
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="If-Match debe contener una única revisión válida entre comillas.",
         )
-    payload = _update_payload(body)
     rows = await _ensure_default_settings(db, for_update=True)
-    before = _coerce_settings(rows)
+    before = await reader(db, rows)
     if if_match != '"' + before["revision"] + '"':
         raise HTTPException(
             status_code=status.HTTP_412_PRECONDITION_FAILED,
@@ -365,6 +378,12 @@ async def update_platform_settings(
         if latest
         else utc_now_naive()
     )
+
+    raw_before = None
+    if exact:
+        from app.services.bonus_settings_exact import load_rows
+
+        _, raw_before = await load_rows(db, EXPECTED_SETTING_KEYS)
 
     for key, value in payload.items():
         if key not in EXPECTED_SETTING_KEYS:
@@ -392,8 +411,33 @@ async def update_platform_settings(
         resource_type="PlatformSettings",
         resource_id="global",
         description="Actualización de configuración global de plataforma",
-        old_values={key: before.get(key) for key in payload},
-        new_values={key: after_preview.get(key) for key in payload},
+        old_values=(
+            {
+                "version": 2,
+                "values": {key: before.get(key) for key in payload},
+                "stored_json": {key: raw_before.get(key) for key in payload},
+                "revision": before["revision"],
+                "field_issues": [
+                    issue
+                    for issue in before["field_issues"]
+                    if issue["field"] in payload
+                ],
+            }
+            if exact
+            else {key: before.get(key) for key in payload}
+        ),
+        new_values=(
+            {
+                "version": 2,
+                "values": {key: after_preview.get(key) for key in payload},
+                "submitted_json": {
+                    key: json.dumps(payload[key], ensure_ascii=False, allow_nan=False)
+                    for key in payload
+                },
+            }
+            if exact
+            else {key: after_preview.get(key) for key in payload}
+        ),
         changes_summary=", ".join(sorted(payload.keys())),
         success=True,
         created_at=now,
@@ -401,7 +445,7 @@ async def update_platform_settings(
     db.add(audit)
 
     await db.flush()
-    response = _coerce_settings(rows)
+    response = await reader(db, rows)
     await db.commit()
     return response
 
@@ -416,3 +460,114 @@ async def replace_platform_settings(
 ):
     """Alias PUT para clientes que envían actualización completa o parcial."""
     return await update_platform_settings(body, db, current_user, if_match)
+
+
+def _exact_money_input(value):
+    from app.services.bonus_settings_exact import exact_parameter
+
+    return exact_parameter(value, incoming=True)
+
+
+def _exact_percent_input(value):
+    from app.services.bonus_settings_exact import exact_parameter
+
+    return exact_parameter(value, incoming=True, percentage=True)
+
+
+ExactSettingMoney = Annotated[str, BeforeValidator(_exact_money_input)]
+ExactSettingPercent = Annotated[str, BeforeValidator(_exact_percent_input)]
+
+
+class ExactSettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    delivery_fee_base: ExactSettingMoney | None = None
+    commission_percentage: ExactSettingPercent | None = None
+    min_order_amount: ExactSettingMoney | None = None
+    rider_delivery_bonus: ExactSettingMoney | None = None
+    rider_failed_attempt_bonus: ExactSettingMoney | None = None
+    active_zones: list[str] | None = None
+    support_email: EmailStr | None = None
+    maintenance_mode: bool | None = Field(None, strict=True)
+
+
+class ExactBonusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    new_base_bonus: ExactSettingMoney | None = None
+    days_projection: int = Field(30, strict=True, ge=1, le=90)
+    expected_settings_revision: str = Field(pattern=r"^s2-[0-9a-f]{64}$")
+
+
+async def _exact_settings_reader(db, rows=None):
+    from app.services.bonus_settings_exact import (
+        exact_revision,
+        load_rows,
+        settings_view,
+    )
+
+    exact_rows, raw = await load_rows(db, EXPECTED_SETTING_KEYS)
+    try:
+        legacy_revision = _settings_revision(exact_rows)
+    except (ValueError, ArithmeticError):
+        legacy_revision = None
+    return settings_view(
+        exact_rows, raw, exact_revision(exact_rows, raw), legacy_revision
+    )
+
+
+@router.get("/exact/v2")
+async def get_exact_settings(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+):
+    if request.query_params:
+        raise HTTPException(422, "La consulta no admite filtros adicionales")
+    # Same NULL-key initialization as the legacy configuration screen; no money defaults.
+    await _ensure_default_settings(db)
+    return await _exact_settings_reader(db)
+
+
+@router.patch("/exact/v2")
+async def update_exact_settings(
+    body: ExactSettingsUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN)),
+    if_match: str | None = Header(None),
+):
+    if request.query_params:
+        raise HTTPException(422, "La actualización no admite filtros adicionales")
+    payload = body.model_dump(exclude_unset=True)
+    if any(value is None for value in payload.values()):
+        raise HTTPException(
+            422, "Introduce valores explícitos; un vacío no equivale a cero"
+        )
+    if "active_zones" in payload:
+        zones = [z.strip() for z in payload["active_zones"] if z.strip()]
+        if not zones or len(zones) != len(set(zones)):
+            raise HTTPException(422, "Introduce zonas activas únicas")
+        payload["active_zones"] = zones
+    return await _persist_settings_update(
+        db, current_user, if_match, payload, _exact_settings_reader, exact=True
+    )
+
+
+@router.post("/simulate-bonus/exact/v2")
+async def simulate_exact_bonus(
+    body: ExactBonusRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+):
+    from app.services.bonus_settings_exact import scenario
+
+    if request.query_params:
+        raise HTTPException(422, "La simulación no admite filtros adicionales")
+    return await scenario(
+        db,
+        body.new_base_bonus,
+        body.days_projection,
+        current_user,
+        body.expected_settings_revision,
+        EXPECTED_SETTING_KEYS,
+    )

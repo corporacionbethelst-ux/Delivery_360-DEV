@@ -1,203 +1,124 @@
-/**
- * Componente para mostrar el desglose detallado del bono de una entrega.
- * Muestra exactamente cómo se calculó el pago total:
- * - Bono base
- * - Multiplicador de zona
- * - Multiplicador de tier/nivel
- * - Total final
- * 
- * Ejemplo visual:
- * "Pago Total: $4125 | Base: $2500 + Zona (1.5x): $1250 + Nivel Oro (10%): $375"
- */
-
-import React from 'react';
-import { Info, DollarSign, MapPin, Award } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { formatCurrency } from '@/lib/formatters';
-
-interface BonusBreakdownProps {
-  /** Objeto con el desglose del bono desde el backend */
-  breakdown: {
-    base: number | null;
-    zone_multiplier: number | null;
-    tier_multiplier: number | null;
-    tier_level: string | null;
-    total: number;
-  } | null;
-  
-  /** Fallback: valores individuales si no hay objeto breakdown */
-  locked_bonus_base?: number | string | null;
-  locked_bonus_zone_multiplier?: number | string | null;
-  locked_bonus_tier_multiplier?: number | string | null;
-  locked_bonus_tier_level?: string | null;
-  locked_bonus_amount?: number | string | null;
-  
-  /** Mostrar solo si hay datos disponibles */
-  hideIfEmpty?: boolean;
-  
-  /** Tamaño compacto para listas */
-  compact?: boolean;
-}
-
+"use client";
+import { BadgeDollarSign, Info, MapPin, Award } from "lucide-react";
+import type { BonusRecord } from "@/lib/delivery-bonus-exact";
+import { exactTransactionMoney as payoutAmountLabel } from "@/lib/transaction-exact";
+import { decimalText, settingsTime } from "@/lib/bonus-settings-exact";
 export function BonusBreakdownCard({
-  breakdown,
-  locked_bonus_base,
-  locked_bonus_zone_multiplier,
-  locked_bonus_tier_multiplier,
-  locked_bonus_tier_level,
-  locked_bonus_amount,
+  snapshot,
   hideIfEmpty = true,
   compact = false,
-}: BonusBreakdownProps) {
-  // Determinar qué datos usar (priorizar breakdown object)
-  const base = breakdown?.base ?? (locked_bonus_base ? Number(locked_bonus_base) : null);
-  const zoneMultiplier = breakdown?.zone_multiplier ?? (locked_bonus_zone_multiplier ? Number(locked_bonus_zone_multiplier) : null);
-  const tierMultiplier = breakdown?.tier_multiplier ?? (locked_bonus_tier_multiplier ? Number(locked_bonus_tier_multiplier) : null);
-  const tierLevel = breakdown?.tier_level ?? locked_bonus_tier_level ?? null;
-  const total = breakdown?.total ?? (locked_bonus_amount ? Number(locked_bonus_amount) : null);
-
-  // Si no hay datos y hideIfEmpty es true, no renderizar nada
-  if (hideIfEmpty && !base && !total) {
-    return null;
-  }
-
-  // Calcular montos parciales para el desglose visual
-  // Fórmula: Total = Base × Zone × Tier
-  // Zona bonus = (Base × Zone) - Base
-  // Tier bonus = Total - (Base × Zone)
-  
-  const baseAmount = base ?? 0;
-  const zoneAmount = base && zoneMultiplier ? (base * zoneMultiplier) - base : 0;
-  const tierAmount = total !== null && base !== null && zoneMultiplier !== null 
-    ? total - (base * zoneMultiplier) 
-    : 0;
-
-  // Formatear nivel del rider para display
-  const getTierBadgeVariant = (level: string | null) => {
-    switch (level?.toUpperCase()) {
-      case 'PLATINO': return 'default'; // dark/purple
-      case 'ORO': return 'secondary'; // yellow/gold
-      case 'PLATA': return 'outline'; // silver
-      default: return 'outline'; // bronce/default
-    }
-  };
-
-  const getTierLabel = (level: string | null) => {
-    if (!level) return 'Bronce';
-    return level.charAt(0).toUpperCase() + level.slice(1).toLowerCase();
-  };
-
-  if (compact) {
-    return (
-      <div className="text-xs text-muted-foreground space-y-1">
-        {base !== null && (
-          <div className="flex justify-between">
-            <span>Base:</span>
-            <span className="font-medium">{formatCurrency(baseAmount)}</span>
-          </div>
-        )}
-        {zoneMultiplier && zoneMultiplier > 1 && (
-          <div className="flex justify-between">
-            <span>Zona ({zoneMultiplier}x):</span>
-            <span className="font-medium">+{formatCurrency(zoneAmount)}</span>
-          </div>
-        )}
-        {tierMultiplier && tierMultiplier > 1 && (
-          <div className="flex justify-between">
-            <span>{getTierLabel(tierLevel)} ({((tierMultiplier - 1) * 100).toFixed(0)}%):</span>
-            <span className="font-medium">+{formatCurrency(tierAmount)}</span>
-          </div>
-        )}
-        {total !== null && (
-          <div className="flex justify-between font-bold text-primary pt-1 border-t">
-            <span>Total:</span>
-            <span>{formatCurrency(total)}</span>
-          </div>
-        )}
-      </div>
+}: {
+  snapshot: BonusRecord | null;
+  hideIfEmpty?: boolean;
+  compact?: boolean;
+}) {
+  if (!snapshot && hideIfEmpty) return null;
+  const label = (value: string | null, field: string) =>
+    payoutAmountLabel(
+      value,
+      snapshot?.currency ?? null,
+      !!snapshot?.money_review.some((i) => i.field === field),
     );
-  }
-
   return (
-    <Card className="border-green-200 bg-gradient-to-br from-green-50 to-emerald-50/50">
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <DollarSign className="w-4 h-4 text-green-600" />
-          <h4 className="text-sm font-semibold text-green-900">Desglose del Bono</h4>
-          <Badge variant="outline" className="ml-auto text-xs">
-            {formatCurrency(total ?? 0)}
-          </Badge>
-        </div>
-
-        <div className="space-y-3">
-          {/* Bono Base */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm">
-                <DollarSign className="w-4 h-4 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-xs font-medium text-gray-600">Bono Base</p>
-                <p className="text-sm font-bold text-gray-900">{formatCurrency(baseAmount)}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Multiplicador de Zona */}
-          {zoneMultiplier !== null && zoneMultiplier !== undefined && (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm">
-                  <MapPin className="w-4 h-4 text-purple-600" />
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-600">
-                    Zona ({zoneMultiplier}x)
-                  </p>
-                  <p className="text-sm font-bold text-green-700">+{formatCurrency(zoneAmount)}</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Multiplicador de Tier */}
-          {tierMultiplier !== null && tierMultiplier !== undefined && tierMultiplier > 1 && (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm">
-                  <Award className="w-4 h-4 text-yellow-600" />
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                    Nivel{' '}
-                    <Badge variant={getTierBadgeVariant(tierLevel)} className="text-xs px-1 py-0">
-                      {getTierLabel(tierLevel)}
-                    </Badge>
-                    {' '}({((tierMultiplier - 1) * 100).toFixed(0)}%)
-                  </p>
-                  <p className="text-sm font-bold text-green-700">+{formatCurrency(tierAmount)}</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Separador y Total */}
-          <div className="pt-2 mt-2 border-t border-green-200">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-gray-700">Total Bono</span>
-              <span className="text-lg font-bold text-green-700">
-                {formatCurrency(total ?? 0)}
-              </span>
-            </div>
-            <p className="text-xs text-gray-500 mt-1">
-              Fórmula: ${baseAmount} × {zoneMultiplier ?? 1.0} × {tierMultiplier ?? 1.0} = ${total?.toFixed(2) ?? '0.00'}
+    <section
+      aria-label="Bono conservado"
+      className={`min-w-0 rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50 ${compact ? "p-3" : "p-5"}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <p className="flex items-center gap-2 text-sm font-semibold text-emerald-950">
+          <BadgeDollarSign aria-hidden="true" className="h-4 w-4" />
+          Bono conservado
+        </p>
+        <p className="break-words text-right text-lg font-bold text-emerald-900">
+          {snapshot
+            ? label(snapshot.amount, "locked_bonus_amount")
+            : "Bono por confirmar"}
+        </p>
+      </div>
+      {!snapshot ? (
+        <p className="mt-2 text-xs text-slate-600">
+          No se pudo confirmar el snapshot. El importe no se reemplaza por cero.
+        </p>
+      ) : (
+        <>
+          {snapshot.source === "order_without_delivery" ? (
+            <p className="mt-2 text-xs text-slate-600">
+              La orden no tiene entrega registrada. No hay un bono conservado.
             </p>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+          ) : (
+            <>
+              {snapshot.amount === null &&
+                !snapshot.money_review.some(
+                  (i) => i.field === "locked_bonus_amount",
+                ) && (
+                  <p className="mt-2 text-xs text-slate-600">
+                    Sin importe de bono guardado para este cierre o estado.
+                  </p>
+                )}
+              <dl className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
+                <div>
+                  <dt className="text-slate-600">Base registrada</dt>
+                  <dd className="font-medium text-slate-900">
+                    {label(snapshot.base, "locked_bonus_base")}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="flex items-center gap-1 text-slate-600">
+                    <MapPin aria-hidden="true" className="h-3 w-3" />
+                    Factor zona
+                  </dt>
+                  <dd>
+                    {snapshot.zone_multiplier === null
+                      ? "No informado"
+                      : decimalText(snapshot.zone_multiplier) + " ×"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="flex items-center gap-1 text-slate-600">
+                    <Award aria-hidden="true" className="h-3 w-3" />
+                    Factor nivel
+                  </dt>
+                  <dd>
+                    {snapshot.tier_multiplier === null
+                      ? "No informado"
+                      : decimalText(snapshot.tier_multiplier) + " ×"}{" "}
+                    · {snapshot.tier_level ?? "Nivel no informado"}
+                  </dd>
+                </div>
+              </dl>
+              {snapshot.snapshot_date && (
+                <p className="mt-2 text-xs text-slate-500">
+                  Conservado: {settingsTime(snapshot.snapshot_date)} ·
+                  America/Caracas.
+                </p>
+              )}
+            </>
+          )}
+          {(snapshot.state_review ||
+            snapshot.currency_review ||
+            snapshot.money_review.length > 0 ||
+            snapshot.config_warning) && (
+            <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-950">
+              Requiere revisión. {snapshot.config_warning}
+              {snapshot.currency_review &&
+                ` Moneda registrada por revisar: ${snapshot.currency_recorded ?? "No informada"}.`}
+            </p>
+          )}
+          {snapshot.currency === null &&
+            !snapshot.currency_review &&
+            snapshot.amount !== null && (
+              <p className="mt-2 text-xs text-amber-900">
+                Moneda no informada en este bono; no se deduce desde la orden o
+                un movimiento.
+              </p>
+            )}
+        </>
+      )}
+      <p className="mt-3 flex items-start gap-1 text-xs text-slate-600">
+        <Info aria-hidden="true" className="mt-0.5 h-3 w-3 shrink-0" />
+        Componentes guardados, sin recalcular importes. Este bono no acredita
+        saldo disponible ni pago bancario.
+      </p>
+    </section>
   );
 }
-
-export default BonusBreakdownCard;
