@@ -107,6 +107,41 @@ export function OrderPriceSummary({
 
 export function OrderPriceItems({ order }: { order: unknown }) {
   const result = operationalOrderPrice(order);
+  if (result.state === "unavailable" && order && typeof order === "object") {
+    const previous = (order as { items?: unknown }).items;
+    if (Array.isArray(previous) && previous.length > 0)
+      return (
+        <section
+          aria-label="Artículos anteriores"
+          className="rounded-xl border border-amber-200 bg-white p-4"
+        >
+          <h2 className="font-semibold text-slate-900">Artículos anteriores</h2>
+          <p className="mt-1 text-sm text-amber-900">
+            Se conserva su descripción. Los precios requieren revisión.
+          </p>
+          <ul className="mt-3 divide-y divide-slate-100">
+            {previous.map((value, index) => {
+              const item =
+                value && typeof value === "object"
+                  ? (value as Record<string, unknown>)
+                  : {};
+              return (
+                <li
+                  key={index}
+                  className="break-words py-3 text-sm text-slate-700"
+                >
+                  {typeof item.product_name === "string"
+                    ? item.product_name
+                    : typeof item.name === "string"
+                      ? item.name
+                      : "Producto sin nombre"}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      );
+  }
   if (result.state !== "exact" || !result.pricing.items.length) return null;
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">

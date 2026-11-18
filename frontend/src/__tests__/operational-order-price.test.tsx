@@ -6,6 +6,7 @@ import {
 import {
   OrderPriceAmount,
   OrderPriceSummary,
+  OrderPriceItems,
   LinkedDeliveryOrderPrice,
 } from "@/components/orders/OperationalOrderPrice";
 import { priceOrder } from "@/lib/order-pricing";
@@ -15,6 +16,31 @@ import { clearStoredTokens, storeTokens } from "@/lib/auth-session";
 jest.mock("@/services/order.service", () => ({
   orderService: { getById: jest.fn() },
 }));
+
+it("keeps legacy product descriptions without inventing exact prices or units", () => {
+  render(
+    <OrderPriceItems
+      order={{
+        pricing: null,
+        currency: null,
+        items: [
+          {
+            product_name: "Producto anterior conservado",
+            unit_price: 123.45,
+            subtotal: 246.9,
+          },
+        ],
+      }}
+    />,
+  );
+  expect(
+    screen.getByRole("region", { name: "Artículos anteriores" }),
+  ).toHaveTextContent("Producto anterior conservado");
+  expect(
+    screen.getByText(/Los precios requieren revisión/),
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/USD|123|246/)).not.toBeInTheDocument();
+});
 const exact = () => ({
   id: "order-a",
   currency: "USD",

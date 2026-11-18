@@ -6,7 +6,8 @@ es `pricing` de la orden: subtotal, envío, total y artículos con textos decima
 y revisión. Se valida coherencia con BigInt y se presenta USD con sus centavos,
 sin transformar el precio a Number ni reconstruirlo desde alias numéricos.
 
-Una orden antigua sin ese precio queda con aviso de revisión. Un precio inválido
+Una orden antigua sin ese precio queda con aviso de revisión y conserva las
+descripciones de sus productos, sin presentar importes Float como exactos. Un precio inválido
 no se reemplaza por el importe de compatibilidad, los artículos anteriores o un
 cero. Un precio exacto cero permanece visible. Cantidad o precio unitario ausente
 en un artículo de subtotal conservado no se inventan.
