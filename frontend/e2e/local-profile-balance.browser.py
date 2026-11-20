@@ -171,7 +171,10 @@ def main():
                 expect(panel).to_contain_text(
                     "requiere acceso de gerencia", timeout=30000
                 )
-                expect(panel).not_to_contain_text("USD")
+                expect(panel.get_by_text("Saldo del libro USD", exact=True)).to_have_count(0)
+                expect(panel.get_by_text("Reservas de retiro", exact=True)).to_have_count(0)
+                expect(panel.get_by_text("Disponible contable", exact=True)).to_have_count(0)
+                expect(panel.locator("dd")).to_have_count(0)
                 assert not any(path.lstrip("/") == value for value in reads[start:])
                 passed(
                     "operator: operational profile remains available without a financial request or cached money"
