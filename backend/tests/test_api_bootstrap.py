@@ -88,6 +88,7 @@ def before_currency_schema(application):
         "/api/v1/settings/exact/v2",
         "/api/v1/settings/simulate-bonus/exact/v2",
         "/api/v1/deliveries/bonuses/exact",
+        "/api/v1/payouts/riders/{rider_id}/balance/exact",
     ):
         del schema["paths"][path]
     for name in ("ExactSettingsUpdate", "ExactBonusRequest"):
@@ -204,6 +205,7 @@ def surface_before_currency(application):
                         "/api/v1/settings/exact/v2",
                         "/api/v1/settings/simulate-bonus/exact/v2",
                         "/api/v1/deliveries/bonuses/exact",
+                        "/api/v1/payouts/riders/{rider_id}/balance/exact",
                         "/api/v1/payouts/exact/page",
                         "/api/v1/payouts/exact/{payout_id}",
                         "/api/v1/financial/transactions/exact/page",
@@ -213,7 +215,7 @@ def surface_before_currency(application):
             )
         )
     ]
-    assert len(removed) == 31
+    assert len(removed) == 32
     current["routes"] = [
         row
         for row in current["routes"]
@@ -234,6 +236,7 @@ def surface_before_currency(application):
                     "/api/v1/settings/exact/v2",
                     "/api/v1/settings/simulate-bonus/exact/v2",
                     "/api/v1/deliveries/bonuses/exact",
+                    "/api/v1/payouts/riders/{rider_id}/balance/exact",
                     "/api/v1/payouts/exact/page",
                     "/api/v1/payouts/exact/{payout_id}",
                     "/api/v1/financial/transactions/exact/page",

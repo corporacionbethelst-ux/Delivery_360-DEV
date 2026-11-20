@@ -729,3 +729,13 @@ antes de mostrar su precio, con reintento independiente de la lectura operativa.
 Cobros parciales, devoluciones, créditos del rider y disponibilidad siguen en
 sus libros separados. No se deduce deuda ni pago bancario desde el precio.
 No hay migración ni cambios de contratos del servidor o de reglas de cobro.
+
+## Entrega 108: saldo canónico en el perfil
+
+El perfil consulta libro USD, reservas y disponible mediante el mismo cálculo
+transaccional del propietario. La nueva ruta por repartidor autoriza únicamente
+Gerente y Superadmin y vincula actor, propietario y perfil. No usa cachés Float
+como evidencia monetaria ni escribe saldos. Monedas no verificadas quedan fuera
+y se informa su cantidad. La interfaz distingue cero, error y última lectura
+confirmada; retira datos al cambiar identidad o perder autorización. El saldo
+contable no acredita una transferencia bancaria. No hay migración.

@@ -31,6 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useAuthStore } from "@/stores/authStore";
+import { CanonicalProfileBalance } from "@/components/riders/CanonicalProfileBalance";
 import { riderService } from "@/services/rider.service";
 import type { Rider } from "@/types/user";
 import {
@@ -357,25 +358,14 @@ function Profile({ id }: { id: string }) {
                 icon={Wallet}
                 title="Resumen financiero"
                 tone="emerald"
-                description="Valores informados en esta ficha."
+                description="Saldo registrado en el libro USD y reservas de retiro."
               />
-              <dl className="space-y-3">
-                <div className="flex flex-wrap justify-between gap-2 rounded-xl bg-emerald-50 p-4">
-                  <dt>Saldo informado</dt>
-                  <dd className="font-bold tabular-nums">
-                    {riderNumber(rider.wallet_balance)}
-                  </dd>
-                </div>
-                <div className="flex flex-wrap justify-between gap-2 rounded-xl bg-blue-50 p-4">
-                  <dt>Pendiente informado</dt>
-                  <dd className="font-bold tabular-nums">
-                    {riderNumber(rider.pending_balance)}
-                  </dd>
-                </div>
-              </dl>
-              <p className="text-sm text-slate-600">
-                La ficha no informa moneda ni disponibilidad de retiro.
-              </p>
+              <CanonicalProfileBalance
+                riderId={rider.id}
+                ownerId={rider.user_id}
+                actorId={user?.id ?? ""}
+                role={user?.role ?? ""}
+              />
             </section>
             <section
               className={`${operationStyles.panel} space-y-4 p-5`}
