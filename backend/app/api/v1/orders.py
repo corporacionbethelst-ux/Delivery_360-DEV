@@ -979,7 +979,14 @@ async def _ensure_delivery_and_financial_records(
         )
     )
     bonus_value = settings_result.scalar_one_or_none()
-    base_payment = calculated_bonus(bonus_value if bonus_value is not None else "2.50")
+    from app.services.zone_bonus_factors import configured_rider_bonus
+    from app.services.delivery_ledger import bonus_component
+
+    raw_base = bonus_component(bonus_value if bonus_value is not None else "2.50")
+    declared = await configured_rider_bonus(db, rider_id, raw_base)
+    base_payment, factor_snapshot = (
+        declared if declared is not None else (calculated_bonus(raw_base), None)
+    )
 
     if not delivery:
         # Calcular SLA si es posible
@@ -1030,6 +1037,7 @@ async def _ensure_delivery_and_financial_records(
 
             logger.info(f"Registro de entrega actualizado para orden {order.id}")
 
+    delivery.locked_bonus_factors = factor_snapshot
     delivery.locked_bonus_amount = base_payment
     delivery.locked_bonus_currency = "USD"
     delivery.locked_bonus_type = LockedBonusType.SUCCESS

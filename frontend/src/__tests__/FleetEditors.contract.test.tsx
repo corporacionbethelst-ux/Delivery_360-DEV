@@ -19,6 +19,9 @@ jest.mock("next/navigation", () => ({
   useParams: () => ({ id: mockId }),
   useRouter: () => mockRouter,
 }));
+jest.mock("@/components/zones/ZoneBonusFactorEditor", () => ({
+  ZoneBonusFactorEditor: () => <div data-testid="independent-factor-editor" />,
+}));
 jest.mock("@/components/zones/ZoneTariffEditor", () => ({
   ZoneTariffEditor: () => <div data-testid="independent-tariff-editor" />,
 }));
@@ -210,28 +213,23 @@ it("preserves actual coordinate zero and allows explicitly clearing a known loca
     ),
   );
 });
-it("preserves a valid fractional multiplier in the example and payload", async () => {
-  zones.getById.mockResolvedValueOnce({ ...zone, bonus_multiplier: 1.25 });
+it("keeps bonus factors out of the operational save", async () => {
   render(<ZoneEditor />);
   await screen.findByDisplayValue("Centro");
-  expect(screen.getByLabelText("Multiplicador de Bono")).toHaveValue(1.25);
-  expect(screen.getByText(/unidades × 1.25 ≈/)).toBeInTheDocument();
+  expect(
+    screen.queryByLabelText("Multiplicador de Bono"),
+  ).not.toBeInTheDocument();
   save();
-  await waitFor(() =>
-    expect(zones.update).toHaveBeenCalledWith(
-      zone.id,
-      expect.objectContaining({ bonus_multiplier: 1.25 }),
-    ),
-  );
+  await waitFor(() => expect(zones.update).toHaveBeenCalled());
+  expect(zones.update.mock.calls[0][1]).not.toHaveProperty("bonus_multiplier");
 });
+
 it.each([
   ["Nombre de la Zona *", "   ", /obligatorios/],
   ["Código Corto *", "   ", /obligatorios/],
   ["Tiempo Est. (min)", "0", /tiempo estimado/],
   ["Tiempo Est. (min)", "1.5", /tiempo estimado/],
   ["Tiempo Est. (min)", "241", /tiempo estimado/],
-  ["Multiplicador de Bono", "0", /multiplicador debe/],
-  ["Multiplicador de Bono", "5.1", /multiplicador debe/],
   ["Latitud", "90.1", /coordenadas/],
   ["Longitud", "-180.1", /coordenadas/],
 ] as const)(

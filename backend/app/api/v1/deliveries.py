@@ -1117,19 +1117,12 @@ async def update_delivery_status(
             # Antes usábamos _get_rider_for_user(db, delivery.rider_id) lo cual fallaba porque
             # esa función busca por user_id, no por rider_id.
             rider_query = await db.execute(
-                select(Rider).where(Rider.id == delivery.rider_id)
+                select(Rider)
+                .where(Rider.id == delivery.rider_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
             rider_obj = rider_query.scalar_one_or_none()
-
-            # 3. Calcular Multiplicador de Zona
-            zone_multiplier = Decimal("1.0")
-            if rider_obj and rider_obj.zone_id:
-                zone_result = await db.execute(
-                    select(Zone.bonus_multiplier).where(Zone.id == rider_obj.zone_id)
-                )
-                zone_val = zone_result.scalar_one_or_none()
-                if zone_val is not None:
-                    zone_multiplier = bonus_component(zone_val)
 
             # 4. Calcular Multiplicador de Tier (NIVEL)
             from app.models.rider import RiderTier
@@ -1147,10 +1140,21 @@ async def update_delivery_status(
             )
             tier_multiplier = TIER_MULTIPLIERS.get(rider_tier, Decimal("1.00"))
 
-            # 5. APLICAR FÓRMULA COMPLETA
-            final_payment = calculated_bonus(
-                base_payment * zone_multiplier * tier_multiplier
+            from app.services.zone_bonus_factors import (
+                resolve_factor,
+                calculated_with_factor,
             )
+
+            zone_multiplier, factor_snapshot = await resolve_factor(
+                db, rider_obj.zone_id if rider_obj else None, tier_multiplier
+            )
+            final_payment = calculated_with_factor(
+                base_payment,
+                zone_multiplier,
+                tier_multiplier,
+                precise=factor_snapshot["basis"] == "declared_exact",
+            )
+            delivery.locked_bonus_factors = factor_snapshot
 
             # 6. PERSISTIR EN LOCKED_BONUS_AMOUNT Y CAMPOS DE DESGLOSE (FASE 5)
             delivery.locked_bonus_currency = "USD"
@@ -1256,9 +1260,18 @@ async def update_delivery_status(
                 )
                 bonus_value = settings_result.scalar_one_or_none()
 
-                failed_payment = calculated_bonus(
+                from app.services.zone_bonus_factors import configured_rider_bonus
+
+                raw_base = bonus_component(
                     bonus_value if bonus_value is not None else 0
                 )
+                declared = await configured_rider_bonus(db, delivery.rider_id, raw_base)
+                failed_payment, factor_snapshot = (
+                    declared
+                    if declared is not None
+                    else (calculated_bonus(raw_base), None)
+                )
+                delivery.locked_bonus_factors = factor_snapshot
                 delivery.locked_bonus_currency = "USD"
                 delivery.locked_bonus_amount = failed_payment
                 delivery.locked_bonus_type = LockedBonusType.FAILED_ATTEMPT

@@ -121,7 +121,9 @@ def declared_usd_contract(expected):
             anchor, "\n\t" + column + " VARCHAR(3), " + anchor, 1
         )
         data["defaults"][column] = [default, None]
-    return zone_tariff_contract(exact_pricing_contract(bonus_currency_contract(result)))
+    return zone_factor_contract(
+        zone_tariff_contract(exact_pricing_contract(bonus_currency_contract(result)))
+    )
 
 
 def exact_pricing_contract(expected):
@@ -203,4 +205,49 @@ def zone_tariff_contract(expected):
             + ")",
             1,
         )
+    return result
+
+
+def zone_factor_contract(expected):
+    from copy import deepcopy
+
+    result = deepcopy(expected)
+    if "zones" in result:
+        row = result["zones"]
+        anchor = "\n\ttariff_base_usd"
+        assert row["ddl"].count(anchor) == 1
+        fields = (
+            ("bonus_factor_exact", "NUMERIC(20, 18)"),
+            ("bonus_factor_revision", "INTEGER DEFAULT 0 NOT NULL"),
+            ("bonus_factor_updated_at", "TIMESTAMP WITH TIME ZONE"),
+            ("bonus_factor_updated_by", "UUID"),
+        )
+        row["ddl"] = row["ddl"].replace(
+            anchor,
+            "".join("\n\t" + name + " " + kind + ", " for name, kind in fields)
+            + anchor,
+            1,
+        )
+        for name, _ in fields:
+            assert name not in row["defaults"]
+            row["defaults"][name] = [
+                "0" if name == "bonus_factor_revision" else None,
+                None,
+            ]
+        guard = "(bonus_factor_revision = 0 AND bonus_factor_exact IS NULL AND bonus_factor_updated_at IS NULL AND bonus_factor_updated_by IS NULL) OR (bonus_factor_revision > 0 AND bonus_factor_exact IS NOT NULL AND bonus_factor_exact BETWEEN 0.1 AND 5 AND bonus_factor_updated_at IS NOT NULL AND bonus_factor_updated_by IS NOT NULL)"
+        row["ddl"] = row["ddl"].replace(
+            "PRIMARY KEY (id), ",
+            "PRIMARY KEY (id), \n\tCONSTRAINT ck_zones_exact_bonus_factor CHECK ("
+            + guard
+            + "), ",
+            1,
+        )
+    if "deliveries" in result:
+        row = result["deliveries"]
+        anchor = "\n\tlocked_bonus_base"
+        assert row["ddl"].count(anchor) == 1
+        row["ddl"] = row["ddl"].replace(
+            anchor, "\n\tlocked_bonus_factors JSON, " + anchor, 1
+        )
+        row["defaults"]["locked_bonus_factors"] = [None, None]
     return result

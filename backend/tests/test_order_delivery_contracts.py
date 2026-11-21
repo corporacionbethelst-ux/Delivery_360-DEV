@@ -104,10 +104,11 @@ async def test_invalid_bonus_configuration_returns_warning_without_snapshot(valu
     ]
     session = AsyncMock()
     session.execute.return_value = result
-    amount, warning = await DeliveryService()._get_bonus_config_and_snapshot(
+    amount, warning, factors = await DeliveryService()._get_bonus_config_and_snapshot(
         session, LockedBonusType.SUCCESS, uuid4(), uuid4()
     )
     assert amount == 0 and warning
+    assert factors is None
     session.execute.assert_awaited_once()
     session.commit.assert_not_awaited()
 

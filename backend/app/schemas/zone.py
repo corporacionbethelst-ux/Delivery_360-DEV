@@ -110,3 +110,16 @@ class ZoneTariffInput(BaseModel):
         from app.services.bonus_settings_exact import exact_parameter
 
         return exact_parameter(value, incoming=True)
+
+
+class ZoneBonusFactorInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(..., strict=True, ge=0, le=2147483646)
+    factor: str
+
+    @field_validator("factor", mode="before")
+    @classmethod
+    def exact_factor(cls, value):
+        from app.services.zone_bonus_factors import factor_text
+
+        return factor_text(value, incoming=True)

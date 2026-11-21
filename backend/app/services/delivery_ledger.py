@@ -108,6 +108,7 @@ async def ensure_bonus_outcome(
 
 
 BONUS_SNAPSHOT_FIELDS = (
+    "locked_bonus_factors",
     "locked_bonus_amount",
     "locked_bonus_currency",
     "locked_bonus_type",

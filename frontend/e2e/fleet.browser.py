@@ -131,6 +131,24 @@ def main():
                     ),
                     headers=headers,
                 )
+            elif path.endswith("/bonus-factor/exact") and path.startswith(
+                "/api/v1/zones/"
+            ):
+                route.fulfill(
+                    json=dict(
+                        version=1,
+                        scope="zone_bonus_factor",
+                        zone_id=zone(0)["id"],
+                        revision=0,
+                        factor=None,
+                        legacy_factor="1.25",
+                        unit="dimensionless",
+                        updated_at=None,
+                        updated_by=None,
+                        application="prospective_delivery_bonus",
+                    ),
+                    headers=headers,
+                )
             elif path.endswith("/tariff/exact") and path.startswith("/api/v1/zones/"):
                 route.fulfill(json=tariff(0), headers=headers)
             elif path in ("/api/v1/vehicles", "/api/v1/zones"):
@@ -468,10 +486,12 @@ def main():
         expect(latitude).to_have_value("")
         expect(page.get_by_label("Longitud", exact=True)).to_have_value("")
         expect(page.get_by_text("No informado", exact=True)).to_be_visible()
-        expect(page.get_by_label("Multiplicador de Bono", exact=True)).to_have_value(
-            "1.25"
+        expect(
+            page.get_by_role("region", name="Factor de bono de la zona")
+        ).to_contain_text("1,25 × (compatibilidad)")
+        expect(page.get_by_label("Factor decimal de zona", exact=True)).to_have_value(
+            ""
         )
-        expect(page.get_by_text(re.compile("unidades × 1.25 ≈"))).to_be_visible()
         passed(
             "zone editor requires a loaded record and preserves unknown coordinates and multiplier precision"
         )
