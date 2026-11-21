@@ -47,7 +47,6 @@ from app.services.delivery_ledger import (
     ensure_bonus_outcome,
     ensure_new_bonus_snapshot,
 )
-from app.models.platform_setting import PlatformSetting
 from app.models.zone import Zone  # Importado para Fase 3
 from app.services.notification_service import NotificationService
 from app.services.redis_audit_service import get_redis_audit_logger
@@ -1097,12 +1096,11 @@ async def update_delivery_status(
 
         if not existing_financial and delivery.rider_id:
             # 1. Obtener bono base de configuración
-            settings_result = await db.execute(
-                select(PlatformSetting.value).where(
-                    PlatformSetting.key == "rider_delivery_bonus"
-                )
+            from app.services.bonus_base_settings import load_bonus_bases
+
+            bonus_value = (await load_bonus_bases(db, ["rider_delivery_bonus"])).get(
+                "rider_delivery_bonus"
             )
-            bonus_value = settings_result.scalar_one_or_none()
 
             base_payment = bonus_component(
                 bonus_value if bonus_value is not None else 0
@@ -1253,12 +1251,11 @@ async def update_delivery_status(
                 bonus_amount = existing_financial.amount
 
             if not existing_financial:
-                settings_result = await db.execute(
-                    select(PlatformSetting.value).where(
-                        PlatformSetting.key == "rider_failed_attempt_bonus"
-                    )
-                )
-                bonus_value = settings_result.scalar_one_or_none()
+                from app.services.bonus_base_settings import load_bonus_bases
+
+                bonus_value = (
+                    await load_bonus_bases(db, ["rider_failed_attempt_bonus"])
+                ).get("rider_failed_attempt_bonus")
 
                 from app.services.zone_bonus_factors import configured_rider_bonus
 

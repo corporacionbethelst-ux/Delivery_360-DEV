@@ -1,0 +1,15 @@
+# Delivery360 — entrega 111
+
+Los cinco cierres de entrega leen ahora los bonos base desde el JSON textual almacenado y decodifican sus números como Decimal. Se evita perder un centavo al pasar por Float antes de aplicar los factores y redondear el resultado monetario. Por ejemplo, 100.004999999999999999 conserva 100.00; 0.0049999999999999999999 conserva cero sin crear un asiento cero.
+
+La lectura toma un bloqueo compartido de las filas existentes, por clave ordenada y dentro de la transacción del cierre. Un guardado concurrente con bloqueo exclusivo termina antes de que el cierre lea su nuevo valor, o espera hasta que el cierre libere la lectura. No hay commits ni escrituras de configuración en el lector. La selección de texto evita reutilizar el valor Float de un objeto retenido por el ORM. La revisión s2 y su auditoría conservan su contrato.
+
+Se mantienen los cinco caminos: éxito y fallo bonificable desde el servicio, éxito y fallo directo, y cierre desde orden. También se mantienen sus diferencias de compatibilidad: ausencia/null conserva el fallback 2.50 de orden y cero o advertencia en las otras vías, con los factores confirmados cuando corresponde. Las zonas sin confirmar conservan sus reglas anteriores. No se reescriben settings, bonos, snapshots ni créditos históricos.
+
+No añade endpoints, campos, migraciones ni cambios visuales. El desglose locked_bonus_base sigue siendo un alias monetario de dos decimales: no se presenta como captura completa del JSON original. Los factores conservados siguen perteneciendo a la entrega 110. La lectura de una clave inexistente observa ausencia y conserva el fallback; no implementa un bloqueo de predicado para inserciones posteriores. No se amplían aquí los límites ni el contexto de cálculo existente.
+
+Las pruebas incluyen números JSON en ambos lados de un umbral de centavo en los cinco cierres, ausencia y null en los cinco, espera PostgreSQL real con un escritor de configuración en los cinco, bloqueo compartido hasta rollback y lectura independiente del objeto ORM retenido. Comparan el JSON original y las entregas anteriores, verifican el crédito USD exacto y la ausencia de crédito cero. Se conservan también los contratos anteriores de moneda, factores, cierre y libro.
+
+Para probar localmente: conservar cambios propios y respaldos; reconstruir backend con docker compose up -d --build --no-deps backend. No borrar ni resembrar volúmenes. Esta entrega no requiere migración nueva. Para una comprobación funcional usar órdenes y repartidores de prueba, con bono base decimal válido y factor confirmado; los bonos previos deben permanecer iguales tras cambiar configuración. Las pruebas con números JSON de más de dos decimales usan exclusivamente una base automática aislada, nunca configuración real.
+
+Sigue pendiente la revisión de los consumidores monetarios de compatibilidad, el desglose completo de insumos históricos cuando corresponda y los requisitos externos descritos en PRODUCCION_PENDIENTES.md. No se fusiona ni despliega producción automáticamente.

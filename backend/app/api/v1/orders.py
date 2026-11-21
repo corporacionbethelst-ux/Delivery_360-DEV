@@ -973,12 +973,11 @@ async def _ensure_delivery_and_financial_records(
         raise HTTPException(
             409, "Existe un bono previo sin snapshot; requiere revisión"
         )
-    settings_result = await db.execute(
-        select(PlatformSetting.value).where(
-            PlatformSetting.key == "rider_delivery_bonus"
-        )
+    from app.services.bonus_base_settings import load_bonus_bases
+
+    bonus_value = (await load_bonus_bases(db, ["rider_delivery_bonus"])).get(
+        "rider_delivery_bonus"
     )
-    bonus_value = settings_result.scalar_one_or_none()
     from app.services.zone_bonus_factors import configured_rider_bonus
     from app.services.delivery_ledger import bonus_component
 
