@@ -45,9 +45,23 @@ import {
   SectionHeading,
   operationStyles,
 } from "@/components/operations/OperationsUI";
+import { ManagerPageBoundary } from "@/components/layout/ManagerPageBoundary";
+import { ZoneTariffEditor } from "@/components/zones/ZoneTariffEditor";
 import { cn } from "@/lib/utils";
 
 export default function EditZonePage() {
+  const params = useParams();
+  const id = typeof params.id === "string" ? params.id : "";
+  return (
+    <ManagerPageBoundary
+      scope={`zone:${id}`}
+      roles={["SUPERADMIN", "GERENTE", "OPERADOR"]}
+    >
+      <ZoneEditor />
+    </ManagerPageBoundary>
+  );
+}
+function ZoneEditor() {
   const router = useRouter();
   const params = useParams();
   const zoneId = typeof params.id === "string" ? params.id : "";
@@ -67,8 +81,6 @@ export default function EditZonePage() {
     name: "",
     code: "",
     description: "",
-    delivery_fee_base: 0,
-    cost_per_km: 0,
     estimated_time_min: 0,
     bonus_multiplier: 1.0,
     is_priority: false,
@@ -108,8 +120,6 @@ export default function EditZonePage() {
           name: data.name,
           code: data.code,
           description: data.description ?? "",
-          delivery_fee_base: data.delivery_fee_base,
-          cost_per_km: data.cost_per_km,
           estimated_time_min: data.estimated_time_min,
           bonus_multiplier: data.bonus_multiplier ?? 1,
           is_priority: data.is_priority,
@@ -154,14 +164,6 @@ export default function EditZonePage() {
       return;
     }
     if (
-      ![formData.delivery_fee_base, formData.cost_per_km].every(
-        (value) => Number.isFinite(value) && value >= 0,
-      )
-    ) {
-      setError("Las tarifas deben ser números finitos no negativos.");
-      return;
-    }
-    if (
       !Number.isInteger(formData.estimated_time_min) ||
       formData.estimated_time_min < 1 ||
       formData.estimated_time_min > 240
@@ -194,7 +196,10 @@ export default function EditZonePage() {
     setSaving(true);
     setError(null);
     try {
-      await zoneService.update(snapshot.id, { ...formData });
+      const metadata = { ...formData };
+      delete metadata.delivery_fee_base;
+      delete metadata.cost_per_km;
+      await zoneService.update(snapshot.id, metadata);
       if (snapshotRef.current !== snapshot) return;
       setSuccess(true);
       redirectTimer.current = setTimeout(() => {
@@ -405,63 +410,21 @@ export default function EditZonePage() {
             </CardContent>
           </Card>
 
+          <ZoneTariffEditor zoneId={zoneId} />
           <Card className={operationStyles.panel}>
             <CardHeader className="border-b border-amber-100 bg-amber-50/60">
               <SectionHeading
                 icon={DollarSign}
-                title="Configuración de Tarifas y Tiempos"
+                title="Tiempos de la zona"
                 tone="amber"
               />
               <CardDescription>
-                Importes configurados; esta consulta no informa moneda. No se
-                realiza conversión.
+                La duración prevista se guarda con los datos operativos. Las
+                tarifas USD tienen su propio guardado y revisión.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-5">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label
-                    htmlFor="fee"
-                    className="flex items-center gap-2 text-gray-700"
-                  >
-                    <DollarSign aria-hidden="true" className="w-4 h-4" /> Tarifa
-                    Base
-                  </Label>
-                  <Input
-                    id="fee"
-                    type="number"
-                    step="0.01"
-                    value={formData.delivery_fee_base}
-                    onChange={(e) =>
-                      handleChange("delivery_fee_base", Number(e.target.value))
-                    }
-                    min={0}
-                    className={operationStyles.field}
-                  />
-                  <p className="text-xs text-gray-500">
-                    Costo inicial del envío.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label
-                    htmlFor="cost-km"
-                    className="flex items-center gap-2 text-gray-700"
-                  >
-                    Costo por Km
-                  </Label>
-                  <Input
-                    id="cost-km"
-                    type="number"
-                    step="0.01"
-                    value={formData.cost_per_km}
-                    onChange={(e) =>
-                      handleChange("cost_per_km", Number(e.target.value))
-                    }
-                    min={0}
-                    className={operationStyles.field}
-                  />
-                  <p className="text-xs text-gray-500">Variable distancia.</p>
-                </div>
                 <div className="space-y-2">
                   <Label
                     htmlFor="minutes"

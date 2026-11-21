@@ -43,6 +43,22 @@ def zone(index):
     }
 
 
+def tariff(index):
+    empty = index == 1
+    return dict(
+        version=1,
+        scope="zone_usd_tariff",
+        zone_id=zone(index)["id"],
+        revision=0 if empty else 1,
+        currency=None if empty else "USD",
+        base_usd=None if empty else "0.00",
+        per_km_usd=None if empty else "0.10",
+        updated_at=None if empty else "2026-11-21T00:00:00Z",
+        updated_by=None if empty else "11111111-1111-4111-8111-111111111111",
+        application="zone_configuration_only",
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://127.0.0.1:3072")
@@ -106,6 +122,17 @@ def main():
             elif business and route.request.method != "GET":
                 writes.append({"path": path, "method": route.request.method})
                 route.abort()
+            elif path == "/api/v1/zones/tariffs/exact":
+                route.fulfill(
+                    json=dict(
+                        version=1,
+                        scope="zone_usd_tariffs",
+                        items=[tariff(i) for i in range(10)],
+                    ),
+                    headers=headers,
+                )
+            elif path.endswith("/tariff/exact") and path.startswith("/api/v1/zones/"):
+                route.fulfill(json=tariff(0), headers=headers)
             elif path in ("/api/v1/vehicles", "/api/v1/zones"):
                 requests.append({"path": path, "query": query})
                 if path.endswith("vehicles") and state["failure"]:
@@ -257,9 +284,9 @@ def main():
         expect(schematic.get_by_role("link")).to_have_count(8)
         expect(
             page.get_by_role("article", name="Zona Centro 0", exact=True)
-        ).to_contain_text("0,00 (moneda no informada)")
+        ).to_contain_text("USD 0,00")
         missing = page.get_by_role("article", name="Zona Centro 1", exact=True)
-        expect(missing).to_contain_text("Monto no informado")
+        expect(missing).to_contain_text("Tarifas USD sin configurar")
         expect(missing.get_by_text("No informado", exact=True)).to_have_count(2)
         last = requests[-1]
         assert last["query"] == {"limit": ["100"], "page": ["1"]}
@@ -282,8 +309,10 @@ def main():
         dialog = page.get_by_role("dialog")
         dialog.get_by_role("button", name="Crear Zona", exact=True).click()
         expect(dialog).to_contain_text("El nombre y el código son obligatorios.")
-        dialog.get_by_label("Tarifa Base", exact=True).fill("0.75")
-        expect(dialog.get_by_label("Tarifa Base", exact=True)).to_have_value("0.75")
+        expect(dialog.get_by_label("Tarifa Base", exact=True)).to_have_count(0)
+        expect(dialog).to_contain_text(
+            "No se asignan importes ni moneda automáticamente"
+        )
         color = dialog.get_by_role("button", name="Color Violeta", exact=True)
         color.click()
         expect(color).to_have_attribute("aria-pressed", "true")
@@ -296,7 +325,7 @@ def main():
         )
         dialog.get_by_role("button", name="Cancelar", exact=True).click()
         passed(
-            "zone dialog preserves decimals and exposes named color selection on mobile"
+            "zone creation keeps tariffs unconfigured and exposes named color selection on mobile"
         )
 
         page.goto(base + "/manager/fleet/vehicles/new", wait_until="domcontentloaded")

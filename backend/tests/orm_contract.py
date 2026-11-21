@@ -121,7 +121,7 @@ def declared_usd_contract(expected):
             anchor, "\n\t" + column + " VARCHAR(3), " + anchor, 1
         )
         data["defaults"][column] = [default, None]
-    return exact_pricing_contract(bonus_currency_contract(result))
+    return zone_tariff_contract(exact_pricing_contract(bonus_currency_contract(result)))
 
 
 def exact_pricing_contract(expected):
@@ -167,4 +167,40 @@ def bonus_currency_contract(expected):
             anchor, "\n\tlocked_bonus_currency VARCHAR(3), " + anchor, 1
         )
         row["defaults"]["locked_bonus_currency"] = [None, None]
+    return result
+
+
+def zone_tariff_contract(expected):
+    """Only the five additive tariff fields and paired-value guard of migration109."""
+    from copy import deepcopy
+
+    result = deepcopy(expected)
+    if "zones" in result:
+        row = result["zones"]
+        fields = (
+            ("tariff_base_usd", "NUMERIC(10, 2)"),
+            ("tariff_per_km_usd", "NUMERIC(10, 2)"),
+            ("tariff_revision", "INTEGER DEFAULT 0 NOT NULL"),
+            ("tariff_updated_at", "TIMESTAMP WITH TIME ZONE"),
+            ("tariff_updated_by", "UUID"),
+        )
+        anchor = "\n\testimated_time_min"
+        assert row["ddl"].count(anchor) == 1
+        row["ddl"] = row["ddl"].replace(
+            anchor,
+            "".join("\n\t" + key + " " + kind + ", " for key, kind in fields) + anchor,
+            1,
+        )
+        for key, _ in fields:
+            assert key not in row["defaults"]
+            row["defaults"][key] = ["0" if key == "tariff_revision" else None, None]
+        guard = "(tariff_revision = 0 AND tariff_base_usd IS NULL AND tariff_per_km_usd IS NULL AND tariff_updated_at IS NULL AND tariff_updated_by IS NULL) OR (tariff_revision > 0 AND tariff_base_usd IS NOT NULL AND tariff_per_km_usd IS NOT NULL AND tariff_base_usd BETWEEN 0 AND 99999999.99 AND tariff_per_km_usd BETWEEN 0 AND 99999999.99 AND tariff_updated_at IS NOT NULL AND tariff_updated_by IS NOT NULL)"
+        assert row["ddl"].count("PRIMARY KEY (id)") == 1
+        row["ddl"] = row["ddl"].replace(
+            "PRIMARY KEY (id)",
+            "PRIMARY KEY (id), \n\tCONSTRAINT ck_zones_exact_tariff CHECK ("
+            + guard
+            + ")",
+            1,
+        )
     return result

@@ -9,7 +9,11 @@ import {
   SectionHeading,
   operationStyles,
 } from "@/components/operations/OperationsUI";
-import { payoutAmountLabel } from "@/lib/payout-contract";
+import { moneyText } from "@/lib/currency";
+import { capturePrivateTask } from "@/lib/private-task";
+import { ManagerPageBoundary } from "@/components/layout/ManagerPageBoundary";
+import { zoneTariffService } from "@/services/zone-tariff.service";
+import type { ZoneTariff } from "@/lib/zone-tariffs";
 import {
   Card,
   CardContent,
@@ -86,10 +90,22 @@ const countLabel = (value: number) =>
   Number.isSafeInteger(value) && value >= 0 ? value : "No informado";
 
 export default function ZonesPage() {
+  return (
+    <ManagerPageBoundary
+      scope="zone-catalog"
+      roles={["SUPERADMIN", "GERENTE", "OPERADOR"]}
+    >
+      <ZoneCatalog />
+    </ManagerPageBoundary>
+  );
+}
+function ZoneCatalog() {
   const router = useRouter();
 
   // Estados de Datos
   const [zones, setZones] = useState<ZoneDisplay[]>([]);
+  const [tariffs, setTariffs] = useState<Record<string, ZoneTariff>>({});
+  const [tariffError, setTariffError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const sequence = useRef(0);
@@ -119,8 +135,6 @@ export default function ZonesPage() {
   const [newZoneData, setNewZoneData] = useState<ZoneCreateInput>({
     name: "",
     code: "",
-    delivery_fee_base: 4000,
-    cost_per_km: 0,
     estimated_time_min: 30,
     is_priority: false,
     is_active: true,
@@ -134,14 +148,19 @@ export default function ZonesPage() {
 
   const loadZones = async (isRefresh = false) => {
     const ticket = ++sequence.current;
+    let current = () => ticket === sequence.current;
+    setTariffs({});
+    setTariffError(null);
     // MODIFICACIÓN: Solo mostrar spinner principal si no es un refresco manual
     if (!isRefresh) {
       setLoading(true);
     }
     setError(null);
     try {
+      const task = capturePrivateTask();
+      current = () => ticket === sequence.current && task.isCurrent();
       const data = await zoneService.getAll({ limit: 100, page: 1 });
-      if (ticket !== sequence.current) return;
+      if (!current()) return;
       // Mapeamos datos de la API a nuestro formato de visualización
       const mappedZones = data.map((z) => ({
         ...z,
@@ -150,12 +169,22 @@ export default function ZonesPage() {
           : DEFAULT_COLOR,
       }));
       setZones(mappedZones);
+      setLoading(false);
+      try {
+        const next = await zoneTariffService.getMany(data.map((z) => z.id));
+        if (current()) setTariffs(next);
+      } catch {
+        if (current())
+          setTariffError(
+            "No se pudieron confirmar las tarifas USD. Actualiza el catálogo para reintentar; los datos operativos siguen disponibles.",
+          );
+      }
     } catch (err: any) {
-      if (ticket !== sequence.current) return;
+      if (!current()) return;
       console.error("Error loading zones");
       setError(err.message || "No se pudieron cargar las zonas.");
     } finally {
-      if (ticket === sequence.current) {
+      if (current()) {
         setLoading(false);
         setIsRefreshing(false);
       } // MODIFICACIÓN: Resetear estado de refresco
@@ -198,12 +227,14 @@ export default function ZonesPage() {
     setCreateError(null);
 
     try {
+      const task = capturePrivateTask();
       await zoneService.create({
         ...newZoneData,
         code: newZoneData.code.toUpperCase(),
         color_hex: newZoneData.color_hex || "#6b7280",
       });
 
+      if (!task.isCurrent()) return;
       // Recargar lista y cerrar
       await loadZones();
       setIsCreateOpen(false);
@@ -211,8 +242,6 @@ export default function ZonesPage() {
       setNewZoneData({
         name: "",
         code: "",
-        delivery_fee_base: 4000,
-        cost_per_km: 0,
         estimated_time_min: 30,
         is_priority: false,
         is_active: true,
@@ -230,7 +259,9 @@ export default function ZonesPage() {
     setDeleting(true);
 
     try {
+      const task = capturePrivateTask();
       await zoneService.delete(zoneToDelete.id);
+      if (!task.isCurrent()) return;
       await loadZones(); // Recargar para reflejar cambios
       setZoneToDelete(null);
     } catch (err: any) {
@@ -244,6 +275,14 @@ export default function ZonesPage() {
 
   return (
     <div className={operationStyles.page}>
+      {tariffError && (
+        <p
+          role="alert"
+          className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+        >
+          {tariffError}
+        </p>
+      )}
       {/* Header */}
       <OperationsHeader
         audit
@@ -481,7 +520,23 @@ export default function ZonesPage() {
                     <DollarSign className="w-4 h-4 text-gray-400" /> Tarifa Base
                   </div>
                   <div className="max-w-[60%] text-right text-sm font-bold text-indigo-800">
-                    {payoutAmountLabel(zone.delivery_fee_base)}
+                    {tariffs[zone.id] ? (
+                      tariffs[zone.id].revision === 0 ? (
+                        "Tarifas USD sin configurar"
+                      ) : (
+                        <>
+                          <span className="block">
+                            {moneyText(tariffs[zone.id].base_usd!, "USD")}
+                          </span>
+                          <span className="block text-xs font-normal">
+                            {moneyText(tariffs[zone.id].per_km_usd!, "USD")} /
+                            km · rev. {tariffs[zone.id].revision}
+                          </span>
+                        </>
+                      )
+                    ) : (
+                      "Tarifas USD no confirmadas"
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -571,28 +626,10 @@ export default function ZonesPage() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="fee">Tarifa Base</Label>
-              <p className="text-xs text-slate-600">
-                La consulta no informa moneda. Se guarda el importe configurado
-                sin conversión.
-              </p>
-              <Input
-                id="fee"
-                disabled={saving}
-                type="number"
-                min="0"
-                step="0.01"
-                value={newZoneData.delivery_fee_base}
-                onChange={(e) =>
-                  handleCreateChange(
-                    "delivery_fee_base",
-                    Number(e.target.value),
-                  )
-                }
-                className={operationStyles.field}
-              />
-            </div>
+            <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">
+              Después de crear la zona, configura sus tarifas USD desde su
+              ficha. No se asignan importes ni moneda automáticamente.
+            </p>
 
             <div className="flex items-center justify-between p-3 border rounded-lg bg-gray-50">
               <div className="space-y-0.5">

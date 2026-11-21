@@ -23,8 +23,8 @@ export interface ZoneCreateInput {
   name: string;
   code: string;
   description?: string | null;
-  delivery_fee_base: number;
-  cost_per_km: number;
+  delivery_fee_base?: number;
+  cost_per_km?: number;
   estimated_time_min: number;
   // FASE 3: Multiplicador de bono para repartidores (default 1.0)
   bonus_multiplier?: number;

@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 108. Este registro distingue implementación local,
+Actualizado con la entrega 109. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -115,7 +115,7 @@ detalles de orden/entrega a la lectura versionada de la orden. Conserva centavos
 artículos y revisión, separa cero y ausencia, y comprueba el vínculo entrega/orden.
 Los errores de precio no ocultan el detalle operativo ni reconstruyen importes.
 El total se presenta como precio registrado, sin afirmar deuda pendiente, cobro
-verificado o ganancia. No añade endpoints ni migra datos. Quedan las tarifas de zonas y los consumidores aún no revisados.
+verificado o ganancia. No añade endpoints ni migra datos. Quedan los multiplicadores de zonas y los consumidores aún no revisados.
 La entrega 108 sustituye los saldos del perfil por libro USD, reservas y disponible
 canónicos, con acceso financiero para Gerente/Superadmin, aislamiento de sesión
 y reintento independiente. El Operador conserva únicamente el perfil operativo.
@@ -190,3 +190,12 @@ repartidor contradictorio: lectura de revisión, referencias conservadas y cambi
 bloqueados solo en las filas afectadas. No repara automáticamente el historial.
 Los catálogos auxiliares ya no ocultan órdenes confirmadas. Se prioriza esta
 incidencia reportada; la migración monetaria de auditoría operativa sigue pendiente.
+
+La entrega 109 incorpora tarifas USD explícitas por zona con almacenamiento
+decimal, revisión, bloqueo de fila y auditoría atómica. La migración aditiva
+conserva los Float originales sin conversión o backfill. La creación ya no
+presupone 4000; la configuración ausente no se presenta como USD cero.
+La interfaz separa tarifas y edición operativa, permite leer al Operador y
+reservar el guardado a Gerente/Superadmin. No conecta automáticamente estas
+tarifas al cálculo de precios ni cambia bonos. Esa regla deberá definirse
+expresamente antes de activar un cálculo por zona o distancia.

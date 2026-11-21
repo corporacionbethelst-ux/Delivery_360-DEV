@@ -312,7 +312,7 @@ jobs:
 
   local-functional-test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -346,6 +346,7 @@ jobs:
           python frontend/e2e/local-bonus-exact.browser.py --chromium "$chromium" --wait-request-window --lifecycle-results browser-real/lifecycle/results.json --artifacts-dir browser-real/bonus-exact
           python frontend/e2e/local-order-price-consumers.browser.py --chromium "$chromium" --wait-request-window --lifecycle-results browser-real/lifecycle/results.json --artifacts-dir browser-real/order-prices
           python frontend/e2e/local-profile-balance.browser.py --chromium "$chromium" --wait-request-window --lifecycle-results browser-real/lifecycle/results.json --artifacts-dir browser-real/profile-balance
+          python frontend/e2e/local-zone-tariffs.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/zone-tariffs
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && hashFiles('browser-real/**') != '' }}
         with:

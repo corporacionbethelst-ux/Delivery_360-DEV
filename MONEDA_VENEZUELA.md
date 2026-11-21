@@ -739,3 +739,15 @@ como evidencia monetaria ni escribe saldos. Monedas no verificadas quedan fuera
 y se informa su cantidad. La interfaz distingue cero, error y última lectura
 confirmada; retira datos al cambiar identidad o perder autorización. El saldo
 contable no acredita una transferencia bancaria. No hay migración.
+
+## Entrega 109: tarifas USD explícitas por zona
+
+La tarifa base y por kilómetro se guardan por separado de los Float históricos,
+como Numeric(10,2) y textos decimales USD. La configuración ausente mantiene
+moneda e importes nulos; el cero requiere declaración explícita. No se atribuye
+moneda a los valores antiguos ni se convierten. Se controlan revisión y
+concurrencia, y el cambio con su auditoría se confirma en una sola transacción.
+El catálogo consulta las tarifas en lote; la ficha tiene guardado independiente
+y protege cambios de sesión y confirmaciones ambiguas. Son parámetros de zona:
+no recalculan precios registrados, órdenes o bonos ni confirman cobros.
+El multiplicador de bonos sigue separado y pendiente de revisión exacta.

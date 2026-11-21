@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status, Request
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +16,7 @@ from app.models.user import User, UserRole
 from app.models.zone import Zone
 
 # Asegúrate de que tus schemas en app/schemas/zone.py tengan bonus_multiplier: float = 1.0
-from app.schemas.zone import ZoneCreate, ZoneResponse, ZoneUpdate
+from app.schemas.zone import ZoneCreate, ZoneResponse, ZoneUpdate, ZoneTariffInput
 
 router = APIRouter(prefix="/zones", tags=["Zones"])
 
@@ -144,6 +144,105 @@ async def list_zones(
     return [await _build_zone_response(db, zone) for zone in zones]
 
 
+@router.get("/tariffs/exact")
+async def exact_zone_tariffs(
+    request: Request,
+    zone_ids: List[uuid.UUID] = Query(..., min_length=1, max_length=100),
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(
+        require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)
+    ),
+):
+    from app.services.zone_tariffs import tariff_view
+
+    if set(request.query_params) - {"zone_ids"}:
+        raise HTTPException(422, "La consulta solo admite identidades de zonas")
+    if len(set(zone_ids)) != len(zone_ids):
+        raise HTTPException(422, "No repitas identidades de zonas")
+    rows = (
+        await db.scalars(select(Zone).where(Zone.id.in_(zone_ids)).order_by(Zone.id))
+    ).all()
+    if len(rows) != len(zone_ids):
+        raise HTTPException(409, "El catálogo cambió; vuelve a consultar las zonas")
+    return {
+        "version": 1,
+        "scope": "zone_usd_tariffs",
+        "items": [tariff_view(zone) for zone in rows],
+    }
+
+
+@router.get("/{zone_id}/tariff/exact")
+async def exact_zone_tariff(
+    zone_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(
+        require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)
+    ),
+):
+    from app.services.zone_tariffs import tariff_view
+
+    if request.query_params:
+        raise HTTPException(422, "La consulta no admite parámetros adicionales")
+    return tariff_view(await _get_zone_or_404(db, zone_id))
+
+
+@router.put("/{zone_id}/tariff/exact")
+async def save_exact_zone_tariff(
+    zone_id: str,
+    body: "ZoneTariffInput",
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+):
+    from decimal import Decimal
+    from app.services.zone_tariffs import tariff_view
+
+    if request.query_params:
+        raise HTTPException(422, "La escritura no admite parámetros adicionales")
+    zone = await db.scalar(
+        select(Zone)
+        .where(Zone.id == _parse_uuid(zone_id, "zone_id"))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if zone is None:
+        raise HTTPException(404, "Zona no encontrada")
+    if zone.tariff_revision != body.expected_revision:
+        raise HTTPException(
+            409, "Las tarifas cambiaron; vuelve a consultarlas antes de guardar"
+        )
+    before = tariff_view(zone)
+    zone.tariff_base_usd = Decimal(body.base_usd)
+    zone.tariff_per_km_usd = Decimal(body.per_km_usd)
+    zone.tariff_revision += 1
+    zone.tariff_updated_at = datetime.now(timezone.utc)
+    zone.tariff_updated_by = actor.id
+    await db.flush()
+    result = tariff_view(zone)
+    from app.models.audit_log import AuditLog, ActionType
+
+    db.add(
+        AuditLog(
+            user_id=actor.id,
+            user_email=actor.email,
+            user_role=actor.role.value if actor.role is not None else None,
+            action_type=ActionType.CONFIG_CHANGE,
+            resource_type="ZoneTariff",
+            resource_id=str(zone.id),
+            description="Actualización explícita de tarifas USD de zona",
+            old_values=before,
+            new_values=result,
+            request_method="PUT",
+            request_path=f"/api/v1/zones/{zone.id}/tariff/exact",
+            status_code=200,
+            success=True,
+        )
+    )
+    await db.commit()
+    return result
+
+
 @router.get("/{zone_id}", response_model=ZoneResponse)
 async def get_zone(
     zone_id: str = Path(..., description="ID de la zona"),
@@ -200,8 +299,20 @@ async def update_zone(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ):
-    zone = await _get_zone_or_404(db, zone_id)
+    zone = await db.scalar(
+        select(Zone)
+        .where(Zone.id == _parse_uuid(zone_id, "zone_id"))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if zone is None:
+        raise HTTPException(404, "Zona no encontrada")
     data = body.model_dump(exclude_unset=True)
+    if zone.tariff_revision and {"delivery_fee_base", "cost_per_km"}.intersection(data):
+        raise HTTPException(
+            409,
+            "Esta zona usa tarifas USD exactas; actualízalas en su configuración de tarifas",
+        )
 
     if "code" in data and data["code"]:
         new_code = data["code"].upper()
