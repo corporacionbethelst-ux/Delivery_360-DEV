@@ -116,7 +116,9 @@ async def resolve_factor(db, zone_id, tier):
     )
 
 
-def calculated_with_factor(base, zone, tier):
+def calculated_with_factor(base, zone, tier, *, precise=True):
+    if not precise:
+        return calculated_bonus(base * zone * tier)
     with localcontext() as context:
         context.prec = 80
         return calculated_bonus(base * zone * tier)
@@ -135,6 +137,7 @@ def validate_factor_snapshot(raw):
             "tier_factor",
             "basis",
         }
+        or type(raw["version"]) is not int
         or raw["version"] != 1
         or raw["unit"] != "dimensionless"
     ):
@@ -182,7 +185,12 @@ async def configured_rider_bonus(db, rider_id, base):
     """Opt in base-only compatibility entrypoints only after explicit factor confirmation."""
     from app.models.rider import Rider, RiderTier
 
-    rider = await db.scalar(select(Rider).where(Rider.id == rider_id).with_for_update())
+    rider = await db.scalar(
+        select(Rider)
+        .where(Rider.id == rider_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if rider is None or rider.zone_id is None:
         return None
     zone = await db.scalar(

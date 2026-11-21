@@ -1117,7 +1117,10 @@ async def update_delivery_status(
             # Antes usábamos _get_rider_for_user(db, delivery.rider_id) lo cual fallaba porque
             # esa función busca por user_id, no por rider_id.
             rider_query = await db.execute(
-                select(Rider).where(Rider.id == delivery.rider_id).with_for_update()
+                select(Rider)
+                .where(Rider.id == delivery.rider_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
             rider_obj = rider_query.scalar_one_or_none()
 
@@ -1146,7 +1149,10 @@ async def update_delivery_status(
                 db, rider_obj.zone_id if rider_obj else None, tier_multiplier
             )
             final_payment = calculated_with_factor(
-                base_payment, zone_multiplier, tier_multiplier
+                base_payment,
+                zone_multiplier,
+                tier_multiplier,
+                precise=factor_snapshot["basis"] == "declared_exact",
             )
             delivery.locked_bonus_factors = factor_snapshot
 

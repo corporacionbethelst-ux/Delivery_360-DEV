@@ -383,3 +383,114 @@ async def test_unconfirmed_zones_keep_their_existing_entrypoint_rules(
         assert "factor_snapshot" not in value
     else:
         assert value["factor_snapshot"]["basis"] == "legacy_decimal_representation"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"version": "1"},
+        {"zone_factor": "1.20"},
+        {"zone_factor": "5.000000000000000001"},
+        {"zone_revision": True},
+        {"unit": "USD"},
+        {"basis": "unknown"},
+    ],
+)
+async def test_database_rejects_invalid_first_factor_snapshot_atomically(
+    factor_db, patch
+):
+    f = factor_db
+    raw = dict(
+        version=1,
+        unit="dimensionless",
+        zone_id=str(f[2]["zone"]),
+        zone_revision=1,
+        zone_factor="1.2",
+        tier_factor="1.15",
+        basis="declared_exact",
+    )
+    raw.update(patch)
+    with pytest.raises(DBAPIError):
+        async with f[1].kw["bind"].begin() as c:
+            await c.execute(
+                text(
+                    "UPDATE deliveries SET status='COMPLETADA',locked_bonus_currency='USD',locked_bonus_amount=1,locked_bonus_type='SUCCESS',bonus_snapshot_date=NOW(),locked_bonus_factors=CAST(:v AS json) WHERE id=:id"
+                ),
+                {"v": json.dumps(raw), "id": f[2]["delivery"]},
+            )
+    async with f[1]() as db:
+        row = await db.get(Delivery, f[2]["delivery"])
+        assert row.locked_bonus_factors is None and row.locked_bonus_amount is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", OPERATIONS)
+async def test_confirmed_factor_zero_reward_freezes_provenance_without_zero_credit(
+    factor_db, operation
+):
+    f = factor_db
+    put(f)
+    async with f[1]() as db:
+        await db.execute(text("UPDATE platform_settings SET value='0'"))
+        await db.commit()
+    result = request(f[0], f[2], operation)
+    assert result.status_code == 200, result.text
+    value = report(f)
+    assert (
+        value["amount"] == "0.00"
+        and value["factor_snapshot"]["zone_factor"] == "1.234567890123456789"
+    )
+    async with f[1]() as db:
+        assert await db.scalar(text("SELECT count(*) FROM financials")) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", OPERATIONS)
+async def test_full_precision_changes_the_cent_correctly_in_every_entrypoint(
+    factor_db, operation
+):
+    f = factor_db
+    put(f, "0.100000000060000001")
+    async with f[1]() as db:
+        rider = await db.get(Rider, f[2]["rider"])
+        rider.tier = RiderTier.BRONCE
+        await db.execute(text("UPDATE platform_settings SET value='99999999.99'"))
+        await db.commit()
+    response = request(f[0], f[2], operation)
+    assert response.status_code == 200, response.text
+    value = report(f)
+    assert (
+        value["amount"] == "10000000.01"
+        and value["factor_snapshot"]["zone_factor"] == "0.100000000060000001"
+    )
+    async with f[1]() as db:
+        entry = await db.scalar(
+            select(Financial).where(Financial.reference_id == str(f[2]["order"]))
+        )
+        assert entry.amount == Decimal("10000000.01")
+
+
+@pytest.mark.asyncio
+async def test_factor_calculation_refreshes_a_rider_loaded_before_another_writer(
+    factor_db,
+):
+    from app.services.zone_bonus_factors import configured_rider_bonus
+
+    f = factor_db
+    put(f, "2")
+    async with f[1]() as reader:
+        old = await reader.get(Rider, f[2]["rider"])
+        assert old.tier == RiderTier.PLATINO
+        async with f[1]() as writer:
+            row = await writer.get(Rider, f[2]["rider"])
+            row.tier = RiderTier.BRONCE
+            await writer.commit()
+        amount, factors = await configured_rider_bonus(
+            reader, f[2]["rider"], Decimal("2.50")
+        )
+        assert (
+            amount == Decimal("5.00")
+            and factors["tier_factor"] == "1"
+            and old.tier == RiderTier.BRONCE
+        )

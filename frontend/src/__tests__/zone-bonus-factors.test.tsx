@@ -229,3 +229,39 @@ it("normalizes and renders the immutable full factor instead of its rounded alia
   ).toBeInTheDocument();
   expect(screen.getByText("3,55 USD")).toBeInTheDocument();
 });
+
+it("blocks duplicate factor submissions while awaiting confirmation", async () => {
+  let resolve!: (v: unknown) => void;
+  jest.mocked(api.get).mockResolvedValue(saved());
+  jest.mocked(api.put).mockReturnValueOnce(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  render(<ZoneBonusFactorEditor zoneId={id} />);
+  await screen.findByText("1,234567890123456789 ×");
+  const button = screen.getByRole("button", { name: "Guardar factor decimal" });
+  fireEvent.click(button);
+  fireEvent.click(button);
+  expect(api.put).toHaveBeenCalledTimes(1);
+  await act(async () => resolve({ ...saved(), revision: 2 }));
+  await screen.findByText("Factor decimal guardado y confirmado.");
+});
+it("does not accept a save attributed to another actor", async () => {
+  jest.mocked(api.get).mockResolvedValue(saved());
+  jest
+    .mocked(api.put)
+    .mockResolvedValue({ ...saved(), revision: 2, updated_by: id });
+  render(<ZoneBonusFactorEditor zoneId={id} />);
+  await screen.findByText("1,234567890123456789 ×");
+  fireEvent.click(
+    screen.getByRole("button", { name: "Guardar factor decimal" }),
+  );
+  await screen.findByRole("alert");
+  expect(
+    screen.getByRole("button", { name: "Guardar factor decimal" }),
+  ).toBeDisabled();
+  expect(
+    screen.queryByText("Factor decimal guardado y confirmado."),
+  ).not.toBeInTheDocument();
+});

@@ -243,7 +243,10 @@ class DeliveryService:
         # 5. Aplicar fórmula completa: Bono Final = (Bono Base × Multiplicador Zona) × Multiplicador Nivel
         try:
             final_bonus_amount = calculated_with_factor(
-                base_bonus_amount, zone_multiplier, tier_multiplier
+                base_bonus_amount,
+                zone_multiplier,
+                tier_multiplier,
+                precise=factor_snapshot["basis"] == "declared_exact",
             )
         except ValidationError:
             return (
@@ -612,7 +615,7 @@ class DeliveryService:
                 bonus_type = LockedBonusType.FAILED_ATTEMPT
             else:
                 # No es bonificable: congelar en 0 explícitamente para auditoría
-                bonus_amount = 0.0
+                bonus_amount = Decimal("0.00")
                 bonus_type = None  # Sin bono aplicado
                 config_warning = None
 

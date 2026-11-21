@@ -150,7 +150,8 @@ function Editor({
           Factor del bono por zona
         </h2>
         <p className="mt-1 text-sm text-slate-600">
-          Multiplicador sin moneda. Solo afecta nuevas liquidaciones; los bonos
+          Al confirmar se usa bono base × factor de zona × factor del nivel en
+          los nuevos cierres. Es un multiplicador sin moneda; los bonos
           conservados no se recalculan.
         </p>
       </div>

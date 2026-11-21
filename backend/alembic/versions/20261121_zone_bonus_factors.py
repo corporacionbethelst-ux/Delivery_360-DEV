@@ -27,10 +27,10 @@ def install_factor_guard():
       END IF;
       IF NEW.locked_bonus_factors IS NOT NULL THEN
         f := NEW.locked_bonus_factors::jsonb;
-        IF jsonb_typeof(f) IS DISTINCT FROM 'object' OR f->>'version' IS DISTINCT FROM '1' OR f->>'unit' IS DISTINCT FROM 'dimensionless'
+        IF jsonb_typeof(f) IS DISTINCT FROM 'object' OR jsonb_typeof(f->'version') IS DISTINCT FROM 'number' OR f->>'version' IS DISTINCT FROM '1' OR f->>'unit' IS DISTINCT FROM 'dimensionless'
           OR (SELECT count(*) FROM jsonb_object_keys(f))<>7 OR NOT(f ?& ARRAY['version','unit','zone_id','zone_revision','zone_factor','tier_factor','basis'])
           OR jsonb_typeof(f->'zone_factor') IS DISTINCT FROM 'string' OR jsonb_typeof(f->'tier_factor') IS DISTINCT FROM 'string'
-          OR (f->>'zone_factor') !~ '^(0|[1-9][0-9]{0,7})(\.[0-9]{1,324})?$' OR (f->>'tier_factor') NOT IN ('1','1.05','1.1','1.15')
+          OR length(split_part(f->>'zone_factor','.',2))>324 OR (f->>'zone_factor') !~ '^(0|[1-9][0-9]{0,7})(\.[0-9]+)?$' OR (f->>'tier_factor') NOT IN ('1','1.05','1.1','1.15')
           OR NEW.locked_bonus_currency IS DISTINCT FROM 'USD' OR NEW.locked_bonus_amount IS NULL OR NEW.bonus_snapshot_date IS NULL
           OR NOT ((NEW.status::text='COMPLETADA' AND NEW.locked_bonus_type::text='SUCCESS') OR (NEW.status::text='FALLIDA' AND NEW.locked_bonus_type::text='FAILED_ATTEMPT')) OR NEW.status IS NULL OR NEW.locked_bonus_type IS NULL THEN
           RAISE EXCEPTION USING ERRCODE='P0110',MESSAGE='A new factor snapshot requires a complete terminal USD bonus';
@@ -42,7 +42,7 @@ def install_factor_guard():
         ELSIF f->>'basis' IN ('declared_exact','legacy_decimal_representation') THEN
           IF jsonb_typeof(f->'zone_id') IS DISTINCT FROM 'string' OR (f->>'zone_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN RAISE EXCEPTION USING ERRCODE='P0110',MESSAGE='Invalid factor zone identity'; END IF;
           IF f->>'basis'='declared_exact' THEN
-            IF jsonb_typeof(f->'zone_revision') IS DISTINCT FROM 'number' OR (f->>'zone_revision') !~ '^[1-9][0-9]{0,9}$' OR z<0.1 OR z>5 OR (f->>'zone_factor') !~ '^(0|[1-5])(\.[0-9]{1,18})?$' THEN RAISE EXCEPTION USING ERRCODE='P0110',MESSAGE='Invalid declared factor revision or precision'; END IF;
+            IF jsonb_typeof(f->'zone_revision') IS DISTINCT FROM 'number' OR (f->>'zone_revision') !~ '^[1-9][0-9]{0,9}$' OR z<0.1 OR z>5 OR (position('.' in f->>'zone_factor')>0 AND right(f->>'zone_factor',1)='0') OR (f->>'zone_factor') !~ '^(0|[1-5])(\.[0-9]{1,18})?$' THEN RAISE EXCEPTION USING ERRCODE='P0110',MESSAGE='Invalid declared factor revision or precision'; END IF;
             IF (f->>'zone_revision')::numeric>2147483647 THEN RAISE EXCEPTION USING ERRCODE='P0110',MESSAGE='Invalid factor revision'; END IF;
           ELSIF f->'zone_revision' IS DISTINCT FROM 'null'::jsonb THEN RAISE EXCEPTION USING ERRCODE='P0110',MESSAGE='Legacy factor cannot claim a revision'; END IF;
         ELSE RAISE EXCEPTION USING ERRCODE='P0110',MESSAGE='Unknown factor basis'; END IF;
