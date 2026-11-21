@@ -47,6 +47,20 @@ class Zone(Base):
     # Tarifas base existentes
     delivery_fee_base = Column(Float, nullable=False, default=0.0)
     cost_per_km = Column(Float, nullable=False, default=0.0)
+    # Explicit dimensionless bonus factor; legacy Float remains untouched.
+    bonus_factor_exact: Mapped[Decimal | None] = mapped_column(
+        Numeric(20, 18), nullable=True
+    )
+    bonus_factor_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+    bonus_factor_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    bonus_factor_updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+
     # Explicit prospective USD configuration; historical Float values stay untouched.
     tariff_base_usd: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2), nullable=True
@@ -88,6 +102,10 @@ class Zone(Base):
 
     __table_args__ = (
         Index("ix_zones_active_priority", "is_active", "is_priority"),
+        CheckConstraint(
+            "(bonus_factor_revision = 0 AND bonus_factor_exact IS NULL AND bonus_factor_updated_at IS NULL AND bonus_factor_updated_by IS NULL) OR (bonus_factor_revision > 0 AND bonus_factor_exact IS NOT NULL AND bonus_factor_exact BETWEEN 0.1 AND 5 AND bonus_factor_updated_at IS NOT NULL AND bonus_factor_updated_by IS NOT NULL)",
+            name="ck_zones_exact_bonus_factor",
+        ),
         CheckConstraint(
             "(tariff_revision = 0 AND tariff_base_usd IS NULL AND tariff_per_km_usd IS NULL AND tariff_updated_at IS NULL AND tariff_updated_by IS NULL) OR "
             "(tariff_revision > 0 AND tariff_base_usd IS NOT NULL AND tariff_per_km_usd IS NOT NULL AND tariff_base_usd BETWEEN 0 AND 99999999.99 AND tariff_per_km_usd BETWEEN 0 AND 99999999.99 AND tariff_updated_at IS NOT NULL AND tariff_updated_by IS NOT NULL)",

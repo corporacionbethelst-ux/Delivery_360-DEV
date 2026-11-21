@@ -241,6 +241,10 @@ class Delivery(Base):
     )
 
     # FASE 5: Componentes del cálculo del bono para desglose visual
+    locked_bonus_factors: Mapped[dict | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
+
     locked_bonus_base: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2),
         nullable=True,

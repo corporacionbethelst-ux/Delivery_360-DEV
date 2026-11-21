@@ -1,8 +1,13 @@
+import {
+  readFactorSnapshot,
+  type FactorSnapshot,
+} from "@/lib/zone-bonus-factors";
 import { record } from "@/lib/operational-catalog";
 import { transactionId } from "@/lib/transaction-contract";
 import { exactRecordTime } from "@/lib/transaction-exact";
 import { cashCents } from "@/lib/customer-cashbook";
 export type BonusRecord = {
+  factor_snapshot?: FactorSnapshot;
   order_id: string;
   delivery_id: string | null;
   rider_id: string | null;
@@ -152,8 +157,32 @@ export function normalizeBonusRecords(
     )
       fail();
     if (row.snapshot_date !== null) exactRecordTime(row.snapshot_date);
+    const factors =
+      row.factor_snapshot === undefined
+        ? undefined
+        : readFactorSnapshot(row.factor_snapshot);
+    if (
+      factors &&
+      (row.source !== "delivery_snapshot" ||
+        row.currency !== "USD" ||
+        row.amount === null ||
+        row.snapshot_date === null ||
+        row.state_review !== false ||
+        !(
+          (row.status === "COMPLETADA" && row.bonus_type === "SUCCESS") ||
+          (row.status === "FALLIDA" && row.bonus_type === "FAILED_ATTEMPT")
+        ))
+    )
+      fail();
     return {
       ...row,
+      ...(factors
+        ? {
+            factor_snapshot: factors,
+            zone_multiplier: factors.zone_factor,
+            tier_multiplier: factors.tier_factor,
+          }
+        : {}),
       delivery_id: delivery,
       rider_id: row.rider_id === null ? null : transactionId(row.rider_id),
       status: text(row.status),

@@ -16,7 +16,13 @@ from app.models.user import User, UserRole
 from app.models.zone import Zone
 
 # Asegúrate de que tus schemas en app/schemas/zone.py tengan bonus_multiplier: float = 1.0
-from app.schemas.zone import ZoneCreate, ZoneResponse, ZoneUpdate, ZoneTariffInput
+from app.schemas.zone import (
+    ZoneCreate,
+    ZoneResponse,
+    ZoneUpdate,
+    ZoneTariffInput,
+    ZoneBonusFactorInput,
+)
 
 router = APIRouter(prefix="/zones", tags=["Zones"])
 
@@ -243,6 +249,76 @@ async def save_exact_zone_tariff(
     return result
 
 
+@router.get("/{zone_id}/bonus-factor/exact")
+async def exact_zone_bonus_factor(
+    zone_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(
+        require_role(UserRole.SUPERADMIN, UserRole.GERENTE, UserRole.OPERADOR)
+    ),
+):
+    from app.services.zone_bonus_factors import factor_view
+
+    if request.query_params:
+        raise HTTPException(422, "La consulta no admite parámetros adicionales")
+    return factor_view(await _get_zone_or_404(db, zone_id))
+
+
+@router.put("/{zone_id}/bonus-factor/exact")
+async def save_zone_bonus_factor(
+    zone_id: str,
+    body: ZoneBonusFactorInput,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+):
+    from decimal import Decimal
+    from app.services.zone_bonus_factors import factor_view
+    from app.models.audit_log import AuditLog, ActionType
+
+    if request.query_params:
+        raise HTTPException(422, "La escritura no admite parámetros adicionales")
+    zone = await db.scalar(
+        select(Zone)
+        .where(Zone.id == _parse_uuid(zone_id, "zone_id"))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if zone is None:
+        raise HTTPException(404, "Zona no encontrada")
+    if zone.bonus_factor_revision != body.expected_revision:
+        raise HTTPException(
+            409, "El factor cambió; vuelve a consultar antes de guardar"
+        )
+    before = factor_view(zone)
+    zone.bonus_factor_exact = Decimal(body.factor)
+    zone.bonus_factor_revision += 1
+    zone.bonus_factor_updated_at = datetime.now(timezone.utc)
+    zone.bonus_factor_updated_by = actor.id
+    await db.flush()
+    result = factor_view(zone)
+    db.add(
+        AuditLog(
+            user_id=actor.id,
+            user_email=actor.email,
+            user_role=actor.role.value if actor.role else None,
+            action_type=ActionType.CONFIG_CHANGE,
+            resource_type="ZoneBonusFactor",
+            resource_id=str(zone.id),
+            description="Actualización explícita de factor de bono de zona",
+            old_values=before,
+            new_values=result,
+            request_method="PUT",
+            request_path=f"/api/v1/zones/{zone.id}/bonus-factor/exact",
+            status_code=200,
+            success=True,
+        )
+    )
+    await db.commit()
+    return result
+
+
 @router.get("/{zone_id}", response_model=ZoneResponse)
 async def get_zone(
     zone_id: str = Path(..., description="ID de la zona"),
@@ -308,6 +384,11 @@ async def update_zone(
     if zone is None:
         raise HTTPException(404, "Zona no encontrada")
     data = body.model_dump(exclude_unset=True)
+    if zone.bonus_factor_revision and "bonus_multiplier" in data:
+        raise HTTPException(
+            409,
+            "Esta zona usa un factor decimal explícito; actualízalo en su configuración de bonos",
+        )
     if zone.tariff_revision and {"delivery_fee_base", "cost_per_km"}.intersection(data):
         raise HTTPException(
             409,

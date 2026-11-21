@@ -46,12 +46,13 @@ import {
   operationStyles,
 } from "@/components/operations/OperationsUI";
 import { ManagerPageBoundary } from "@/components/layout/ManagerPageBoundary";
+import { ZoneBonusFactorEditor } from "@/components/zones/ZoneBonusFactorEditor";
 import { ZoneTariffEditor } from "@/components/zones/ZoneTariffEditor";
 import { cn } from "@/lib/utils";
 
 export default function EditZonePage() {
   const params = useParams();
-  const id = typeof params.id === "string" ? params.id : "";
+  const id = typeof params.id === "string" ? params.id.toLowerCase() : "";
   return (
     <ManagerPageBoundary
       scope={`zone:${id}`}
@@ -64,7 +65,7 @@ export default function EditZonePage() {
 function ZoneEditor() {
   const router = useRouter();
   const params = useParams();
-  const zoneId = typeof params.id === "string" ? params.id : "";
+  const zoneId = typeof params.id === "string" ? params.id.toLowerCase() : "";
   const snapshotRef = useRef<{ id: string } | null>(null);
   const redirectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -82,7 +83,6 @@ function ZoneEditor() {
     code: "",
     description: "",
     estimated_time_min: 0,
-    bonus_multiplier: 1.0,
     is_priority: false,
     is_active: true,
     color_hex: "#3b82f6",
@@ -121,7 +121,6 @@ function ZoneEditor() {
           code: data.code,
           description: data.description ?? "",
           estimated_time_min: data.estimated_time_min,
-          bonus_multiplier: data.bonus_multiplier ?? 1,
           is_priority: data.is_priority,
           is_active: data.is_active,
           color_hex: data.color_hex || "#3b82f6",
@@ -172,15 +171,6 @@ function ZoneEditor() {
       return;
     }
     if (
-      typeof formData.bonus_multiplier !== "number" ||
-      !Number.isFinite(formData.bonus_multiplier) ||
-      formData.bonus_multiplier < 0.1 ||
-      formData.bonus_multiplier > 5
-    ) {
-      setError("El multiplicador debe estar entre 0.1 y 5.");
-      return;
-    }
-    if (
       (formData.center_lat != null &&
         (!Number.isFinite(formData.center_lat) ||
           Math.abs(formData.center_lat) > 90)) ||
@@ -199,6 +189,7 @@ function ZoneEditor() {
       const metadata = { ...formData };
       delete metadata.delivery_fee_base;
       delete metadata.cost_per_km;
+      delete metadata.bonus_multiplier;
       await zoneService.update(snapshot.id, metadata);
       if (snapshotRef.current !== snapshot) return;
       setSuccess(true);
@@ -505,55 +496,10 @@ function ZoneEditor() {
                     : "No informado"}
                 </div>
               </div>
-
-              {/* FASE 3: Multiplicador de Bono por Zona */}
-              <div className="pt-4 border-t">
-                <div className="space-y-3">
-                  <Label
-                    htmlFor="bonus"
-                    className="text-base flex items-center gap-2"
-                  >
-                    <DollarSign className="w-4 h-4 text-indigo-600" />{" "}
-                    Multiplicador de Bono
-                  </Label>
-                  <div className="flex items-center gap-3">
-                    <Input
-                      id="bonus"
-                      type="number"
-                      step="any"
-                      min="0.1"
-                      max="5.0"
-                      value={formData.bonus_multiplier ?? 1.0}
-                      onChange={(e) =>
-                        handleChange("bonus_multiplier", Number(e.target.value))
-                      }
-                      className={cn(operationStyles.field, "w-24")}
-                    />
-                    <span className="text-sm text-gray-500">× (0.1 a 5.0)</span>
-                  </div>
-                  <p className="text-xs text-gray-500 leading-relaxed">
-                    Este multiplicador se aplica al bono base de entregas. El
-                    factor ajusta el bono base configurado. El ejemplo es
-                    ilustrativo y no representa un pago.
-                  </p>
-                  {formData.bonus_multiplier &&
-                    formData.bonus_multiplier !== 1.0 && (
-                      <div className="mt-2 p-2 bg-indigo-50 border border-indigo-200 rounded text-xs text-indigo-800">
-                        <strong>Ejemplo:</strong> Con base ilustrativa de 2.50
-                        unidades × {formData.bonus_multiplier} ≈
-                        <span className="font-bold ml-1">
-                          {(2.5 * (formData.bonus_multiplier ?? 1.0)).toFixed(
-                            2,
-                          )}{" "}
-                          unidades
-                        </span>{" "}
-                        por entrega exitosa
-                      </div>
-                    )}
-                </div>
-              </div>
             </CardContent>
           </Card>
+
+          <ZoneBonusFactorEditor zoneId={zoneId} />
 
           <Card className={`${operationStyles.panel} overflow-hidden`}>
             <CardHeader>

@@ -2,7 +2,8 @@
 import { BadgeDollarSign, Info, MapPin, Award } from "lucide-react";
 import type { BonusRecord } from "@/lib/delivery-bonus-exact";
 import { exactTransactionMoney as payoutAmountLabel } from "@/lib/transaction-exact";
-import { decimalText, settingsTime } from "@/lib/bonus-settings-exact";
+import { factorText } from "@/lib/zone-bonus-factors";
+import { settingsTime } from "@/lib/bonus-settings-exact";
 export function BonusBreakdownCard({
   snapshot,
   hideIfEmpty = true,
@@ -67,10 +68,10 @@ export function BonusBreakdownCard({
                     <MapPin aria-hidden="true" className="h-3 w-3" />
                     Factor zona
                   </dt>
-                  <dd>
+                  <dd className="break-all tabular-nums">
                     {snapshot.zone_multiplier === null
                       ? "No informado"
-                      : decimalText(snapshot.zone_multiplier) + " ×"}
+                      : factorText(snapshot.zone_multiplier) + " ×"}
                   </dd>
                 </div>
                 <div>
@@ -78,14 +79,24 @@ export function BonusBreakdownCard({
                     <Award aria-hidden="true" className="h-3 w-3" />
                     Factor nivel
                   </dt>
-                  <dd>
+                  <dd className="break-all tabular-nums">
                     {snapshot.tier_multiplier === null
                       ? "No informado"
-                      : decimalText(snapshot.tier_multiplier) + " ×"}{" "}
+                      : factorText(snapshot.tier_multiplier) + " ×"}{" "}
                     · {snapshot.tier_level ?? "Nivel no informado"}
                   </dd>
                 </div>
               </dl>
+              {snapshot.factor_snapshot && (
+                <p className="mt-2 text-xs text-violet-800">
+                  {snapshot.factor_snapshot.basis === "declared_exact"
+                    ? `Factor de zona confirmado · revisión ${snapshot.factor_snapshot.zone_revision}`
+                    : snapshot.factor_snapshot.basis === "no_zone_default"
+                      ? "Factor conservado: sin zona asignada"
+                      : "Factor conservado desde la regla de compatibilidad"}
+                  . Sin moneda.
+                </p>
+              )}
               {snapshot.snapshot_date && (
                 <p className="mt-2 text-xs text-slate-500">
                   Conservado: {settingsTime(snapshot.snapshot_date)} ·

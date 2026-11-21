@@ -150,7 +150,7 @@ class DeliveryService:
         bonus_type: LockedBonusType,
         delivery_id: uuid.UUID,
         rider_id: uuid.UUID,
-    ) -> Tuple[float, Optional[str]]:
+    ) -> tuple[Decimal, Optional[str], dict | None]:
         """
         Obtiene la configuración de bonos vigente y retorna el monto aplicable.
 
@@ -205,47 +205,55 @@ class DeliveryService:
         if bonus_value is None:
             # Configuración faltante
             warning = f"Configuración '{bonus_key}' no encontrada en PlatformSetting. Bono congelado en $0."
-            return 0.0, warning
+            return Decimal("0.00"), warning, None
 
         try:
             base_bonus_amount = bonus_component(bonus_value)
         except ValidationError:
             warning = f"Configuración '{bonus_key}' tiene valor inválido '{bonus_value}'. Bono congelado en $0."
-            return 0.0, warning
+            return Decimal("0.00"), warning, None
 
         # 3. Obtener la zona del rider para aplicar multiplicador
         rider_result = await db.execute(
-            select(Rider.zone_id, Rider.tier).where(Rider.id == rider_id)
+            select(Rider.zone_id, Rider.tier)
+            .where(Rider.id == rider_id)
+            .with_for_update()
         )
         rider_row = rider_result.first()
         rider_zone_id = rider_row[0] if rider_row else None
         rider_tier = rider_row[1] if rider_row else RiderTier.BRONCE
 
-        zone_multiplier = Decimal(
-            "1.00"
-        )  # Valor por defecto si no hay zona o multiplicador
+        from app.services.zone_bonus_factors import (
+            resolve_factor,
+            calculated_with_factor,
+        )
 
-        if rider_zone_id:
-            zone_result = await db.execute(
-                select(Zone.bonus_multiplier).where(Zone.id == rider_zone_id)
-            )
-            zone_multiplier_value = zone_result.scalar_one_or_none()
-            if zone_multiplier_value is not None:
-                try:
-                    zone_multiplier = bonus_component(zone_multiplier_value)
-                except ValidationError:
-                    return 0.0, "Multiplicador de zona inválido. Bono congelado en $0."
-
-        # 4. Obtener multiplicador por nivel del rider (Fase 4)
         tier_multiplier = TIER_MULTIPLIERS.get(rider_tier, Decimal("1.00"))
+        try:
+            zone_multiplier, factor_snapshot = await resolve_factor(
+                db, rider_zone_id, tier_multiplier
+            )
+        except ValidationError:
+            return (
+                Decimal("0.00"),
+                "Multiplicador de zona inválido. Bono congelado en $0.",
+                None,
+            )
 
         # 5. Aplicar fórmula completa: Bono Final = (Bono Base × Multiplicador Zona) × Multiplicador Nivel
         try:
-            final_bonus_amount = calculated_bonus(
-                base_bonus_amount * zone_multiplier * tier_multiplier
+            final_bonus_amount = calculated_with_factor(
+                base_bonus_amount,
+                zone_multiplier,
+                tier_multiplier,
+                precise=factor_snapshot["basis"] == "declared_exact",
             )
         except ValidationError:
-            return 0.0, "Bono calculado fuera de rango. Bono congelado en $0."
+            return (
+                Decimal("0.00"),
+                "Bono calculado fuera de rango. Bono congelado en $0.",
+                None,
+            )
 
         # Logging para depuración - USANDO LOGGER PARA ASEGURAR VISIBILIDAD
         logger.info(
@@ -256,7 +264,7 @@ class DeliveryService:
             flush=True,
         )
 
-        return float(final_bonus_amount), None
+        return final_bonus_amount, None, factor_snapshot
 
     async def _create_financial_snapshot(
         self,
@@ -475,11 +483,13 @@ class DeliveryService:
             # =========================================================================
             # FASE 1: Capturar Snapshot Financiero ANTES de cambiar el estado
             # =========================================================================
-            bonus_amount, config_warning = await self._get_bonus_config_and_snapshot(
-                db=db,
-                bonus_type=LockedBonusType.SUCCESS,
-                delivery_id=delivery_id,
-                rider_id=delivery.rider_id,
+            bonus_amount, config_warning, factor_snapshot = (
+                await self._get_bonus_config_and_snapshot(
+                    db=db,
+                    bonus_type=LockedBonusType.SUCCESS,
+                    delivery_id=delivery_id,
+                    rider_id=delivery.rider_id,
+                )
             )
 
             # Preparar datos de actualización incluyendo el snapshot financiero
@@ -494,6 +504,7 @@ class DeliveryService:
                 "current_latitude": proof_data.delivery_latitude,
                 "current_longitude": proof_data.delivery_longitude,
                 # Snapshot financiero inmutable
+                "locked_bonus_factors": factor_snapshot,
                 "locked_bonus_amount": money(bonus_amount),
                 "locked_bonus_currency": "USD",
                 "locked_bonus_type": LockedBonusType.SUCCESS,
@@ -586,13 +597,14 @@ class DeliveryService:
             # =========================================================================
             # FASE 1: Determinar si aplica bono y capturar snapshot financiero
             # =========================================================================
-            bonus_amount = 0.0
+            bonus_amount = Decimal("0.00")
+            factor_snapshot = None
             bonus_type = None
             config_warning = None
 
             if failure_cause.is_bonificable and delivery.rider_id:
                 # La causa es bonificable: obtener monto y congelar
-                bonus_amount, config_warning = (
+                bonus_amount, config_warning, factor_snapshot = (
                     await self._get_bonus_config_and_snapshot(
                         db=db,
                         bonus_type=LockedBonusType.FAILED_ATTEMPT,
@@ -603,7 +615,7 @@ class DeliveryService:
                 bonus_type = LockedBonusType.FAILED_ATTEMPT
             else:
                 # No es bonificable: congelar en 0 explícitamente para auditoría
-                bonus_amount = 0.0
+                bonus_amount = Decimal("0.00")
                 bonus_type = None  # Sin bono aplicado
                 config_warning = None
 
@@ -616,6 +628,7 @@ class DeliveryService:
                 "issue_description": f"Fallo por causa: {failure_cause.value}",
                 "issue_analysis_result": f"Causa: {failure_cause.value}. Bonificable: {failure_cause.is_bonificable}",
                 # Snapshot financiero inmutable
+                "locked_bonus_factors": factor_snapshot if bonus_type else None,
                 "locked_bonus_amount": money(bonus_amount) if bonus_type else None,
                 "locked_bonus_currency": "USD" if bonus_type else None,
                 "locked_bonus_type": bonus_type,

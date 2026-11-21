@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 109. Este registro distingue implementación local,
+Actualizado con la entrega 110. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -199,3 +199,11 @@ La interfaz separa tarifas y edición operativa, permite leer al Operador y
 reservar el guardado a Gerente/Superadmin. No conecta automáticamente estas
 tarifas al cálculo de precios ni cambia bonos. Esa regla deberá definirse
 expresamente antes de activar un cálculo por zona o distancia.
+
+La entrega 110 incorpora factor decimal explícito por zona, revisión y auditoría
+atómica. Los cinco cierres aplican la fórmula completa cuando el factor está
+confirmado; las zonas sin confirmar conservan sus reglas anteriores. Se captura
+el factor completo y su procedencia sin alterar los snapshots previos de dos
+decimales. La migración es aditiva y protege las capturas nuevas de modificaciones
+y backfill. Queda revisar los parámetros base JSON de los escritores y mantener
+separadas las liquidaciones del pago bancario y de la configuración actual.

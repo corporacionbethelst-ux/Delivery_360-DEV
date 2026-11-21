@@ -751,3 +751,17 @@ El catálogo consulta las tarifas en lote; la ficha tiene guardado independiente
 y protege cambios de sesión y confirmaciones ambiguas. Son parámetros de zona:
 no recalculan precios registrados, órdenes o bonos ni confirman cobros.
 El multiplicador de bonos sigue separado y pendiente de revisión exacta.
+
+## Entrega 110: factores de bonos sin moneda
+
+El factor explícito de zona conserva hasta 18 decimales como texto y Numeric,
+sin Number ni redondeo a centavos. No representa USD o VES. Al confirmarlo,
+las liquidaciones nuevas aplican base × zona × nivel y redondean el bono
+monetario al final. Las zonas sin confirmar conservan su comportamiento
+anterior. La captura versionada conserva los factores usados y la revisión;
+no se obtiene de la configuración actual al consultar un bono anterior.
+Los campos históricos y sus unidades permanecen intactos, sin backfill.
+Bono cero elegible y ausencia de bono no bonificable siguen separados.
+El saldo, el crédito del libro y un pago bancario continúan siendo fuentes
+distintas. Los parámetros base JSON de los escritores requieren una revisión
+posterior para completar el tratamiento decimal de esas lecturas.
