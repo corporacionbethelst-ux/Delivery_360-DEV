@@ -1,6 +1,7 @@
 """Regressions for persisted order fields and malformed monetary inputs."""
 
 import math
+import json
 
 import pytest
 from fastapi import HTTPException
@@ -100,7 +101,7 @@ async def test_invalid_bonus_configuration_returns_warning_without_snapshot(valu
 
     result = MagicMock()
     result.fetchall.return_value = [
-        SimpleNamespace(key="rider_delivery_bonus", value=value)
+        SimpleNamespace(key="rider_delivery_bonus", raw_value=json.dumps(value))
     ]
     session = AsyncMock()
     session.execute.return_value = result

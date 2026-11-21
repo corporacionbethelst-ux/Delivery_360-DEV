@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 110. Este registro distingue implementación local,
+Actualizado con la entrega 111. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -207,3 +207,5 @@ el factor completo y su procedencia sin alterar los snapshots previos de dos
 decimales. La migración es aditiva y protege las capturas nuevas de modificaciones
 y backfill. Queda revisar los parámetros base JSON de los escritores y mantener
 separadas las liquidaciones del pago bancario y de la configuración actual.
+
+La entrega 111 completa la lectura textual decimal de los bonos base JSON en los cinco cierres. Coordina las filas existentes con guardados de configuración mediante bloqueos compartidos, mantiene fallbacks por vía y evita la caché ORM para el insumo. No reescribe settings/historia ni amplía el alias de desglose de base a una captura completa. Continúa la revisión de lectores monetarios de compatibilidad y requisitos externos.

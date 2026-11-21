@@ -765,3 +765,5 @@ Bono cero elegible y ausencia de bono no bonificable siguen separados.
 El saldo, el crédito del libro y un pago bancario continúan siendo fuentes
 distintas. Los parámetros base JSON de los escritores requieren una revisión
 posterior para completar el tratamiento decimal de esas lecturas.
+
+La entrega 111 resuelve la lectura de esos parámetros base JSON en los cinco cierres: números decodificados como Decimal, bloqueos compartidos de filas existentes y fallbacks anteriores conservados. No cambia la revisión s2 ni el historial. El desglose de base de dos decimales sigue siendo un alias monetario y no una captura completa del texto JSON original.

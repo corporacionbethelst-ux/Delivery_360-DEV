@@ -167,9 +167,9 @@ class DeliveryService:
             rider_id: ID del repartidor
 
         Returns:
-            Tuple[monto_a_congelar, alerta_configuracion]
-            - Si la config es válida: retorna el monto y None
-            - Si la config es inválida: retorna 0.0 y mensaje de alerta
+            Tuple[monto_a_congelar, alerta_configuracion, captura_factores]
+            - Si la config es válida: retorna monto, None y captura de factores
+            - Si la config es inválida: retorna Decimal cero, alerta y None
         """
         from app.models.zone import Zone
         from app.models.rider import RiderTier
@@ -182,23 +182,14 @@ class DeliveryService:
             RiderTier.PLATINO: Decimal("1.15"),  # +15%
         }
 
-        # 1. Obtener configuración de bonos base
-        result = await db.execute(
-            select(PlatformSetting.key, PlatformSetting.value).where(
-                PlatformSetting.key.in_(
-                    ["rider_delivery_bonus", "rider_failed_attempt_bonus"]
-                )
-            )
+        from app.services.bonus_base_settings import load_bonus_bases
+
+        bonus_key = (
+            "rider_delivery_bonus"
+            if bonus_type == LockedBonusType.SUCCESS
+            else "rider_failed_attempt_bonus"
         )
-        settings_rows = result.fetchall()
-        settings_map = {row.key: row.value for row in settings_rows}
-
-        # 2. Determinar qué key usar según el tipo de bono
-        if bonus_type == LockedBonusType.SUCCESS:
-            bonus_key = "rider_delivery_bonus"
-        else:  # FAILED_ATTEMPT
-            bonus_key = "rider_failed_attempt_bonus"
-
+        settings_map = await load_bonus_bases(db, [bonus_key])
         bonus_value = settings_map.get(bonus_key)
 
         # Validar si la configuración existe y es numérica
