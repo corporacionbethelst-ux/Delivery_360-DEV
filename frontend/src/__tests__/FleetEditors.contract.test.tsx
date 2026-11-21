@@ -1,3 +1,4 @@
+import { clearStoredTokens, storeTokens } from "@/lib/auth-session";
 import {
   act,
   fireEvent,
@@ -13,10 +14,13 @@ import { zoneService, type Zone } from "@/services/zone.service";
 
 let mockId = "123e4567-e89b-42d3-a456-426614174000";
 const nextId = "123e4567-e89b-42d3-a456-426614174001";
-const mockRouter = { push: jest.fn(), back: jest.fn() };
+const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 jest.mock("next/navigation", () => ({
   useParams: () => ({ id: mockId }),
   useRouter: () => mockRouter,
+}));
+jest.mock("@/components/zones/ZoneTariffEditor", () => ({
+  ZoneTariffEditor: () => <div data-testid="independent-tariff-editor" />,
 }));
 jest.mock("sonner", () => ({
   toast: { error: jest.fn(), success: jest.fn() },
@@ -80,7 +84,15 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
+jest.mock("@/stores/authStore", () => ({
+  useAuthStore: () => ({
+    isAuthenticated: true,
+    user: { id: "11111111-1111-4111-8111-111111111111", role: "GERENTE" },
+  }),
+}));
 beforeEach(() => {
+  clearStoredTokens();
+  storeTokens({ access_token: "fleet-test", refresh_token: "fleet-refresh" });
   jest.clearAllMocks();
   mockId = vehicle.id;
   vehicles.getById.mockResolvedValue(vehicle);
@@ -157,7 +169,7 @@ it.each([VehicleEditor, ZoneEditor])(
     expect(zones.getById).not.toHaveBeenCalled();
   },
 );
-it("preserves unknown coordinates and decimal fees when another zone field changes", async () => {
+it("preserves unknown coordinates and excludes monetary fields from operational updates", async () => {
   render(<ZoneEditor />);
   await screen.findByDisplayValue("Centro");
   expect(screen.getByLabelText("Latitud")).toHaveValue(null);
@@ -172,11 +184,11 @@ it("preserves unknown coordinates and decimal fees when another zone field chang
       expect.objectContaining({
         center_lat: null,
         center_lng: null,
-        delivery_fee_base: 0,
-        cost_per_km: 0.75,
       }),
     ),
   );
+  expect(zones.update.mock.calls[0][1]).not.toHaveProperty("delivery_fee_base");
+  expect(zones.update.mock.calls[0][1]).not.toHaveProperty("cost_per_km");
 });
 it("preserves actual coordinate zero and allows explicitly clearing a known location", async () => {
   zones.getById.mockResolvedValueOnce({
@@ -215,8 +227,6 @@ it("preserves a valid fractional multiplier in the example and payload", async (
 it.each([
   ["Nombre de la Zona *", "   ", /obligatorios/],
   ["Código Corto *", "   ", /obligatorios/],
-  ["Tarifa Base", "-1", /tarifas deben/],
-  ["Costo por Km", "-1", /tarifas deben/],
   ["Tiempo Est. (min)", "0", /tiempo estimado/],
   ["Tiempo Est. (min)", "1.5", /tiempo estimado/],
   ["Tiempo Est. (min)", "241", /tiempo estimado/],

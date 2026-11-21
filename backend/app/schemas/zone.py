@@ -1,7 +1,7 @@
 """Pydantic schemas for delivery zones."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 import re
 
@@ -95,3 +95,18 @@ class ZoneResponse(ZoneBase):
     bonus_multiplier: float = 1.0
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ZoneTariffInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(..., strict=True, ge=0, le=2147483646)
+    currency: Literal["USD"]
+    base_usd: str
+    per_km_usd: str
+
+    @field_validator("base_usd", "per_km_usd", mode="before")
+    @classmethod
+    def exact_money(cls, value):
+        from app.services.bonus_settings_exact import exact_parameter
+
+        return exact_parameter(value, incoming=True)

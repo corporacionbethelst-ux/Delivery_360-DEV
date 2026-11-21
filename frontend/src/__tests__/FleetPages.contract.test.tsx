@@ -1,3 +1,4 @@
+import { clearStoredTokens, storeTokens } from "@/lib/auth-session";
 import {
   act,
   fireEvent,
@@ -8,12 +9,16 @@ import {
 } from "@testing-library/react";
 import Vehicles from "@/app/(dashboard)/manager/fleet/vehicles/page";
 import NewVehicle from "@/app/(dashboard)/manager/fleet/vehicles/new/page";
+import { zoneTariffService } from "@/services/zone-tariff.service";
 import Zones from "@/app/(dashboard)/manager/fleet/zones/page";
 import { vehicleService, type Vehicle } from "@/services/vehicle.service";
 import { zoneService, type Zone } from "@/services/zone.service";
 
-const mockRouter = { push: jest.fn(), back: jest.fn() };
+const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 jest.mock("next/navigation", () => ({ useRouter: () => mockRouter }));
+jest.mock("@/services/zone-tariff.service", () => ({
+  zoneTariffService: { getMany: jest.fn() },
+}));
 jest.mock("sonner", () => ({
   toast: { success: jest.fn(), error: jest.fn() },
 }));
@@ -75,11 +80,40 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
+jest.mock("@/stores/authStore", () => ({
+  useAuthStore: () => ({
+    isAuthenticated: true,
+    user: { id: "11111111-1111-4111-8111-111111111111", role: "GERENTE" },
+  }),
+}));
 beforeEach(() => {
+  clearStoredTokens();
+  storeTokens({ access_token: "fleet-test", refresh_token: "fleet-refresh" });
   jest.clearAllMocks();
   jest.spyOn(console, "error").mockImplementation(() => undefined);
   vehicles.getAll.mockResolvedValue([vehicle]);
   zones.getAll.mockResolvedValue([zone]);
+  jest
+    .mocked(zoneTariffService.getMany)
+    .mockImplementation(async (ids) =>
+      Object.fromEntries(
+        ids.map((id) => [
+          id,
+          {
+            version: 1,
+            scope: "zone_usd_tariff",
+            zone_id: id,
+            revision: 0,
+            currency: null,
+            base_usd: null,
+            per_km_usd: null,
+            updated_at: null,
+            updated_by: null,
+            application: "zone_configuration_only",
+          },
+        ]),
+      ),
+    );
   zones.create.mockResolvedValue(zone);
   zones.delete.mockResolvedValue(undefined as never);
 });
@@ -172,11 +206,13 @@ it("preserves zero zone values and explicitly reports unknown currency and missi
   const known = await screen.findByRole("article", { name: "Zona Centro" });
   expect(within(known).getAllByText("0")).toHaveLength(2);
   expect(
-    within(known).getByText("0,00 (moneda no informada)"),
+    await within(known).findByText("Tarifas USD sin configurar"),
   ).toBeInTheDocument();
   const missing = screen.getByRole("article", { name: "Zona Sin datos" });
   expect(within(missing).getAllByText("No informado")).toHaveLength(2);
-  expect(within(missing).getByText("Monto no informado")).toBeInTheDocument();
+  expect(
+    await within(missing).findByText("Tarifas USD sin configurar"),
+  ).toBeInTheDocument();
   expect(zones.getAll).toHaveBeenCalledWith({ limit: 100, page: 1 });
 });
 it("searches only loaded zones and exposes a bounded schematic with real links", async () => {
@@ -212,7 +248,7 @@ it("distinguishes failed zones from a confirmed empty response", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
   await screen.findByText("No se encontraron zonas");
 });
-it("names color choices, preserves a decimal zone fee and sends its selected color", async () => {
+it("names color choices and creates without inventing a tariff or currency", async () => {
   render(<Zones />);
   await screen.findByRole("article");
   fireEvent.click(screen.getByRole("button", { name: "Nueva Zona" }));
@@ -222,9 +258,7 @@ it("names color choices, preserves a decimal zone fee and sends its selected col
   fireEvent.change(screen.getByLabelText("Código *"), {
     target: { value: "nv" },
   });
-  fireEvent.change(screen.getByLabelText("Tarifa Base"), {
-    target: { value: "0.75" },
-  });
+  expect(screen.queryByLabelText("Tarifa Base")).not.toBeInTheDocument();
   const color = screen.getByRole("button", { name: "Color Violeta" });
   fireEvent.click(color);
   expect(color).toHaveAttribute("aria-pressed", "true");
@@ -233,11 +267,13 @@ it("names color choices, preserves a decimal zone fee and sends its selected col
     expect(zones.create).toHaveBeenCalledWith(
       expect.objectContaining({
         code: "NV",
-        delivery_fee_base: 0.75,
+
         color_hex: "#a855f7",
       }),
     ),
   );
+  expect(zones.create.mock.calls[0][0]).not.toHaveProperty("delivery_fee_base");
+  expect(zones.create.mock.calls[0][0]).not.toHaveProperty("cost_per_km");
 });
 it("rejects whitespace-only zone names before calling the service", async () => {
   render(<Zones />);
