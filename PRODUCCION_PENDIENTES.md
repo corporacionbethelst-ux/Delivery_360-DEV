@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 107. Este registro distingue implementación local,
+Actualizado con la entrega 108. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -115,8 +115,11 @@ detalles de orden/entrega a la lectura versionada de la orden. Conserva centavos
 artículos y revisión, separa cero y ausencia, y comprueba el vínculo entrega/orden.
 Los errores de precio no ocultan el detalle operativo ni reconstruyen importes.
 El total se presenta como precio registrado, sin afirmar deuda pendiente, cobro
-verificado o ganancia. No añade endpoints ni migra datos. Quedan los saldos del
-perfil y las tarifas de zonas, además de los consumidores aún no revisados.
+verificado o ganancia. No añade endpoints ni migra datos. Quedan las tarifas de zonas y los consumidores aún no revisados.
+La entrega 108 sustituye los saldos del perfil por libro USD, reservas y disponible
+canónicos, con acceso financiero para Gerente/Superadmin, aislamiento de sesión
+y reintento independiente. El Operador conserva únicamente el perfil operativo.
+No modifica históricos ni confirma pagos bancarios.
 El plugin tailwindcss-animate se clasifica como herramienta de construcción,
 con versiones intactas y controles de seguridad conservados. El aviso abierto
 GHSA-fc5q-39xc-vjpf de picomatch sigue pendiente para esas herramientas; la

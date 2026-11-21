@@ -940,6 +940,11 @@ async def own_exact_balance(
             "El saldo usa la identidad autenticada y no admite seleccionar otra cuenta",
         )
     rider = await _get_rider_from_user(db, actor)
+    return await _exact_balance_snapshot(db, rider, actor.id)
+
+
+async def _exact_balance_snapshot(db: AsyncSession, rider: Rider, user_id) -> dict:
+    """Canonical ledger validation and reservation calculation, shared by readers."""
     await _lock_payout_rider(db, rider.id)
     from app.services.legacy_ledger import LedgerEntry, analyze_ledger, MAX_LEDGER_ROWS
     from app.services.customer_cashbook import utc
@@ -1014,7 +1019,7 @@ async def own_exact_balance(
         },
         "version": 1,
         "scope": "own_canonical_usd_balance",
-        "user_id": str(actor.id),
+        "user_id": str(user_id),
         "rider_id": str(rider.id),
         "generated_at": utc(generated),
         "snapshot_basis": "rider_row_lock",
@@ -1023,6 +1028,33 @@ async def own_exact_balance(
         "unverified_financial_count": int(unknown[0]),
         "unverified_payout_count": int(unknown[1]),
         "minimum_withdrawal_usd": "10.00",
+    }
+
+
+@router.get("/riders/{rider_id}/balance/exact")
+async def staff_exact_rider_balance(
+    rider_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    if actor.role not in (UserRole.SUPERADMIN, UserRole.GERENTE):
+        raise HTTPException(403, "La consulta financiera requiere gerencia")
+    if request.query_params:
+        raise HTTPException(422, "La consulta no admite parámetros adicionales")
+    rider = await db.scalar(
+        select(Rider)
+        .where(Rider.id == rider_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if rider is None:
+        raise HTTPException(404, "Repartidor no encontrado")
+    result = await _exact_balance_snapshot(db, rider, rider.user_id)
+    return {
+        **result,
+        "scope": "staff_canonical_usd_balance",
+        "actor": {"user_id": str(actor.id), "role": actor.role.value},
     }
 
 

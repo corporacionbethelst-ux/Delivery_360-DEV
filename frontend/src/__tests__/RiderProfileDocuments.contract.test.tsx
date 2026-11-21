@@ -8,13 +8,16 @@ import {
 } from "@testing-library/react";
 import Profile from "@/app/(dashboard)/manager/fleet/riders/[id]/page";
 import Documents from "@/app/(dashboard)/manager/fleet/riders/[id]/documents/page";
+import { api } from "@/lib/api";
+import fixture from "../../test-fixtures/rider-exact.json";
 import { riderService } from "@/services/rider.service";
 import type { Rider, RiderDocument } from "@/types/user";
 import { riderCoordinates, riderDate, riderNumber } from "@/lib/rider-display";
 import { clearStoredTokens, storeTokens } from "@/lib/auth-session";
 
+jest.mock("@/lib/api", () => ({ api: { get: jest.fn() } }));
 const mockRouter = { replace: jest.fn() };
-let mockId = "rider-a",
+let mockId = "123e4567-e89b-42d3-a456-000000000790",
   mockUser: { id: string; role: string } | null = {
     id: "manager",
     role: "GERENTE",
@@ -50,7 +53,7 @@ jest.mock("@/components/DocumentDownloadButton", () => ({
 }));
 const service = jest.mocked(riderService);
 const rider: Rider = {
-  id: "rider-a",
+  id: "123e4567-e89b-42d3-a456-000000000790",
   first_name: "José",
   last_name: "Pérez",
   email: "jose@example.test",
@@ -59,7 +62,7 @@ const rider: Rider = {
 };
 const doc: RiderDocument = {
   id: "document-a",
-  rider_id: "rider-a",
+  rider_id: "123e4567-e89b-42d3-a456-000000000790",
   type: "LICENCIA",
   status: "PENDIENTE",
   revision: "a".repeat(64),
@@ -76,9 +79,22 @@ function deferred<T>() {
 }
 beforeEach(() => {
   jest.resetAllMocks();
+  clearStoredTokens();
+  storeTokens({
+    access_token: "profile-token",
+    refresh_token: "profile-refresh",
+  });
   mockId = rider.id;
   mockUser = { id: "manager", role: "GERENTE" };
   mockAuthenticated = true;
+  jest
+    .mocked(api.get)
+    .mockImplementation(async () => ({
+      ...fixture.balance,
+      rider_id: rider.id,
+      scope: "staff_canonical_usd_balance",
+      actor: { user_id: mockUser?.id, role: mockUser?.role },
+    }));
   service.getById.mockResolvedValue({ ...rider });
   service.getDocuments.mockResolvedValue([{ ...doc }]);
   jest.spyOn(window, "confirm").mockReturnValue(true);
@@ -177,7 +193,8 @@ it("perfil conserva cero, coordenadas de cero y última señal aunque esté desc
   expect(screen.getByText("0.000000, 0.000000")).toBeVisible();
   expect(screen.getByText("Entregas: 0")).toBeVisible();
   expect(screen.getByText("Calificación: 0")).toBeVisible();
-  expect(screen.getByText("1,23456789")).toBeVisible();
+  expect(screen.queryByText("1,23456789")).not.toBeInTheDocument();
+  expect(await screen.findByText("Saldo del libro USD")).toBeVisible();
 });
 it.each([
   [null, 0],

@@ -156,6 +156,24 @@ def main():
                     body=b"%PDF-1.4\n% synthetic Delivery360 test\n%%EOF",
                     headers={**headers, "cache-control": "private, no-store"},
                 )
+            elif path == f"/api/v1/payouts/riders/{rider_id}/balance/exact":
+                reads.append(path)
+                balance = json.loads(
+                    (
+                        Path(__file__).resolve().parents[1]
+                        / "test-fixtures/rider-exact.json"
+                    ).read_text()
+                )["balance"]
+                balance.update(
+                    rider_id=rider_id,
+                    scope="staff_canonical_usd_balance",
+                    actor={"user_id": "manager-79", "role": state["role"]},
+                )
+                route.fulfill(
+                    status=200 if state["role"] in ("GERENTE", "SUPERADMIN") else 403,
+                    json=balance,
+                    headers=headers,
+                )
             elif path.endswith(("/auth/me", "/users/me")):
                 route.fulfill(
                     json={
