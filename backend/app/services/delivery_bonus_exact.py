@@ -111,6 +111,41 @@ async def report(db, actor, requested):
             ),
             money_review=issues,
         )
+        if delivery and delivery.locked_bonus_factors is not None:
+            from app.services.zone_bonus_factors import validate_factor_snapshot
+
+            try:
+                factor_snapshot = validate_factor_snapshot(
+                    delivery.locked_bonus_factors
+                )
+                if (
+                    delivery.locked_bonus_currency != "USD"
+                    or delivery.locked_bonus_amount is None
+                    or delivery.bonus_snapshot_date is None
+                    or (
+                        optional_enum_value(delivery.status),
+                        optional_enum_value(delivery.locked_bonus_type),
+                    )
+                    not in (("COMPLETADA", "SUCCESS"), ("FALLIDA", "FAILED_ATTEMPT"))
+                ):
+                    raise ValueError("Estado del snapshot de factores inválido")
+                from app.services.financial_service import money
+                from decimal import Decimal
+
+                for field, key in (
+                    ("locked_bonus_zone_multiplier", "zone_factor"),
+                    ("locked_bonus_tier_multiplier", "tier_factor"),
+                ):
+                    stored = getattr(delivery, field)
+                    if stored is not None and stored != money(
+                        Decimal(factor_snapshot[key])
+                    ):
+                        raise ValueError("Componentes de factores contradictorios")
+            except (ValueError, TypeError, ArithmeticError):
+                raise HTTPException(
+                    409, "Los factores conservados requieren revisión"
+                ) from None
+            selected[row.order_id]["factor_snapshot"] = factor_snapshot
     if set(selected) != set(ids):
         raise HTTPException(
             403 if actor.role == UserRole.REPARTIDOR else 404,

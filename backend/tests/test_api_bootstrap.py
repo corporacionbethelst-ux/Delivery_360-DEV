@@ -91,9 +91,15 @@ def before_currency_schema(application):
         "/api/v1/payouts/riders/{rider_id}/balance/exact",
         "/api/v1/zones/tariffs/exact",
         "/api/v1/zones/{zone_id}/tariff/exact",
+        "/api/v1/zones/{zone_id}/bonus-factor/exact",
     ):
         del schema["paths"][path]
-    for name in ("ExactSettingsUpdate", "ExactBonusRequest", "ZoneTariffInput"):
+    for name in (
+        "ExactSettingsUpdate",
+        "ExactBonusRequest",
+        "ZoneTariffInput",
+        "ZoneBonusFactorInput",
+    ):
         del schema["components"]["schemas"][name]
     del schema["paths"]["/api/v1/riders/audit/records/exact/v2"]
     del schema["paths"]["/api/v1/riders/audit/records/exact"]
@@ -210,6 +216,7 @@ def surface_before_currency(application):
                         "/api/v1/payouts/riders/{rider_id}/balance/exact",
                         "/api/v1/zones/tariffs/exact",
                         "/api/v1/zones/{zone_id}/tariff/exact",
+                        "/api/v1/zones/{zone_id}/bonus-factor/exact",
                         "/api/v1/payouts/exact/page",
                         "/api/v1/payouts/exact/{payout_id}",
                         "/api/v1/financial/transactions/exact/page",
@@ -219,7 +226,7 @@ def surface_before_currency(application):
             )
         )
     ]
-    assert len(removed) == 35
+    assert len(removed) == 37
     current["routes"] = [
         row
         for row in current["routes"]
@@ -243,6 +250,7 @@ def surface_before_currency(application):
                     "/api/v1/payouts/riders/{rider_id}/balance/exact",
                     "/api/v1/zones/tariffs/exact",
                     "/api/v1/zones/{zone_id}/tariff/exact",
+                    "/api/v1/zones/{zone_id}/bonus-factor/exact",
                     "/api/v1/payouts/exact/page",
                     "/api/v1/payouts/exact/{payout_id}",
                     "/api/v1/financial/transactions/exact/page",
