@@ -297,6 +297,22 @@ class RecoveryTests(unittest.TestCase):
         ), self.assertRaisesRegex(ValueError, "download"):
             recovery_probe.probe(config)
 
+    def test_docker_failure_keeps_private_diagnostic_without_exposing_it(self):
+        tool = object.__new__(recovery.Recovery)
+        tool.root, tool.state, tool.docker, tool.env = self.root, None, ["docker"], {}
+        result = MagicMock(
+            returncode=1, stderr=b"private-database-password", stdout=b""
+        )
+        with patch.object(
+            recovery.subprocess, "run", return_value=result
+        ), self.assertRaises(ValueError) as failure:
+            tool.run(["info"])
+        self.assertNotIn("private-database-password", str(failure.exception))
+        logs = list(self.root.glob("backup-diagnostic-*.private"))
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0].stat().st_mode & 0o777, 0o600)
+        self.assertEqual(logs[0].read_bytes(), b"private-database-password")
+
 
 if __name__ == "__main__":
     unittest.main()

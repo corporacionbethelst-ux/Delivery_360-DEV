@@ -348,6 +348,22 @@ jobs:
           python frontend/e2e/local-profile-balance.browser.py --chromium "$chromium" --wait-request-window --lifecycle-results browser-real/lifecycle/results.json --artifacts-dir browser-real/profile-balance
           python frontend/e2e/local-zone-tariffs.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/zone-tariffs
           python frontend/e2e/local-zone-bonus-factors.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/zone-bonus-factors
+      - name: Restore the offline backup and verify the application on isolated copies
+        run: |
+          python scripts/local_test.py pause
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          from scripts.recovery import Recovery
+          from scripts import local_test
+          tool = Recovery()
+          backup_id = tool.backup()
+          subprocess.run(tool.compose + ["down"], env=tool.env, check=True)
+          result = tool.restore(backup_id, api_image="delivery360-local-test-api:" + tool.source["instance"])
+          report = Path("browser-real/recovery/results.json")
+          report.parent.mkdir(parents=True, exist_ok=True)
+          local_test.write_private(report, json.dumps(result, indent=2))
+          PY
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && hashFiles('browser-real/**') != '' }}
         with:
@@ -357,6 +373,14 @@ jobs:
         if: always()
         run: |
           if test -f .delivery360-testing/config.json; then python scripts/local_test.py down; fi
+          python - <<'PY'
+          from scripts import local_test
+          from scripts.recovery import Recovery
+          if local_test.CONFIG.exists():
+              tool = Recovery()
+              for state in (tool.root / "runs").glob("*/state.json"):
+                  tool.stop(state.parent.name)
+          PY
 
   security-scan:
     runs-on: ubuntu-latest

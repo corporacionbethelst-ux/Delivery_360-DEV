@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import io
+import ipaddress
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -23,6 +24,8 @@ else:
 LABEL = "delivery360.recovery"
 LIMIT = 256 * 1024 * 1024
 FINANCIAL_TABLES = {
+    "alembic_version",
+    "local_test_instance",
     "orders",
     "deliveries",
     "financials",
@@ -164,12 +167,18 @@ class Recovery:
             env=self.env,
         )
         if r.returncode:
-            if self.state:
-                log = self.root / "runs" / self.state["id"] / "diagnostic.private"
-                if not log.exists():
-                    fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-                    with os.fdopen(fd, "wb") as f:
-                        f.write(r.stderr)
+            log = (
+                (self.root / "runs" / self.state["id"] / "diagnostic.private")
+                if self.state
+                else (
+                    self.root
+                    / ("backup-diagnostic-" + secrets.token_hex(6) + ".private")
+                )
+            )
+            if not log.exists():
+                fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "wb") as f:
+                    f.write(r.stderr)
             raise ValueError(
                 "Falló una operación Docker; los recursos propios y el diagnóstico privado se conservan"
             )
@@ -410,8 +419,8 @@ class Recovery:
         account = accounts["SUPERADMIN"]
         if api_image:
             self.run(["image", "inspect", api_image])
-        if python and os.name != "posix":
-            raise ValueError("Modo nativo requiere POSIX; usa --api-image")
+        if python and sys.platform != "linux":
+            raise ValueError("Modo nativo requiere Linux; usa --api-image")
         run_id = secrets.token_hex(6)
         names = self.names(run_id)
         for kind, keys, template in [
@@ -455,7 +464,7 @@ class Recovery:
                 + password
                 + "\n",
             )
-            ports = ["-p", "127.0.0.1::5432"] if python else []
+            ports = []
             self.run(
                 [
                     "run",
@@ -579,7 +588,7 @@ class Recovery:
             if archive_manifest(self.tar(names["uploads"])) != m["uploads"]:
                 raise ValueError("Documentos/permisos restaurados diferentes")
             checks.append("all_document_bytes_modes_and_owners_match")
-            ports = ["-p", "127.0.0.1::6379"] if python else []
+            ports = []
             self.run(
                 [
                     "run",
@@ -692,6 +701,8 @@ class Recovery:
                 )
             checks += json.loads(result.stdout)["checks"]
             after = self.restored_tables()
+            if set(after) != set(m["tables"]):
+                raise ValueError("El arranque cambió el inventario de tablas")
             if any(after.get(t) != m["tables"].get(t) for t in FINANCIAL_TABLES):
                 raise ValueError(
                     "Las lecturas cambiaron historia operativa o monetaria"
@@ -701,12 +712,20 @@ class Recovery:
                 "version": 1,
                 "run_id": run_id,
                 "backup_id": backup_id,
+                "backup_sha256": {
+                    name: entry["sha256"] for name, entry in m["files"].items()
+                },
+                "api_image_id": (
+                    None
+                    if python
+                    else json.loads(self.run(["inspect", names["api"]]))[0]["Image"]
+                ),
                 "checks": checks,
                 "errors": [],
                 "tables": len(m["tables"]),
                 "rows": sum(t["rows"] for t in m["tables"].values()),
                 "documents": sum(t["kind"] == "file" for t in m["uploads"].values()),
-                "mode": "native_posix" if python else "isolated_container",
+                "mode": "native_linux" if python else "isolated_container",
                 "no_source_writes": True,
                 "no_seed_or_migration": True,
                 "production_readiness": False,
@@ -790,11 +809,14 @@ class Recovery:
                     target.chmod(member.mode)
         for service, port in [("db", "5432"), ("redis", "6379")]:
             info = json.loads(self.run(["inspect", self.state["names"][service]]))[0]
-            binding = info["NetworkSettings"]["Ports"][port + "/tcp"][0]
-            if binding["HostIp"] != "127.0.0.1":
-                raise ValueError("Puerto de recuperación no local")
+            if info["Config"]["Labels"].get(LABEL) != self.state["id"]:
+                raise ValueError("Dirección de recurso ajeno")
+            endpoint = info["NetworkSettings"]["Networks"][self.state["names"]["net"]]
+            address = ipaddress.ip_address(endpoint["IPAddress"])
+            if not address.is_private or address.is_loopback or address.is_unspecified:
+                raise ValueError("Dirección de laboratorio no privada")
             host = self.state["names"][service]
-            host_port = binding["HostPort"]
+            host_port = port
             for key in (
                 "DATABASE_URL",
                 "DATABASE_URL_SYNC",
@@ -805,14 +827,16 @@ class Recovery:
                 config[key] = (
                     config[key]
                     .replace(
-                        "@" + host + ":" + port + "/", "@127.0.0.1:" + host_port + "/"
+                        "@" + host + ":" + port + "/",
+                        "@" + str(address) + ":" + host_port + "/",
                     )
                     .replace(
-                        "//" + host + ":" + port + "/", "//127.0.0.1:" + host_port + "/"
+                        "//" + host + ":" + port + "/",
+                        "//" + str(address) + ":" + host_port + "/",
                     )
                 )
             if service == "redis":
-                config.update(REDIS_HOST="127.0.0.1", REDIS_PORT=host_port)
+                config.update(REDIS_HOST=str(address), REDIS_PORT=host_port)
         config.update(
             PYTHONPATH=str(local_test.ROOT / "backend"),
             PATH=os.environ.get("PATH", ""),
