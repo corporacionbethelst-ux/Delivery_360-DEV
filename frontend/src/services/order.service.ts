@@ -438,7 +438,7 @@ export const orderService = {
   /**
    * Actualizar estado de la orden
    */
-  updateStatus: async (id: string, status: OrderStatus): Promise<Order> => {
+  updateStatus: async (id: string, status: OrderStatus, otpCode?: string): Promise<Order> => {
     if (!id || !status) {
       throw new Error("[OrderService] ID y Status son requeridos");
     }
@@ -446,7 +446,9 @@ export const orderService = {
     const task = capturePrivateTask();
     const response = await api.patch<unknown>(
       `/orders/${encodeURIComponent(id)}/status`,
-      {},
+      status === "ENTREGADO" && otpCode?.trim()
+        ? { otp_code: otpCode.trim() }
+        : {},
       { params: { new_status: status } },
     );
     task.assertCurrent();

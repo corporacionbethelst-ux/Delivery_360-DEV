@@ -52,6 +52,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -139,6 +140,11 @@ function SessionOrdersPage() {
     useState<OperationalHttpOrder | null>(null);
   const [assigningAuto, setAssigningAuto] = useState(false);
   const [assigningManual, setAssigningManual] = useState(false);
+  const [orderToDeliver, setOrderToDeliver] = useState<OperationalHttpOrder | null>(null);
+  const [deliveryOtp, setDeliveryOtp] = useState("");
+  const [delivering, setDelivering] = useState(false);
+  const deliveryPending = useRef(false);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchInitialData();
@@ -355,6 +361,14 @@ function SessionOrdersPage() {
       orders.find((order) => order.id === orderId)?.assignment_review
     )
       return;
+    if (nextStatus === "ENTREGADO") {
+      const order = orders.find((item) => item.id === orderId);
+      if (!order || order.status !== "EN_RUTA") return;
+      setDeliveryOtp("");
+      setDeliveryError(null);
+      setOrderToDeliver(order);
+      return;
+    }
     if (!confirm(`¿Cambiar estado a ${nextStatus}?`)) return;
 
     const task = capturePrivateTask();
@@ -369,6 +383,32 @@ function SessionOrdersPage() {
         "Error al actualizar estado: " +
           (err.response?.data?.detail || err.message),
       );
+    }
+  };
+
+  const confirmDelivery = async (checkOnly = false) => {
+    if (!orderToDeliver || deliveryPending.current || error) return;
+    deliveryPending.current = true;
+    setDelivering(true);
+    setDeliveryError(null);
+    const task = capturePrivateTask();
+    try {
+      const confirmed = checkOnly
+        ? await orderService.getById(orderToDeliver.id)
+        : await orderService.updateStatus(orderToDeliver.id, "ENTREGADO", deliveryOtp);
+      task.assertCurrent();
+      if (confirmed.status !== "ENTREGADO") {
+        setDeliveryError(`Estado confirmado: ${confirmed.status.replaceAll("_", " ").toLowerCase()}. La orden todavía no consta como entregada.`);
+        return;
+      }
+      setDeliveryOtp("");
+      setOrderToDeliver(null);
+      await fetchInitialData();
+    } catch (err: unknown) {
+      if (task.isCurrent()) setDeliveryError(loadFailure(err).replace(/^HTTP \d+: /, ""));
+    } finally {
+      deliveryPending.current = false;
+      if (task.isCurrent()) setDelivering(false);
     }
   };
 
@@ -1073,6 +1113,47 @@ function SessionOrdersPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setOrderToReview(null)}>
               Cerrar revisión
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!orderToDeliver} onOpenChange={(open) => {
+        if (!open && !deliveryPending.current) {
+          setOrderToDeliver(null);
+          setDeliveryOtp("");
+          setDeliveryError(null);
+        }
+      }}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:w-full sm:max-w-md max-h-[90dvh] overflow-y-auto border-blue-100">
+          <DialogHeader>
+            <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+              <CheckCircle className="h-6 w-6" />
+            </div>
+            <DialogTitle>Confirmar entrega</DialogTitle>
+            <DialogDescription>
+              Orden #{orderToDeliver?.external_id || orderToDeliver?.id.slice(0, 8)}. Confirma la recepción antes de marcarla como entregada.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-sm text-blue-900">
+              Si la entrega requiere OTP, solicita el código al destinatario. El servidor verificará el código antes de completar la orden.
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="delivery-otp">OTP de entrega (si corresponde)</Label>
+              <Input id="delivery-otp" value={deliveryOtp} onChange={(event) => setDeliveryOtp(event.target.value)}
+                autoComplete="one-time-code" maxLength={128} disabled={delivering}
+                aria-invalid={!!deliveryError} aria-describedby="delivery-otp-help" />
+              <p id="delivery-otp-help" className="text-xs text-slate-500">Conserva los ceros iniciales. Si no se configuró OTP, puedes confirmar sin código.</p>
+            </div>
+            {deliveryError && <Alert variant="destructive"><AlertDescription>{deliveryError}</AlertDescription></Alert>}
+          </div>
+          <DialogFooter className="gap-2">
+            {deliveryError && <Button variant="outline" disabled={delivering} onClick={() => void confirmDelivery(true)}>Consultar estado</Button>}
+            <Button variant="outline" disabled={delivering} onClick={() => {
+              setOrderToDeliver(null); setDeliveryOtp(""); setDeliveryError(null);
+            }}>Volver</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={delivering || !!error} onClick={() => void confirmDelivery()}>
+              {delivering ? "Confirmando..." : "Confirmar entrega"}
             </Button>
           </DialogFooter>
         </DialogContent>

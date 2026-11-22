@@ -61,6 +61,10 @@ class CancelOrderBody(BaseModel):
     reason: Optional[str] = "Solicitada por el administrador"
 
 
+class OrderStatusProof(BaseModel):
+    otp_code: Optional[str] = Field(default=None, max_length=128)
+
+
 # ── Schemas ───────────────────────────────────────────────────────────────────
 class OrderCreate(BaseModel):
     currency: Literal["USD"] = "USD"
@@ -838,6 +842,7 @@ async def update_status(
     order_id: str,
     new_status: str,
     otp_code: Optional[str] = None,
+    proof: Optional[OrderStatusProof] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -853,6 +858,10 @@ async def update_status(
     }
 
     ensure_operation_role(current_user, write=True)
+    if proof is not None and proof.otp_code is not None:
+        if otp_code is not None and otp_code != proof.otp_code:
+            raise HTTPException(status_code=400, detail="Códigos OTP contradictorios")
+        otp_code = proof.otp_code
     try:
         target = OrderStatus(new_status)
     except ValueError:

@@ -74,6 +74,54 @@ afterEach(() => {
   jest.restoreAllMocks();
   clearStoredTokens();
 });
+
+function loadEnRouteOrder() {
+  jest.mocked(api.get).mockImplementation(async (url) =>
+    String(url).startsWith("/orders?") ? [{ ...order, status: "EN_RUTA" }] : [],
+  );
+}
+
+it("collects delivery OTP in a dialog and sends it in JSON preserving leading zeros", async () => {
+  loadEnRouteOrder();
+  jest.mocked(api.patch).mockResolvedValue({ ...order, status: "ENTREGADO" });
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "ENTREGADO" }));
+  expect(api.patch).not.toHaveBeenCalled();
+  const dialog = screen.getByRole("dialog");
+  fireEvent.change(within(dialog).getByLabelText("OTP de entrega (si corresponde)"), { target: { value: "001234" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar entrega" }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith("/orders/order-1/status", { otp_code: "001234" }, { params: { new_status: "ENTREGADO" } }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+});
+
+it("keeps OTP errors in the dialog and allows correction before retrying", async () => {
+  loadEnRouteOrder();
+  jest.mocked(api.patch).mockRejectedValueOnce({ response: { status: 400, data: { detail: "Código OTP requerido o incorrecto" } } }).mockResolvedValueOnce({ ...order, status: "ENTREGADO" });
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "ENTREGADO" }));
+  const dialog = screen.getByRole("dialog");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar entrega" }));
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("Código OTP requerido o incorrecto");
+  expect(api.patch).toHaveBeenCalledTimes(1);
+  fireEvent.change(within(dialog).getByLabelText("OTP de entrega (si corresponde)"), { target: { value: "001234" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar entrega" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(api.patch).toHaveBeenCalledTimes(2);
+});
+
+it("recovers a lost delivery response by reading status without a second mutation", async () => {
+  loadEnRouteOrder();
+  jest.mocked(api.patch).mockRejectedValue(new Error("Respuesta perdida"));
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "ENTREGADO" }));
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirmar entrega" }));
+  const read = await screen.findByRole("button", { name: "Consultar estado" });
+  jest.mocked(api.get).mockImplementation(async (url) => String(url) === "/orders/order-1" ? { ...order, status: "ENTREGADO" } : []);
+  fireEvent.click(read);
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(api.patch).toHaveBeenCalledTimes(1);
+  expect(api.get).toHaveBeenCalledWith("/orders/order-1");
+});
 it("renders real validated orders for superadmin", async () => {
   render(<Page />);
   expect(await screen.findByText("Cliente de carga")).toBeInTheDocument();
