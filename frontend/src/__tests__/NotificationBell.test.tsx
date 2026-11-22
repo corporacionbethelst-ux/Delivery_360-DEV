@@ -10,8 +10,9 @@ const mockFetchNotifications = jest.fn<Promise<void>, []>().mockResolvedValue(un
 const mockMarkAsRead = jest.fn();
 const mockMarkAllAsRead = jest.fn();
 const mockMarkRead = jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined);
+const mockRefreshInbox = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
 let mockLegacyState: Pick<ReturnType<typeof useNotificationStore.getState>, 'notifications' | 'unreadCount' | 'fetchNotifications' | 'markAsRead' | 'markAllAsRead'>;
-let mockOmnichannelState: Pick<ReturnType<typeof useNotifications>, 'items' | 'unreadCount' | 'markRead'>;
+let mockOmnichannelState: Pick<ReturnType<typeof useNotifications>, 'items' | 'unreadCount' | 'markRead' | 'refreshInbox'>;
 
 jest.mock('@/stores/notificationStore', () => ({
   useNotificationStore: () => mockLegacyState,
@@ -28,7 +29,19 @@ beforeEach(() => {
     fetchNotifications: mockFetchNotifications,
     markAsRead: mockMarkAsRead, markAllAsRead: mockMarkAllAsRead,
   };
-  mockOmnichannelState = { items: [], unreadCount: 0, markRead: mockMarkRead };
+  mockOmnichannelState = { items: [], unreadCount: 0, markRead: mockMarkRead, refreshInbox: mockRefreshInbox };
+});
+
+test('reconciles the visible inbox on every opening after a missed websocket event', async () => {
+  const user = userEvent.setup();
+  render(<NotificationBell />);
+  expect(mockRefreshInbox).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button'));
+  expect(mockRefreshInbox).toHaveBeenCalledTimes(1);
+  await user.click(screen.getByRole('button'));
+  expect(mockRefreshInbox).toHaveBeenCalledTimes(1);
+  await user.click(screen.getByRole('button'));
+  expect(mockRefreshInbox).toHaveBeenCalledTimes(2);
 });
 
 test('fetches an empty legacy inbox only after opening the bell', async () => {

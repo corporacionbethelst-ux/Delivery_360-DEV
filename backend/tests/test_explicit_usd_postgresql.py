@@ -42,12 +42,16 @@ async def migration(engine, direction):
 @pytest.fixture
 async def usd_db(payment_db, monkeypatch):
     client, sessions, ids = payment_db
+    monkeypatch.setattr("app.api.v1.payouts.schedule_inbox_notice", lambda *args: None)
     engine = sessions.kw["bind"]
     async with engine.begin() as connection:
         for model in (Payout, PayoutStatusHistory, AuditLog, Notification):
             await connection.run_sync(
                 lambda conn, m=model: m.__table__.create(conn, checkfirst=True)
             )
+        from tests.payout_notification_schema import create_payout_notification_schema
+
+        await connection.run_sync(create_payout_notification_schema)
     async with sessions() as db:
         legacy = Payout(
             rider_id=ids["rider"],

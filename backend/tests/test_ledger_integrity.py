@@ -133,16 +133,20 @@ async def test_domain_conflicts_keep_http_status_and_do_not_expose_internal_data
 
 
 @pytest.fixture
-async def payout_context(ledger_context, test_engine):
+async def payout_context(ledger_context, test_engine, monkeypatch):
     from app.models.payout import Payout, PayoutStatusHistory, PayoutStatus
     from app.models.user import UserRole
 
     session, rider_id, user = ledger_context
+    monkeypatch.setattr("app.api.v1.payouts.schedule_inbox_notice", lambda *args: None)
     async with test_engine.begin() as connection:
         for model in (Payout, PayoutStatusHistory, Notification):
             await connection.run_sync(
                 lambda conn, model=model: model.__table__.create(conn, checkfirst=True)
             )
+        from tests.payout_notification_schema import create_payout_notification_schema
+
+        await connection.run_sync(create_payout_notification_schema)
     user.role = UserRole.GERENTE
     payout = Payout(rider_id=rider_id, amount=30, status=PayoutStatus.PENDIENTE)
     session.add(payout)

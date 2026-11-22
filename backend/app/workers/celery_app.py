@@ -30,6 +30,11 @@ def build_beat_schedule():
             "task": "app.workers.productivity_worker.calculate_daily_productivity",
             "schedule": crontab(hour=1, minute=0),
         }
+    if settings.WORKER_NOTIFICATION_RETRY_ENABLED:
+        schedule["retry-persisted-notifications"] = {
+            "task": "app.workers.notification_worker.process_notification_retries",
+            "schedule": max(1, int(settings.NOTIFICATION_RETRY_SCAN_INTERVAL_SEC)),
+        }
     return schedule
 
 

@@ -115,6 +115,22 @@ def test_canonical_modules_import_and_every_beat_task_is_registered(flags, monke
     )
 
 
+def test_notification_queue_schedule_requires_both_explicit_flags(flags, monkeypatch):
+    monkeypatch.setattr(settings, "WORKER_NOTIFICATION_RETRY_ENABLED", True)
+    assert build_beat_schedule() == {}
+    monkeypatch.setattr(settings, "CELERY_BEAT_ENABLED", True)
+    monkeypatch.setattr(settings, "NOTIFICATION_RETRY_SCAN_INTERVAL_SEC", 15)
+    schedule = build_beat_schedule()
+    assert schedule == {
+        "retry-persisted-notifications": {
+            "task": "app.workers.notification_worker.process_notification_retries",
+            "schedule": 15,
+        }
+    }
+    monkeypatch.setattr(settings, "NOTIFICATION_RETRY_SCAN_INTERVAL_SEC", 0)
+    assert build_beat_schedule()["retry-persisted-notifications"]["schedule"] == 1
+
+
 @pytest.mark.parametrize(
     "zone,day,hours",
     [

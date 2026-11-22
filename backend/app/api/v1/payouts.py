@@ -5,13 +5,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, func, case, cast, String, or_, and_
 from typing import Optional, Literal
 from decimal import Decimal
-import asyncio
 import uuid
 import logging
 
 from app.core.database import get_db
 from app.models.payout import Payout, PayoutStatus, PayoutMethod, PayoutStatusHistory
 from app.models.financial import Financial, TransactionType, PaymentStatus
+from app.services.payout_notifications import (
+    enqueue_payout_notice,
+    schedule_inbox_notice,
+)
 from app.services.financial_service import (
     FinancialService,
     CREDIT_TYPES,
@@ -592,6 +595,7 @@ async def request_payout(
             available - requested_amount,
         )
         db.add(_requested_notice(uuid.UUID(str(payout.id)), user_id, requested_amount))
+        await enqueue_payout_notice(db, payout, "requested")
         await db.commit()
     except IntegrityError:
         await db.rollback()
@@ -601,6 +605,7 @@ async def request_payout(
         raise
     # No side effects can confirm/poison the request's database session.
     response = _serialize_payout(payout)
+    schedule_inbox_notice(payout.id, "requested")
     try:
         redis_logger = get_redis_audit_logger()
         if redis_logger.connected:
@@ -753,25 +758,7 @@ async def approve_payout(
         balance_after,
     )
 
-    # Use the existing post-commit hook with its own session; a legacy
-    # NotificationService call here would commit the financial unit early.
-    # FASE 9 (hook omnicanal): payout → plantilla 'payout_aprobado'.
-    # Se resuelve el destinatario AHÍ (antes del commit) pero el dispatch se
-    # lanza DESPUÉS de commitear, con sesión propia efímera dentro de
-    # notify_event: un fallo de notificación jamás revierte la operación.
-    _fase9_approve_ctx = None
-    try:
-        from app.services.notification_hooks import (
-            notify_event,
-            resolve_payout_recipient,
-            payout_context,
-        )
-
-        recipient_user_id = await resolve_payout_recipient(db, payout)
-        if recipient_user_id:
-            _fase9_approve_ctx = (recipient_user_id, payout_context(payout))
-    except Exception as e:
-        logger.warning(f"Hook Fase 9 payout_aprobado omitido: {e}")
+    await enqueue_payout_notice(db, payout, "approved")
 
     # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
     try:
@@ -787,21 +774,7 @@ async def approve_payout(
 
     await db.commit()
     await db.refresh(payout)
-
-    # FASE 9: dispatch post-commit (asyncio.create_task no bloquea la respuesta;
-    # notify_event jamás propaga excepciones al caller).
-    if _fase9_approve_ctx is not None:
-        try:
-            asyncio.create_task(
-                notify_event(
-                    "payout_aprobado",
-                    _fase9_approve_ctx[0],
-                    _fase9_approve_ctx[1],
-                    payout_id=payout.id,
-                )
-            )
-        except Exception as e:
-            logger.warning(f"Dispatch Fase 9 payout_aprobado omitido: {e}")
+    schedule_inbox_notice(payout.id, "approved")
 
     return _serialize_payout(payout)
 
@@ -866,28 +839,7 @@ async def reject_payout(
         balance_after,
     )
 
-    # Use the existing post-commit hook with its own session; a legacy
-    # NotificationService call here would commit the financial unit early.
-    # FASE 9 (hook omnicanal): payout RECHAZADO → plantilla 'payout_rechazado'.
-    # Se resuelve el destinatario AHÍ (antes del commit) pero el dispatch se
-    # lanza DESPUÉS de commitear, con sesión propia efímera: un fallo de
-    # notificación jamás revierte la operación de negocio.
-    _fase9_reject_ctx = None
-    try:
-        from app.services.notification_hooks import (
-            notify_event,
-            resolve_payout_recipient,
-            payout_context,
-        )
-
-        recipient_user_id = await resolve_payout_recipient(db, payout)
-        if recipient_user_id:
-            _fase9_reject_ctx = (
-                recipient_user_id,
-                payout_context(payout, extra={"reason": reason}),
-            )
-    except Exception as e:
-        logger.warning(f"Hook Fase 9 payout_rechazado omitido: {e}")
+    await enqueue_payout_notice(db, payout, "rejected", reason)
 
     # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
     try:
@@ -909,20 +861,7 @@ async def reject_payout(
 
     await db.commit()
     await db.refresh(payout)
-
-    # FASE 9: dispatch post-commit (sesión propia efímera dentro de notify_event).
-    if _fase9_reject_ctx is not None:
-        try:
-            asyncio.create_task(
-                notify_event(
-                    "payout_rechazado",
-                    _fase9_reject_ctx[0],
-                    _fase9_reject_ctx[1],
-                    payout_id=payout.id,
-                )
-            )
-        except Exception as e:
-            logger.warning(f"Dispatch Fase 9 payout_rechazado omitido: {e}")
+    schedule_inbox_notice(payout.id, "rejected")
 
     return _serialize_payout(payout)
 

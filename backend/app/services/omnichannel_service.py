@@ -842,7 +842,11 @@ class OmnichannelNotificationService:
             days=int(settings.NOTIFICATION_RETENTION_DAYS)
         )
         result = await self.db.execute(
-            delete(NotificationLog).where(NotificationLog.created_at < cutoff)
+            delete(NotificationLog).where(
+                NotificationLog.created_at < cutoff,
+                NotificationLog.status != OmnichannelStatus.PENDIENTE,
+                NotificationLog.next_retry_at.is_(None),
+            )
         )
         await self.db.commit()
         n = result.rowcount or 0
