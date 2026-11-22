@@ -27,6 +27,10 @@ class PortGuards:
             for port in (api_port, web_port):
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.ipv4[port] = sock
+                if os.name == "posix":
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                elif hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
                 sock.bind(("127.0.0.1", port))
                 if socket.has_ipv6:
                     try:
