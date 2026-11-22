@@ -1,13 +1,17 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
+import { canOpenDashboard } from '@/lib/dashboard-access';
+import { getLoginDestination } from '@/lib/login-destination';
 import { useAuthStore } from '@/stores/authStore';
 
 /** Prevent dashboard pages and their effects from mounting before verification. */
 export function SessionGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { checkAuth, forceLogout, isAuthenticated, isLoading } = useAuthStore();
+  const pathname = usePathname();
+  const { checkAuth, forceLogout, isAuthenticated, isLoading, user } = useAuthStore();
+  const allowed = !!pathname && canOpenDashboard(user?.role, pathname);
   const [checked, setChecked] = useState(false);
   useEffect(() => {
     window.addEventListener('delivery360-session-expired', forceLogout);
@@ -22,9 +26,10 @@ export function SessionGate({ children }: { children: React.ReactNode }) {
   }, [checkAuth, forceLogout]);
   useEffect(() => {
     if (checked && !isLoading && !isAuthenticated) router.replace('/login');
-  }, [checked, isLoading, isAuthenticated, router]);
+    else if (checked && !isLoading && isAuthenticated && !allowed) router.replace(getLoginDestination(user?.role || ''));
+  }, [checked, isLoading, isAuthenticated, allowed, user?.role, router]);
   if (!checked || isLoading) {
     return <div role="status" className="flex h-screen items-center justify-center">Verificando sesión…</div>;
   }
-  return isAuthenticated ? <>{children}</> : null;
+  return isAuthenticated && allowed ? <>{children}</> : null;
 }

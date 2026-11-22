@@ -10,6 +10,7 @@ Este hook es best-effort, sin outbox ni garantía durable de ejecución.
 from __future__ import annotations
 
 import logging
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Optional
 
 from sqlalchemy import select
@@ -117,15 +118,31 @@ def payout_context(
     """Contexto estándar para plantillas payout_* (amount_cents, bank_last4...)."""
     amount = getattr(payout, "amount", None)
     try:
-        amount_cents = int(round(float(amount) * 100)) if amount is not None else 0
-    except (TypeError, ValueError):
-        amount_cents = 0
+        if isinstance(amount, bool):
+            raise ValueError("Invalid payout notification amount")
+        value = Decimal(str(amount))
+        if (
+            not value.is_finite()
+            or not Decimal("0") < value <= Decimal("99999999.99")
+            or value != value.quantize(Decimal("0.01"))
+        ):
+            raise ValueError("Invalid payout notification amount")
+        amount_cents = int(value * 100)
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError("Invalid payout notification amount") from None
+    currency = getattr(payout, "currency_code", None)
     ctx: Dict[str, Any] = {
         "amount_cents": amount_cents,
+        "currency_code": currency,
+        "amount_usd": f"{value:.2f}" if currency == "USD" else None,
+        "amount_label": (
+            f"{value:.2f} USD" if currency == "USD" else "importe histórico por revisar"
+        ),
+        "monetary_review": currency != "USD",
         "bank_last4": getattr(payout, "bank_account_last4", None) or "0000",
         "status": getattr(getattr(payout, "status", None), "value", str(payout.status)),
         "payout_id": str(payout.id),
     }
     if extra:
-        ctx.update(extra)
+        ctx.update({key: value for key, value in extra.items() if key not in ctx})
     return ctx

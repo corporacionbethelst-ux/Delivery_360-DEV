@@ -1724,11 +1724,11 @@ async def seed_fase9_notifications(db: AsyncSession):
     # Fuente unica de verdad: TEMPLATES_SEED definida en la migracion Fase 9
     templates_seed = [
         ("payout_aprobado", "PUSH", None,
-         "Tu retiro de ${{amount_cents}} fue APROBADO. Se procesara a tu cuenta ****{{bank_last4}}."),
+         "Tu solicitud de retiro por {{amount_label}} fue aprobada contablemente. Esto no confirma una transferencia bancaria."),
         ("payout_rechazado", "PUSH", None,
-         "Tu solicitud de retiro de ${{amount_cents}} fue RECHAZADA. Motivo: {{reason}}"),
+         "Tu solicitud de retiro por {{amount_label}} fue RECHAZADA. Motivo: {{reason}}"),
         ("payout_fallido", "PUSH", None,
-         "El pago de tu retiro de ${{amount_cents}} FALLO. Motivo: {{reason}}. Soporte te contactara."),
+         "Se reportó un fallo en el retiro por {{amount_label}}. Motivo: {{reason}}. Soporte te contactara."),
         ("nuevo_pedido_asignado", "PUSH", None,
          "Nuevo pedido asignado: entrega {{delivery_code}} de {{customer_name}}. Pago estimado: ${{payment_cents}}."),
         ("alerta_desviacion_ruta", "EMAIL", "Alerta de desviacion de ruta - Delivery360",

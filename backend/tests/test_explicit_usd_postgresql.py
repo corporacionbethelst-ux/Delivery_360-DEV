@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 from unittest.mock import AsyncMock
 
+from app.models.notification import Notification
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
@@ -43,7 +44,7 @@ async def usd_db(payment_db, monkeypatch):
     client, sessions, ids = payment_db
     engine = sessions.kw["bind"]
     async with engine.begin() as connection:
-        for model in (Payout, PayoutStatusHistory, AuditLog):
+        for model in (Payout, PayoutStatusHistory, AuditLog, Notification):
             await connection.run_sync(
                 lambda conn, m=model: m.__table__.create(conn, checkfirst=True)
             )

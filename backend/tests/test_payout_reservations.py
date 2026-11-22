@@ -71,9 +71,74 @@ async def test_retry_matches_amount_method_bank_and_actor(reservation_context):
     assert (
         await session.scalar(select(func.count()).select_from(PayoutStatusHistory)) == 1
     )
+
     assert (await api._calculate_available_balance(session, rider_id))[
         "available"
     ] == 40
+
+
+@pytest.mark.asyncio
+async def test_request_notice_is_atomic_and_retry_does_not_duplicate_it(
+    reservation_context,
+):
+    from app.models.notification import Notification
+
+    session, _, user = reservation_context
+    body = api.PayoutRequestBody(amount="60.01", idempotency_key="durable-notice")
+    first = await api.request_payout(body, db=session, current_user=user)
+    second = await api.request_payout(body, db=session, current_user=user)
+    notices = list((await session.scalars(select(Notification))).all())
+    assert first["id"] == second["id"] and len(notices) == 1
+    assert notices[0].data == {
+        "payout_id": str(first["id"]),
+        "amount": "60.01",
+        "currency_code": "USD",
+    }
+    assert notices[0].channels == "in_app" and not notices[0].is_sent
+
+
+@pytest.mark.asyncio
+async def test_failed_business_commit_does_not_leave_a_notice_or_reservation(
+    reservation_context, monkeypatch
+):
+    from app.models.notification import Notification
+
+    session, _, user = reservation_context
+    monkeypatch.setattr(
+        session, "commit", AsyncMock(side_effect=RuntimeError("commit unavailable"))
+    )
+    with pytest.raises(RuntimeError, match="commit unavailable"):
+        await api.request_payout(
+            api.PayoutRequestBody(amount="60.01"), db=session, current_user=user
+        )
+    await session.rollback()
+    assert await session.scalar(select(func.count()).select_from(Notification)) == 0
+    assert await session.scalar(select(func.count()).select_from(Payout)) == 0
+
+
+@pytest.mark.asyncio
+async def test_notice_insert_failure_cannot_commit_a_partial_reservation(
+    reservation_context,
+):
+    from sqlalchemy import event
+    from app.models.notification import Notification
+
+    session, _, user = reservation_context
+
+    def fail_insert(*args):
+        raise RuntimeError("notice insert unavailable")
+
+    event.listen(Notification, "before_insert", fail_insert)
+    try:
+        with pytest.raises(RuntimeError, match="notice insert unavailable"):
+            await api.request_payout(
+                api.PayoutRequestBody(amount="60.01"), db=session, current_user=user
+            )
+    finally:
+        event.remove(Notification, "before_insert", fail_insert)
+        await session.rollback()
+    assert await session.scalar(select(func.count()).select_from(Payout)) == 0
+    assert await session.scalar(select(func.count()).select_from(Notification)) == 0
 
 
 @pytest.mark.asyncio

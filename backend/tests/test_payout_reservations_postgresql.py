@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
+from app.models.notification import Notification
 import pytest
 from sqlalchemy import select, func
 
@@ -24,7 +25,7 @@ async def pg_requests(pg_reconciliation, monkeypatch):
     sessions, rider_id = pg_reconciliation
     async with sessions() as session:
         connection = await session.connection()
-        for model in (Payout, PayoutStatusHistory):
+        for model in (Payout, PayoutStatusHistory, Notification):
             await connection.run_sync(
                 lambda conn, model=model: model.__table__.create(conn, checkfirst=True)
             )
@@ -270,3 +271,22 @@ async def test_recovery_key_lookup_in_postgresql_is_scoped_to_the_owner(pg_reque
             await session.scalar(select(func.count()).select_from(PayoutStatusHistory))
             == 1
         )
+
+
+@pytest.mark.asyncio
+async def test_concurrent_replays_persist_one_notice_visible_to_a_new_session(
+    pg_requests,
+):
+    sessions, _, user_ids, _ = pg_requests
+    first, second = await asyncio.gather(
+        request(sessions, user_ids[0], Decimal("60.01"), key="durable-replay"),
+        request(sessions, user_ids[0], Decimal("60.01"), key="durable-replay"),
+    )
+    assert isinstance(first, dict) and isinstance(second, dict)
+    assert first["id"] == second["id"]
+    async with sessions() as fresh:
+        notices = list((await fresh.scalars(select(Notification))).all())
+        assert len(notices) == 1
+        assert notices[0].data["payout_id"] == str(first["id"])
+        assert notices[0].data["amount"] == "60.01"
+        assert notices[0].channels == "in_app" and not notices[0].is_sent

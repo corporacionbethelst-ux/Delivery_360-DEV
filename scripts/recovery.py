@@ -739,7 +739,7 @@ class Recovery:
             checks += json.loads(result.stdout)["checks"]
             if web_image:
                 browser_report = self.frontend_check(
-                    run_dir, web_image, guards, account, chromium, browser_artifacts
+                    run_dir, web_image, guards, accounts, chromium, browser_artifacts
                 )
             after = self.restored_tables()
             if set(after) != set(m["tables"]):
@@ -820,7 +820,7 @@ class Recovery:
                 "La publicación no coincide con el puerto loopback reservado"
             )
 
-    def frontend_check(self, run_dir, image, guards, account, chromium, artifacts):
+    def frontend_check(self, run_dir, image, guards, accounts, chromium, artifacts):
         if __package__:
             from .recovery_browser import probe
         else:
@@ -887,7 +887,8 @@ class Recovery:
         result = probe(
             web_port=self.source["web_port"],
             api_port=self.source["api_port"],
-            account=account,
+            account=accounts["SUPERADMIN"],
+            accounts=accounts,
             sample_order=order,
             sample_zone=zone,
             artifacts=artifacts or (run_dir / "browser"),

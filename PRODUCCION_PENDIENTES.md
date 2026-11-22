@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 114. Este registro distingue implementación local,
+Actualizado con la entrega 115. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -151,6 +151,8 @@ oficial ni cobertura del país seleccionado.
 
 ## 4. Procesamiento fiable
 
+La entrega 115 persiste el aviso interno de solicitud de retiro junto con solicitud e historial. Comprueba rollback y reintentos concurrentes sin avisos duplicados. Cierra la ventana de pérdida de ese aviso específico; no equivale a una cola durable para todos los eventos ni a entrega bancaria o externa exactamente una vez.
+
 Completar persistencia de eventos pendientes, recuperación de tareas tras caídas,
 reintentos y conciliación sin efectos duplicados. Verificar la coordinación de
 workers y programación, con observabilidad operativa.
@@ -167,6 +169,8 @@ ante fallos y ejecutar pruebas de carga con objetivos de capacidad acordados.
 Verificar alertas y procedimiento de reversión del despliegue.
 
 ## 7. Aceptación y pantallas
+
+La entrega 115 verifica el rol de API antes de montar pantallas, da salida explícita a perfiles sin portal y añade aceptación restaurada de identidad/acceso para seis roles. No completa sus recorridos de negocio ni los portales de Cliente/Auditor.
 
 Pruebas manuales del negocio en escritorio/móvil y corrección de incidencias.
 Completar los recorridos propios de CLIENTE/AUDITOR si forman parte del alcance
@@ -215,3 +219,5 @@ La entrega 112 incorpora respaldo offline y restauración mantenidos del laborat
 La entrega 113 añade aceptación de navegador sobre la restauración con API/web candidatas: login real, órdenes/zonas, sesión y escritorio/móvil. Verifica que el historial se conserva después de navegar y bloquea destinos/mutaciones ajenos al ensayo. No acredita todos los roles/recorridos ni despliegue real en staging, RPO/RTO o capacidad productiva.
 
 La entrega 114 corrige el recorte de «Nueva Orden» y la compresión de filtros en pantallas estrechas. Conserva los contratos operativos y añade comprobaciones de geometría y obstrucción por control en cinco anchos, tanto en la imagen web con datos sintéticos como sobre la restauración real. Reproduce además el recorte por un ancestro sin overflow global, para evitar el falso positivo de la comprobación anterior. Integra en su rama de revisión los cambios de 113 que se habían fusionado únicamente en la rama de 112 después de integrar esta en main. Siguen pendientes los demás recorridos/roles, staging, RPO/RTO, capacidad y las integraciones externas indicadas arriba.
+
+La entrega 115 incluye además la migración aditiva de notificationtype: incorpora las etiquetas que el modelo ya declaraba, sin reescribir filas. El downgrade conserva esas etiquetas para evitar pérdida de datos. Aplicar el upgrade antes de habilitar las nuevas escrituras; revisar también las plantillas antiguas que presentan amount_cents como dólares. No se migró la base original ni producción.

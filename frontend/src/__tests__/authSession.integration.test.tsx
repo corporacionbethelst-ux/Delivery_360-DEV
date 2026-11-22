@@ -12,7 +12,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { SessionGate } from '@/components/layout/SessionGate';
 import { User } from '@/types/user';
 const mockReplace = jest.fn();
-jest.mock('next/navigation', () => ({ useRouter: () => ({ replace: mockReplace }) }));
+jest.mock('next/navigation', () => ({ useRouter: () => ({ replace: mockReplace }), usePathname: () => '/manager' }));
 const profile: User = {
   id: 'owner-a',
   email: 'owner-a@example.test',

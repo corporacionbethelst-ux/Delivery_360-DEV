@@ -267,33 +267,36 @@ async def _lock_payout_rider(db: AsyncSession, rider_id: uuid.UUID | str) -> Non
         )
 
 
+def _requested_notice(payout_id: uuid.UUID, user_id: uuid.UUID, amount: Decimal):
+    """Persist the inbox event in the caller's financial transaction; no dispatch."""
+    from app.models.notification import Notification, NotificationType
+
+    return Notification(
+        user_id=user_id,
+        notification_type=NotificationType.RETIRO_SOLICITADO,
+        title="Solicitud de retiro creada",
+        message=f"Se ha solicitado un retiro de {amount:.2f} USD",
+        data={
+            "payout_id": str(payout_id),
+            "amount": f"{amount:.2f}",
+            "currency_code": "USD",
+        },
+        channels="in_app",
+        is_sent=False,
+        related_type="payout",
+        related_id=str(payout_id),
+    )
+
+
 async def _notify_requested(
     payout_id: uuid.UUID, user_id: uuid.UUID, amount: Decimal
 ) -> None:
-    """Best-effort inbox record on an independent session; never commit business state."""
+    """Compatibility helper for older callers; new requests persist atomically."""
     from app.core.database import AsyncSessionLocal
-    from app.models.notification import (
-        Notification,
-        NotificationType,
-        NotificationStatus,
-    )
-    import json
 
     try:
         async with AsyncSessionLocal() as session:
-            session.add(
-                Notification(
-                    user_id=user_id,
-                    notification_type=NotificationType.RETIRO_SOLICITADO,
-                    title="Solicitud de retiro creada",
-                    message=f"Se ha solicitado un retiro de ${amount:.2f}",
-                    data=json.dumps(
-                        {"payout_id": str(payout_id), "amount": str(amount)}
-                    ),
-                    channel="push",
-                    status=NotificationStatus.PENDING,
-                )
-            )
+            session.add(_requested_notice(payout_id, user_id, amount))
             await session.commit()
     except Exception:
         logger.warning("No se pudo registrar la notificación de solicitud de retiro")
@@ -588,6 +591,7 @@ async def request_payout(
             available,
             available - requested_amount,
         )
+        db.add(_requested_notice(uuid.UUID(str(payout.id)), user_id, requested_amount))
         await db.commit()
     except IntegrityError:
         await db.rollback()
@@ -597,9 +601,6 @@ async def request_payout(
         raise
     # No side effects can confirm/poison the request's database session.
     response = _serialize_payout(payout)
-    asyncio.create_task(
-        _notify_requested(uuid.UUID(str(payout.id)), user_id, requested_amount)
-    )
     try:
         redis_logger = get_redis_audit_logger()
         if redis_logger.connected:
