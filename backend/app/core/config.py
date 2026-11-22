@@ -191,6 +191,7 @@ class Settings(BaseSettings):
     NOTIFICATION_RETENTION_DAYS: int = 30  # purge_old_logs
     NOTIFICATION_TEMPLATE_CACHE_TTL_SEC: int = 3600  # cache Redis plantillas 1h
     NOTIFICATION_RATE_LIMIT_PER_MIN: int = 10  # eventos/min por usuario
+    NOTIFICATION_RETRY_SCAN_INTERVAL_SEC: int = Field(default=60, ge=1, le=3600)
     # Canal Pub/Sub de fan-out WS: notifications:user:{id}
     REDIS_NOTIF_CHANNEL_PREFIX: str = "notifications:user"
     # Push (FCM) — opcionales

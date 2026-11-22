@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 115. Este registro distingue implementación local,
+Actualizado con la entrega 116. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -150,6 +150,8 @@ fiscal para Venezuela; los adaptadores DIAN/SAT existentes no acreditan emisión
 oficial ni cobertura del país seleccionado.
 
 ## 4. Procesamiento fiable
+
+La entrega116 agrega comprobantes de solicitud/aprobación/rechazo a la bandeja visible y deja los canales externos autorizados en la cola existente, junto con la transacción financiera. Comprueba cancelación y consumidores simultáneos, protege pendientes frente a retención y añade programación Celery explícita. No garantiza exactamente una entrega externa ni convierte aceptación del proveedor en entrega/pago; quedan los otros eventos y la conciliación de resultados ambiguos. Ver NOTIFICACIONES_DURABLES.md.
 
 La entrega 115 persiste el aviso interno de solicitud de retiro junto con solicitud e historial. Comprueba rollback y reintentos concurrentes sin avisos duplicados. Cierra la ventana de pérdida de ese aviso específico; no equivale a una cola durable para todos los eventos ni a entrega bancaria o externa exactamente una vez.
 

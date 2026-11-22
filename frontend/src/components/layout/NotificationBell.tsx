@@ -34,6 +34,11 @@ export function NotificationBell() {
   const liveBadge = Math.max(unreadCount, omnichannel.unreadCount);
   const liveItems = omnichannel.items.slice(0, 10);
 
+  // Opening the inbox also reconciles persisted events after a missed WS nudge.
+  useEffect(() => {
+    if (FEATURE_NOTIFICATIONS && isOpen) void omnichannel.refreshInbox?.();
+  }, [isOpen, omnichannel.refreshInbox]);
+
   // Cargar notificaciones al montar (si el store no lo hace automáticamente)
   useEffect(() => {
     if (FEATURE_NOTIFICATIONS && isOpen && notifications.length === 0) {
@@ -48,7 +53,9 @@ export function NotificationBell() {
       <Button 
         variant="ghost" 
         size="icon" 
-        className="relative hover:bg-gray-100 dark:hover:bg-gray-800"
+        aria-label="Notificaciones"
+        aria-expanded={isOpen}
+        className="relative z-50 hover:bg-gray-100 dark:hover:bg-gray-800"
         onClick={() => setIsOpen(!isOpen)}
       >
         <Bell className="w-5 h-5" />
@@ -62,7 +69,7 @@ export function NotificationBell() {
           {/* Backdrop para cerrar al hacer clic fuera */}
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
           
-          <Card className="absolute right-0 top-12 w-80 md:w-96 z-50 shadow-xl border border-gray-200 max-h-[600px] overflow-hidden flex flex-col bg-white">
+          <Card className="absolute right-0 top-12 w-80 max-w-[calc(100vw-5rem)] md:w-96 md:max-w-none z-50 shadow-xl border border-gray-200 max-h-[600px] overflow-hidden flex flex-col bg-white">
             {/* Header */}
             <div className="p-4 border-b flex justify-between items-center bg-gray-50/50">
               <div className="flex items-center gap-2">

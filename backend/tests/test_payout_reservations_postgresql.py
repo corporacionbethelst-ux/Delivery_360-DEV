@@ -23,12 +23,16 @@ from app.services.financial_service import FinancialService
 @pytest.fixture
 async def pg_requests(pg_reconciliation, monkeypatch):
     sessions, rider_id = pg_reconciliation
+    monkeypatch.setattr("app.api.v1.payouts.schedule_inbox_notice", lambda *args: None)
     async with sessions() as session:
         connection = await session.connection()
         for model in (Payout, PayoutStatusHistory, Notification):
             await connection.run_sync(
                 lambda conn, model=model: model.__table__.create(conn, checkfirst=True)
             )
+        from tests.payout_notification_schema import create_payout_notification_schema
+
+        await connection.run_sync(create_payout_notification_schema)
         other_id = await session.scalar(select(Rider.id).where(Rider.id != rider_id))
         user_ids = [
             await session.scalar(select(Rider.user_id).where(Rider.id == parent))
@@ -70,9 +74,13 @@ async def request(sessions, user_id, amount, key=None, barrier=None):
             if barrier is None:
                 return await submit()
             original_flush = session.flush
+            first_flush = True
 
             async def flush(*args, **kwargs):
-                await barrier.wait()
+                nonlocal first_flush
+                if first_flush:
+                    first_flush = False
+                    await barrier.wait()
                 return await original_flush(*args, **kwargs)
 
             with patch.object(session, "flush", flush):
@@ -290,3 +298,105 @@ async def test_concurrent_replays_persist_one_notice_visible_to_a_new_session(
         assert notices[0].data["payout_id"] == str(first["id"])
         assert notices[0].data["amount"] == "60.01"
         assert notices[0].channels == "in_app" and not notices[0].is_sent
+
+
+async def prepared_durable_email(pg_requests, monkeypatch):
+    from app.core.config import settings
+    from app.models.notification import (
+        NotificationTemplate,
+        NotificationPreference,
+        NotificationLog,
+        NotificationChannel as Channel,
+    )
+    from sqlalchemy import update
+
+    sessions, _, users, manager = pg_requests
+    created = await request(
+        sessions, users[0], Decimal("60.01"), key="durable-decision"
+    )
+    monkeypatch.setattr(settings, "NOTIFICATIONS_ENABLED", True)
+    async with sessions() as db:
+        await db.execute(
+            update(User).where(User.id == users[0]).values(role=UserRole.GERENTE)
+        )
+        db.add(
+            NotificationTemplate(
+                code="payout_aprobado",
+                channel=Channel.EMAIL,
+                body_template="Importe {{amount_label}}",
+                is_active=True,
+            )
+        )
+        db.add(
+            NotificationPreference(
+                user_id=users[0],
+                event_code="payout_aprobado",
+                channel=Channel.PUSH,
+                enabled=False,
+            )
+        )
+        await db.commit()
+    await decision(sessions, manager, str(created["id"]))
+    async with sessions() as db:
+        log = (
+            await db.scalars(
+                select(NotificationLog).where(NotificationLog.channel == Channel.EMAIL)
+            )
+        ).one()
+        return sessions, log.id
+
+
+@pytest.mark.asyncio
+async def test_durable_decision_resumes_once_across_competing_consumers(
+    pg_requests, monkeypatch
+):
+    from app.services.omnichannel_service import (
+        OmnichannelNotificationService as Service,
+    )
+    from app.models.notification import NotificationLog, OmnichannelStatus as Status
+
+    sessions, log_id = await prepared_durable_email(pg_requests, monkeypatch)
+
+    async def provider(*args, **kwargs):
+        await asyncio.sleep(0.05)
+        return True
+
+    send = AsyncMock(side_effect=provider)
+    monkeypatch.setattr(Service, "dispatch_email", send)
+
+    async def consume():
+        async with sessions() as db:
+            return await Service(db, redis_client=False).process_retry_queue()
+
+    assert sum(await asyncio.gather(consume(), consume())) == 1
+    send.assert_awaited_once()
+    async with sessions() as db:
+        log = await db.get(NotificationLog, log_id)
+        assert log.status == Status.ENVIADO and log.next_retry_at is None
+        assert log.body == "Importe 60.01 USD"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_provider_leaves_the_same_durable_event_for_recovery(
+    pg_requests, monkeypatch
+):
+    from app.services.omnichannel_service import (
+        OmnichannelNotificationService as Service,
+    )
+    from app.models.notification import NotificationLog, OmnichannelStatus as Status
+
+    sessions, log_id = await prepared_durable_email(pg_requests, monkeypatch)
+    monkeypatch.setattr(
+        Service, "dispatch_email", AsyncMock(side_effect=asyncio.CancelledError())
+    )
+    async with sessions() as db:
+        with pytest.raises(asyncio.CancelledError):
+            await Service(db, redis_client=False).process_retry_queue()
+    async with sessions() as db:
+        assert (await db.get(NotificationLog, log_id)).status == Status.PENDIENTE
+    send = AsyncMock(return_value=True)
+    monkeypatch.setattr(Service, "dispatch_email", send)
+    async with sessions() as db:
+        assert await Service(db, redis_client=False).process_retry_queue() == 1
+        assert (await db.get(NotificationLog, log_id)).status == Status.ENVIADO
+    send.assert_awaited_once()

@@ -132,6 +132,28 @@ def main():
                         ],
                     }
                     data = exact_envelope(data["items"], query)
+                elif path.endswith("/notifications/inbox"):
+                    data = {
+                        "items": [
+                            {
+                                "id": "11111111-1111-4111-8111-111111111111",
+                                "template_code": "payout_solicitado",
+                                "channel": "IN_APP",
+                                "status": "ENVIADO",
+                                "title": "Solicitud de retiro creada",
+                                "body": "La solicitud de retiro por 10.01 USD se registró.",
+                                "created_at": "2026-11-22T12:00:00Z",
+                                "read_at": None,
+                            }
+                        ],
+                        "page": 1,
+                        "size": 10,
+                        "total": 1,
+                        "pages": 1,
+                        "unread_count": 1,
+                    }
+                elif path.endswith("/notifications/unread-count"):
+                    data = {"unread_count": 1}
                 elif path.endswith(("/riders", "/orders", "/vehicles/available")):
                     data = []
                 else:
@@ -247,6 +269,25 @@ def main():
         page.get_by_role("button", name="Nueva Orden", exact=True).click()
         expect(page).to_have_url(base + "/manager/operations/orders/new")
         checks.append("new_order_action_navigates_to_existing_form")
+        for width in (320, 390):
+            page.set_viewport_size({"width": width, "height": 844})
+            page.wait_for_function(
+                "document.querySelector('aside').getBoundingClientRect().right <= 1"
+            )
+            bell = page.get_by_role("button", name="Notificaciones", exact=True)
+            bell.click()
+            expect(
+                page.get_by_text(
+                    "La solicitud de retiro por 10.01 USD se registró.", exact=True
+                )
+            ).to_be_visible()
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            page.screenshot(
+                path=str(artifacts / ("payout-inbox-" + str(width) + ".png"))
+            )
+            bell.click()
+        checks.append("durable_receipt_preview_fits_small_mobile_notification_bell")
+        page.set_viewport_size({"width": 1440, "height": 1000})
         for role in ("CLIENTE", "AUDITOR"):
             active_role[0] = role
             context.add_cookies(

@@ -634,6 +634,26 @@ def main():
         passed(
             "decimal comma posts canonical 10.01 text and PostgreSQL reserves precisely 1001 cents"
         )
+        notice_id = sql(
+            "SELECT id::text FROM notification_logs WHERE payout_id='"
+            + payout["id"]
+            + "' AND template_code='payout_solicitado' AND channel='IN_APP'"
+        )
+        inbox = call(rider_page, own, "GET", "/notifications/inbox?size=100")
+        assert sum(item["id"] == notice_id for item in inbox["items"]) == 1
+        rider_page.get_by_role("button", name="Notificaciones", exact=True).click()
+        expect(
+            rider_page.get_by_text(
+                "La solicitud de retiro por 10.01 USD se registró.", exact=True
+            )
+        ).to_be_visible()
+        rider_page.screenshot(
+            path=str(out / "payout-inbox-mobile.png"), animations="disabled"
+        )
+        rider_page.get_by_role("button", name="Notificaciones", exact=True).click()
+        passed(
+            "atomic withdrawal receipt is visible once in the real mobile notification bell"
+        )
         storage_key = "delivery360-withdrawal-v1:" + identity_rider["id"]
         saved = rider_page.evaluate(
             "key => JSON.parse(sessionStorage.getItem(key))", storage_key
@@ -708,6 +728,28 @@ def main():
             data={"reason": "Prueba de liberación de reserva"},
         )
         assert Decimal(str(balance()["available"])) == 11
+        assert (
+            sql(
+                "SELECT count(*) FROM notification_logs WHERE payout_id='"
+                + payout["id"]
+                + "' AND channel='IN_APP'"
+            )
+            == "2"
+        )
+        reject_id = sql(
+            "SELECT id::text FROM notification_logs WHERE payout_id='"
+            + payout["id"]
+            + "' AND template_code='payout_rechazado' AND channel='IN_APP'"
+        )
+        assert any(
+            item["id"] == reject_id
+            for item in call(rider_page, own, "GET", "/notifications/inbox?size=100")[
+                "items"
+            ]
+        )
+        passed(
+            "rejection preserves one requested receipt and one own-account rejection receipt"
+        )
         passed(
             "payout replay preserves one reservation; overdraft is denied and rejection releases the full reservation"
         )
@@ -729,6 +771,33 @@ def main():
             admin, staff, "PATCH", "/payouts/" + payout["id"] + "/approve", expected=400
         )
         assert Decimal(str(balance()["available"])) == 1
+        approve_id = sql(
+            "SELECT id::text FROM notification_logs WHERE payout_id='"
+            + payout["id"]
+            + "' AND template_code='payout_aprobado' AND channel='IN_APP'"
+        )
+        approved_notice = next(
+            item
+            for item in call(rider_page, own, "GET", "/notifications/inbox?size=100")[
+                "items"
+            ]
+            if item["id"] == approve_id
+        )
+        assert (
+            "10.00 USD" in approved_notice["body"]
+            and "no confirma una transferencia bancaria" in approved_notice["body"]
+        )
+        assert (
+            sql(
+                "SELECT count(*) FROM notification_logs WHERE payout_id='"
+                + payout["id"]
+                + "' AND template_code='payout_aprobado' AND channel='IN_APP'"
+            )
+            == "1"
+        )
+        passed(
+            "approval receipt preserves exact USD and is not duplicated by a repeated decision"
+        )
         receipts = call(rider_page, own, "GET", "/financial/riders/me/earnings")[
             "items"
         ]
