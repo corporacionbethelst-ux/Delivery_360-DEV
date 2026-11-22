@@ -57,3 +57,23 @@ Se exige coincidencia de nombres y labels; para un proceso nativo se comprueba t
 Los diagnósticos y logs con posibles detalles sensibles quedan privados en `.delivery360-testing/recovery/`. Solo `result.json` o el archivo indicado por `--report` son reportes sanitizados. Un intento incompleto no publica un reporte aprobado. Reservar espacio para las imágenes, copias de ejecución de Docker y volúmenes nuevos: VFS puede necesitar varias veces el tamaño de las imágenes. La herramienta no aplica limpiezas generales para conseguirlo.
 
 En CI se ejecuta después de los recorridos funcionales: se pausa el origen, se crea el respaldo, se detiene el laboratorio original conservando volúmenes y se restaura en recursos nuevos con la imagen candidata. Solo el reporte sanitizado de 14 comprobaciones se añade al artefacto funcional. Los demás controles y el límite de tiempo se mantienen.
+
+## Comprobar también el frontend restaurado (entrega 113)
+
+El ensayo opcional de navegador requiere las imágenes API y web ya compiladas, Python Playwright 1.56 y Chromium. La imagen Next debe estar construida con la URL del laboratorio: `NEXT_PUBLIC_API_URL` está compilada y no se cambia mediante una variable al iniciar el contenedor.
+
+```bash
+python scripts/recovery.py restore <backup_id> --api-image delivery360-local-test-api:<instance> --web-image delivery360-local-test-web:<instance> --browser-artifacts recovery-browser --report recovery-with-browser.json
+```
+
+`--chromium /ruta/al/ejecutable` permite usar una instalación existente. Sin `--web-image`, el modo de restauración HTTP anterior conserva su red interna y no publica puertos. El ensayo visual no se combina con `--python`; requiere las imágenes candidatas reales y datos representativos de órdenes y zonas.
+
+El modo web publica API y web únicamente en `127.0.0.1`, usando los puertos conservados en la configuración del laboratorio para coincidir con la URL compilada de Next. Deben estar libres; se rechaza un conflicto IPv4 o un servicio IPv6 en `::1` que pudiera responder al nombre `localhost`. La comprobación verifica nombres, labels y los bindings reales antes de abrir Chromium. No se sustituye un conflicto deteniendo otro servicio. En POSIX se admite el estado TIME_WAIT de conexiones recién cerradas para no confundirlo con un servidor activo; la reserva IPv6 sigue siendo exclusiva.
+
+Base y Redis permanecen sin puertos en la red interna. API y web utilizan además una red de acceso bridge para la publicación local: este modo no tiene el mismo aislamiento de red que el ensayo HTTP sin web. Conserva usuario sin privilegios, filesystem de solo lectura, secreto nuevo y proveedores/jobs desactivados. CORS admite exclusivamente los dos orígenes locales de la web de prueba.
+
+Chromium usa un contexto nuevo sin sesiones del usuario. Se verifica el acceso anónimo, login real, una orden identificada desde la copia, una zona, recarga de sesión y las pantallas de órdenes/zonas en escritorio y móvil. No se sustituyen respuestas de API por mocks. Se comprueban errores de página y desbordamiento horizontal, se bloquean destinos inesperados y mutaciones de negocio y se limitan los WebSocket de notificaciones al destino restaurado y mensajes de heartbeat. La comparación de historial se realiza después de cerrar el navegador.
+
+Las capturas pueden contener información de las órdenes: son privadas por defecto dentro del estado de ejecución. Una ruta explícita de artefactos debe ser nueva y conservarse con el mismo cuidado. CI solo publica capturas de su laboratorio sintético. No se guarda HAR, trace, tokens ni estado de sesión; en un fallo se genera un diagnóstico de fase sanitizado y una captura con los inputs enmascarados.
+
+El reporte HTTP conserva sus 14 comprobaciones y añade identidad de la imagen web y el resultado visual. El navegador añade 13 comprobaciones separadas y cuatro capturas. La entrega 114 comprueba acciones y filtros de órdenes en anchos de 320, 390, 768, 1024 y 1440 px: límites de cada control, recortes por ancestros y elementos que lo cubren. El ancho global de la página por sí solo no detecta todos los recortes. Al terminar se detienen también los contenedores web propios y se liberan las reservas de puertos; se conservan respaldos y volúmenes. Esto amplía la aceptación local sobre una restauración; no acredita todas las funciones/roles, despliegue en staging ni recuperación productiva.

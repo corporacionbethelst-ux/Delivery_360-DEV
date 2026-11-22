@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 112. Este registro distingue implementación local,
+Actualizado con la entrega 114. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -211,3 +211,7 @@ separadas las liquidaciones del pago bancario y de la configuración actual.
 La entrega 111 completa la lectura textual decimal de los bonos base JSON en los cinco cierres. Coordina las filas existentes con guardados de configuración mediante bloqueos compartidos, mantiene fallbacks por vía y evita la caché ORM para el insumo. No reescribe settings/historia ni amplía el alias de desglose de base a una captura completa. Continúa la revisión de lectores monetarios de compatibilidad y requisitos externos.
 
 La entrega 112 incorpora respaldo offline y restauración mantenidos del laboratorio, con arranque HTTP de la API en copia y comprobación de documentos, permisos e historial. CI añade el ensayo con la imagen candidata. No cierra recuperación productiva: faltan objetivos RPO/RTO, staging, carga y procedimientos/alertas operativas. Ver RECUPERACION_LOCAL.md.
+
+La entrega 113 añade aceptación de navegador sobre la restauración con API/web candidatas: login real, órdenes/zonas, sesión y escritorio/móvil. Verifica que el historial se conserva después de navegar y bloquea destinos/mutaciones ajenos al ensayo. No acredita todos los roles/recorridos ni despliegue real en staging, RPO/RTO o capacidad productiva.
+
+La entrega 114 corrige el recorte de «Nueva Orden» y la compresión de filtros en pantallas estrechas. Conserva los contratos operativos y añade comprobaciones de geometría y obstrucción por control en cinco anchos, tanto en la imagen web con datos sintéticos como sobre la restauración real. Reproduce además el recorte por un ancestro sin overflow global, para evitar el falso positivo de la comprobación anterior. Integra en su rama de revisión los cambios de 113 que se habían fusionado únicamente en la rama de 112 después de integrar esta en main. Siguen pendientes los demás recorridos/roles, staging, RPO/RTO, capacidad y las integraciones externas indicadas arriba.

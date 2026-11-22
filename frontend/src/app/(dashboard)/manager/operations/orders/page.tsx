@@ -22,7 +22,6 @@ import { Badge } from "@/components/ui/badge";
 import {
   Plus,
   Search,
-  Filter,
   Download,
   Package,
   Clock,
@@ -550,11 +549,15 @@ function SessionOrdersPage() {
   };
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
+    <div className="p-3 sm:p-6 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-          <div>
+        <div className="flex min-w-0 flex-col xl:flex-row justify-between items-start xl:items-center gap-5 mb-6 rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-violet-50 p-4 sm:p-6 shadow-sm">
+          <div className="min-w-0">
+            <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-blue-700">
+              <Package className="h-4 w-4 shrink-0" aria-hidden="true" />
+              Operaciones · Pedidos
+            </div>
             <h1 className="text-2xl font-bold text-gray-900">
               Gestión de Órdenes
             </h1>
@@ -562,12 +565,12 @@ function SessionOrdersPage() {
               Administra, asigna y rastrea pedidos.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div role="group" aria-label="Acciones de órdenes" className="grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap xl:w-auto">
             <Button
               variant="outline"
               onClick={handleRefresh}
               disabled={isRefreshing}
-              className="gap-2"
+              className="h-11 gap-2"
             >
               <RefreshCw
                 className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`}
@@ -579,12 +582,13 @@ function SessionOrdersPage() {
               variant="outline"
               onClick={handleExport}
               disabled={loading || !!error || orders.length === 0}
+              className="h-11"
             >
               <Download className="w-4 h-4 mr-2" /> Exportar
             </Button>
             <Button
               onClick={() => router.push("/manager/operations/orders/new")}
-              className="bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-200"
+              className="col-span-2 h-11 bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-200"
             >
               <Plus className="w-4 h-4 mr-2" /> Nueva Orden
             </Button>
@@ -639,23 +643,24 @@ function SessionOrdersPage() {
         )}
         {/* Filtros */}
         <Card className="mb-6 shadow-sm">
-          <CardContent className="p-4 flex flex-col md:flex-row gap-4 items-center justify-between">
-            <div className="relative w-full md:w-96">
+          <CardContent className="p-4 flex min-w-0 flex-col xl:flex-row gap-4 items-center justify-between">
+            <div className="relative w-full min-w-0 xl:flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
               <input
                 type="text"
                 placeholder="Buscar por ID, cliente, dirección o rider..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                aria-label="Buscar órdenes"
+                className="h-11 w-full min-w-0 pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
               />
             </div>
-            <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto">
-              <Filter className="text-gray-400 w-5 h-5 shrink-0" />
+            <div role="group" aria-label="Filtros de órdenes" className="grid w-full min-w-0 grid-cols-1 gap-2 lg:grid-cols-2 xl:w-auto">
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-full md:w-auto px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none whitespace-nowrap"
+                aria-label="Estado de la orden"
+                className="h-11 w-full min-w-0 px-3 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"
               >
                 <option value="ALL">Todos los estados</option>
                 <option value="PENDIENTE">Pendientes</option>
@@ -669,7 +674,8 @@ function SessionOrdersPage() {
               <select
                 value={filterRider}
                 onChange={(e) => setFilterRider(e.target.value)}
-                className="w-full md:w-auto px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none whitespace-nowrap"
+                aria-label="Repartidor asignado"
+                className="h-11 w-full min-w-0 px-3 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"
               >
                 <option value="ALL">Todos los riders</option>
                 <option value="UNASSIGNED">Sin asignar</option>
