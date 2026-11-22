@@ -84,6 +84,33 @@ CURRENCY_PATHS = {
 
 def before_currency_schema(application):
     schema = deepcopy(application.openapi())
+    # Review the additive OTP body explicitly; every preexisting field remains
+    # covered by the historical OpenAPI hashes and dependency inventories.
+    assert schema["paths"]["/api/v1/orders/{order_id}/status"]["patch"].pop(
+        "requestBody"
+    ) == {
+        "content": {
+            "application/json": {
+                "schema": {
+                    "anyOf": [
+                        {"$ref": "#/components/schemas/OrderStatusProof"},
+                        {"type": "null"},
+                    ],
+                    "title": "Proof",
+                }
+            }
+        }
+    }
+    assert schema["components"]["schemas"].pop("OrderStatusProof") == {
+        "properties": {
+            "otp_code": {
+                "anyOf": [{"type": "string", "maxLength": 128}, {"type": "null"}],
+                "title": "Otp Code",
+            }
+        },
+        "type": "object",
+        "title": "OrderStatusProof",
+    }
     for path in (
         "/api/v1/settings/exact/v2",
         "/api/v1/settings/simulate-bonus/exact/v2",
