@@ -8,7 +8,7 @@ export function getLoginDestination(
       ? "/rider"
       : role === "OPERADOR"
         ? "/operator"
-        : "/manager";
+        : ["SUPERADMIN", "GERENTE"].includes(role) ? "/manager" : "/access-unavailable";
   const sections =
     role === "REPARTIDOR"
       ? ["/rider"]

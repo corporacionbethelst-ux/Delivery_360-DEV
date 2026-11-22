@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 114. Este registro distingue implementación local,
+Actualizado con la entrega 115. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -151,6 +151,8 @@ oficial ni cobertura del país seleccionado.
 
 ## 4. Procesamiento fiable
 
+La entrega 115 persiste el aviso interno de solicitud de retiro junto con solicitud e historial. Comprueba rollback y reintentos concurrentes sin avisos duplicados. Cierra la ventana de pérdida de ese aviso específico; no equivale a una cola durable para todos los eventos ni a entrega bancaria o externa exactamente una vez.
+
 Completar persistencia de eventos pendientes, recuperación de tareas tras caídas,
 reintentos y conciliación sin efectos duplicados. Verificar la coordinación de
 workers y programación, con observabilidad operativa.
@@ -167,6 +169,8 @@ ante fallos y ejecutar pruebas de carga con objetivos de capacidad acordados.
 Verificar alertas y procedimiento de reversión del despliegue.
 
 ## 7. Aceptación y pantallas
+
+La entrega 115 verifica el rol de API antes de montar pantallas, da salida explícita a perfiles sin portal y añade aceptación restaurada de identidad/acceso para seis roles. No completa sus recorridos de negocio ni los portales de Cliente/Auditor.
 
 Pruebas manuales del negocio en escritorio/móvil y corrección de incidencias.
 Completar los recorridos propios de CLIENTE/AUDITOR si forman parte del alcance

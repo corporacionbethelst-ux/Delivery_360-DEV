@@ -26,13 +26,13 @@ def main():
     artifacts = Path(args.artifacts_dir)
     artifacts.mkdir(parents=True, exist_ok=True)
     reads, writes, errors, checks = [], [], [], []
+    active_role = ["GERENTE"]
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
             executable_path=args.chromium, headless=True, args=["--no-sandbox"]
         )
         geometry = browser.new_page(viewport={"width": 390, "height": 844})
-        geometry.set_content(
-            """
+        geometry.set_content("""
             <style>body{margin:0}main{overflow:hidden;width:390px}
             button,input,select{height:44px;width:110px;box-sizing:border-box}</style>
             <main><div role="group" aria-label="Acciones de órdenes">
@@ -40,8 +40,7 @@ def main():
             </div><input aria-label="Buscar órdenes">
             <select aria-label="Estado de la orden"><option>Todos</option></select>
             <select aria-label="Repartidor asignado"><option>Todos</option></select></main>
-        """
-        )
+        """)
         assert_order_controls(geometry)
         geometry.get_by_role("group").evaluate(
             "el => {el.style.display='flex';el.style.width='900px';el.querySelectorAll('button').forEach(b=>b.style.flexShrink='0');el.lastElementChild.style.marginLeft='100px'}"
@@ -93,7 +92,7 @@ def main():
                     data = {
                         "id": "synthetic-user",
                         "email": "manager@example.test",
-                        "role": "GERENTE",
+                        "role": active_role[0],
                         "is_active": True,
                         "first_name": "Prueba",
                         "last_name": "Local",
@@ -214,12 +213,10 @@ def main():
         ).to_be_visible()
         for width in (320, 390, 768, 1024, 1440):
             page.set_viewport_size({"width": width, "height": 1000})
-            page.wait_for_function(
-                """() => {
+            page.wait_for_function("""() => {
                     const r = document.querySelector('aside').getBoundingClientRect();
                     return innerWidth < 768 ? r.right <= 1 : r.left >= -1;
-                }"""
-            )
+                }""")
             try:
                 assert_order_controls(page)
             except AssertionError:
@@ -250,6 +247,37 @@ def main():
         page.get_by_role("button", name="Nueva Orden", exact=True).click()
         expect(page).to_have_url(base + "/manager/operations/orders/new")
         checks.append("new_order_action_navigates_to_existing_form")
+        for role in ("CLIENTE", "AUDITOR"):
+            active_role[0] = role
+            context.add_cookies(
+                [
+                    {
+                        "name": "user-data",
+                        "value": "%7B%22role%22%3A%22SUPERADMIN%22%7D",
+                        "url": base,
+                    }
+                ]
+            )
+            before_orders = reads.count("/api/v1/orders")
+            page.goto(
+                base + "/manager/operations/orders", wait_until="domcontentloaded"
+            )
+            expect(page).to_have_url(base + "/access-unavailable")
+            expect(
+                page.get_by_role(
+                    "heading", name="Portal pendiente de habilitación", exact=True
+                )
+            ).to_be_visible()
+            assert reads.count("/api/v1/orders") == before_orders
+            expect(
+                page.get_by_role("heading", name="Gestión de Órdenes", exact=True)
+            ).to_have_count(0)
+            page.screenshot(path=str(artifacts / ("portal-" + role.lower() + ".png")))
+            checks.append(
+                "verified_"
+                + role.lower()
+                + "_cannot_mount_manager_despite_forged_role_cookie"
+            )
         assert not writes and not errors
         result = {
             "checks_passed": checks,

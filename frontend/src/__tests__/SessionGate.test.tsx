@@ -6,7 +6,7 @@ import { authService } from '@/services/auth.service';
 import { getStoredTokens } from '@/lib/api';
 import { User } from '@/types/user';
 const mockReplace = jest.fn();
-jest.mock('next/navigation', () => ({ useRouter: () => ({ replace: mockReplace }) }));
+jest.mock('next/navigation', () => ({ useRouter: () => ({ replace: mockReplace }), usePathname: () => '/manager' }));
 jest.mock('@/services/auth.service', () => ({ authService: { getProfile: jest.fn() } }));
 jest.mock('@/lib/api', () => ({ getStoredTokens: jest.fn(), clearStoredTokens: jest.fn() }));
 const profile: User = { id: 'user-1', email: 'user@example.test', first_name: 'Test', last_name: 'User', role: 'OPERADOR', is_active: true, created_at: '', updated_at: '' };
@@ -40,4 +40,16 @@ it('redirects immediately after force logout from verified content', async () =>
   act(() => useAuthStore.getState().forceLogout());
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
   expect(screen.queryByText('Protected content')).toBeNull();
+});
+
+it.each(['REPARTIDOR', 'CLIENTE', 'AUDITOR'] as const)('does not mount manager children for verified %s despite a forged cookie', async role => {
+  document.cookie = 'user-data=' + encodeURIComponent(JSON.stringify({role:'SUPERADMIN'}));
+  jest.mocked(authService.getProfile).mockResolvedValueOnce({...profile, role});
+  const mounted = jest.fn();
+  function PrivateChild() { React.useEffect(() => { mounted(); }, []); return <div>Forbidden manager content</div>; }
+  render(<SessionGate><PrivateChild /></SessionGate>);
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(role === 'REPARTIDOR' ? '/rider' : '/access-unavailable'));
+  expect(screen.queryByText('Forbidden manager content')).toBeNull();
+  expect(mounted).not.toHaveBeenCalled();
+  document.cookie = 'user-data=; max-age=0';
 });

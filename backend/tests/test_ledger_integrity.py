@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from app.models.notification import Notification
 import pytest
 from sqlalchemy import event, func, select
 
@@ -138,7 +139,7 @@ async def payout_context(ledger_context, test_engine):
 
     session, rider_id, user = ledger_context
     async with test_engine.begin() as connection:
-        for model in (Payout, PayoutStatusHistory):
+        for model in (Payout, PayoutStatusHistory, Notification):
             await connection.run_sync(
                 lambda conn, model=model: model.__table__.create(conn, checkfirst=True)
             )

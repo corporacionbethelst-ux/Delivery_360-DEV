@@ -114,6 +114,7 @@ def probe(
     web_port,
     api_port,
     account,
+    accounts,
     sample_order,
     sample_zone,
     artifacts,
@@ -257,13 +258,11 @@ def probe(
             for width in (320, 390, 768, 1024, 1440):
                 page.set_viewport_size({"width": width, "height": 1000})
                 # The sidebar transitions between mobile and desktop layouts.
-                page.wait_for_function(
-                    """() => {
+                page.wait_for_function("""() => {
                         const aside = document.querySelector('aside');
                         const r = aside.getBoundingClientRect();
                         return innerWidth < 768 ? r.right <= 1 : r.left >= -1;
-                    }"""
-                )
+                    }""")
                 assert_order_controls(page)
             checks.append("restored_order_controls_unclipped_at_five_viewports")
             page.get_by_role(
@@ -315,6 +314,12 @@ def probe(
             if overflow:
                 raise ValueError("Mobile horizontal overflow")
             checks.append("restored_pages_fit_mobile_viewport")
+            phase = "restored_role_boundaries"
+            from scripts.recovery_roles import probe_roles
+
+            probe_roles(
+                browser, base, api_port, accounts, guard, websocket, checks, page_errors
+            )
             phase = "network_boundary"
             if violations:
                 raise ValueError("Recovery network boundary rejected a request")
