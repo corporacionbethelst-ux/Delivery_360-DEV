@@ -12,4 +12,6 @@ payout_context calcula centavos con Decimal, rechaza importes inválidos sin fab
 
 No se garantiza entrega externa exactamente una vez ni se resuelven todos los hooks post-commit. Aprobación/rechazo y otros eventos aún necesitan persistencia durable y coordinación de envío. Siguen pendientes recorridos de negocio, moneda histórica, RPO/RTO/capacidad e integraciones externas. El usuario confirmó continuar en local, sin servidor ni dominio.
 
-Validación local: TypeScript, build, 3529 tests frontend/159 suites, 54 dirigidos backend, 46 PostgreSQL/recuperación, 12 hooks PostgreSQL, 56 scripts y 9 controles Chromium con API sintética. La CI del candidato y sus artefactos validan el ensayo completo real; no reutilizar como aprobación resultados previos. Continuidad y evidencias: /workspace/work/entrega115.
+Validación local: TypeScript, build, 3529 tests frontend/159 suites, 54 dirigidos backend, 46 PostgreSQL/recuperación, 12 hooks PostgreSQL, 60 scripts y 9 controles Chromium con API sintética. La CI del candidato y sus artefactos validan el ensayo completo real; no reutilizar como aprobación resultados previos. Continuidad y evidencias: /workspace/work/entrega115.
+
+La sonda respeta el límite real de cinco logins por minuto: espera Retry-After de forma acotada sin desactivar protecciones. Sus pruebas cubren éxito, credenciales inválidas y límites repetidos.

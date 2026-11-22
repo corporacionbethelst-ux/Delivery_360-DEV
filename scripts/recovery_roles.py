@@ -1,6 +1,24 @@
 """Real, read-only role probes on an isolated restored laboratory."""
 
 import json
+import time
+
+
+def login_with_budget(request, url, account):
+    """Honor the restored API's login protection without changing its limits."""
+    for attempt in range(3):
+        response = request.post(
+            url,
+            form={"username": account["email"], "password": account["password"]},
+            max_redirects=0,
+        )
+        if response.status != 429 or attempt == 2:
+            return response
+        try:
+            delay = int(response.headers.get("retry-after", "60"))
+        except (ValueError, TypeError):
+            delay = 60
+        time.sleep(max(1, min(delay, 60)))
 
 
 def probe_roles(
@@ -21,13 +39,8 @@ def probe_roles(
         context.route_web_socket("**/*", websocket)
         try:
             api = "http://127.0.0.1:" + str(api_port) + "/api/v1"
-            login = context.request.post(
-                api + "/auth/login",
-                form={
-                    "username": accounts[role]["email"],
-                    "password": accounts[role]["password"],
-                },
-                max_redirects=0,
+            login = login_with_budget(
+                context.request, api + "/auth/login", accounts[role]
             )
             if login.status != 200:
                 raise ValueError("Role login rejected")
