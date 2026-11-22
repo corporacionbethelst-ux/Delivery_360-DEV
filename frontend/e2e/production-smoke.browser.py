@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright, expect
 from rider_audit_fixture import money, envelope as exact_envelope
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from scripts.browser_layout import assert_order_controls
+from scripts.browser_layout import assert_order_controls, assert_notification_preview
 
 
 def main():
@@ -282,11 +282,59 @@ def main():
                 )
             ).to_be_visible()
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            assert_notification_preview(page)
             page.screenshot(
                 path=str(artifacts / ("payout-inbox-" + str(width) + ".png"))
             )
             bell.click()
         checks.append("durable_receipt_preview_fits_small_mobile_notification_bell")
+        active_role[0] = "REPARTIDOR"
+        context.add_cookies(
+            [
+                {
+                    "name": "user-data",
+                    "value": "%7B%22role%22%3A%22REPARTIDOR%22%7D",
+                    "url": base,
+                }
+            ]
+        )
+        page.goto(base + "/rider/my-orders", wait_until="domcontentloaded")
+        expect(
+            page.get_by_role("button", name="Toggle menu", exact=True)
+        ).to_be_visible()
+        for width in (320, 390, 768, 1024):
+            page.set_viewport_size({"width": width, "height": 844})
+            page.wait_for_function("""() => {
+                const r = document.querySelector('aside').getBoundingClientRect();
+                return innerWidth < 768 ? r.right <= 1 : r.left >= -1;
+            }""")
+            bell = page.get_by_role("button", name="Notificaciones", exact=True)
+            bell.click()
+            expect(
+                page.get_by_role("heading", name="Notificaciones", exact=True)
+            ).to_be_visible()
+            page.screenshot(
+                path=str(artifacts / ("rider-inbox-" + str(width) + ".png"))
+            )
+            assert_notification_preview(page)
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            bell.click()
+            expect(
+                page.get_by_role("heading", name="Notificaciones", exact=True)
+            ).to_have_count(0)
+            if width < 1024:
+                menu = page.get_by_role("button", name="Toggle menu", exact=True)
+                menu.click()
+                bell.click()
+                assert_notification_preview(page)
+                page.mouse.click(width - 5, 500)
+                expect(
+                    page.get_by_role("heading", name="Notificaciones", exact=True)
+                ).to_have_count(0)
+                menu.click()
+        checks.append(
+            "rider_notification_heading_receipt_and_link_unobstructed_at_four_viewports"
+        )
         page.set_viewport_size({"width": 1440, "height": 1000})
         for role in ("CLIENTE", "AUDITOR"):
             active_role[0] = role

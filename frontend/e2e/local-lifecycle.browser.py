@@ -15,6 +15,7 @@ from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts import local_test
+from scripts.browser_layout import assert_notification_preview
 from playwright.sync_api import sync_playwright, expect
 
 
@@ -650,6 +651,7 @@ def main():
         rider_page.screenshot(
             path=str(out / "payout-inbox-mobile.png"), animations="disabled"
         )
+        assert_notification_preview(rider_page)
         rider_page.get_by_role("button", name="Notificaciones", exact=True).click()
         passed(
             "atomic withdrawal receipt is visible once in the real mobile notification bell"

@@ -59,8 +59,8 @@ export default function RiderLayout({ children }: { children: React.ReactNode })
   return (
     <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
       
-      {/* HEADER: z-40 es suficiente ya que el Toaster tiene z-9999 */}
-      <header className="bg-white border-b shadow-sm z-40 shrink-0 h-14 sm:h-16 relative">
+      {/* Debajo del encabezado global (z-30), incluida su bandeja de avisos. */}
+      <header className="bg-white border-b shadow-sm z-20 shrink-0 h-14 sm:h-16 relative">
         <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 h-full">
           <div className="flex items-center justify-between h-full gap-4">
             

@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 116. Este registro distingue implementación local,
+Actualizado con la entrega 117. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -171,6 +171,8 @@ ante fallos y ejecutar pruebas de carga con objetivos de capacidad acordados.
 Verificar alertas y procedimiento de reversión del despliegue.
 
 ## 7. Aceptación y pantallas
+
+La entrega 117 corrige la superposición de la barra secundaria del repartidor sobre el encabezado de la campana. La aceptación comprueba puntos de impacto del encabezado, recibo y enlace en cuatro anchos con el layout real y en el ciclo funcional; no basta la visibilidad del DOM. Conserva el aspecto y los contratos financieros.
 
 La entrega 115 verifica el rol de API antes de montar pantallas, da salida explícita a perfiles sin portal y añade aceptación restaurada de identidad/acceso para seis roles. No completa sus recorridos de negocio ni los portales de Cliente/Auditor.
 
