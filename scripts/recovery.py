@@ -322,7 +322,7 @@ class Recovery:
         prefix = "delivery360-recovery-" + identifier(run_id)
         return {
             k: prefix + "-" + k
-            for k in ("db", "redis", "api", "data", "uploads", "net")
+            for k in ("db", "redis", "api", "web", "data", "uploads", "net", "access")
         }
 
     def stop(self, run_id):
@@ -346,7 +346,7 @@ class Recovery:
             info = json.loads(self.run(["inspect", cid]))[0]
             if info["Config"]["Labels"].get(LABEL) != run_id or info["Name"].lstrip(
                 "/"
-            ) not in {names[k] for k in ("db", "redis", "api")}:
+            ) not in {names[k] for k in ("db", "redis", "api", "web")}:
                 raise ValueError("No se detiene un contenedor ajeno")
             self.run(["stop", "-t", "10", cid])
 
@@ -408,7 +408,22 @@ class Recovery:
             time.sleep(1)
         raise ValueError("PostgreSQL no terminó su inicialización")
 
-    def restore(self, backup_id, *, api_image=None, python=None):
+    def restore(
+        self,
+        backup_id,
+        *,
+        api_image=None,
+        python=None,
+        web_image=None,
+        chromium=None,
+        browser_artifacts=None
+    ):
+        if web_image and (not api_image or python):
+            raise ValueError("Frontend restaurado requiere el modo de imágenes")
+        if not web_image and (chromium or browser_artifacts):
+            raise ValueError("Las opciones de navegador requieren --web-image")
+        if browser_artifacts and Path(browser_artifacts).exists():
+            raise ValueError("No se sobrescriben artefactos de navegador existentes")
         path = self.root / "backups" / identifier(backup_id)
         if path.is_symlink():
             raise ValueError("Directorio de respaldo no permitido")
@@ -419,14 +434,16 @@ class Recovery:
         account = accounts["SUPERADMIN"]
         if api_image:
             self.run(["image", "inspect", api_image])
+        if web_image:
+            self.run(["image", "inspect", web_image])
         if python and sys.platform != "linux":
             raise ValueError("Modo nativo requiere Linux; usa --api-image")
         run_id = secrets.token_hex(6)
         names = self.names(run_id)
         for kind, keys, template in [
             ("volume", ("data", "uploads"), "{{.Name}}"),
-            ("network", ("net",), "{{.Name}}"),
-            ("container", ("db", "redis", "api"), "{{.Names}}"),
+            ("network", ("net", "access"), "{{.Name}}"),
+            ("container", ("db", "redis", "api", "web"), "{{.Names}}"),
         ]:
             arguments = (
                 [kind, "ls"]
@@ -449,13 +466,24 @@ class Recovery:
         private(state_file, json.dumps(self.state))
         checks = ["backup_hashes_and_archive_validated"]
         report = None
+        guards = None
+        browser_report = None
         try:
+            if web_image:
+                if __package__:
+                    from .recovery_browser import PortGuards
+                else:
+                    from recovery_browser import PortGuards
+                guards = PortGuards(self.source["api_port"], self.source["web_port"])
+
             label = LABEL + "=" + run_id
             for key in ("data", "uploads"):
                 self.run(["volume", "create", "--label", label, names[key]])
             self.run(
                 ["network", "create", "--internal", "--label", label, names["net"]]
             )
+            if web_image:
+                self.run(["network", "create", "--label", label, names["access"]])
             password = secrets.token_hex(24)
             db_env = run_dir / "db.env"
             private(
@@ -601,6 +629,14 @@ class Recovery:
                 ]
             )
             config = self.api_environment(names, password, run_id)
+            if web_image:
+                config["BACKEND_CORS_ORIGINS"] = json.dumps(
+                    [
+                        "http://127.0.0.1:" + str(self.source["web_port"]),
+                        "http://localhost:" + str(self.source["web_port"]),
+                    ]
+                )
+
             if python:
                 api_config = self.native_api(run_dir, path, python, config)
             else:
@@ -608,17 +644,18 @@ class Recovery:
                     run_dir / "api.env",
                     "".join(k + "=" + v + "\n" for k, v in config.items()),
                 )
+                if guards:
+                    guards.release_ipv4(self.source["api_port"])
                 self.run(
-                    [
-                        "run",
-                        "-d",
+                    (["create"] if web_image else ["run", "-d"])
+                    + [
                         "--pull=never",
                         "--name",
                         names["api"],
                         "--label",
                         label,
                         "--network",
-                        names["net"],
+                        names["access"] if web_image else names["net"],
                         "--read-only",
                         "--tmpfs",
                         "/tmp:rw,noexec,nosuid,size=32m",
@@ -632,9 +669,21 @@ class Recovery:
                         str(run_dir / "api.env"),
                         "-v",
                         names["uploads"] + ":/app/uploads:ro",
+                        *(
+                            [
+                                "-p",
+                                "127.0.0.1:" + str(self.source["api_port"]) + ":8000",
+                            ]
+                            if web_image
+                            else []
+                        ),
                         api_image,
                     ]
                 )
+                if web_image:
+                    self.run(["network", "connect", names["net"], names["api"]])
+                    self.run(["start", names["api"]])
+                    self.verify_binding(names["api"], 8000, self.source["api_port"])
                 api_config = {"base": "http://127.0.0.1:8000"}
             docs = json.loads(
                 self.sql(
@@ -688,6 +737,10 @@ class Recovery:
                     "La prueba funcional restaurada falló; revisar diagnóstico privado"
                 )
             checks += json.loads(result.stdout)["checks"]
+            if web_image:
+                browser_report = self.frontend_check(
+                    run_dir, web_image, guards, account, chromium, browser_artifacts
+                )
             after = self.restored_tables()
             if set(after) != set(m["tables"]):
                 raise ValueError("El arranque cambió el inventario de tablas")
@@ -714,6 +767,13 @@ class Recovery:
                 "rows": sum(t["rows"] for t in m["tables"].values()),
                 "documents": sum(t["kind"] == "file" for t in m["uploads"].values()),
                 "mode": "native_linux" if python else "isolated_container",
+                "frontend_verified": browser_report is not None,
+                "frontend_checks": browser_report["checks"] if browser_report else [],
+                "web_image_id": (
+                    json.loads(self.run(["inspect", names["web"]]))[0]["Image"]
+                    if web_image
+                    else None
+                ),
                 "no_source_writes": True,
                 "no_seed_or_migration": True,
                 "production_readiness": False,
@@ -731,13 +791,111 @@ class Recovery:
                 except subprocess.TimeoutExpired:
                     self.process.kill()
                     self.process.wait()
-            self.stop(run_id)
+            try:
+                self.stop(run_id)
+            finally:
+                if guards:
+                    guards.close()
             self.state["status"] = "verified_stopped" if report else "failed_stopped"
             state_file.write_text(json.dumps(self.state, indent=2))
         report["containers_stopped"] = True
         report["volumes_retained"] = True
         private(run_dir / "result.json", json.dumps(report, indent=2))
         return report
+
+    def verify_binding(self, container, container_port, host_port):
+        info = json.loads(self.run(["inspect", container]))[0]
+        if info["Config"]["Labels"].get(LABEL) != self.state["id"]:
+            raise ValueError("No se consulta una publicación ajena")
+        published = {
+            key: value
+            for key, value in info["NetworkSettings"]["Ports"].items()
+            if value
+        }
+        if published != {
+            str(container_port)
+            + "/tcp": [{"HostIp": "127.0.0.1", "HostPort": str(host_port)}]
+        }:
+            raise ValueError(
+                "La publicación no coincide con el puerto loopback reservado"
+            )
+
+    def frontend_check(self, run_dir, image, guards, account, chromium, artifacts):
+        if __package__:
+            from .recovery_browser import probe
+        else:
+            from recovery_browser import probe
+        names = self.state["names"]
+        guards.release_ipv4(self.source["web_port"])
+        self.run(
+            [
+                "run",
+                "-d",
+                "--pull=never",
+                "--name",
+                names["web"],
+                "--label",
+                LABEL + "=" + self.state["id"],
+                "--network",
+                names["access"],
+                "--read-only",
+                "--tmpfs",
+                "/tmp:rw,nosuid,nodev,size=32m,uid=1000,gid=1000",
+                "--tmpfs",
+                "/app/.next/cache:rw,nosuid,nodev,size=64m,uid=1000,gid=1000",
+                "--cap-drop",
+                "ALL",
+                "--security-opt",
+                "no-new-privileges",
+                "--user",
+                "1000:1000",
+                "-p",
+                "127.0.0.1:" + str(self.source["web_port"]) + ":3000",
+                image,
+            ]
+        )
+        self.verify_binding(names["web"], 3000, self.source["web_port"])
+        for _ in range(60):
+            ready = subprocess.run(
+                self.docker
+                + [
+                    "exec",
+                    names["web"],
+                    "node",
+                    "-e",
+                    "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=self.env,
+            )
+            if ready.returncode == 0:
+                break
+            time.sleep(1)
+        else:
+            raise ValueError("La interfaz restaurada no arrancó")
+        order = json.loads(
+            self.sql(
+                "SELECT json_build_object('id',id,'label',coalesce(nullif(external_id,''),id::text)) FROM orders ORDER BY ordered_at DESC,id LIMIT 1"
+            )
+        )
+        zone = json.loads(
+            self.sql(
+                "SELECT json_build_object('id',id,'name',name) FROM zones ORDER BY id LIMIT 1"
+            )
+        )
+        result = probe(
+            web_port=self.source["web_port"],
+            api_port=self.source["api_port"],
+            account=account,
+            sample_order=order,
+            sample_zone=zone,
+            artifacts=artifacts or (run_dir / "browser"),
+            chromium=chromium,
+            run_id=self.state["id"],
+        )
+        private(run_dir / "browser-result.json", json.dumps(result, indent=2))
+        return result
 
     def api_environment(self, names, password, run_id):
         return {
@@ -886,6 +1044,9 @@ def main():
     mode.add_argument("--api-image")
     mode.add_argument("--python", type=Path)
     restore.add_argument("--report", type=Path)
+    restore.add_argument("--web-image")
+    restore.add_argument("--chromium", type=Path)
+    restore.add_argument("--browser-artifacts", type=Path)
     stop = sub.add_parser("stop")
     stop.add_argument("run_id", type=identifier)
     args = parser.parse_args()
@@ -899,7 +1060,12 @@ def main():
         print("Contenedores propios detenidos; volúmenes conservados.")
     else:
         result = recovery.restore(
-            args.backup_id, api_image=args.api_image, python=args.python
+            args.backup_id,
+            api_image=args.api_image,
+            python=args.python,
+            web_image=args.web_image,
+            chromium=args.chromium,
+            browser_artifacts=args.browser_artifacts,
         )
         if args.report:
             args.report.parent.mkdir(parents=True, exist_ok=True)
