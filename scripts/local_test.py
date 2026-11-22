@@ -238,7 +238,7 @@ def main():
     up.add_argument(
         "--no-build", action="store_true", help="Usar imágenes locales ya compiladas"
     )
-    for action in ("check", "status", "down", "credentials"):
+    for action in ("check", "status", "storage-up", "pause", "down", "credentials"):
         sub.add_parser(action)
     args = parser.parse_args()
     if args.action == "init":
@@ -275,6 +275,34 @@ def main():
     elif args.action == "status":
         subprocess.run(
             command + ["ps", "--all"], cwd=ROOT, check=True, env=compose_environment()
+        )
+    elif args.action == "storage-up":
+        subprocess.run(
+            command
+            + [
+                "up",
+                "--no-build",
+                "--detach",
+                "--wait",
+                "--wait-timeout",
+                "180",
+                "test-db",
+                "test-redis",
+            ],
+            cwd=ROOT,
+            check=True,
+            env=compose_environment(),
+        )
+        print("Solo PostgreSQL y Redis activos; sin setup, migraciones ni sembrado.")
+    elif args.action == "pause":
+        subprocess.run(
+            command + ["stop", "api", "web"],
+            cwd=ROOT,
+            check=True,
+            env=compose_environment(),
+        )
+        print(
+            "API y web pausadas; base y documentos conservados para respaldo offline."
         )
     elif args.action == "down":
         subprocess.run(
