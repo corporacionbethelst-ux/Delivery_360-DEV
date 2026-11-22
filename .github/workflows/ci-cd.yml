@@ -359,7 +359,12 @@ jobs:
           tool = Recovery()
           backup_id = tool.backup()
           subprocess.run(tool.compose + ["down"], env=tool.env, check=True)
-          result = tool.restore(backup_id, api_image="delivery360-local-test-api:" + tool.source["instance"])
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as pw:
+              chromium = pw.chromium.executable_path
+          result = tool.restore(backup_id, api_image="delivery360-local-test-api:" + tool.source["instance"], web_image="delivery360-local-test-web:" + tool.source["instance"], chromium=chromium, browser_artifacts=Path("browser-real/recovery-ui"))
+          browser = json.loads((tool.root / "runs" / result["run_id"] / "browser-result.json").read_text())
+          local_test.write_private(Path("browser-real/recovery-ui/results.json"), json.dumps(browser, indent=2))
           report = Path("browser-real/recovery/results.json")
           report.parent.mkdir(parents=True, exist_ok=True)
           local_test.write_private(report, json.dumps(result, indent=2))
