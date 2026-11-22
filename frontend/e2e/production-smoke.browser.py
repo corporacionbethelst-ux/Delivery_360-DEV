@@ -4,10 +4,14 @@ import argparse
 import csv
 import io
 import json
+import sys
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from playwright.sync_api import sync_playwright, expect
 from rider_audit_fixture import money, envelope as exact_envelope
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.browser_layout import assert_order_controls
 
 
 def main():
@@ -26,6 +30,32 @@ def main():
         browser = playwright.chromium.launch(
             executable_path=args.chromium, headless=True, args=["--no-sandbox"]
         )
+        geometry = browser.new_page(viewport={"width": 390, "height": 844})
+        geometry.set_content(
+            """
+            <style>body{margin:0}main{overflow:hidden;width:390px}
+            button,input,select{height:44px;width:110px;box-sizing:border-box}</style>
+            <main><div role="group" aria-label="Acciones de órdenes">
+            <button>Actualizar</button><button>Exportar</button><button>Nueva Orden</button>
+            </div><input aria-label="Buscar órdenes">
+            <select aria-label="Estado de la orden"><option>Todos</option></select>
+            <select aria-label="Repartidor asignado"><option>Todos</option></select></main>
+        """
+        )
+        assert_order_controls(geometry)
+        geometry.get_by_role("group").evaluate(
+            "el => {el.style.display='flex';el.style.width='900px';el.querySelectorAll('button').forEach(b=>b.style.flexShrink='0');el.lastElementChild.style.marginLeft='100px'}"
+        )
+        assert geometry.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        try:
+            assert_order_controls(geometry)
+        except AssertionError:
+            checks.append(
+                "control_guard_rejects_ancestor_clipping_without_global_overflow"
+            )
+        else:
+            raise AssertionError("Clipped controls were incorrectly accepted")
+        geometry.close()
         context = browser.new_context(
             viewport={"width": 1440, "height": 1000}, accept_downloads=True
         )
@@ -103,7 +133,7 @@ def main():
                         ],
                     }
                     data = exact_envelope(data["items"], query)
-                elif path.endswith("/riders"):
+                elif path.endswith(("/riders", "/orders", "/vehicles/available")):
                     data = []
                 else:
                     data = [] if "alerts" in path else {"items": [], "unread_count": 0}
@@ -175,6 +205,52 @@ def main():
         page.screenshot(path=str(artifacts / "production-mobile.png"), full_page=True)
         assert not writes and not errors
         checks.append("production_bundle_mobile_without_runtime_exceptions")
+        page.goto(base + "/manager/operations/orders", wait_until="domcontentloaded")
+        expect(
+            page.get_by_role("heading", name="Gestión de Órdenes", exact=True)
+        ).to_be_visible()
+        expect(
+            page.get_by_text("No se encontraron órdenes.", exact=True)
+        ).to_be_visible()
+        for width in (320, 390, 768, 1024, 1440):
+            page.set_viewport_size({"width": width, "height": 1000})
+            page.wait_for_function(
+                """() => {
+                    const r = document.querySelector('aside').getBoundingClientRect();
+                    return innerWidth < 768 ? r.right <= 1 : r.left >= -1;
+                }"""
+            )
+            try:
+                assert_order_controls(page)
+            except AssertionError:
+                page.screenshot(
+                    path=str(
+                        artifacts / ("orders-controls-failure-" + str(width) + ".png")
+                    )
+                )
+                raise
+            page.get_by_role(
+                "heading", name="Gestión de Órdenes", exact=True
+            ).scroll_into_view_if_needed()
+            page.screenshot(
+                path=str(artifacts / ("orders-controls-" + str(width) + ".png"))
+            )
+        checks.append("order_actions_and_filters_unclipped_at_five_viewports")
+        page.get_by_role("combobox", name="Estado de la orden").select_option(
+            "PENDIENTE"
+        )
+        page.get_by_role("textbox", name="Buscar órdenes").fill("Prueba visual")
+        expect(page.get_by_role("combobox", name="Estado de la orden")).to_have_value(
+            "PENDIENTE"
+        )
+        expect(page.get_by_role("textbox", name="Buscar órdenes")).to_have_value(
+            "Prueba visual"
+        )
+        checks.append("order_filters_remain_operable_without_business_writes")
+        page.get_by_role("button", name="Nueva Orden", exact=True).click()
+        expect(page).to_have_url(base + "/manager/operations/orders/new")
+        checks.append("new_order_action_navigates_to_existing_form")
+        assert not writes and not errors
         result = {
             "checks_passed": checks,
             "api_reads": reads,

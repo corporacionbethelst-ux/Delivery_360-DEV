@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import socket
 from urllib.parse import urlsplit
+from scripts.browser_layout import assert_order_controls
 
 
 class PortGuards:
@@ -252,6 +253,22 @@ def probe(
             if not observed_orders:
                 raise ValueError("Restored order response not observed")
             checks.append("browser_order_identity_matches_backup")
+            phase = "order_controls_responsive"
+            for width in (320, 390, 768, 1024, 1440):
+                page.set_viewport_size({"width": width, "height": 1000})
+                # The sidebar transitions between mobile and desktop layouts.
+                page.wait_for_function(
+                    """() => {
+                        const aside = document.querySelector('aside');
+                        const r = aside.getBoundingClientRect();
+                        return innerWidth < 768 ? r.right <= 1 : r.left >= -1;
+                    }"""
+                )
+                assert_order_controls(page)
+            checks.append("restored_order_controls_unclipped_at_five_viewports")
+            page.get_by_role(
+                "heading", name="Gestión de Órdenes", exact=True
+            ).scroll_into_view_if_needed()
             capture("orders-desktop.png")
             phase = "zones_desktop"
             page.goto(base + "/manager/fleet/zones", wait_until="domcontentloaded")
