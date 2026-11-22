@@ -464,7 +464,6 @@ class Recovery:
                 + password
                 + "\n",
             )
-            ports = []
             self.run(
                 [
                     "run",
@@ -480,7 +479,6 @@ class Recovery:
                     str(db_env),
                     "-v",
                     names["data"] + ":/var/lib/postgresql/data",
-                    *ports,
                     "postgis/postgis:16-3.4",
                 ]
             )
@@ -588,7 +586,6 @@ class Recovery:
             if archive_manifest(self.tar(names["uploads"])) != m["uploads"]:
                 raise ValueError("Documentos/permisos restaurados diferentes")
             checks.append("all_document_bytes_modes_and_owners_match")
-            ports = []
             self.run(
                 [
                     "run",
@@ -600,7 +597,6 @@ class Recovery:
                     label,
                     "--network",
                     names["net"],
-                    *ports,
                     "redis:7-alpine",
                 ]
             )
@@ -636,9 +632,6 @@ class Recovery:
                         str(run_dir / "api.env"),
                         "-v",
                         names["uploads"] + ":/app/uploads:ro",
-                        "-v",
-                        str(local_test.ROOT / "scripts/recovery_probe.py")
-                        + ":/recovery_probe.py:ro",
                         api_image,
                     ]
                 )
@@ -656,12 +649,7 @@ class Recovery:
                     document = {"id": doc["id"], "sha256": metadata["sha256"]}
                     break
             api_config.update(account=account, document=document)
-            probe_command = (
-                [python, str(local_test.ROOT / "scripts/recovery_probe.py")]
-                if python
-                else self.docker
-                + ["exec", "-i", names["api"], "python", "/recovery_probe.py"]
-            )
+            probe_command = self.probe_command(names, python)
             for _ in range(60):
                 if self.process and self.process.poll() is not None:
                     raise ValueError(
@@ -791,6 +779,21 @@ class Recovery:
             "TWILIO_AUTH_TOKEN": "",
             "DELIVERY360_RECOVERY_ID": run_id,
         }
+
+    def probe_command(self, names, python=None):
+        source = local_test.ROOT / "scripts/recovery_probe.py"
+        if python:
+            return [python, str(source)]
+        # Read as the host owner: a 0600 checkout must remain usable by UID10001.
+        # Only trusted source is passed as argv; account credentials stay on stdin.
+        return self.docker + [
+            "exec",
+            "-i",
+            names["api"],
+            "python",
+            "-c",
+            source.read_text(),
+        ]
 
     def native_api(self, run_dir, path, python, config):
         app = run_dir / "app"

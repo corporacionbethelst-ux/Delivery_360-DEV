@@ -313,6 +313,23 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(logs[0].stat().st_mode & 0o777, 0o600)
         self.assertEqual(logs[0].read_bytes(), b"private-database-password")
 
+    def test_container_probe_supports_private_checkout_without_binding_source_file(
+        self,
+    ):
+        scripts = self.root / "scripts"
+        scripts.mkdir()
+        source = scripts / "recovery_probe.py"
+        recovery.private(source, 'print("trusted probe")')
+        tool = object.__new__(recovery.Recovery)
+        tool.docker = ["docker"]
+        with patch.object(recovery.local_test, "ROOT", self.root):
+            command = tool.probe_command({"api": "owned-api"})
+        self.assertEqual(
+            command[:6], ["docker", "exec", "-i", "owned-api", "python", "-c"]
+        )
+        self.assertEqual(command[-1], source.read_text())
+        self.assertNotIn(str(source), command)
+
 
 if __name__ == "__main__":
     unittest.main()
