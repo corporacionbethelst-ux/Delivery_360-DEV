@@ -1,6 +1,7 @@
 """Native lock interleavings, durable warnings and cancellation compatibility."""
 
 import asyncio
+from unittest.mock import AsyncMock
 import json
 from concurrent.futures import Future
 from datetime import datetime, timedelta
@@ -40,6 +41,8 @@ REASON = "Cliente solicita cancelar la entrega"
 @pytest.fixture
 async def sla_db(cancel_db, monkeypatch):
     client, sessions, ids = cancel_db
+    # Domain tests keep realtime transport isolated; dedicated tests exercise it.
+    monkeypatch.setattr("app.services.assignment_realtime._publish", AsyncMock())
     monkeypatch.setattr(settings, "NOTIFICATIONS_ENABLED", True)
     tables = {
         m.__table__

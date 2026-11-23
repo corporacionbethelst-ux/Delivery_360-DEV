@@ -3,7 +3,7 @@
 import hashlib
 import json
 import re
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -103,8 +103,10 @@ async def enqueue_assignment_notice(
                     )
                 )
     for channel, subject, text, status, error in plans:
+        notice_id = uuid4()
         db.add(
             NotificationLog(
+                id=notice_id,
                 user_id=user.id,
                 delivery_id=delivery.id,
                 template_code=CODE,
@@ -122,3 +124,7 @@ async def enqueue_assignment_notice(
                 error_message=error,
             )
         )
+        if channel == Channel.IN_APP:
+            from app.services.assignment_realtime import queue_assignment_nudge
+
+            queue_assignment_nudge(db, notice_id)
