@@ -198,7 +198,13 @@ def main():
         context.route("**/*", intercept)
         page = context.new_page()
         page.on("pageerror", lambda error: errors.append(str(error)))
-        page.on("dialog", lambda dialog: dialog.dismiss())
+        page.on(
+            "dialog",
+            lambda dialog: (
+                errors.append("Native browser dialog displayed"),
+                dialog.dismiss(),
+            ),
+        )
         page.goto(profile_url, wait_until="domcontentloaded")
         content = page.locator("main main")
         identity = page.get_by_role("region", name="Identidad del repartidor")
@@ -324,9 +330,14 @@ def main():
         )
 
         first.get_by_role("button", name="Aprobar", exact=True).click()
+        review_confirmation = page.get_by_role("alertdialog")
+        expect(review_confirmation).to_contain_text(doc_id)
+        expect(review_confirmation).to_contain_text(rider_id)
+        review_confirmation.get_by_role("button", name="Cancelar", exact=True).click()
+        expect(review_confirmation).to_have_count(0)
         assert not writes
         passed(
-            "approval native confirmation can be cancelled without submitting business data"
+            "approval centered confirmation can be cancelled without submitting business data"
         )
         first.get_by_role("button", name="Rechazar", exact=True).click()
         dialog = page.get_by_role("dialog")

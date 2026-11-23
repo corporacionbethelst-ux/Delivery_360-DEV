@@ -88,7 +88,13 @@ def main():
             contexts.append(context)
             page = context.new_page()
             page.on("pageerror", lambda error: errors.append(str(error)))
-            page.on("dialog", lambda dialog: dialog.accept())
+            page.on(
+                "dialog",
+                lambda dialog: (
+                    errors.append("Native browser dialog displayed"),
+                    dialog.dismiss(),
+                ),
+            )
             page.goto(base + "/login", wait_until="domcontentloaded")
             page.locator("input[type=email]").fill(account["email"])
             page.locator("input[type=password]").fill(account["password"])
@@ -384,6 +390,13 @@ def main():
                         "otp_code": "001234"
                     }
                     expect(dialog).to_have_count(0)
+                    notice = admin.get_by_text(
+                        "Entrega registrada correctamente.", exact=True
+                    )
+                    expect(notice).to_be_visible()
+                    assert notice.evaluate(
+                        "el => el.getBoundingClientRect().top > innerHeight / 2"
+                    )
                     admin.set_viewport_size({"width": 1440, "height": 1000})
                     passed(
                         "manager completes a real order with JSON OTP after rejecting missing and wrong codes"

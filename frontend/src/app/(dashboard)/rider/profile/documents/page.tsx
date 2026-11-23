@@ -1,4 +1,5 @@
 'use client';
+import { showAlert, toast } from "@/lib/feedback";
 import { DOCUMENT_ACCEPT } from '@/lib/document-upload';
 
 import React, { useState, useEffect } from 'react';
@@ -59,11 +60,11 @@ export default function RiderDocumentsPage() {
     setUploading(type);
     try {
       await riderService.uploadDocument({ type, file });
-      alert('✅ Documento subido exitosamente. Espera la validación.');
+      toast.success('Documento subido exitosamente. Espera la validación.');
       loadDocuments();
     } catch (error: any) {
       console.error(error);
-      alert(error.message || 'Error al subir el documento');
+      showAlert(error.message || 'Error al subir el documento');
     } finally {
       setUploading(null);
       e.target.value = ''; // Resetear input para permitir subir el mismo archivo si falla

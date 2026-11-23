@@ -1,4 +1,5 @@
 "use client";
+import { showAlert } from "@/lib/feedback";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
@@ -265,7 +266,7 @@ function ZoneCatalog() {
       await loadZones(); // Recargar para reflejar cambios
       setZoneToDelete(null);
     } catch (err: any) {
-      alert(
+      showAlert(
         "Error al eliminar: " + (err.message || "No se pudo eliminar la zona."),
       );
     } finally {

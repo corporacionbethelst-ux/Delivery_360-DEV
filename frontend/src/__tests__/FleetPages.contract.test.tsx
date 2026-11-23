@@ -19,7 +19,7 @@ jest.mock("next/navigation", () => ({ useRouter: () => mockRouter }));
 jest.mock("@/services/zone-tariff.service", () => ({
   zoneTariffService: { getMany: jest.fn() },
 }));
-jest.mock("sonner", () => ({
+jest.mock("@/lib/feedback", () => ({
   toast: { success: jest.fn(), error: jest.fn() },
 }));
 jest.mock("@/services/vehicle.service", () => ({

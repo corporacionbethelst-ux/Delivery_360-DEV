@@ -1,13 +1,14 @@
+import { storeTokens, clearStoredTokens } from "@/lib/auth-session";
 import '@testing-library/jest-dom';
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import Page from '@/app/(dashboard)/manager/fleet/riders/[id]/documents/page';
 import { riderService } from '@/services/rider.service';
-import { toast } from 'sonner';
+import { toast, confirmAction } from '@/lib/feedback';
 
 jest.mock('next/navigation', () => ({ useParams: () => ({ id: '123e4567-e89b-42d3-a456-426614174001' }), useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn() }) }));
 jest.mock('@/stores/authStore', () => ({ useAuthStore: () => ({ user: {id: 'manager', role: 'GERENTE'}, isAuthenticated: true }) }));
-jest.mock('sonner', () => ({ toast: { error: jest.fn(), success: jest.fn(), warning: jest.fn() } }));
+jest.mock('@/lib/feedback', () => ({ confirmAction: jest.fn().mockResolvedValue(true), toast: { error: jest.fn(), success: jest.fn(), warning: jest.fn() } }));
 jest.mock('@/services/rider.service', () => ({ riderService: { getDocuments: jest.fn(), approveDocument: jest.fn(), rejectDocument: jest.fn(), deleteDocument: jest.fn() } }));
 const service = jest.mocked(riderService);
 const id = '123e4567-e89b-42d3-a456-426614174000';
@@ -16,10 +17,12 @@ const row = { id, type: 'LICENCIA' as const, status: 'PENDIENTE' as const, file_
 
 beforeEach(() => {
   jest.clearAllMocks();
-  jest.spyOn(window, 'confirm').mockReturnValue(true);
+  jest.mocked(confirmAction).mockResolvedValue(true);
+  storeTokens({ access_token: "document-review-session", refresh_token: "document-review-refresh" });
+
   service.getDocuments.mockResolvedValue([row]);
 });
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => { clearStoredTokens(); jest.restoreAllMocks(); });
 
 it('approves the snapshot displayed when the action starts', async () => {
   service.approveDocument.mockResolvedValueOnce({ message: 'OK', doc_id: id, status: 'APROBADO', revision: 'b'.repeat(64) });
@@ -64,4 +67,26 @@ it('refuses a write when old metadata has no revision', async () => {
   fireEvent.click(await screen.findByRole('button', { name: /Aprobar/i }));
   expect(service.approveDocument).not.toHaveBeenCalled();
   expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Recarga'));
+});
+
+
+it('cancels a document review without submitting it', async () => {
+  jest.mocked(confirmAction).mockResolvedValue(false);
+  render(<Page />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Aprobar' }));
+  await waitFor(() => expect(confirmAction).toHaveBeenCalled());
+  expect(service.approveDocument).not.toHaveBeenCalled();
+});
+
+it('does not review an old document after credentials change while confirming', async () => {
+  let resolve!: (value: boolean) => void;
+  jest.mocked(confirmAction).mockReturnValue(new Promise<boolean>(done => { resolve = done; }));
+  render(<Page />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Aprobar' }));
+  await act(async () => {
+    storeTokens({ access_token: 'changed-review-session', refresh_token: 'changed-review-refresh' });
+    resolve(true);
+  });
+  await waitFor(() => expect(confirmAction).toHaveBeenCalled());
+  expect(service.approveDocument).not.toHaveBeenCalled();
 });

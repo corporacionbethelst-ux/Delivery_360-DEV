@@ -1,6 +1,9 @@
 'use client';
+import { showAlert, toast } from "@/lib/feedback";
+import { confirmAction } from "@/lib/feedback";
+import { capturePrivateTask } from "@/lib/private-task";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore'; // ✅ CORRECCIÓN: Usar Zustand
 // IMPORTANTE: Asegúrate de que este servicio exista y tenga los métodos usados
@@ -21,6 +24,7 @@ export default function ShiftDetailPage() {
   const [shift, setShift] = useState<Shift | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const actionPending = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
 
@@ -57,25 +61,30 @@ export default function ShiftDetailPage() {
   }, [isAuthenticated, user, router, shiftId, isMounted]);
 
   const handleAction = async (action: 'start' | 'end' | 'cancel') => {
-    if (!shift) return;
+    if (!shift || actionPending.current) return;
     
     const actionText = action === 'start' ? 'INICIAR' : action === 'end' ? 'FINALIZAR' : 'CANCELAR';
-    if (!confirm(`¿Estás seguro de querer ${actionText} este turno? Esta acción no se puede deshacer fácilmente.`)) return;
-
-    setActionLoading(true);
+    actionPending.current = true;
+    let task: ReturnType<typeof capturePrivateTask> | undefined;
     try {
+      task = capturePrivateTask();
+      if (!(await confirmAction(`¿${actionText} este turno? Esta acción no se puede deshacer fácilmente.`, 'Confirmar cambio de turno')) || !task.isCurrent()) return;
+      setActionLoading(true);
       let updated;
       if (action === 'start') updated = await shiftService.start(shift.id);
       else if (action === 'end') updated = await shiftService.end(shift.id);
       else updated = await shiftService.cancel(shift.id);
       
+      task.assertCurrent();
       setShift(updated);
-      alert(`Turno ${actionText.toLowerCase()} correctamente.`);
+      toast.success(`Turno ${actionText.toLowerCase()} correctamente.`);
     } catch (err: any) {
+      if (!task?.isCurrent()) return;
       console.error(err);
-      alert(err.detail || `Error al intentar ${actionText.toLowerCase()} el turno.`);
+      showAlert(err.detail || `Error al intentar ${actionText.toLowerCase()} el turno.`);
     } finally {
-      setActionLoading(false);
+      actionPending.current = false;
+      if (task?.isCurrent()) setActionLoading(false);
     }
   };
 

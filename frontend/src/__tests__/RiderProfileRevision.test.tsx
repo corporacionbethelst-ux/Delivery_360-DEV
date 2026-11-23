@@ -1,3 +1,5 @@
+import { showAlert } from "@/lib/feedback";
+jest.mock("@/lib/feedback", () => ({ showAlert: jest.fn(), toast: { success: jest.fn() } }));
 import '@testing-library/jest-dom';
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -15,7 +17,7 @@ const revision = 'a'.repeat(64), nextRevision = 'b'.repeat(64);
 const row = { ...identity, vehicle_plate:'API-123', profile_revision:revision, assignment_revision:revision } as Rider;
 beforeEach(() => {
   jest.clearAllMocks(); mockUser = { ...identity };
-  jest.spyOn(window, 'alert').mockImplementation(() => undefined);
+
   service.getProfile.mockResolvedValue(row); service.updateProfile.mockResolvedValue(row);
 });
 afterEach(() => jest.restoreAllMocks());
@@ -41,7 +43,7 @@ it('requires an explicit reload after conflict and never retries with a new revi
   expect(service.updateProfile).toHaveBeenCalledTimes(1);
   expect(service.getProfile).toHaveBeenCalledTimes(1);
   expect(mockRouter.push).not.toHaveBeenCalledWith('/rider/profile/documents');
-  expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('Recarga el perfil'));
+  expect(showAlert).toHaveBeenCalledWith(expect.stringContaining('Recarga el perfil'));
   service.getProfile.mockResolvedValueOnce({ ...row, profile_revision:nextRevision, assignment_revision:nextRevision, vehicle_plate:'CURRENT' });
   fireEvent.click(screen.getByRole('button', { name:'Recargar perfil' }));
   await waitFor(() => expect(save).toBeEnabled());

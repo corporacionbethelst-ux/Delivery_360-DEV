@@ -1,4 +1,6 @@
 "use client";
+import { showAlert, toast } from "@/lib/feedback";
+import { confirmAction } from "@/lib/feedback";
 
 import { canAssignOrder, orderView } from "@/lib/order-view";
 import { isCancellationReasonValid } from "@/lib/delivery-status";
@@ -144,6 +146,7 @@ function SessionOrdersPage() {
   const [deliveryOtp, setDeliveryOtp] = useState("");
   const [delivering, setDelivering] = useState(false);
   const deliveryPending = useRef(false);
+  const quickStatusPending = useRef(false);
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -270,7 +273,7 @@ function SessionOrdersPage() {
       setOrderToCancel(null);
     } catch (err: any) {
       if (!task.isCurrent()) return;
-      alert(
+      showAlert(
         "Error al cancelar: " + (err.response?.data?.detail || err.message),
       );
     } finally {
@@ -306,7 +309,7 @@ function SessionOrdersPage() {
     try {
       const result = await orderService.assignRiderAuto(orderToAssign.id);
       task.assertCurrent();
-      alert(`✅ ${result.message}\nAsignado a: ${result.assigned_rider.name}`);
+      toast.success(`${result.message}\nAsignado a: ${result.assigned_rider.name}`);
 
       await fetchInitialData();
       task.assertCurrent();
@@ -314,7 +317,7 @@ function SessionOrdersPage() {
       setSelectedRiderId("");
     } catch (err: any) {
       if (!task.isCurrent()) return;
-      alert(
+      showAlert(
         "Error en asignación automática: " +
           (err.response?.data?.detail || err.message),
       );
@@ -337,7 +340,7 @@ function SessionOrdersPage() {
     try {
       await orderService.assignRider(orderToAssign.id, selectedRiderId);
       task.assertCurrent();
-      alert("✅ Orden asignada correctamente");
+      toast.success("Orden asignada correctamente");
 
       await fetchInitialData();
       task.assertCurrent();
@@ -345,7 +348,7 @@ function SessionOrdersPage() {
       setSelectedRiderId("");
     } catch (err: any) {
       if (!task.isCurrent()) return;
-      alert("Error al asignar: " + (err.response?.data?.detail || err.message));
+      showAlert("Error al asignar: " + (err.response?.data?.detail || err.message));
     } finally {
       if (task.isCurrent()) setAssigningManual(false);
     }
@@ -369,20 +372,24 @@ function SessionOrdersPage() {
       setOrderToDeliver(order);
       return;
     }
-    if (!confirm(`¿Cambiar estado a ${nextStatus}?`)) return;
-
-    const task = capturePrivateTask();
+    if (quickStatusPending.current) return;
+    quickStatusPending.current = true;
+    let task: ReturnType<typeof capturePrivateTask> | undefined;
     try {
+      task = capturePrivateTask();
+      if (!(await confirmAction(`¿Cambiar estado a ${nextStatus.replaceAll("_", " ")}?`)) || !task.isCurrent()) return;
       await orderService.updateStatus(orderId, nextStatus);
       task.assertCurrent();
       await fetchInitialData();
       task.assertCurrent();
     } catch (err: any) {
-      if (!task.isCurrent()) return;
-      alert(
+      if (!task?.isCurrent()) return;
+      showAlert(
         "Error al actualizar estado: " +
           (err.response?.data?.detail || err.message),
       );
+    } finally {
+      quickStatusPending.current = false;
     }
   };
 
@@ -403,6 +410,7 @@ function SessionOrdersPage() {
       }
       setDeliveryOtp("");
       setOrderToDeliver(null);
+      toast.success("Entrega registrada correctamente.");
       await fetchInitialData();
     } catch (err: unknown) {
       if (task.isCurrent()) setDeliveryError(loadFailure(err).replace(/^HTTP \d+: /, ""));

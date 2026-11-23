@@ -11,9 +11,12 @@ import Page from "@/app/(dashboard)/manager/operations/orders/page";
 import { downloadCSV } from "@/lib/csv-export";
 import { api } from "@/lib/api";
 import { clearStoredTokens, storeTokens } from "@/lib/auth-session";
+import { FeedbackHost } from "@/components/layout/FeedbackHost";
+import { clearFeedback } from "@/lib/feedback";
 const mockRouter = { push: jest.fn() };
 let mockUser = { id: "admin-a", role: "SUPERADMIN" };
-jest.mock("next/navigation", () => ({ useRouter: () => mockRouter }));
+jest.mock("next/navigation", () => ({ useRouter: () => mockRouter, usePathname: () => "/manager/operations/orders" }));
+jest.mock("sonner", () => ({ Toaster: () => null, toast: { success: jest.fn(), info: jest.fn(), dismiss: jest.fn() } }));
 jest.mock("@/stores/authStore", () => ({
   useAuthStore: () => ({ user: mockUser }),
 }));
@@ -56,6 +59,7 @@ function deferred<T>() {
 }
 beforeEach(() => {
   jest.resetAllMocks();
+  clearFeedback();
   mockUser = { id: "admin-a", role: "SUPERADMIN" };
   clearStoredTokens();
   storeTokens({ access_token: "orders-a", refresh_token: "refresh-a" });
@@ -71,6 +75,7 @@ beforeEach(() => {
     );
 });
 afterEach(() => {
+  clearFeedback();
   jest.restoreAllMocks();
   clearStoredTokens();
 });
@@ -80,6 +85,20 @@ function loadEnRouteOrder() {
     String(url).startsWith("/orders?") ? [{ ...order, status: "EN_RUTA" }] : [],
   );
 }
+
+it("waits for the centered confirmation and submits only once after duplicate clicks", async () => {
+  loadEnRouteOrder();
+  jest.mocked(api.patch).mockResolvedValue({ ...order, status: "FALLIDO" });
+  render(<><Page /><FeedbackHost /></>);
+  const action = await screen.findByRole("button", { name: "FALLIDO" });
+  fireEvent.click(action);
+  fireEvent.click(action);
+  const confirmation = screen.getByRole("alertdialog");
+  expect(api.patch).not.toHaveBeenCalled();
+  fireEvent.click(within(confirmation).getByRole("button", { name: "Confirmar" }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+  expect(api.patch).toHaveBeenCalledWith("/orders/order-1/status", {}, { params: { new_status: "FALLIDO" } });
+});
 
 it("collects delivery OTP in a dialog and sends it in JSON preserving leading zeros", async () => {
   loadEnRouteOrder();

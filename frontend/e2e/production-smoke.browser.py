@@ -27,6 +27,7 @@ def main():
     artifacts.mkdir(parents=True, exist_ok=True)
     reads, writes, errors, checks = [], [], [], []
     active_role = ["GERENTE"]
+    feedback_order = [False]
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
             executable_path=args.chromium, headless=True, args=["--no-sandbox"]
@@ -154,6 +155,14 @@ def main():
                     }
                 elif path.endswith("/notifications/unread-count"):
                     data = {"unread_count": 1}
+                elif path.endswith("/orders") and feedback_order[0]:
+                    data = json.loads(
+                        (
+                            Path(__file__).resolve().parents[1]
+                            / "src/__tests__/fixtures/order-assignment-response.json"
+                        ).read_text()
+                    )
+                    data = [data]
                 elif path.endswith(("/riders", "/orders", "/vehicles/available")):
                     data = []
                 else:
@@ -171,6 +180,13 @@ def main():
         context.route("**/*", intercept)
         page = context.new_page()
         page.on("pageerror", lambda error: errors.append(str(error)))
+        page.on(
+            "dialog",
+            lambda dialog: (
+                errors.append("Native browser dialog displayed"),
+                dialog.dismiss(),
+            ),
+        )
         page.goto(base + "/manager/fleet/riders/new", wait_until="domcontentloaded")
         expect(
             page.get_by_text("Registrar Nuevo Repartidor", exact=True)
@@ -367,6 +383,48 @@ def main():
                 + role.lower()
                 + "_cannot_mount_manager_despite_forged_role_cookie"
             )
+        active_role[0] = "GERENTE"
+        feedback_order[0] = True
+        context.add_cookies(
+            [
+                {
+                    "name": "user-data",
+                    "value": "%7B%22role%22%3A%22GERENTE%22%7D",
+                    "url": base,
+                }
+            ]
+        )
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.goto(base + "/manager/operations/orders", wait_until="domcontentloaded")
+        page.get_by_role("button", name="RECOLECTADO", exact=True).click()
+        confirmation = page.get_by_role("alertdialog")
+        expect(confirmation).to_contain_text("¿Cambiar estado a RECOLECTADO?")
+        assert confirmation.evaluate("""el => {
+            const r=el.getBoundingClientRect();
+            return Math.abs((r.left+r.right)/2-innerWidth/2)<2 && r.left>=0 && r.right<=innerWidth;
+        }""")
+        page.screenshot(
+            path=str(artifacts / "feedback-confirmation-mobile.png"),
+            animations="disabled",
+        )
+        confirmation.get_by_role("button", name="Cancelar", exact=True).click()
+        expect(confirmation).to_have_count(0)
+        assert not writes
+        checks.append("centered_confirmation_cancel_preserves_order_without_mutation")
+        page.set_viewport_size({"width": 1440, "height": 1000})
+        with page.expect_download() as exported:
+            page.get_by_role("button", name="Exportar", exact=True).click()
+        exported.value.save_as(str(artifacts / "feedback-export.csv"))
+        info = page.get_by_text("Archivo CSV preparado", exact=True)
+        expect(info).to_be_visible()
+        assert info.evaluate("""el => {
+            const r=el.getBoundingClientRect();return r.left>innerWidth/2 && r.top>innerHeight/2;
+        }""")
+        page.screenshot(
+            path=str(artifacts / "feedback-information-bottom-right.png"),
+            animations="disabled",
+        )
+        checks.append("informational_export_notice_appears_bottom_right")
         assert not writes and not errors
         result = {
             "checks_passed": checks,

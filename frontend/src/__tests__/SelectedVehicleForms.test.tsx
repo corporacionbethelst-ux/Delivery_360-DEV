@@ -10,7 +10,7 @@ const mockCreate = jest.fn();
 jest.mock('@/stores/ridersStore', () => ({ useRidersStore: () => ({ createRider:mockCreate }) }));
 jest.mock('@/services/rider.service', () => ({ riderService: { updateRider:jest.fn() } }));
 jest.mock('@/services/vehicle.service', () => ({ vehicleService: { getAvailableCompanyVehicles:jest.fn() } }));
-jest.mock('sonner', () => ({ toast: { success:jest.fn(), error:jest.fn() } }));
+jest.mock('@/lib/feedback', () => ({ toast: { success:jest.fn(), error:jest.fn() } }));
 jest.mock('@/components/ui/select', () => {
   const React = require('react');
   return {

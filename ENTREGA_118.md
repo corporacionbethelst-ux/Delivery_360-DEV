@@ -1,5 +1,9 @@
 # Delivery360 — entrega 118
 
+## Presentación solicitada de mensajes
+
+Se añade un host central para errores y confirmaciones en modales centrados, con mensajes informativos y resultados correctos abajo a la derecha. Se sustituyen alert/confirm nativos y se conservan las confirmaciones de negocio existentes. Las elecciones asíncronas se cancelan al cambiar de sesión y se protegen frente a dobles invocaciones. Se comprueba cancelación sin mutación y posición real en Chromium. Ver MENSAJES_INTERFAZ.md. Este bloque no define una excepción ni emisión de OTP.
+
 ## Corrección del cierre de órdenes con OTP
 
 El botón ENTREGADO del catálogo del gerente enviaba solamente new_status=ENTREGADO. El backend ya validaba el OTP de la entrega, pero el formulario no permitía introducirlo y el servicio frontend no lo transmitía. Por eso una entrega configurada con OTP respondía «Código OTP requerido o incorrecto».
