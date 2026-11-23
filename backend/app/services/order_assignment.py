@@ -7,7 +7,7 @@ commits safety changes or the caller's payload.
 """
 
 from dataclasses import dataclass, replace
-from uuid import UUID
+from uuid import UUID, uuid4
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +21,7 @@ from app.models.route import Route, RouteStatus
 from app.models.user import User, UserRole
 from app.services.document_review import document_readiness_error
 from app.services.route_geometry import coordinate
+from app.services.assignment_notifications import enqueue_assignment_notice
 
 
 @dataclass(frozen=True)
@@ -228,8 +229,10 @@ async def apply_order_assignment(
         delivery.rider_id = candidate.rider.id
         delivery.status = DeliveryStatus.INICIADA
     await db.flush()
+    event_id = uuid4()
     db.add(
         AuditLog(
+            id=event_id,
             user_id=candidate.actor.id,
             user_email=candidate.actor.email,
             user_role=candidate.actor.role.value if candidate.actor.role else None,
@@ -256,6 +259,9 @@ async def apply_order_assignment(
             },
             success=True,
         )
+    )
+    await enqueue_assignment_notice(
+        db, order, delivery, candidate.owner, event_id, source
     )
     return True
 

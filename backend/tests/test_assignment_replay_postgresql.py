@@ -22,7 +22,7 @@ from app.core.security import create_access_token
 from app.models.order import Order, OrderStatus
 from app.models.delivery import Delivery, DeliveryStatus
 from app.models.audit_log import AuditLog, ActionType
-from app.models.notification import Notification
+from app.models.notification import Notification, NotificationLog, NotificationChannel
 from app.models.user import User
 from app.models.rider_document import RiderDocument, DocumentStatus
 from app.schemas.order import OrderCreate
@@ -61,6 +61,14 @@ async def receipt(sessions, ids):
             "rider": delivery.rider_id,
             "audits": await db.scalar(select(func.count()).select_from(AuditLog)),
             "notices": await db.scalar(select(func.count()).select_from(Notification)),
+            "assignment_notices": await db.scalar(
+                select(func.count())
+                .select_from(NotificationLog)
+                .where(
+                    NotificationLog.template_code == "nuevo_pedido_asignado",
+                    NotificationLog.channel == NotificationChannel.IN_APP,
+                )
+            ),
         }
 
 
@@ -205,7 +213,8 @@ async def test_concurrent_first_assignments_emit_one_receipt_and_one_notice(
         r.text for r in responses
     ]
     saved = await receipt(sessions, ids)
-    assert saved["audits"] == 1 and saved["notices"] + hook.await_count == 1
+    assert saved["audits"] == 1 and saved["assignment_notices"] == 1
+    hook.assert_not_awaited()
     assert redis.log_order_assigned.await_count <= 1
 
 

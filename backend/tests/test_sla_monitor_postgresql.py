@@ -19,6 +19,8 @@ from app.models.notification import (
     Notification,
     NotificationLog,
     NotificationPreference,
+    NotificationTemplate,
+    UserDeviceToken,
     NotificationChannel,
     Alert,
 )
@@ -39,7 +41,14 @@ async def sla_db(cancel_db, monkeypatch):
     client, sessions, ids = cancel_db
     monkeypatch.setattr(settings, "NOTIFICATIONS_ENABLED", True)
     tables = {
-        m.__table__ for m in (Notification, NotificationLog, NotificationPreference)
+        m.__table__
+        for m in (
+            Notification,
+            NotificationLog,
+            NotificationPreference,
+            NotificationTemplate,
+            UserDeviceToken,
+        )
     }
     while True:
         expanded = tables | {

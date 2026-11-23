@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 import asyncio
+from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import select, update, func
@@ -21,7 +22,7 @@ from app.models.route import Route, RouteStatus
 from app.models.rider_document import RiderDocument, DocumentType, DocumentStatus
 from app.models.order import Order, OrderStatus
 from app.models.delivery import Delivery, DeliveryStatus
-from app.models.notification import Notification
+from app.models.notification import Notification, NotificationLog, NotificationChannel
 from app.models.audit_log import AuditLog
 from app.schemas.rider import RiderCreate, RiderApprovalRequest
 from app.schemas.user import UserCreate, UserUpdate
@@ -78,42 +79,12 @@ def assign(client, ids):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["inactive_recipient", "flush", "commit"])
-async def test_notice_failure_cannot_expire_committed_assignment_or_hide_its_audit(
-    runtime_db, monkeypatch, failure
+async def test_assignment_and_inbox_do_not_depend_on_legacy_postcommit_hooks(
+    runtime_db, monkeypatch
 ):
     client, sessions, ids = runtime_db
-    if failure == "inactive_recipient":
-        original_create = NotificationService.create_notification
-
-        async def deactivated_after_assignment(service, *args, **kwargs):
-            # Assignment now rejects pre-existing inactive owners. This fault
-            # occurs after the assignment commit, inside the separate notice unit.
-            await service.db.execute(
-                update(User).where(User.id == ids["owner"]).values(is_active=False)
-            )
-            await service.db.commit()
-            return await original_create(service, *args, **kwargs)
-
-        monkeypatch.setattr(
-            NotificationService, "create_notification", deactivated_after_assignment
-        )
-    else:
-        original_create = NotificationService.create_notification
-
-        async def marked(service, *args, **kwargs):
-            service.db.info["notice_fault"] = True
-            return await original_create(service, *args, **kwargs)
-
-        monkeypatch.setattr(NotificationService, "create_notification", marked)
-        original = getattr(AsyncSession, failure)
-
-        async def broken(db, *args, **kwargs):
-            if db.info.get("notice_fault"):
-                raise RuntimeError("injected notice failure")
-            return await original(db, *args, **kwargs)
-
-        monkeypatch.setattr(AsyncSession, failure, broken)
+    legacy = AsyncMock(side_effect=RuntimeError("legacy postcommit unavailable"))
+    monkeypatch.setattr(NotificationService, "create_notification", legacy)
     response = assign(client, ids)
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "ASIGNADO"
@@ -135,6 +106,19 @@ async def test_notice_failure_cannot_expire_committed_assignment_or_hide_its_aud
             == 1
         )
         assert await db.scalar(select(func.count()).select_from(Notification)) == 0
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(NotificationLog)
+                .where(
+                    NotificationLog.user_id == ids["owner"],
+                    NotificationLog.channel == NotificationChannel.IN_APP,
+                    NotificationLog.template_code == "nuevo_pedido_asignado",
+                )
+            )
+            == 1
+        )
+    legacy.assert_not_awaited()
 
 
 @pytest.mark.asyncio

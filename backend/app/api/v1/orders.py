@@ -47,7 +47,6 @@ from app.services.order_cancellation import (
     LEGACY_REASON,
 )
 from app.api.v1.auth import get_current_user, require_role
-from app.services.notification_hooks import record_legacy_notice
 from app.models.notification import NotificationType
 from app.services.audit_service import AuditService, get_audit_service
 from app.services.redis_audit_service import get_redis_audit_logger
@@ -798,21 +797,7 @@ async def assign_rider(
     rider = candidate.rider
     await db.commit()
 
-    # Notification failure must never expire the committed request objects.
-    try:
-        if candidate.changed and rider.user_id:
-            notice_recorded = await record_legacy_notice(
-                db,
-                user_id=rider.user_id,
-                notification_type=NotificationType.ASIGNACION_PEDIDO,
-                title="📦 Nuevo Pedido Asignado",
-                message=f"Se te ha asignado el pedido #{order.external_id or str(order.id)[:8]}",
-                data={"order_id": str(order.id), "external_id": order.external_id},
-            )
-            if notice_recorded:
-                logger.info("Notificación de asignación registrada")
-    except Exception as e:
-        logger.warning(f"No se pudo enviar notificación de asignación: {e}")
+    # Inbox receipt and permitted external work were persisted with assignment.
 
     # REDIS AUDIT (Tiempo Real): Publicar evento para dashboards
     try:
