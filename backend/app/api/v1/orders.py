@@ -61,6 +61,10 @@ class CancelOrderBody(BaseModel):
     reason: Optional[str] = "Solicitada por el administrador"
 
 
+class OrderStatusProof(BaseModel):
+    otp_code: Optional[str] = Field(default=None, max_length=128)
+
+
 # ── Schemas ───────────────────────────────────────────────────────────────────
 class OrderCreate(BaseModel):
     currency: Literal["USD"] = "USD"
@@ -833,11 +837,23 @@ async def assign_rider(
     return _order_to_dict(refreshed.scalar_one())
 
 
+@router.post("/{order_id}/delivery-otp/email")
+async def send_delivery_otp_email(
+    order_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+):
+    from app.services.delivery_otp import email_delivery_otp
+
+    return await email_delivery_otp(db, order_id, current_user)
+
+
 @router.patch("/{order_id}/status")
 async def update_status(
     order_id: str,
     new_status: str,
     otp_code: Optional[str] = None,
+    proof: Optional[OrderStatusProof] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -853,6 +869,10 @@ async def update_status(
     }
 
     ensure_operation_role(current_user, write=True)
+    if proof is not None and proof.otp_code is not None:
+        if otp_code is not None and otp_code != proof.otp_code:
+            raise HTTPException(status_code=400, detail="Códigos OTP contradictorios")
+        otp_code = proof.otp_code
     try:
         target = OrderStatus(new_status)
     except ValueError:

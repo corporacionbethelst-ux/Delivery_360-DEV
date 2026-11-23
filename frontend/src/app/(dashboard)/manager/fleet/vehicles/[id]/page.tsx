@@ -44,7 +44,7 @@ import {
   VehicleType,
   type VehicleUpdateInput,
 } from "@/services/vehicle.service";
-import { toast } from "sonner";
+import { toast } from "@/lib/feedback";
 import { isAssignmentConflict } from "@/lib/assignment-revision";
 import { isVehiclePlateConflict } from "@/lib/vehicle-revision";
 import {

@@ -1,4 +1,5 @@
 'use client';
+import { showAlert, toast } from "@/lib/feedback";
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
@@ -115,7 +116,7 @@ export default function RiderProfilePage() {
         vehicle_plate: formData.vehicle_plate,
       });
       
-      alert('✅ Perfil actualizado correctamente.');
+      toast.success('Perfil actualizado correctamente.');
       // Recargar datos locales tras éxito
       loadProfileData();
       
@@ -123,16 +124,16 @@ export default function RiderProfilePage() {
       if (isAssignmentConflict(error)) {
         setAssignmentRevision(undefined);
         setProfileRevision(undefined);
-        alert('El perfil o su asignación cambiaron. Recarga el perfil y revisa los datos antes de guardar de nuevo.');
+        showAlert('El perfil o su asignación cambiaron. Recarga el perfil y revisa los datos antes de guardar de nuevo.');
         return;
       }
       const msg = error.response?.data?.detail || error.message;
       
       if (msg && (msg.includes('vehículo') || msg.includes('documentos') || msg.includes('pendiente'))) {
-        alert(`⚠️ Atención: ${msg}\n\nSus documentos han sido reiniciados.`);
+        showAlert(`⚠️ Atención: ${msg}\n\nSus documentos han sido reiniciados.`);
         router.push('/rider/profile/documents');
       } else {
-        alert(`❌ Error: ${msg || 'No se pudo actualizar el perfil.'}`);
+        showAlert(`❌ Error: ${msg || 'No se pudo actualizar el perfil.'}`);
       }
     } finally {
       setIsSubmitting(false);

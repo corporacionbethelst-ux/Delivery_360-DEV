@@ -295,6 +295,11 @@ def main():
             page.get_by_label("Vehículo de Empresa Asignado", exact=True)
         ).to_contain_text("COMPANY-78")
         page.get_by_role("button", name="Registrar Repartidor", exact=True).click()
+        validation_alert = page.get_by_role("alertdialog")
+        expect(validation_alert).to_contain_text(
+            "Recarga los vehículos y revisa la ficha"
+        )
+        validation_alert.get_by_role("button", name="Entendido", exact=True).click()
         expect(
             page.get_by_role("alert").filter(
                 has_text="Recarga los vehículos y revisa la ficha"

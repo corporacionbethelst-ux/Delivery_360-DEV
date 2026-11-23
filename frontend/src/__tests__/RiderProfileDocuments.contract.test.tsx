@@ -14,6 +14,7 @@ import { riderService } from "@/services/rider.service";
 import type { Rider, RiderDocument } from "@/types/user";
 import { riderCoordinates, riderDate, riderNumber } from "@/lib/rider-display";
 import { clearStoredTokens, storeTokens } from "@/lib/auth-session";
+import { confirmAction } from "@/lib/feedback";
 
 jest.mock("@/lib/api", () => ({ api: { get: jest.fn() } }));
 const mockRouter = { replace: jest.fn() };
@@ -41,8 +42,8 @@ jest.mock("@/services/rider.service", () => ({
     uploadDocumentForRider: jest.fn(),
   },
 }));
-jest.mock("sonner", () => ({
-  toast: { success: jest.fn(), error: jest.fn() },
+jest.mock("@/lib/feedback", () => ({
+  confirmAction: jest.fn().mockResolvedValue(true), toast: { success: jest.fn(), error: jest.fn() },
 }));
 jest.mock("@/components/DocumentDownloadButton", () => ({
   DocumentDownloadButton: ({ documentId, revision }: any) => (
@@ -79,6 +80,7 @@ function deferred<T>() {
 }
 beforeEach(() => {
   jest.resetAllMocks();
+  jest.mocked(confirmAction).mockResolvedValue(true);
   clearStoredTokens();
   storeTokens({
     access_token: "profile-token",
@@ -97,7 +99,7 @@ beforeEach(() => {
     }));
   service.getById.mockResolvedValue({ ...rider });
   service.getDocuments.mockResolvedValue([{ ...doc }]);
-  jest.spyOn(window, "confirm").mockReturnValue(true);
+
 });
 afterEach(() => jest.restoreAllMocks());
 const identity = () =>
@@ -449,7 +451,7 @@ it("documentos bloquea todas las acciones y duplicados durante una aprobación",
   await article();
   fireEvent.click(screen.getByRole("button", { name: "Aprobar" }));
   fireEvent.click(screen.getByRole("button", { name: "Aprobar" }));
-  expect(service.approveDocument).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(service.approveDocument).toHaveBeenCalledTimes(1));
   expect(screen.getByRole("button", { name: "Rechazar" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Actualizar" })).toBeDisabled();
   expect(

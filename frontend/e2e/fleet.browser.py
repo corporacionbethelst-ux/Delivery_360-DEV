@@ -250,6 +250,16 @@ def main():
         ).to_be_visible()
         state["failure"] = True
         page.get_by_role("button", name="Actualizar", exact=True).click()
+        alert = page.get_by_role("alertdialog")
+        expect(alert).to_contain_text("Fallo sintético")
+        page.wait_for_function("""() => {
+            const r=document.querySelector('[role="alertdialog"]').getBoundingClientRect();
+            return Math.abs((r.left+r.right)/2-innerWidth/2)<2 && Math.abs((r.top+r.bottom)/2-innerHeight/2)<2;
+        }""")
+        page.screenshot(
+            path=str(artifacts / "feedback-error-centered.png"), animations="disabled"
+        )
+        alert.get_by_role("button", name="Entendido", exact=True).click()
         retry = page.get_by_role("button", name="Reintentar", exact=True)
         expect(retry).to_be_visible()
         expect(inventory).to_contain_text("ABC-001")
@@ -353,6 +363,9 @@ def main():
         page.get_by_label("Tipo de Vehículo *", exact=True).click()
         page.get_by_role("option", name=re.compile("Motocicleta")).click()
         page.get_by_role("button", name="Guardar Vehículo", exact=True).click()
+        validation_alert = page.get_by_role("alertdialog")
+        expect(validation_alert).to_contain_text("La placa es requerida")
+        validation_alert.get_by_role("button", name="Entendido", exact=True).click()
         expect(
             page.get_by_role("alert").filter(has_text="La placa es requerida")
         ).to_be_visible()
@@ -388,6 +401,9 @@ def main():
             base + "/manager/fleet/vehicles/" + vehicle(1)["id"],
             wait_until="domcontentloaded",
         )
+        read_alert = page.get_by_role("alertdialog")
+        expect(read_alert).to_contain_text("Fallo de lectura de vehicle")
+        read_alert.get_by_role("button", name="Entendido", exact=True).click()
         expect(
             page.get_by_role("alert").filter(has_text="Fallo de lectura de vehicle")
         ).to_be_visible()
@@ -430,6 +446,9 @@ def main():
 
         state["wrong_vehicle"] = True
         page.get_by_role("button", name="Recargar ficha", exact=True).click()
+        wrong_alert = page.get_by_role("alertdialog")
+        expect(wrong_alert).to_contain_text("La ficha no coincide")
+        wrong_alert.get_by_role("button", name="Entendido", exact=True).click()
         expect(
             page.get_by_role("alert").filter(has_text="La ficha no coincide")
         ).to_be_visible()

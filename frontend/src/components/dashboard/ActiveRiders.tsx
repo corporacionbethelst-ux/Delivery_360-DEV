@@ -1,4 +1,5 @@
 'use client';
+import { showAlert } from "@/lib/feedback";
 
 /**
  * Componente ActiveRiders - Lista de repartidores activos
@@ -73,7 +74,7 @@ export function ActiveRiders({
       if (rider?.phone) {
         window.open(`tel:${rider.phone}`, '_self');
       } else {
-        alert(`No hay número disponible para ${riderId}`);
+        showAlert(`No hay número disponible para ${riderId}`);
       }
     }
   };

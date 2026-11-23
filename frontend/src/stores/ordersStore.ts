@@ -41,7 +41,7 @@ interface OrdersState {
   fetchOrders: (filters?: OrderFilters) => Promise<void>;
   fetchOrderById: (id: string) => Promise<void>;
   createOrder: (input: OrderCreateInput) => Promise<Order>;
-  updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
+  updateOrderStatus: (id: string, status: OrderStatus, otpCode?: string) => Promise<void>;
   assignRider: (orderId: string, riderId: string) => Promise<OrderAssignmentPatch>;
   deleteOrder: (id: string) => Promise<void>;
   
@@ -168,12 +168,14 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
     }
   },
   
-  updateOrderStatus: async (id, status) => {
+  updateOrderStatus: async (id, status, otpCode) => {
     const task = capturePrivateTask();
     set({ isUpdating: true, error: null });
     try {
       // ✅ Sin .data
-      const response = await api.patch<unknown>(`/orders/${encodeURIComponent(id)}/status`, {}, { params: { new_status: status } });
+      const response = await api.patch<unknown>(`/orders/${encodeURIComponent(id)}/status`,
+        status === 'ENTREGADO' && otpCode?.trim() ? { otp_code: otpCode.trim() } : {},
+        { params: { new_status: status } });
       task.assertCurrent();
       const updatedOrder = orderView(response, id);
       if (updatedOrder.status !== status) throw new Error('El servidor no confirmó el estado solicitado');

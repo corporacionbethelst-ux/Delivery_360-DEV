@@ -35,7 +35,7 @@ jest.mock("@/services/rider.service", () => ({
 jest.mock("@/services/vehicle.service", () => ({
   vehicleService: { getAvailableCompanyVehicles: jest.fn() },
 }));
-jest.mock("sonner", () => ({
+jest.mock("@/lib/feedback", () => ({
   toast: { success: jest.fn(), error: jest.fn() },
 }));
 jest.mock("@/components/ui/select", () => ({

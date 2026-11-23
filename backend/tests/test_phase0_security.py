@@ -323,3 +323,38 @@ async def test_correct_otp_keeps_legacy_order_completion_usable(http, db, user, 
     assert response.status_code == 200, response.text
     financial.assert_awaited_once()
     db.commit.assert_awaited_once()
+
+
+@pytest.mark.parametrize("expected,supplied,query,status", [
+    ("001234", "001234", None, 200),
+    ("001234", "wrong", None, 400),
+    ("001234", None, None, 400),
+    ("001234", "", None, 400),
+    (None, None, None, 200),
+    ("001234", "001234", "999999", 400),
+    ("001234", "001234", "001234", 200),
+])
+async def test_order_completion_accepts_json_otp_without_weakening_validation(
+    http, db, user, delivery, monkeypatch, expected, supplied, query, status
+):
+    user.role = UserRole.GERENTE
+    order = SimpleNamespace(id=delivery.order_id, assigned_rider_id=delivery.rider_id, status=OrderStatus.EN_RUTA)
+    delivery.proof_otp = expected
+    db.execute.side_effect = [result(order), result(delivery)]
+    financial = AsyncMock()
+    monkeypatch.setattr(orders, "_ensure_delivery_and_financial_records", financial)
+    monkeypatch.setattr(orders, "_order_to_dict", lambda o: {"status": o.status.value})
+    params = {"new_status": "ENTREGADO"}
+    if query is not None:
+        params["otp_code"] = query
+    async with http:
+        response = await http.patch(f"/api/v1/orders/{order.id}/status", params=params, json={"otp_code": supplied})
+    assert response.status_code == status, response.text
+    if status == 200:
+        assert order.status == OrderStatus.ENTREGADO
+        financial.assert_awaited_once()
+        db.commit.assert_awaited_once()
+    else:
+        assert order.status == OrderStatus.EN_RUTA
+        financial.assert_not_awaited()
+        db.commit.assert_not_awaited()

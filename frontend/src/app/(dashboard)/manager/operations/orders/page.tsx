@@ -1,4 +1,6 @@
 "use client";
+import { showAlert, toast } from "@/lib/feedback";
+import { confirmAction } from "@/lib/feedback";
 
 import { canAssignOrder, orderView } from "@/lib/order-view";
 import { isCancellationReasonValid } from "@/lib/delivery-status";
@@ -52,6 +54,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -101,6 +104,7 @@ function loadFailure(error: unknown): string {
 }
 
 function SessionOrdersPage() {
+  const { user } = useAuthStore();
   const requestSequence = useRef(0);
   useEffect(
     () => () => {
@@ -139,6 +143,14 @@ function SessionOrdersPage() {
     useState<OperationalHttpOrder | null>(null);
   const [assigningAuto, setAssigningAuto] = useState(false);
   const [assigningManual, setAssigningManual] = useState(false);
+  const [orderToDeliver, setOrderToDeliver] = useState<OperationalHttpOrder | null>(null);
+  const [deliveryOtp, setDeliveryOtp] = useState("");
+  const [delivering, setDelivering] = useState(false);
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [otpEmailNotice, setOtpEmailNotice] = useState<string | null>(null);
+  const deliveryPending = useRef(false);
+  const quickStatusPending = useRef(false);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchInitialData();
@@ -264,7 +276,7 @@ function SessionOrdersPage() {
       setOrderToCancel(null);
     } catch (err: any) {
       if (!task.isCurrent()) return;
-      alert(
+      showAlert(
         "Error al cancelar: " + (err.response?.data?.detail || err.message),
       );
     } finally {
@@ -300,7 +312,7 @@ function SessionOrdersPage() {
     try {
       const result = await orderService.assignRiderAuto(orderToAssign.id);
       task.assertCurrent();
-      alert(`✅ ${result.message}\nAsignado a: ${result.assigned_rider.name}`);
+      toast.success(`${result.message}\nAsignado a: ${result.assigned_rider.name}`);
 
       await fetchInitialData();
       task.assertCurrent();
@@ -308,7 +320,7 @@ function SessionOrdersPage() {
       setSelectedRiderId("");
     } catch (err: any) {
       if (!task.isCurrent()) return;
-      alert(
+      showAlert(
         "Error en asignación automática: " +
           (err.response?.data?.detail || err.message),
       );
@@ -331,7 +343,7 @@ function SessionOrdersPage() {
     try {
       await orderService.assignRider(orderToAssign.id, selectedRiderId);
       task.assertCurrent();
-      alert("✅ Orden asignada correctamente");
+      toast.success("Orden asignada correctamente");
 
       await fetchInitialData();
       task.assertCurrent();
@@ -339,7 +351,7 @@ function SessionOrdersPage() {
       setSelectedRiderId("");
     } catch (err: any) {
       if (!task.isCurrent()) return;
-      alert("Error al asignar: " + (err.response?.data?.detail || err.message));
+      showAlert("Error al asignar: " + (err.response?.data?.detail || err.message));
     } finally {
       if (task.isCurrent()) setAssigningManual(false);
     }
@@ -355,20 +367,81 @@ function SessionOrdersPage() {
       orders.find((order) => order.id === orderId)?.assignment_review
     )
       return;
-    if (!confirm(`¿Cambiar estado a ${nextStatus}?`)) return;
-
-    const task = capturePrivateTask();
+    if (nextStatus === "ENTREGADO") {
+      const order = orders.find((item) => item.id === orderId);
+      if (!order || order.status !== "EN_RUTA") return;
+      setDeliveryOtp("");
+      setDeliveryError(null);
+      setOtpEmailNotice(null);
+      setOrderToDeliver(order);
+      return;
+    }
+    if (quickStatusPending.current) return;
+    quickStatusPending.current = true;
+    let task: ReturnType<typeof capturePrivateTask> | undefined;
     try {
+      task = capturePrivateTask();
+      if (!(await confirmAction(`¿Cambiar estado a ${nextStatus.replaceAll("_", " ")}?`)) || !task.isCurrent()) return;
       await orderService.updateStatus(orderId, nextStatus);
       task.assertCurrent();
       await fetchInitialData();
       task.assertCurrent();
     } catch (err: any) {
-      if (!task.isCurrent()) return;
-      alert(
+      if (!task?.isCurrent()) return;
+      showAlert(
         "Error al actualizar estado: " +
           (err.response?.data?.detail || err.message),
       );
+    } finally {
+      quickStatusPending.current = false;
+    }
+  };
+
+  const sendOtpEmail = async () => {
+    if (!orderToDeliver || deliveryPending.current || error) return;
+    deliveryPending.current = true;
+    setSendingOtp(true);
+    setDeliveryError(null);
+    setOtpEmailNotice(null);
+    let task: ReturnType<typeof capturePrivateTask> | undefined;
+    try {
+      task = capturePrivateTask();
+      const message = await orderService.sendDeliveryOtpEmail(orderToDeliver.id);
+      task.assertCurrent();
+      setOtpEmailNotice(message);
+      toast.info(message);
+    } catch (err: unknown) {
+      if (task?.isCurrent()) setDeliveryError(loadFailure(err).replace(/^HTTP \d+: /, ""));
+    } finally {
+      deliveryPending.current = false;
+      if (task?.isCurrent()) setSendingOtp(false);
+    }
+  };
+
+  const confirmDelivery = async (checkOnly = false) => {
+    if (!orderToDeliver || deliveryPending.current || error) return;
+    deliveryPending.current = true;
+    setDelivering(true);
+    setDeliveryError(null);
+    const task = capturePrivateTask();
+    try {
+      const confirmed = checkOnly
+        ? await orderService.getById(orderToDeliver.id)
+        : await orderService.updateStatus(orderToDeliver.id, "ENTREGADO", deliveryOtp);
+      task.assertCurrent();
+      if (confirmed.status !== "ENTREGADO") {
+        setDeliveryError(`Estado confirmado: ${confirmed.status.replaceAll("_", " ").toLowerCase()}. La orden todavía no consta como entregada.`);
+        return;
+      }
+      setDeliveryOtp("");
+      setOrderToDeliver(null);
+      toast.success("Entrega registrada correctamente.");
+      await fetchInitialData();
+    } catch (err: unknown) {
+      if (task.isCurrent()) setDeliveryError(loadFailure(err).replace(/^HTTP \d+: /, ""));
+    } finally {
+      deliveryPending.current = false;
+      if (task.isCurrent()) setDelivering(false);
     }
   };
 
@@ -1073,6 +1146,57 @@ function SessionOrdersPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setOrderToReview(null)}>
               Cerrar revisión
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!orderToDeliver} onOpenChange={(open) => {
+        if (!open && !deliveryPending.current) {
+          setOrderToDeliver(null);
+          setDeliveryOtp("");
+          setDeliveryError(null);
+        }
+      }}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:w-full sm:max-w-md max-h-[90dvh] overflow-y-auto border-blue-100">
+          <DialogHeader>
+            <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+              <CheckCircle className="h-6 w-6" />
+            </div>
+            <DialogTitle>Confirmar entrega</DialogTitle>
+            <DialogDescription>
+              Orden #{orderToDeliver?.external_id || orderToDeliver?.id.slice(0, 8)}. Confirma la recepción antes de marcarla como entregada.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-sm text-blue-900">
+              Si la entrega requiere OTP, solicita el código al destinatario. El servidor verificará el código antes de completar la orden.
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="delivery-otp">OTP de entrega (si corresponde)</Label>
+              <Input id="delivery-otp" value={deliveryOtp} onChange={(event) => setDeliveryOtp(event.target.value)}
+                autoComplete="one-time-code" maxLength={128} disabled={delivering || sendingOtp}
+                aria-invalid={!!deliveryError} aria-describedby="delivery-otp-help" />
+              <p id="delivery-otp-help" className="text-xs text-slate-500">Conserva los ceros iniciales. Si no se configuró OTP, puedes confirmar sin código.</p>
+            </div>
+            {(user?.role === "SUPERADMIN" || user?.role === "GERENTE") && (
+              <div className="space-y-2 rounded-lg border border-blue-100 bg-blue-50/60 p-3">
+                <p className="text-sm font-medium text-blue-950">¿El destinatario no tiene su código?</p>
+                <p className="text-xs text-blue-900">Para entregas configuradas con OTP, puedes enviarlo al correo registrado del destinatario. Requiere correo saliente configurado. No compartas el código antes de recibir el pedido.</p>
+                <Button variant="outline" className="w-full border-blue-200 text-blue-800" disabled={sendingOtp || delivering || !!error} onClick={() => void sendOtpEmail()}>
+                  {sendingOtp ? "Enviando código..." : "Enviar OTP por correo"}
+                </Button>
+                {otpEmailNotice && <p role="status" className="text-xs text-blue-900">{otpEmailNotice}</p>}
+              </div>
+            )}
+            {deliveryError && <Alert variant="destructive"><AlertDescription>{deliveryError}</AlertDescription></Alert>}
+          </div>
+          <DialogFooter className="gap-2">
+            {deliveryError && <Button variant="outline" disabled={delivering || sendingOtp} onClick={() => void confirmDelivery(true)}>Consultar estado</Button>}
+            <Button variant="outline" disabled={delivering || sendingOtp} onClick={() => {
+              setOrderToDeliver(null); setDeliveryOtp(""); setDeliveryError(null);
+            }}>Volver</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={delivering || sendingOtp || !!error} onClick={() => void confirmDelivery()}>
+              {delivering ? "Confirmando..." : "Confirmar entrega"}
             </Button>
           </DialogFooter>
         </DialogContent>

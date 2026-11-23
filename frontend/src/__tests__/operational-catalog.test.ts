@@ -153,6 +153,12 @@ it.each(['store', 'service'])('sends new_status in the query and validates the s
   jest.mocked(api.patch).mockResolvedValue(row('wrong', { status: 'EN_RUTA' }));
   await expect(source === 'store' ? useOrdersStore.getState().updateOrderStatus('a', 'EN_RUTA') : orderService.updateStatus('a', 'EN_RUTA')).rejects.toThrow(/otro/);
 });
+it.each(['store', 'service'])('sends delivery OTP as JSON rather than a URL parameter (%s)', async source => {
+  jest.mocked(api.patch).mockResolvedValue(row('otp-order', { status: 'ENTREGADO' }));
+  if (source === 'store') await useOrdersStore.getState().updateOrderStatus('otp-order', 'ENTREGADO', '001234');
+  else await orderService.updateStatus('otp-order', 'ENTREGADO', '001234');
+  expect(api.patch).toHaveBeenCalledWith('/orders/otp-order/status', { otp_code: '001234' }, { params: { new_status: 'ENTREGADO' } });
+});
 it('rejects contradictory assignment identity aliases before publishing success', async () => {
   jest.mocked(api.patch).mockResolvedValue({ ...sample, rider_id: 'wrong' });
   await expect(useOrdersStore.getState().assignRider(sample.id, sample.assigned_rider_id)).rejects.toThrow(/contradictorias/);

@@ -8,7 +8,7 @@ jest.mock('@/services/vehicle.service', () => ({ vehicleService:{ getById:jest.f
 const mockRouter = { push:jest.fn(), back:jest.fn() };
 let mockId = '123e4567-e89b-42d3-a456-426614174000';
 jest.mock('next/navigation', () => ({ useRouter:()=>mockRouter, useParams:()=>({ id:mockId }) }));
-jest.mock('sonner', () => ({ toast:{ success:jest.fn(), error:jest.fn() } }));
+jest.mock('@/lib/feedback', () => ({ toast:{ success:jest.fn(), error:jest.fn() } }));
 jest.mock('@/components/ui/dropdown-menu', () => ({
   DropdownMenu:({ children }: any)=><>{children}</>, DropdownMenuTrigger:()=>null,
   DropdownMenuContent:({ children }: any)=><>{children}</>,

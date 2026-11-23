@@ -11,9 +11,12 @@ import Page from "@/app/(dashboard)/manager/operations/orders/page";
 import { downloadCSV } from "@/lib/csv-export";
 import { api } from "@/lib/api";
 import { clearStoredTokens, storeTokens } from "@/lib/auth-session";
+import { FeedbackHost } from "@/components/layout/FeedbackHost";
+import { clearFeedback } from "@/lib/feedback";
 const mockRouter = { push: jest.fn() };
 let mockUser = { id: "admin-a", role: "SUPERADMIN" };
-jest.mock("next/navigation", () => ({ useRouter: () => mockRouter }));
+jest.mock("next/navigation", () => ({ useRouter: () => mockRouter, usePathname: () => "/manager/operations/orders" }));
+jest.mock("sonner", () => ({ Toaster: () => null, toast: { success: jest.fn(), info: jest.fn(), dismiss: jest.fn() } }));
 jest.mock("@/stores/authStore", () => ({
   useAuthStore: () => ({ user: mockUser }),
 }));
@@ -56,6 +59,7 @@ function deferred<T>() {
 }
 beforeEach(() => {
   jest.resetAllMocks();
+  clearFeedback();
   mockUser = { id: "admin-a", role: "SUPERADMIN" };
   clearStoredTokens();
   storeTokens({ access_token: "orders-a", refresh_token: "refresh-a" });
@@ -71,8 +75,134 @@ beforeEach(() => {
     );
 });
 afterEach(() => {
+  clearFeedback();
   jest.restoreAllMocks();
   clearStoredTokens();
+});
+
+function loadEnRouteOrder() {
+  jest.mocked(api.get).mockImplementation(async (url) =>
+    String(url).startsWith("/orders?") ? [{ ...order, status: "EN_RUTA" }] : [],
+  );
+}
+
+it("waits for the centered confirmation and submits only once after duplicate clicks", async () => {
+  loadEnRouteOrder();
+  jest.mocked(api.patch).mockResolvedValue({ ...order, status: "FALLIDO" });
+  render(<><Page /><FeedbackHost /></>);
+  const action = await screen.findByRole("button", { name: "FALLIDO" });
+  fireEvent.click(action);
+  fireEvent.click(action);
+  const confirmation = screen.getByRole("alertdialog");
+  expect(api.patch).not.toHaveBeenCalled();
+  fireEvent.click(within(confirmation).getByRole("button", { name: "Confirmar" }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+  expect(api.patch).toHaveBeenCalledWith("/orders/order-1/status", {}, { params: { new_status: "FALLIDO" } });
+});
+
+it("collects delivery OTP in a dialog and sends it in JSON preserving leading zeros", async () => {
+  loadEnRouteOrder();
+  jest.mocked(api.patch).mockResolvedValue({ ...order, status: "ENTREGADO" });
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "ENTREGADO" }));
+  expect(api.patch).not.toHaveBeenCalled();
+  const dialog = screen.getByRole("dialog");
+  fireEvent.change(within(dialog).getByLabelText("OTP de entrega (si corresponde)"), { target: { value: "001234" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar entrega" }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith("/orders/order-1/status", { otp_code: "001234" }, { params: { new_status: "ENTREGADO" } }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+});
+
+it("explicitly emails the recipient code once without completing the order", async () => {
+  loadEnRouteOrder();
+  const request = deferred<unknown>();
+  jest.mocked(api.post).mockReturnValue(request.promise as any);
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "ENTREGADO" }));
+  const dialog = screen.getByRole("dialog");
+  const send = within(dialog).getByRole("button", { name: "Enviar OTP por correo" });
+  fireEvent.click(send);
+  fireEvent.click(send);
+  expect(api.post).toHaveBeenCalledTimes(1);
+  expect(api.post).toHaveBeenCalledWith("/orders/order-1/delivery-otp/email");
+  expect(within(dialog).getByRole("button", { name: "Confirmar entrega" })).toBeDisabled();
+  await act(async () => request.resolve({ status: "accepted", channel: "EMAIL", message: "Correo aceptado; revisa tu bandeja." }));
+  expect(within(dialog).getByRole("status")).toHaveTextContent("Correo aceptado");
+  expect(api.patch).not.toHaveBeenCalled();
+  expect(within(dialog).getByLabelText("OTP de entrega (si corresponde)")).toHaveValue("");
+});
+
+it("keeps transport failures visible without completing the order or inventing a code", async () => {
+  loadEnRouteOrder();
+  jest.mocked(api.post).mockRejectedValue({ response: { status: 503, data: { detail: "Correo no configurado" } } });
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "ENTREGADO" }));
+  const dialog = screen.getByRole("dialog");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Enviar OTP por correo" }));
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("Correo no configurado");
+  expect(api.patch).not.toHaveBeenCalled();
+  expect(within(dialog).queryByRole("status")).not.toBeInTheDocument();
+});
+
+it("does not offer staff recipient mail to an operator", async () => {
+  mockUser = { ...mockUser, role: "OPERADOR" };
+  loadEnRouteOrder();
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "ENTREGADO" }));
+  expect(screen.queryByRole("button", { name: "Enviar OTP por correo" })).not.toBeInTheDocument();
+});
+
+it("does not report email success from a previous session", async () => {
+  loadEnRouteOrder();
+  const request = deferred<unknown>();
+  jest.mocked(api.post).mockReturnValue(request.promise as any);
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "ENTREGADO" }));
+  fireEvent.click(screen.getByRole("button", { name: "Enviar OTP por correo" }));
+  await act(async () => { clearStoredTokens(); });
+  await act(async () => request.resolve({ status: "accepted", channel: "EMAIL", message: "Resultado de cuenta anterior" }));
+  expect(screen.queryByText("Resultado de cuenta anterior")).not.toBeInTheDocument();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(api.patch).not.toHaveBeenCalled();
+});
+
+it("rejects an unconfirmed email response without claiming success", async () => {
+  loadEnRouteOrder();
+  jest.mocked(api.post).mockResolvedValue({ status: "sent", channel: "EMAIL", message: "Éxito inventado" });
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "ENTREGADO" }));
+  fireEvent.click(screen.getByRole("button", { name: "Enviar OTP por correo" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo confirmar la aceptación");
+  expect(screen.queryByText("Éxito inventado")).not.toBeInTheDocument();
+});
+
+it("keeps OTP errors in the dialog and allows correction before retrying", async () => {
+  loadEnRouteOrder();
+  jest.mocked(api.patch).mockRejectedValueOnce({ response: { status: 400, data: { detail: "Código OTP requerido o incorrecto" } } }).mockResolvedValueOnce({ ...order, status: "ENTREGADO" });
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "ENTREGADO" }));
+  const dialog = screen.getByRole("dialog");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar entrega" }));
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("Código OTP requerido o incorrecto");
+  expect(api.patch).toHaveBeenCalledTimes(1);
+  fireEvent.change(within(dialog).getByLabelText("OTP de entrega (si corresponde)"), { target: { value: "001234" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar entrega" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(api.patch).toHaveBeenCalledTimes(2);
+});
+
+it("recovers a lost delivery response by reading status without a second mutation", async () => {
+  loadEnRouteOrder();
+  jest.mocked(api.patch).mockRejectedValue(new Error("Respuesta perdida"));
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "ENTREGADO" }));
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirmar entrega" }));
+  const read = await screen.findByRole("button", { name: "Consultar estado" });
+  jest.mocked(api.get).mockImplementation(async (url) => String(url) === "/orders/order-1" ? { ...order, status: "ENTREGADO" } : []);
+  fireEvent.click(read);
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(api.patch).toHaveBeenCalledTimes(1);
+  expect(api.get).toHaveBeenCalledWith("/orders/order-1");
 });
 it("renders real validated orders for superadmin", async () => {
   render(<Page />);

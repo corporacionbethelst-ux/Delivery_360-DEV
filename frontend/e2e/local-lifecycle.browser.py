@@ -88,7 +88,13 @@ def main():
             contexts.append(context)
             page = context.new_page()
             page.on("pageerror", lambda error: errors.append(str(error)))
-            page.on("dialog", lambda dialog: dialog.accept())
+            page.on(
+                "dialog",
+                lambda dialog: (
+                    errors.append("Native browser dialog displayed"),
+                    dialog.dismiss(),
+                ),
+            )
             page.goto(base + "/login", wait_until="domcontentloaded")
             page.locator("input[type=email]").fill(account["email"])
             page.locator("input[type=password]").fill(account["password"])
@@ -309,17 +315,100 @@ def main():
                 )
             else:
                 advance(delivery_id)
-                assert (
-                    call(operator, operations, "GET", "/orders/" + order_id)["status"]
-                    == "EN_RUTA"
-                )
-                call(
-                    rider_page,
-                    own,
-                    "POST",
-                    "/deliveries/" + delivery_id + "/complete",
-                    data={"customer_name_received": "Prueba"},
-                )
+                current_order = call(operator, operations, "GET", "/orders/" + order_id)
+                assert current_order["status"] == "EN_RUTA"
+                if index == 1:
+                    sql(
+                        "UPDATE deliveries SET proof_type='OTP', proof_otp='001234' WHERE id='"
+                        + delivery_id
+                        + "'"
+                    )
+                    admin.goto(
+                        base + "/manager/operations/orders",
+                        wait_until="domcontentloaded",
+                    )
+                    search = admin.get_by_role(
+                        "textbox", name="Buscar órdenes", exact=True
+                    )
+                    search.fill(current_order.get("external_id") or order_id)
+                    admin.get_by_role("button", name="ENTREGADO", exact=True).click()
+                    dialog = admin.get_by_role("dialog")
+
+                    def status_response(response):
+                        return (
+                            "/orders/" + order_id + "/status" in response.url
+                            and response.request.method == "PATCH"
+                        )
+
+                    with admin.expect_response(status_response) as missing_otp:
+                        dialog.get_by_role(
+                            "button", name="Confirmar entrega", exact=True
+                        ).click()
+                    assert missing_otp.value.status == 400
+                    expect(dialog.get_by_role("alert")).to_contain_text(
+                        "Código OTP requerido o incorrecto"
+                    )
+                    assert (
+                        sql(
+                            "SELECT status::text FROM orders WHERE id='"
+                            + order_id
+                            + "'"
+                        )
+                        == "EN_RUTA"
+                    )
+                    otp = dialog.get_by_label("OTP de entrega (si corresponde)")
+                    otp.fill("999999")
+                    with admin.expect_response(status_response) as wrong_otp:
+                        dialog.get_by_role(
+                            "button", name="Confirmar entrega", exact=True
+                        ).click()
+                    assert wrong_otp.value.status == 400
+                    expect(dialog.get_by_role("alert")).to_contain_text(
+                        "Código OTP requerido o incorrecto"
+                    )
+                    assert (
+                        sql(
+                            "SELECT status::text FROM orders WHERE id='"
+                            + order_id
+                            + "'"
+                        )
+                        == "EN_RUTA"
+                    )
+                    admin.set_viewport_size({"width": 390, "height": 844})
+                    otp.fill("001234")
+                    admin.screenshot(
+                        path=str(out / "manager-delivery-otp-mobile.png"),
+                        animations="disabled",
+                    )
+                    with admin.expect_response(status_response) as accepted_otp:
+                        dialog.get_by_role(
+                            "button", name="Confirmar entrega", exact=True
+                        ).click()
+                    assert accepted_otp.value.status == 200
+                    assert "otp_code" not in accepted_otp.value.url
+                    assert accepted_otp.value.request.post_data_json == {
+                        "otp_code": "001234"
+                    }
+                    expect(dialog).to_have_count(0)
+                    notice = admin.get_by_text(
+                        "Entrega registrada correctamente.", exact=True
+                    )
+                    expect(notice).to_be_visible()
+                    assert notice.evaluate(
+                        "el => el.getBoundingClientRect().top > innerHeight / 2"
+                    )
+                    admin.set_viewport_size({"width": 1440, "height": 1000})
+                    passed(
+                        "manager completes a real order with JSON OTP after rejecting missing and wrong codes"
+                    )
+                else:
+                    call(
+                        rider_page,
+                        own,
+                        "POST",
+                        "/deliveries/" + delivery_id + "/complete",
+                        data={"customer_name_received": "Prueba"},
+                    )
             order = call(operator, operations, "GET", "/orders/" + order_id)
             assert (
                 order["status"] == "ENTREGADO"

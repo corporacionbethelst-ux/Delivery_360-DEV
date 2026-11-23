@@ -1,4 +1,5 @@
 'use client';
+import { showAlert } from "@/lib/feedback";
 
 import React, { useState, useRef, FormEvent } from 'react';
 import { Camera, Signature, CheckCircle, AlertCircle } from 'lucide-react';
@@ -38,7 +39,7 @@ export function ProofOfDelivery({ delivery, onSubmit }: ProofOfDeliveryProps) {
     e.preventDefault();
     
     if (!customerName.trim()) {
-      alert('Por favor ingrese el nombre del receptor');
+      showAlert('Por favor ingrese el nombre del receptor');
       return;
     }
 

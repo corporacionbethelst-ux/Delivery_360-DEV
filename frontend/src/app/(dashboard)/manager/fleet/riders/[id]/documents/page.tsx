@@ -9,7 +9,9 @@ import {
   ShieldCheck,
   Upload,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/feedback";
+import { confirmAction } from "@/lib/feedback";
+import { capturePrivateTask } from "@/lib/private-task";
 import { ManagerPageBoundary } from "@/components/layout/ManagerPageBoundary";
 import { DocumentDownloadButton } from "@/components/DocumentDownloadButton";
 import {
@@ -87,7 +89,8 @@ function Documents({ id }: { id: string }) {
   const alive = useRef(false),
     sequence = useRef(0),
     writing = useRef(false),
-    reading = useRef(false);
+    reading = useRef(false),
+    confirming = useRef(false);
   const load = useCallback(async () => {
     const ticket = ++sequence.current;
     reading.current = true;
@@ -187,36 +190,33 @@ function Documents({ id }: { id: string }) {
       if (alive.current) setPending(false);
     }
   };
-  const approve = (doc: RiderDocument) => {
+  const reviewWithConfirmation = async (doc: RiderDocument, remove: boolean) => {
+    if (confirming.current) return;
     const snapshot = snapshotForReview(doc);
-    if (
-      !snapshot ||
-      !window.confirm(
-        `¿Aprobar ${snapshot.label}? Documento: ${snapshot.id}. Repartidor: ${id}.`,
-      )
-    )
-      return;
-    void perform(
-      () => riderService.approveDocument(snapshot.id, snapshot.revision),
-      "Documento aprobado correctamente",
-      () => {},
-    );
+    if (!snapshot) return;
+    confirming.current = true;
+    try {
+      const task = capturePrivateTask();
+      const accepted = await confirmAction(
+        `${remove ? "¿Eliminar" : "¿Aprobar"} ${snapshot.label}? Documento: ${snapshot.id}. Repartidor: ${id}.${remove ? " Su referencia se eliminará permanentemente." : ""}`,
+        remove ? "Eliminar documento" : "Aprobar documento",
+      );
+      if (!accepted || !task.isCurrent() || !alive.current) return;
+      await perform(
+        () => remove
+          ? riderService.deleteDocument(snapshot.id, snapshot.revision)
+          : riderService.approveDocument(snapshot.id, snapshot.revision),
+        remove ? "Documento eliminado" : "Documento aprobado correctamente",
+        () => {},
+      );
+    } catch {
+      // A session invalidated before opening must never start a review.
+    } finally {
+      confirming.current = false;
+    }
   };
-  const remove = (doc: RiderDocument) => {
-    const snapshot = snapshotForReview(doc);
-    if (
-      !snapshot ||
-      !window.confirm(
-        `¿Eliminar ${snapshot.label}? Documento: ${snapshot.id}. Repartidor: ${id}. Su referencia se eliminará permanentemente.`,
-      )
-    )
-      return;
-    void perform(
-      () => riderService.deleteDocument(snapshot.id, snapshot.revision),
-      "Documento eliminado",
-      () => {},
-    );
-  };
+  const approve = (doc: RiderDocument) => { void reviewWithConfirmation(doc, false); };
+  const remove = (doc: RiderDocument) => { void reviewWithConfirmation(doc, true); };
   const reject = () => {
     const snapshot = rejection,
       text = reason.trim();

@@ -54,7 +54,7 @@ import {
   VehicleType,
   VehicleStatus,
 } from "@/services/vehicle.service";
-import { toast } from "sonner";
+import { toast } from "@/lib/feedback";
 import {
   OperationNotice,
   OperationsHeader,

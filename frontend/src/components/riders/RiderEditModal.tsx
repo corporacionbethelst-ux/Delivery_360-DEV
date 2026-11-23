@@ -25,7 +25,7 @@ import type { Vehicle } from '@/services/vehicle.service';
 import { vehicleService } from '@/services/vehicle.service';
 import { riderService, type UpdateRiderPayload } from '@/services/rider.service';
 import { isAssignmentConflict, requireAssignmentRevision } from '@/lib/assignment-revision';
-import { toast } from 'sonner';
+import { toast } from '@/lib/feedback';
 import { requireProfileRevision } from '@/lib/profile-revision';
 import { requireVehicleRevision } from '@/lib/vehicle-revision';
 

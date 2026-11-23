@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/form";
 import { useRidersStore } from "@/stores/ridersStore";
 import { vehicleService, type Vehicle } from "@/services/vehicle.service";
-import { toast } from "sonner";
+import { toast } from "@/lib/feedback";
 import type { CreateRiderPayload } from "@/services/rider.service";
 import {
   requireVehicleRevision,

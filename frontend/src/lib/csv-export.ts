@@ -1,3 +1,4 @@
+import { toast } from "@/lib/feedback";
 /** Encode spreadsheet text as literal cells; numeric negatives remain numbers. */
 function csvCell(value: unknown): string {
   if (value == null) return '""';
@@ -17,7 +18,7 @@ export function serializeCSV(data: ReadonlyArray<Record<string, unknown>>): stri
 }
 
 export function downloadCSV(data: ReadonlyArray<Record<string, unknown>>, filename: string): boolean {
-  if (!data.length) { alert('No hay datos para exportar'); return false; }
+  if (!data.length) { toast.info('No hay datos para exportar'); return false; }
   const content = serializeCSV(data);
   const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -30,6 +31,7 @@ export function downloadCSV(data: ReadonlyArray<Record<string, unknown>>, filena
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
+    toast.info('Archivo CSV preparado');
     return true;
   } finally {
     link?.remove();

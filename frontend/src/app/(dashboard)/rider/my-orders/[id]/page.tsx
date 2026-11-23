@@ -1,4 +1,5 @@
 "use client";
+import { showAlert, toast } from "@/lib/feedback";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -294,10 +295,10 @@ export default function RiderOrderDetailPage() {
       }
 
       await loadOrderData();
-      alert(`Estado actualizado correctamente a: ${newStatus}`);
+      toast.success(`Estado actualizado correctamente a: ${newStatus}`);
     } catch (err: any) {
       console.error("Error actualizando estado:", err);
-      alert(err.message || "Error al actualizar el estado de la entrega");
+      showAlert(err.message || "Error al actualizar el estado de la entrega");
     } finally {
       setActionLoading(null);
       setShowFailModal(false);

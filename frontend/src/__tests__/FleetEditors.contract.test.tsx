@@ -25,7 +25,7 @@ jest.mock("@/components/zones/ZoneBonusFactorEditor", () => ({
 jest.mock("@/components/zones/ZoneTariffEditor", () => ({
   ZoneTariffEditor: () => <div data-testid="independent-tariff-editor" />,
 }));
-jest.mock("sonner", () => ({
+jest.mock("@/lib/feedback", () => ({
   toast: { error: jest.fn(), success: jest.fn() },
 }));
 jest.mock("@/services/vehicle.service", () => ({

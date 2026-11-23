@@ -1,6 +1,9 @@
 'use client';
+import { showAlert, toast } from "@/lib/feedback";
+import { confirmAction } from "@/lib/feedback";
+import { capturePrivateTask } from "@/lib/private-task";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Webhook, 
   Plus, 
@@ -57,6 +60,7 @@ const AVAILABLE_EVENTS: WebhookEventOption[] = [
 ];
 
 export default function WebhookManager() {
+  const deleting = useRef(false);
   const { isAuthenticated } = useAuthStore();
   
   // Estados principales
@@ -128,13 +132,21 @@ export default function WebhookManager() {
 
   // 3. Eliminar
   async function handleDelete(id: string) {
-    if (!confirm('¿Estás seguro? Esta acción no se puede deshacer.')) return;
-    
+    if (deleting.current) return;
+    deleting.current = true;
+    let task: ReturnType<typeof capturePrivateTask> | undefined;
     try {
+      task = capturePrivateTask();
+      if (!(await confirmAction('¿Eliminar este webhook? Esta acción no se puede deshacer.', 'Eliminar webhook')) || !task.isCurrent()) return;
       await api.delete(`/webhooks/${id}`);
+      task.assertCurrent();
       setWebhooks(prev => prev.filter(w => w.id !== id));
     } catch (err: any) {
+      if (!task?.isCurrent()) return;
       setError('Error al eliminar el webhook');
+      showAlert('No se pudo eliminar el webhook.');
+    } finally {
+      deleting.current = false;
     }
   }
 
@@ -142,9 +154,9 @@ export default function WebhookManager() {
   async function handleTest(webhook: WebhookConfig) {
     try {
       await api.post(`/webhooks/${webhook.id}/test`);
-      alert(`Evento de prueba enviado a ${webhook.name}`);
+      toast.success(`Evento de prueba enviado a ${webhook.name}`);
     } catch (err: any) {
-      alert('Error enviando evento de prueba: ' + (err.response?.data?.message || err.message));
+      showAlert('Error enviando evento de prueba: ' + (err.response?.data?.message || err.message));
     }
   }
 
