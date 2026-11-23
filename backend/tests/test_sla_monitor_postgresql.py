@@ -19,7 +19,10 @@ from app.models.notification import (
     Notification,
     NotificationLog,
     NotificationPreference,
+    NotificationTemplate,
+    UserDeviceToken,
     NotificationChannel,
+    OmnichannelStatus,
     Alert,
 )
 from app.models.order import Order, OrderStatus
@@ -39,7 +42,14 @@ async def sla_db(cancel_db, monkeypatch):
     client, sessions, ids = cancel_db
     monkeypatch.setattr(settings, "NOTIFICATIONS_ENABLED", True)
     tables = {
-        m.__table__ for m in (Notification, NotificationLog, NotificationPreference)
+        m.__table__
+        for m in (
+            Notification,
+            NotificationLog,
+            NotificationPreference,
+            NotificationTemplate,
+            UserDeviceToken,
+        )
     }
     while True:
         expanded = tables | {
@@ -408,8 +418,19 @@ async def test_assignment_records_notification_for_user_without_lazy_rider_relat
     )
     assert response.status_code == 200, response.text
     async with sessions() as db:
-        records = list((await db.scalars(select(Notification))).all())
+        records = list(
+            (
+                await db.scalars(
+                    select(NotificationLog).where(
+                        NotificationLog.template_code == "nuevo_pedido_asignado",
+                        NotificationLog.channel == NotificationChannel.IN_APP,
+                    )
+                )
+            ).all()
+        )
         assert len(records) == 1
         assert records[0].user_id == ids["owner"]
-        assert records[0].notification_type.value == "ASIGNACION_PEDIDO"
-        assert records[0].is_sent is False and records[0].sent_at is None
+        assert records[0].delivery_id == ids["delivery"]
+        assert records[0].status == OmnichannelStatus.ENVIADO
+        assert records[0].sent_at is not None and records[0].read_at is None
+        assert records[0].next_retry_at is None

@@ -746,6 +746,41 @@ class OmnichannelNotificationService:
         if not user.is_active:
             self._stop_queued_log(log, "Cuenta inactiva en reintento")
             return
+        if log.template_code == "nuevo_pedido_asignado":
+            from app.models.user import UserRole
+            from app.models.order import Order, OrderStatus
+            from app.models.delivery import Delivery, DeliveryStatus
+            from app.models.rider import Rider
+
+            current_assignment = await self.db.scalar(
+                select(Delivery.id)
+                .join(Order, Order.id == Delivery.order_id)
+                .join(Rider, Rider.id == Delivery.rider_id)
+                .where(
+                    Delivery.id == log.delivery_id,
+                    Rider.user_id == user.id,
+                    Order.assigned_rider_id == Delivery.rider_id,
+                    Order.status.in_(
+                        (
+                            OrderStatus.ASIGNADO,
+                            OrderStatus.RECOLECTADO,
+                            OrderStatus.EN_RUTA,
+                        )
+                    ),
+                    Delivery.status.not_in(
+                        (
+                            DeliveryStatus.COMPLETADA,
+                            DeliveryStatus.FALLIDA,
+                            DeliveryStatus.CANCELADA,
+                        )
+                    ),
+                )
+            )
+            if user.role != UserRole.REPARTIDOR or current_assignment is None:
+                self._stop_queued_log(
+                    log, "La asignación ya no está vigente para el destinatario"
+                )
+                return
         if log.template_code:
             # Read scalar policy values from SQL, bypassing template/ORM caches.
             # A NULL template_code remains supported for legacy persisted logs.

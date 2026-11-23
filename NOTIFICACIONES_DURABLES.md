@@ -1,4 +1,12 @@
-# Avisos duraderos de retiros
+# Avisos duraderos de retiros y asignaciones
+
+La entrega 119 incorpora las asignaciones: el aviso IN_APP y la cola externa
+permitida se guardan junto con orden, entrega y auditoría. Cada asignación real
+tiene un identificador de evento propio; repetirla sin cambios no crea otro
+aviso. Se reutiliza el consumidor descrito aquí. Antes de un intento externo se
+comprueban destinatario y asignación vigente, además de las políticas generales.
+La campana recupera la bandeja al abrirse; la señal WebSocket posterior al commit
+de asignación sigue pendiente. Ver ENTREGA_119.md para alcance y pruebas.
 
 Las solicitudes y decisiones nuevas guardan sus comprobantes IN_APP en notification_logs, en la transacción del retiro. La solicitud conserva además su aviso legacy por compatibilidad. La campana lee la bandeja actual; no combina dos comprobantes del mismo origen. No se convierten avisos anteriores ni se reenvía automáticamente el historial.
 
