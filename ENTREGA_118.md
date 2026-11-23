@@ -1,5 +1,13 @@
 # Delivery360 — entrega 118
 
+## Emisión y comunicación del OTP por correo
+
+Se incorpora **Enviar OTP por correo** dentro de Confirmar entrega para Gerente/Superadmin. Es una acción explícita para órdenes en ruta con una entrega OTP coherente. Genera seis dígitos criptográficamente aleatorios solo cuando falta el código, conserva códigos existentes y confirma el código antes de contactar al transporte SMTP. Nunca revela el código esperado al gerente ni al repartidor en una respuesta de API.
+
+Se registra solicitud y resultado de transporte en auditoría, sin código ni dirección del destinatario. El bloqueo de orden y la auditoría persistida impiden dos envíos simultáneos y limitan reintentos a uno por minuto. Una respuesta SMTP aceptada no se presenta como recepción confirmada. Los errores permanecen en el modal; enviar correo no cierra ni paga la orden. Ver [OTP_ENTREGA.md](OTP_ENTREGA.md) para configuración y uso.
+
+El correo necesita SMTP configurado y un correo válido del destinatario. No se han enviado mensajes reales ni cambiado datos originales durante el desarrollo. No se fuerza OTP en entregas sin esa modalidad, ni se habilitan WhatsApp/SMS o consultas manuales del código.
+
 ## Presentación solicitada de mensajes
 
 Se añade un host central para errores y confirmaciones en modales centrados, con mensajes informativos y resultados correctos abajo a la derecha. Se sustituyen alert/confirm nativos y se conservan las confirmaciones de negocio existentes. Las elecciones asíncronas se cancelan al cambiar de sesión y se protegen frente a dobles invocaciones. Se comprueba cancelación sin mutación y posición real en Chromium. Ver MENSAJES_INTERFAZ.md. Este bloque no define una excepción ni emisión de OTP.
@@ -16,7 +24,7 @@ La API acepta opcionalmente {"otp_code":"…"} en JSON, sin añadir el código a
 
 En /manager/operations/orders, para una orden En ruta, pulsa ENTREGADO, introduce el código real si la entrega lo requiere y confirma. Si el código es incorrecto, corrígelo en el mismo diálogo. Si no queda clara la confirmación por un problema de conexión, utiliza Consultar estado antes de volver a enviarla.
 
-Una entrega sin OTP configurado conserva el cierre sin código. Una entrega con OTP requerido, pero ausente o desconocido, necesita revisar su configuración/origen: esta entrega no inventa códigos, no los muestra desde la base y no desactiva la verificación. No se han modificado las órdenes originales del usuario. No hay migración nueva.
+Una entrega sin OTP configurado conserva el cierre sin código. Una entrega con prueba OTP y código ausente o desconocido puede usar el envío explícito al correo del destinatario si SMTP está configurado. No se desactiva la verificación ni se muestran códigos en los catálogos. No se han modificado las órdenes originales del usuario. No hay migración nueva.
 
 ## Aceptación
 

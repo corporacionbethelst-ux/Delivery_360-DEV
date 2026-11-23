@@ -475,6 +475,16 @@ export const orderService = {
   /**
    * Cancelar orden con motivo
    */
+  sendDeliveryOtpEmail: async (id: string): Promise<string> => {
+    if (!id) throw new Error("ID de orden requerido");
+    const response = await api.post(`/orders/${encodeURIComponent(id)}/delivery-otp/email`);
+    const data = extractData<{ status: string; channel: string; message: string }>(response);
+    if (data?.status !== "accepted" || data.channel !== "EMAIL" || typeof data.message !== "string") {
+      throw new Error("No se pudo confirmar la aceptación del correo de entrega");
+    }
+    return data.message;
+  },
+
   cancel: async (id: string, reason?: string): Promise<Order> => {
     if (!id) throw new Error("[OrderService] ID requerido para cancelar");
     if (typeof reason !== "string" || !isCancellationReasonValid(reason)) {

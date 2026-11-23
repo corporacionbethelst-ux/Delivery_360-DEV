@@ -1,0 +1,62 @@
+{
+  "openapi": {
+    "post": {
+      "tags": [
+        "Orders"
+      ],
+      "summary": "Send Delivery Otp Email",
+      "operationId": "send_delivery_otp_email_api_v1_orders__order_id__delivery_otp_email_post",
+      "security": [
+        {
+          "OAuth2PasswordBearer": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "order_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Order Id"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "route": {
+    "path": "/api/v1/orders/{order_id}/delivery-otp/email",
+    "name": "send_delivery_otp_email",
+    "route_class": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "dependency_contract": "4a9441d48799b22a651938ce754b677bafcf1b5a0af4f737db11d5220a686647",
+    "status_code": null,
+    "tags": [
+      "Orders"
+    ],
+    "include_in_schema": true
+  }
+}

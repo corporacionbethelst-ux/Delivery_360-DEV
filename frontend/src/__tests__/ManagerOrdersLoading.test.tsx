@@ -113,6 +113,69 @@ it("collects delivery OTP in a dialog and sends it in JSON preserving leading ze
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 });
 
+it("explicitly emails the recipient code once without completing the order", async () => {
+  loadEnRouteOrder();
+  const request = deferred<unknown>();
+  jest.mocked(api.post).mockReturnValue(request.promise as any);
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "ENTREGADO" }));
+  const dialog = screen.getByRole("dialog");
+  const send = within(dialog).getByRole("button", { name: "Enviar OTP por correo" });
+  fireEvent.click(send);
+  fireEvent.click(send);
+  expect(api.post).toHaveBeenCalledTimes(1);
+  expect(api.post).toHaveBeenCalledWith("/orders/order-1/delivery-otp/email");
+  expect(within(dialog).getByRole("button", { name: "Confirmar entrega" })).toBeDisabled();
+  await act(async () => request.resolve({ status: "accepted", channel: "EMAIL", message: "Correo aceptado; revisa tu bandeja." }));
+  expect(within(dialog).getByRole("status")).toHaveTextContent("Correo aceptado");
+  expect(api.patch).not.toHaveBeenCalled();
+  expect(within(dialog).getByLabelText("OTP de entrega (si corresponde)")).toHaveValue("");
+});
+
+it("keeps transport failures visible without completing the order or inventing a code", async () => {
+  loadEnRouteOrder();
+  jest.mocked(api.post).mockRejectedValue({ response: { status: 503, data: { detail: "Correo no configurado" } } });
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "ENTREGADO" }));
+  const dialog = screen.getByRole("dialog");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Enviar OTP por correo" }));
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("Correo no configurado");
+  expect(api.patch).not.toHaveBeenCalled();
+  expect(within(dialog).queryByRole("status")).not.toBeInTheDocument();
+});
+
+it("does not offer staff recipient mail to an operator", async () => {
+  mockUser = { ...mockUser, role: "OPERADOR" };
+  loadEnRouteOrder();
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "ENTREGADO" }));
+  expect(screen.queryByRole("button", { name: "Enviar OTP por correo" })).not.toBeInTheDocument();
+});
+
+it("does not report email success from a previous session", async () => {
+  loadEnRouteOrder();
+  const request = deferred<unknown>();
+  jest.mocked(api.post).mockReturnValue(request.promise as any);
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "ENTREGADO" }));
+  fireEvent.click(screen.getByRole("button", { name: "Enviar OTP por correo" }));
+  await act(async () => { clearStoredTokens(); });
+  await act(async () => request.resolve({ status: "accepted", channel: "EMAIL", message: "Resultado de cuenta anterior" }));
+  expect(screen.queryByText("Resultado de cuenta anterior")).not.toBeInTheDocument();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(api.patch).not.toHaveBeenCalled();
+});
+
+it("rejects an unconfirmed email response without claiming success", async () => {
+  loadEnRouteOrder();
+  jest.mocked(api.post).mockResolvedValue({ status: "sent", channel: "EMAIL", message: "Éxito inventado" });
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "ENTREGADO" }));
+  fireEvent.click(screen.getByRole("button", { name: "Enviar OTP por correo" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo confirmar la aceptación");
+  expect(screen.queryByText("Éxito inventado")).not.toBeInTheDocument();
+});
+
 it("keeps OTP errors in the dialog and allows correction before retrying", async () => {
   loadEnRouteOrder();
   jest.mocked(api.patch).mockRejectedValueOnce({ response: { status: 400, data: { detail: "Código OTP requerido o incorrecto" } } }).mockResolvedValueOnce({ ...order, status: "ENTREGADO" });

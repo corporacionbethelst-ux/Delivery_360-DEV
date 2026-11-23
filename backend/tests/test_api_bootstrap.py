@@ -84,6 +84,13 @@ CURRENCY_PATHS = {
 
 def before_currency_schema(application):
     schema = deepcopy(application.openapi())
+    otp_delta = json.loads(
+        (Path(__file__).parent / "fixtures/delivery_otp_email_delta.json").read_text()
+    )
+    assert (
+        schema["paths"].pop("/api/v1/orders/{order_id}/delivery-otp/email")
+        == otp_delta["openapi"]
+    )
     # Review the additive OTP body explicitly; every preexisting field remains
     # covered by the historical OpenAPI hashes and dependency inventories.
     assert schema["paths"]["/api/v1/orders/{order_id}/status"]["patch"].pop(
@@ -219,6 +226,16 @@ def before_currency_schema(application):
 
 def surface_before_currency(application):
     current = api_surface(application)
+    otp_delta = json.loads(
+        (Path(__file__).parent / "fixtures/delivery_otp_email_delta.json").read_text()
+    )
+    added = [
+        row
+        for row in current["routes"]
+        if row["path"] == "/api/v1/orders/{order_id}/delivery-otp/email"
+    ]
+    assert added == [otp_delta["route"]]
+    current["routes"] = [row for row in current["routes"] if row not in added]
     removed = [
         row
         for row in current["routes"]

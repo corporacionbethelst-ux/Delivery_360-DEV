@@ -837,6 +837,17 @@ async def assign_rider(
     return _order_to_dict(refreshed.scalar_one())
 
 
+@router.post("/{order_id}/delivery-otp/email")
+async def send_delivery_otp_email(
+    order_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+):
+    from app.services.delivery_otp import email_delivery_otp
+
+    return await email_delivery_otp(db, order_id, current_user)
+
+
 @router.patch("/{order_id}/status")
 async def update_status(
     order_id: str,

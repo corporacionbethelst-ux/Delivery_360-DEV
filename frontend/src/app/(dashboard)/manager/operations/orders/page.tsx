@@ -104,6 +104,7 @@ function loadFailure(error: unknown): string {
 }
 
 function SessionOrdersPage() {
+  const { user } = useAuthStore();
   const requestSequence = useRef(0);
   useEffect(
     () => () => {
@@ -145,6 +146,8 @@ function SessionOrdersPage() {
   const [orderToDeliver, setOrderToDeliver] = useState<OperationalHttpOrder | null>(null);
   const [deliveryOtp, setDeliveryOtp] = useState("");
   const [delivering, setDelivering] = useState(false);
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [otpEmailNotice, setOtpEmailNotice] = useState<string | null>(null);
   const deliveryPending = useRef(false);
   const quickStatusPending = useRef(false);
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
@@ -369,6 +372,7 @@ function SessionOrdersPage() {
       if (!order || order.status !== "EN_RUTA") return;
       setDeliveryOtp("");
       setDeliveryError(null);
+      setOtpEmailNotice(null);
       setOrderToDeliver(order);
       return;
     }
@@ -390,6 +394,27 @@ function SessionOrdersPage() {
       );
     } finally {
       quickStatusPending.current = false;
+    }
+  };
+
+  const sendOtpEmail = async () => {
+    if (!orderToDeliver || deliveryPending.current || error) return;
+    deliveryPending.current = true;
+    setSendingOtp(true);
+    setDeliveryError(null);
+    setOtpEmailNotice(null);
+    let task: ReturnType<typeof capturePrivateTask> | undefined;
+    try {
+      task = capturePrivateTask();
+      const message = await orderService.sendDeliveryOtpEmail(orderToDeliver.id);
+      task.assertCurrent();
+      setOtpEmailNotice(message);
+      toast.info(message);
+    } catch (err: unknown) {
+      if (task?.isCurrent()) setDeliveryError(loadFailure(err).replace(/^HTTP \d+: /, ""));
+    } finally {
+      deliveryPending.current = false;
+      if (task?.isCurrent()) setSendingOtp(false);
     }
   };
 
@@ -1149,18 +1174,28 @@ function SessionOrdersPage() {
             <div className="space-y-2">
               <Label htmlFor="delivery-otp">OTP de entrega (si corresponde)</Label>
               <Input id="delivery-otp" value={deliveryOtp} onChange={(event) => setDeliveryOtp(event.target.value)}
-                autoComplete="one-time-code" maxLength={128} disabled={delivering}
+                autoComplete="one-time-code" maxLength={128} disabled={delivering || sendingOtp}
                 aria-invalid={!!deliveryError} aria-describedby="delivery-otp-help" />
               <p id="delivery-otp-help" className="text-xs text-slate-500">Conserva los ceros iniciales. Si no se configuró OTP, puedes confirmar sin código.</p>
             </div>
+            {(user?.role === "SUPERADMIN" || user?.role === "GERENTE") && (
+              <div className="space-y-2 rounded-lg border border-blue-100 bg-blue-50/60 p-3">
+                <p className="text-sm font-medium text-blue-950">¿El destinatario no tiene su código?</p>
+                <p className="text-xs text-blue-900">Para entregas configuradas con OTP, puedes enviarlo al correo registrado del destinatario. Requiere correo saliente configurado. No compartas el código antes de recibir el pedido.</p>
+                <Button variant="outline" className="w-full border-blue-200 text-blue-800" disabled={sendingOtp || delivering || !!error} onClick={() => void sendOtpEmail()}>
+                  {sendingOtp ? "Enviando código..." : "Enviar OTP por correo"}
+                </Button>
+                {otpEmailNotice && <p role="status" className="text-xs text-blue-900">{otpEmailNotice}</p>}
+              </div>
+            )}
             {deliveryError && <Alert variant="destructive"><AlertDescription>{deliveryError}</AlertDescription></Alert>}
           </div>
           <DialogFooter className="gap-2">
-            {deliveryError && <Button variant="outline" disabled={delivering} onClick={() => void confirmDelivery(true)}>Consultar estado</Button>}
-            <Button variant="outline" disabled={delivering} onClick={() => {
+            {deliveryError && <Button variant="outline" disabled={delivering || sendingOtp} onClick={() => void confirmDelivery(true)}>Consultar estado</Button>}
+            <Button variant="outline" disabled={delivering || sendingOtp} onClick={() => {
               setOrderToDeliver(null); setDeliveryOtp(""); setDeliveryError(null);
             }}>Volver</Button>
-            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={delivering || !!error} onClick={() => void confirmDelivery()}>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={delivering || sendingOtp || !!error} onClick={() => void confirmDelivery()}>
               {delivering ? "Confirmando..." : "Confirmar entrega"}
             </Button>
           </DialogFooter>
