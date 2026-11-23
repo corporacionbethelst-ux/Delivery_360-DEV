@@ -84,7 +84,7 @@ it('continues REST polling while an open socket has no realtime transport', asyn
   unmount();
   expect(socket.close).toHaveBeenCalled();
 });
-it('does not poll just because an authorized realtime connection is idle', async () => {
+it('does not poll every fallback tick while an authorized realtime connection is idle', async () => {
   const { result, unmount } = renderHook(() => useNotifications());
   await act(async () => {});
   act(() => {
@@ -151,6 +151,88 @@ const inboxItem = (id = 'private-a') => ({
 const response = (id = 'private-a') => ({
   ok: true,
   json: async () => ({ items: [inboxItem(id)], unread_count: 1 }),
+});
+function connectHealthySocket(unreadCount = 0) {
+  const socket = Socket.instances[0];
+  act(() => {
+    socket.open();
+    socket.message({ type: 'CONNECTED', unread_count: unreadCount, realtime_available: true });
+  });
+  socket.send.mockImplementation(() => socket.message({ type: 'pong' }));
+  return socket;
+}
+
+it('recovers a missed notification on a healthy socket without frequent polling or reconnection', async () => {
+  const { result, unmount } = renderHook(() => useNotifications());
+  await act(async () => {});
+  const socket = connectHealthySocket();
+  const before = fetcher.mock.calls.length;
+  await act(async () => { jest.advanceTimersByTime(240000); });
+  expect(fetcher).toHaveBeenCalledTimes(before);
+  fetcher.mockResolvedValueOnce(response('missed-assignment'));
+  await act(async () => { jest.advanceTimersByTime(60000); });
+  expect(fetcher).toHaveBeenCalledTimes(before + 1);
+  expect(result.current.items.map((item) => item.id)).toEqual(['missed-assignment']);
+  expect(result.current.unreadCount).toBe(1);
+  expect(result.current.isConnected).toBe(true);
+  expect(Socket.instances).toHaveLength(1);
+  expect(socket.close).not.toHaveBeenCalled();
+  unmount();
+  const completed = fetcher.mock.calls.length;
+  await act(async () => { jest.advanceTimersByTime(300000); });
+  expect(fetcher).toHaveBeenCalledTimes(completed);
+  expect(jest.getTimerCount()).toBe(0);
+});
+
+it('does not add a second safety read while fallback polling is active', async () => {
+  const { unmount } = renderHook(() => useNotifications());
+  await act(async () => {});
+  const socket = Socket.instances[0];
+  act(() => {
+    socket.open();
+    socket.message({ type: 'CONNECTED', unread_count: 0, realtime_available: false });
+  });
+  socket.send.mockImplementation(() => socket.message({ type: 'pong' }));
+  const before = fetcher.mock.calls.length;
+  await act(async () => { jest.advanceTimersByTime(300000); });
+  expect(fetcher).toHaveBeenCalledTimes(before + 5);
+  unmount();
+});
+
+it('aborts an old account safety read and discards its late private response', async () => {
+  const { result, unmount } = renderHook(() => useNotifications());
+  await act(async () => {});
+  connectHealthySocket();
+  const old = pendingResponse();
+  fetcher.mockReturnValueOnce(old.promise);
+  await act(async () => { jest.advanceTimersByTime(300000); });
+  const signal = fetcher.mock.calls[fetcher.mock.calls.length - 1][1].signal as AbortSignal;
+  fetcher.mockResolvedValueOnce(response('owner-b-inbox'));
+  act(() => useAuthStore.setState({ user: { ...profile, id: 'owner-b' }, sessionRevision: 2 }));
+  await act(async () => {});
+  expect(signal.aborted).toBe(true);
+  await act(async () => { old.resolve(response('owner-a-private')); });
+  expect(result.current.items.map((item) => item.id)).toEqual(['owner-b-inbox']);
+  expect(result.current.unreadCount).toBe(1);
+  unmount();
+});
+
+it('preserves known data after a safety read fails and recovers on the next cycle', async () => {
+  fetcher.mockResolvedValueOnce(response('known-inbox'));
+  const { result, unmount } = renderHook(() => useNotifications());
+  await act(async () => {});
+  connectHealthySocket(1);
+  fetcher.mockResolvedValueOnce({ ok: false, status: 503 });
+  await act(async () => { jest.advanceTimersByTime(300000); });
+  expect(result.current.items.map((item) => item.id)).toEqual(['known-inbox']);
+  expect(result.current.unreadCount).toBe(1);
+  expect(result.current.isConnected).toBe(true);
+  expect(result.current.error).toBe('No se pudo actualizar el inbox');
+  fetcher.mockResolvedValueOnce(response('recovered-inbox'));
+  await act(async () => { jest.advanceTimersByTime(300000); });
+  expect(result.current.items.map((item) => item.id)).toEqual(['recovered-inbox']);
+  expect(result.current.error).toBeNull();
+  unmount();
 });
 function pendingResponse() {
   let resolve!: (value: unknown) => void;

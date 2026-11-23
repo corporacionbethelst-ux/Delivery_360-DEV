@@ -11,6 +11,12 @@ anuncia el evento. El publicador usa su propia sesión y cliente Redis; un fallo
 de esa señal conserva la recuperación REST al abrir la campana. Ver
 ENTREGA_119.md y ENTREGA_120.md para alcance y pruebas.
 
+La entrega 121 añade una lectura de reconciliación aproximadamente cada cinco
+minutos con WebSocket conectado para recuperar señales perdidas. Mantiene la
+consulta alternativa más frecuente cuando falla el tiempo real, sin duplicarla.
+Las respuestas siguen ligadas a la identidad y token vigentes; el temporizador
+se retira al cambiar de sesión o desmontar el componente. Ver ENTREGA_121.md.
+
 Las solicitudes y decisiones nuevas guardan sus comprobantes IN_APP en notification_logs, en la transacción del retiro. La solicitud conserva además su aviso legacy por compatibilidad. La campana lee la bandeja actual; no combina dos comprobantes del mismo origen. No se convierten avisos anteriores ni se reenvía automáticamente el historial.
 
 Con notificaciones externas habilitadas, el evento captura los canales permitidos y el texto de una plantilla activa. No hay envío dentro del commit financiero. El consumidor procesa filas PENDIENTE vencidas con bloqueo por fila y SKIP LOCKED. Se vuelven a comprobar cuenta, plantilla, preferencias y pausa operativa antes de contactar al proveedor. Sin consumidor activo, los registros permanecen pendientes; la retención no los elimina.

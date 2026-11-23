@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 120. Este registro distingue implementación local,
+Actualizado con la entrega 121. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -157,6 +157,8 @@ manual, automático y de servicios. Conserva reintentos sin duplicados y utiliza
 el consumidor persistido; detiene envíos cuya asignación ya no corresponde al
 destinatario. La entrega 120 añade la señal WebSocket después del commit
 exterior, con aislamiento de sesión y recuperación REST ante fallo de Redis.
+La entrega 121 reconcilia periódicamente la bandeja incluso con un WebSocket
+sano, para recuperar señales perdidas sin exigir abrir la campana.
 Faltan los demás eventos y la conciliación de resultados externos ambiguos.
 Ver ENTREGA_119.md, ENTREGA_120.md y NOTIFICACIONES_DURABLES.md.
 

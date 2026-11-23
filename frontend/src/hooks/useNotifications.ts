@@ -45,6 +45,7 @@ interface Snapshot {
   error: string | null;
 }
 const empty = { items: [], unreadCount: 0, isConnected: false, error: null };
+const INBOX_RECONCILE_MS = 5 * 60 * 1000;
 const apiBase = () =>
   (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '');
 const validCount = (value: unknown): value is number =>
@@ -396,6 +397,17 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
         void refreshInbox();
       }
     }, pollFallbackSec * 1000);
+    // A healthy socket cannot prove that every post-commit signal arrived.
+    // Reconcile durable receipts occasionally without duplicating fallback reads.
+    const reconcileTimer = setInterval(() => {
+      if (
+        current(session) &&
+        !pollingRequired &&
+        wsRef.current?.readyState === WebSocket.OPEN &&
+        getStoredTokens().accessToken === socketToken &&
+        !session.refreshTimer
+      ) void refreshInbox();
+    }, INBOX_RECONCILE_MS);
     return () => {
       if (sessionRef.current === session) sessionRef.current = null;
       ++session.sequence;
@@ -404,6 +416,7 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
       clearTimeout(session.refreshTimer);
       clearTimeout(reconnectTimer);
       clearInterval(pollTimer);
+      clearInterval(reconcileTimer);
       disconnect();
     };
   }, [
