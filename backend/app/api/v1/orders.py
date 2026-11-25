@@ -904,6 +904,12 @@ async def update_status(
             detail=f"Transición inválida: {optional_enum_value(order.status)} → {new_status}",
         )
 
+    if target == OrderStatus.FALLIDO:
+        raise HTTPException(
+            status_code=409,
+            detail="Registre el fallo desde la entrega e indique un motivo; no se cambió la orden",
+        )
+
     if target == OrderStatus.ENTREGADO:
         delivery_result = await db.execute(
             select(Delivery)
@@ -933,9 +939,6 @@ async def update_status(
 
         # CRITICAL FIX: Ensure delivery and financial records are created when order is marked as delivered
         await _ensure_delivery_and_financial_records(db, order, now_naive)
-
-    elif target == OrderStatus.FALLIDO:
-        order.failure_reason = "delivery_failed"  # type: ignore[assignment]
 
     await db.commit()
     return _order_to_dict(order)

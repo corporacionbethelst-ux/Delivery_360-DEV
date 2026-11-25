@@ -815,6 +815,7 @@ async def fail_delivery(
         delivery_id=delivery.id,
         failure_cause_enum_value=failure_cause.value,
         failed_by=current_user.id,
+        issue_description=body.issue_description,
     )
 
     await db.refresh(delivery, attribute_names=["rider", "order"])
@@ -1173,6 +1174,9 @@ async def update_delivery_status(
         await enqueue_completion_notice(db, order, delivery, source="delivery_status")
 
     elif new_status == DeliveryStatus.FALLIDA:
+        from app.services.delivery_ledger import ensure_failure_parent_active
+
+        await ensure_failure_parent_active(db, delivery)
         await ensure_new_bonus_snapshot(db, delivery, success=False)
         # Validar causa de fallo
         failure_cause = None
@@ -1276,6 +1280,11 @@ async def update_delivery_status(
                     logger.info(
                         f"Registro financiero creado para entrega fallida {delivery.id} - Bono: {failed_payment}"
                     )
+
+    if new_status == DeliveryStatus.FALLIDA:
+        from app.services.delivery_notifications import enqueue_failure_notice
+
+        await enqueue_failure_notice(db, order, delivery, source="delivery_status")
 
     # Commit final
     await db.flush()

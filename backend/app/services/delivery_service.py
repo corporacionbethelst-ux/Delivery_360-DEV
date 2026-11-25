@@ -556,6 +556,7 @@ class DeliveryService:
         delivery_id: uuid.UUID,
         failure_cause_enum_value: str,
         failed_by: uuid.UUID,
+        issue_description: Optional[str] = None,
     ) -> Delivery:
         """Marca entrega como fallida y gestiona bonos si aplica basado en el Enum.
 
@@ -578,6 +579,9 @@ class DeliveryService:
                 action="fallar entrega",
             )
 
+            from app.services.delivery_ledger import ensure_failure_parent_active
+
+            await ensure_failure_parent_active(db, delivery)
             # 1. Importar Enum y validar causa
             await ensure_new_bonus_snapshot(db, delivery, success=False)
             from app.models.enums import DeliveryFailureCause
@@ -621,7 +625,11 @@ class DeliveryService:
                 "has_issues": True,
                 "failure_cause": failure_cause,  # Campo estandarizado
                 "issue_type": failure_cause.value,
-                "issue_description": f"Fallo por causa: {failure_cause.value}",
+                "issue_description": (
+                    issue_description.strip()
+                    if issue_description and issue_description.strip()
+                    else f"Fallo por causa: {failure_cause.value}"
+                ),
                 "issue_analysis_result": f"Causa: {failure_cause.value}. Bonificable: {failure_cause.is_bonificable}",
                 # Snapshot financiero inmutable
                 "locked_bonus_factors": factor_snapshot if bonus_type else None,
@@ -669,11 +677,21 @@ class DeliveryService:
                     obj_in={
                         "status": OrderStatus.FALLIDO,
                         "failure_reason": failure_cause.value,
-                        "failure_notes": f"Causa: {failure_cause.value}. Bonificable: {failure_cause.is_bonificable}",
+                        "failure_notes": (
+                            f"Causa: {failure_cause.value}. Bonificable: {failure_cause.is_bonificable}"
+                            + (
+                                f". Notas: {issue_description.strip()}"
+                                if issue_description and issue_description.strip()
+                                else ""
+                            )
+                        ),
                     },
                     commit=False,
                 )
 
+            from app.services.delivery_notifications import enqueue_failure_notice
+
+            await enqueue_failure_notice(db, order, delivery, source="delivery_service")
             await db.commit()
             await db.refresh(delivery)
             return delivery

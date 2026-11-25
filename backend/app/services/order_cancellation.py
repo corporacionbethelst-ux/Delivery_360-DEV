@@ -330,6 +330,9 @@ async def cancel_order(
                 success=True,
             )
         )
+        from app.services.delivery_notifications import enqueue_cancellation_notice
+
+        await enqueue_cancellation_notice(db, order, delivery)
         await db.flush()
         if commit:
             await db.commit()

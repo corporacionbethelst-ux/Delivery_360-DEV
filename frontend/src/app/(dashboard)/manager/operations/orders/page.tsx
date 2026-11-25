@@ -42,6 +42,7 @@ import { riderService } from "@/services/rider.service";
 import { vehicleService, Vehicle } from "@/services/vehicle.service";
 import { payoutAmountLabel } from "@/lib/payout-contract";
 import { downloadCSV } from "@/lib/csv-export";
+import { OrderFailureDialog } from "@/components/orders/OrderFailureDialog";
 import { OrderSkeleton } from "@/components/loaders/OrderSkeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -143,6 +144,7 @@ function SessionOrdersPage() {
     useState<OperationalHttpOrder | null>(null);
   const [assigningAuto, setAssigningAuto] = useState(false);
   const [assigningManual, setAssigningManual] = useState(false);
+  const [orderToFail, setOrderToFail] = useState<OperationalHttpOrder | null>(null);
   const [orderToDeliver, setOrderToDeliver] = useState<OperationalHttpOrder | null>(null);
   const [deliveryOtp, setDeliveryOtp] = useState("");
   const [delivering, setDelivering] = useState(false);
@@ -367,6 +369,16 @@ function SessionOrdersPage() {
       orders.find((order) => order.id === orderId)?.assignment_review
     )
       return;
+    if (nextStatus === "FALLIDO") {
+      const order = orders.find((item) => item.id === orderId);
+      if (!order || order.status !== "EN_RUTA") return;
+      if (!order.delivery?.id) {
+        showAlert("La orden no tiene una entrega asociada. Revisa la asignación antes de registrar el fallo.");
+        return;
+      }
+      setOrderToFail(order);
+      return;
+    }
     if (nextStatus === "ENTREGADO") {
       const order = orders.find((item) => item.id === orderId);
       if (!order || order.status !== "EN_RUTA") return;
@@ -1201,6 +1213,8 @@ function SessionOrdersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {orderToFail && <OrderFailureDialog key={orderToFail.id} order={orderToFail}
+        onClose={() => setOrderToFail(null)} onRefresh={fetchInitialData} />}
       {/* Diálogo de Cancelación */}
       <Dialog
         open={!!orderToCancel}

@@ -17,7 +17,24 @@ from app.core.operation_permissions import ensure_rider_resource_access
 from app.models.financial import Financial, PaymentStatus, TransactionType
 from app.services.financial_service import money
 from app.services.legacy_ledger import MAX_BALANCE, exact_money
-from app.services.order_cancellation import ensure_order_not_cancelled
+from app.services.order_cancellation import ensure_order_not_cancelled, ACTIVE_ORDERS
+
+
+async def ensure_failure_parent_active(db: AsyncSession, delivery: Delivery) -> None:
+    """The transition caller already holds order and delivery locks."""
+    order = await db.scalar(
+        select(Order)
+        .where(Order.id == delivery.order_id)
+        .execution_options(populate_existing=True)
+    )
+    if (
+        order is None
+        or order.status not in ACTIVE_ORDERS
+        or order.assigned_rider_id != delivery.rider_id
+    ):
+        raise AppException(
+            "El estado o la asignación de la orden requiere revisión", 409
+        )
 
 
 def bonus_component(value: object) -> Decimal:

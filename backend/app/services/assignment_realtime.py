@@ -33,7 +33,12 @@ async def _publish(engine: AsyncEngine, ids: tuple[UUID, ...]) -> None:
                     NotificationLog.id.in_(ids),
                     NotificationLog.channel == NotificationChannel.IN_APP,
                     NotificationLog.template_code.in_(
-                        ("nuevo_pedido_asignado", "entrega_completada")
+                        (
+                            "nuevo_pedido_asignado",
+                            "entrega_completada",
+                            "entrega_fallida",
+                            "orden_cancelada",
+                        )
                     ),
                     User.is_active.is_(True),
                 )

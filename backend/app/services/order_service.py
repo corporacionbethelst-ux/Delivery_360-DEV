@@ -194,6 +194,10 @@ class OrderService:
             return await coordinated_cancel(
                 db, order_id, str(updated_by), LEGACY_REASON, commit=True
             )
+        if new_status == OrderStatus.FALLIDO:
+            raise AppException(
+                "Registre el fallo desde la entrega e indique un motivo", 409
+            )
         order = await self.get_order(db, order_id, lock=True)
         if new_status == OrderStatus.ASIGNADO:
             raise AppException("Use la operación de asignación con sus controles", 409)
@@ -224,8 +228,6 @@ class OrderService:
             order.picked_up_at = now
         elif new_status == OrderStatus.ENTREGADO:
             order.delivered_at = now
-        elif new_status == OrderStatus.FALLIDO:
-            order.failure_reason = "delivery_failed"
 
         db.add(order)
         await db.commit()
