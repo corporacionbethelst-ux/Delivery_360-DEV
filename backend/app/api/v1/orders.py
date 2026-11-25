@@ -1072,6 +1072,10 @@ async def _ensure_delivery_and_financial_records(
             f"Registro financiero creado automáticamente para orden {order.id} - Rider {rider_id} - Bono: {base_payment}"
         )
 
+    from app.services.delivery_notifications import enqueue_completion_notice
+
+    await enqueue_completion_notice(db, order, delivery, source="order_status")
+
 
 @router.patch("/{order_id}/cancel")
 async def cancel_order(

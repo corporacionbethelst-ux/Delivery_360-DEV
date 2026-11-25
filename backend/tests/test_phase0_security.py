@@ -44,6 +44,15 @@ def db():
     return session
 
 
+@pytest.fixture(autouse=True)
+def completion_notice_boundary(monkeypatch):
+    # This suite replaces persistence; transactional receipts run against PG.
+    monkeypatch.setattr(
+        "app.services.delivery_notifications.enqueue_completion_notice",
+        AsyncMock(return_value=None),
+    )
+
+
 @pytest.fixture
 def user():
     return SimpleNamespace(id=uuid.uuid4(), role=UserRole.REPARTIDOR)

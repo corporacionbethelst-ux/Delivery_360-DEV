@@ -1,4 +1,12 @@
-# Avisos duraderos de retiros y asignaciones
+# Avisos duraderos de retiros, asignaciones y cierres
+
+La entrega 122 incorpora el cierre operativo de entregas asignadas: el evento
+`entrega_completada` queda en la bandeja del repartidor junto con la transacción
+de cierre, aun cuando el bono sea cero. Repetir la operación no duplica el aviso
+ni reinicia su lectura. El comprobante no contiene OTP ni importes inferidos.
+Se publica la señal privada después del commit exterior y se conserva la lectura
+REST ante un fallo de esa señal. Los canales externos de cierre y avisos de
+fallo/cancelación quedan pendientes. Ver ENTREGA_122.md.
 
 La entrega 119 incorpora las asignaciones: el aviso IN_APP y la cola externa
 permitida se guardan junto con orden, entrega y auditoría. Cada asignación real

@@ -1168,6 +1168,10 @@ async def update_delivery_status(
                 flush=True,
             )
 
+        from app.services.delivery_notifications import enqueue_completion_notice
+
+        await enqueue_completion_notice(db, order, delivery, source="delivery_status")
+
     elif new_status == DeliveryStatus.FALLIDA:
         await ensure_new_bonus_snapshot(db, delivery, success=False)
         # Validar causa de fallo

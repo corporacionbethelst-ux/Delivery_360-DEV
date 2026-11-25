@@ -538,6 +538,11 @@ class DeliveryService:
                     commit=False,
                 )
 
+            from app.services.delivery_notifications import enqueue_completion_notice
+
+            await enqueue_completion_notice(
+                db, order, delivery, source="delivery_service"
+            )
             await db.commit()
             await db.refresh(delivery)
             return delivery

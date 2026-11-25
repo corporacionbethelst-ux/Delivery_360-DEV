@@ -1,4 +1,4 @@
-"""Best-effort inbox invalidation after the outer assignment commit."""
+"""Best-effort supported inbox invalidations after the outer operation commit."""
 
 import asyncio
 import json
@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Session, SessionTransaction
 
 from app.core.config import settings
+from app.core.serialization import utc_isoformat
 from app.models.notification import NotificationChannel, NotificationLog
 from app.models.user import User
 
@@ -31,7 +32,9 @@ async def _publish(engine: AsyncEngine, ids: tuple[UUID, ...]) -> None:
                 .where(
                     NotificationLog.id.in_(ids),
                     NotificationLog.channel == NotificationChannel.IN_APP,
-                    NotificationLog.template_code == "nuevo_pedido_asignado",
+                    NotificationLog.template_code.in_(
+                        ("nuevo_pedido_asignado", "entrega_completada")
+                    ),
                     User.is_active.is_(True),
                 )
             )
@@ -45,7 +48,7 @@ async def _publish(engine: AsyncEngine, ids: tuple[UUID, ...]) -> None:
                         "id": str(row.id),
                         "title": row.title,
                         "template_code": row.template_code,
-                        "created_at": row.created_at.isoformat(),
+                        "created_at": utc_isoformat(row.created_at),
                     }
                 ),
             )
@@ -72,7 +75,7 @@ async def _run(engine: AsyncEngine, ids: tuple[UUID, ...]) -> None:
             await _publish(engine, ids)
     except Exception:
         # The committed inbox remains the source of truth, including on timeout.
-        logger.warning("Assignment inbox realtime nudge unavailable")
+        logger.warning("Operational inbox realtime nudge unavailable")
 
 
 def _schedule(engine: AsyncEngine, ids: tuple[UUID, ...]) -> None:
@@ -84,10 +87,10 @@ def _schedule(engine: AsyncEngine, ids: tuple[UUID, ...]) -> None:
         _tasks.add(task)
         task.add_done_callback(_tasks.discard)
     except Exception:
-        logger.warning("Assignment inbox realtime nudge unavailable")
+        logger.warning("Operational inbox realtime nudge unavailable")
 
 
-def queue_assignment_nudge(db: AsyncSession, notice_id: UUID) -> None:
+def queue_inbox_nudge(db: AsyncSession, notice_id: UUID) -> None:
     """Keep savepoint events provisional until the outer transaction commits.
 
     A connection-bound session cannot provide an independent read transaction;
@@ -126,3 +129,7 @@ def queue_assignment_nudge(db: AsyncSession, notice_id: UUID) -> None:
     event.listen(session, "after_soft_rollback", rolled_back)
     event.listen(session, "after_transaction_end", ended)
     session.info[_REGISTERED] = True
+
+
+# Preserve the assignment entry point and its transaction semantics.
+queue_assignment_nudge = queue_inbox_nudge
