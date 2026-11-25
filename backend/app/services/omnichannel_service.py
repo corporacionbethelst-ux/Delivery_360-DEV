@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
+from app.core.serialization import utc_isoformat
 from app.core.email_service import send_smtp_email
 from app.models.notification import (
     NotificationChannel,
@@ -675,7 +676,7 @@ class OmnichannelNotificationService:
                 "id": str(log.id),
                 "title": log.title,
                 "template_code": log.template_code,
-                "created_at": log.created_at.isoformat() if log.created_at else None,
+                "created_at": utc_isoformat(log.created_at),
             }
             await r.publish(channel, json.dumps(payload, default=str))
         except Exception as exc:

@@ -49,6 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.auth import get_current_user, require_role
 from app.core.config import settings
 from app.core.database import get_db, AsyncSessionLocal
+from app.core.serialization import utc_isoformat
 from app.core.websocket import manager
 from app.models.notification import (
     NotificationChannel,
@@ -139,8 +140,8 @@ def _log_out(log: NotificationLog) -> NotificationOut:
         status=st,
         title=log.title,
         body=log.body,
-        created_at=log.created_at.isoformat() if log.created_at else None,
-        read_at=log.read_at.isoformat() if log.read_at else None,
+        created_at=utc_isoformat(log.created_at),
+        read_at=utc_isoformat(log.read_at),
     )
 
 

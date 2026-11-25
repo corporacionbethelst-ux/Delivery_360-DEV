@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 121. Este registro distingue implementación local,
+Actualizado con la entrega 122. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -159,7 +159,11 @@ destinatario. La entrega 120 añade la señal WebSocket después del commit
 exterior, con aislamiento de sesión y recuperación REST ante fallo de Redis.
 La entrega 121 reconcilia periódicamente la bandeja incluso con un WebSocket
 sano, para recuperar señales perdidas sin exigir abrir la campana.
-Faltan los demás eventos y la conciliación de resultados externos ambiguos.
+La entrega 122 agrega el comprobante interno de entrega completada en los tres
+puntos de cierre, dentro de su transacción operativa y financiera, con deduplicación
+y señal privada posterior al commit. Conserva OTP y no acredita pagos externos.
+Faltan los avisos de fallo/cancelación, los canales externos de cierre y la
+conciliación de resultados externos ambiguos.
 Ver ENTREGA_119.md, ENTREGA_120.md y NOTIFICACIONES_DURABLES.md.
 
 La entrega116 agrega comprobantes de solicitud/aprobación/rechazo a la bandeja visible y deja los canales externos autorizados en la cola existente, junto con la transacción financiera. Comprueba cancelación y consumidores simultáneos, protege pendientes frente a retención y añade programación Celery explícita. No garantiza exactamente una entrega externa ni convierte aceptación del proveedor en entrega/pago; quedan los otros eventos y la conciliación de resultados ambiguos. Ver NOTIFICACIONES_DURABLES.md.

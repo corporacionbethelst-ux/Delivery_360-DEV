@@ -36,6 +36,7 @@ from app.models.order import Order, OrderStatus
 from app.models.platform_setting import PlatformSetting
 from app.models.rider import Rider, RiderStatus
 from app.models.user import User, UserRole
+from app.models.notification import NotificationLog
 from app.services.delivery_ledger import (
     calculated_bonus,
     bonus_component,
@@ -72,6 +73,8 @@ def test_reward_calculation_rounds_once_after_multipliers():
 
 @pytest.fixture
 async def payment_db(monkeypatch):
+    # Domain suites isolate optional realtime I/O; dedicated suites restore it.
+    monkeypatch.setattr("app.services.assignment_realtime._publish", AsyncMock())
     raw = os.environ.get("TEST_DATABASE_URL")
     if not raw:
         pytest.skip("TEST_DATABASE_URL required for real payment workflow tests")
@@ -103,6 +106,7 @@ async def payment_db(monkeypatch):
                 RiderWallet,
                 FinancialTransaction,
                 PlatformSetting,
+                NotificationLog,
             ]
         }
         while True:
@@ -118,6 +122,13 @@ async def payment_db(monkeypatch):
         for table in tables:
             table.to_metadata(ddl_metadata)
         async with engine.begin() as conn:
+            for column in (
+                NotificationLog.__table__.c.channel,
+                NotificationLog.__table__.c.status,
+            ):
+                await conn.run_sync(
+                    lambda sync, kind=column.type: kind.create(sync, checkfirst=True)
+                )
             await conn.run_sync(ddl_metadata.create_all)
         sessions = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
         async with sessions() as db:
