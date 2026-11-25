@@ -86,18 +86,32 @@ function loadEnRouteOrder() {
   );
 }
 
-it("waits for the centered confirmation and submits only once after duplicate clicks", async () => {
-  loadEnRouteOrder();
-  jest.mocked(api.patch).mockResolvedValue({ ...order, status: "FALLIDO" });
+it("collects a standardized failure reason and writes the delivery once", async () => {
+  jest.mocked(api.get).mockImplementation(async url => String(url).startsWith("/orders?") ? [{ ...order, status: "EN_RUTA", assigned_rider_id: "rider-1", rider_id: "rider-1", delivery: { id: "delivery-1", order_id: order.id, rider_id: "rider-1", status: "EN_ROUTE" } }] : []);
+  const request = deferred<any>();
+  jest.mocked(api.post).mockReturnValue(request.promise);
   render(<><Page /><FeedbackHost /></>);
-  const action = await screen.findByRole("button", { name: "FALLIDO" });
-  fireEvent.click(action);
-  fireEvent.click(action);
-  const confirmation = screen.getByRole("alertdialog");
+  fireEvent.click(await screen.findByRole("button", { name: "FALLIDO" }));
+  const modal = screen.getByRole("dialog", { name: "Registrar intento fallido" });
   expect(api.patch).not.toHaveBeenCalled();
-  fireEvent.click(within(confirmation).getByRole("button", { name: "Confirmar" }));
-  await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
-  expect(api.patch).toHaveBeenCalledWith("/orders/order-1/status", {}, { params: { new_status: "FALLIDO" } });
+  expect(api.post).not.toHaveBeenCalled();
+  expect(within(modal).getByRole("button", { name: "Confirmar fallo" })).toBeDisabled();
+  fireEvent.change(within(modal).getByLabelText("Motivo del intento fallido"), { target: { value: "CLIENTE_NO_ESTA" } });
+  const confirm = within(modal).getByRole("button", { name: "Confirmar fallo" });
+  fireEvent.click(confirm); fireEvent.click(confirm);
+  expect(api.post).toHaveBeenCalledTimes(1);
+  expect(api.post).toHaveBeenCalledWith("/deliveries/delivery-1/fail", { failure_cause: "CLIENTE_NO_ESTA" });
+  await act(async () => request.resolve({ id: "delivery-1", status: "FALLIDA" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(api.patch).not.toHaveBeenCalled();
+});
+
+it("requires review when a quick failure has no delivery", async () => {
+  loadEnRouteOrder();
+  render(<><Page /><FeedbackHost /></>);
+  fireEvent.click(await screen.findByRole("button", { name: "FALLIDO" }));
+  expect(screen.getByRole("alertdialog")).toHaveTextContent("La orden no tiene una entrega asociada");
+  expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
 });
 
 it("collects delivery OTP in a dialog and sends it in JSON preserving leading zeros", async () => {

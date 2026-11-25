@@ -1,4 +1,4 @@
-"""Operational completion receipt, committed with delivery and ledger state."""
+"""Operational delivery receipts, committed with state and ledger changes."""
 
 import hashlib
 import json
@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.serialization import utc_isoformat
 from app.models.delivery import Delivery, DeliveryStatus
 from app.models.notification import (
     NotificationChannel,
@@ -36,15 +37,86 @@ async def enqueue_completion_notice(
         raise HTTPException(
             409, "El comprobante requiere un cierre operativo coherente"
         )
-    recipient = await db.scalar(
-        select(Rider.user_id).where(Rider.id == delivery.rider_id)
+    return await _enqueue_notice(
+        db,
+        order,
+        delivery,
+        delivery.rider_id,
+        code=CODE,
+        title="Entrega registrada",
+        source=source,
+        body=f"Se registró la entrega de la orden #{order.external_id or str(order.id)[:8]}. Consulta su detalle para revisar el cierre.",
     )
-    if recipient is None:
-        raise HTTPException(
-            409, "El destinatario del comprobante de entrega requiere revisión"
+
+
+async def enqueue_failure_notice(
+    db: AsyncSession, order: Order | None, delivery: Delivery, *, source: str
+) -> UUID | None:
+    if order is None or delivery.rider_id is None:
+        return None
+    if (
+        delivery.order_id != order.id
+        or order.status != OrderStatus.FALLIDO
+        or delivery.status != DeliveryStatus.FALLIDA
+        or order.assigned_rider_id != delivery.rider_id
+    ):
+        raise HTTPException(409, "El comprobante requiere un fallo operativo coherente")
+    return await _enqueue_notice(
+        db,
+        order,
+        delivery,
+        delivery.rider_id,
+        code="entrega_fallida",
+        title="Intento fallido registrado",
+        source=source,
+        body=f"Se registró un intento fallido para la orden #{order.external_id or str(order.id)[:8]}. Consulta el detalle de la entrega para revisar el motivo.",
+    )
+
+
+async def enqueue_cancellation_notice(
+    db: AsyncSession, order: Order, delivery: Delivery | None
+) -> UUID | None:
+    if order.status != OrderStatus.CANCELADO or (
+        delivery is not None
+        and (
+            delivery.order_id != order.id
+            or delivery.status != DeliveryStatus.CANCELADA
+            or delivery.rider_id != order.assigned_rider_id
         )
-    key = hashlib.sha256(f"order:{order.id}:{CODE}:IN_APP".encode()).hexdigest()
-    # autoflush=False: a second call in this transaction must see pending rows.
+    ):
+        raise HTTPException(409, "El comprobante requiere una cancelación coherente")
+    rider_id = delivery.rider_id if delivery is not None else order.assigned_rider_id
+    if rider_id is None:
+        return None
+    return await _enqueue_notice(
+        db,
+        order,
+        delivery,
+        rider_id,
+        code="orden_cancelada",
+        title="Orden cancelada",
+        source="order_cancellation",
+        body=f"Se canceló la orden #{order.external_id or str(order.id)[:8]}. Consulta su detalle para revisar la cancelación.",
+    )
+
+
+async def _enqueue_notice(
+    db: AsyncSession,
+    order: Order,
+    delivery: Delivery | None,
+    rider_id: UUID,
+    *,
+    code: str,
+    title: str,
+    body: str,
+    source: str,
+) -> UUID:
+    """Never commits, sends external messages or recreates historical events."""
+    recipient = await db.scalar(select(Rider.user_id).where(Rider.id == rider_id))
+    if recipient is None:
+        raise HTTPException(409, "El destinatario del comprobante requiere revisión")
+    delivery_id = delivery.id if delivery is not None else None
+    key = hashlib.sha256(f"order:{order.id}:{code}:IN_APP".encode()).hexdigest()
     existing = next(
         (
             row
@@ -60,44 +132,43 @@ async def enqueue_completion_notice(
     if existing is not None:
         if (
             existing.user_id != recipient
-            or existing.delivery_id != delivery.id
+            or existing.delivery_id != delivery_id
             or existing.channel != NotificationChannel.IN_APP
-            or existing.template_code != CODE
+            or existing.template_code != code
             or existing.payout_id is not None
         ):
-            raise HTTPException(
-                409, "El comprobante de entrega existente requiere revisión"
-            )
+            raise HTTPException(409, "El comprobante existente requiere revisión")
         return existing.id
-    if delivery in db.new:
+    if delivery is not None and delivery in db.new:
         await db.flush([delivery])
     notice_id = uuid4()
     now = utc_now_naive()
+    payload = {
+        "order_id": str(order.id),
+        "delivery_id": str(delivery_id) if delivery_id is not None else None,
+        "event": code,
+        "source": source,
+    }
+    if code == CODE:
+        payload["completed_at"] = (
+            delivery.completed_at.isoformat()
+            if delivery is not None and delivery.completed_at
+            else None
+        )
+    else:
+        payload["recorded_at"] = utc_isoformat(now)
     db.add(
         NotificationLog(
             id=notice_id,
             user_id=recipient,
-            delivery_id=delivery.id,
-            template_code=CODE,
+            delivery_id=delivery_id,
+            template_code=code,
             channel=NotificationChannel.IN_APP,
             status=OmnichannelStatus.ENVIADO,
             dedupe_key=key,
-            title="Entrega registrada",
-            body=f"Se registró la entrega de la orden #{order.external_id or str(order.id)[:8]}. Consulta su detalle para revisar el cierre.",
-            payload_json=json.dumps(
-                {
-                    "order_id": str(order.id),
-                    "delivery_id": str(delivery.id),
-                    "event": CODE,
-                    "source": source,
-                    "completed_at": (
-                        delivery.completed_at.isoformat()
-                        if delivery.completed_at
-                        else None
-                    ),
-                },
-                sort_keys=True,
-            ),
+            title=title,
+            body=body,
+            payload_json=json.dumps(payload, sort_keys=True),
             created_at=now,
             sent_at=now,
         )
