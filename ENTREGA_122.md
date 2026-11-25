@@ -52,3 +52,12 @@ inconsistencia de destinatario, fallo de aviso/commit y entrega por WebSocket
 No hay migración de esquema, nuevo endpoint o cambio del frontend. La base es
 `a728b16`, con las entregas anteriores integradas. Se publicará en main después
 de aprobar la revisión de código, las pruebas y los controles completos de CI.
+
+La primera ejecución completa de CI se detuvo al 84 %, después de una prueba
+de turnos, sin registrar fallos; se canceló tras una hora para recuperar su log.
+Las 24 pruebas nuevas habían aprobado. El módulo de turnos pasó sus 23 casos
+localmente con cobertura y el cierre concurrente pasó diez repeticiones.
+Se añade un volcado de pilas a los 120 segundos de espera de una prueba y un
+límite de 45 minutos al trabajo de backend. Estos controles no omiten pruebas
+ni convierten fallos en resultados satisfactorios. La publicación exige completar
+una nueva ejecución de CI satisfactoria.
