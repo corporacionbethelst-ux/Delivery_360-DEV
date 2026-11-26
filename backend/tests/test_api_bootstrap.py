@@ -84,6 +84,15 @@ CURRENCY_PATHS = {
 
 def before_currency_schema(application):
     schema = deepcopy(application.openapi())
+    diagnostic_delta = json.loads(
+        (
+            Path(__file__).parent / "fixtures/notification_diagnostics_delta.json"
+        ).read_text()
+    )
+    for path, expected in diagnostic_delta["paths"].items():
+        assert schema["paths"].pop(path) == expected
+    for name, expected in diagnostic_delta["schemas"].items():
+        assert schema["components"]["schemas"].pop(name) == expected
     technical_delta = json.loads(
         (
             Path(__file__).parent / "fixtures/technical_dispatch_resolution_delta.json"
@@ -255,6 +264,18 @@ def before_currency_schema(application):
 
 def surface_before_currency(application):
     current = api_surface(application)
+    diagnostic_delta = json.loads(
+        (
+            Path(__file__).parent / "fixtures/notification_diagnostics_delta.json"
+        ).read_text()
+    )
+    added = [
+        row for row in current["routes"] if row["path"] in diagnostic_delta["paths"]
+    ]
+    assert added == diagnostic_delta["routes"]
+    for key, expected in diagnostic_delta["dependencies"].items():
+        assert current["dependencies"][key] == expected
+    current["routes"] = [row for row in current["routes"] if row not in added]
     technical_delta = json.loads(
         (
             Path(__file__).parent / "fixtures/technical_dispatch_resolution_delta.json"

@@ -1,0 +1,240 @@
+{
+  "paths": {
+    "/api/v1/notifications/providers/diagnostics": {
+      "get": {
+        "tags": [
+          "Notificaciones (Fase 9)",
+          "Notificaciones (Fase 9)"
+        ],
+        "summary": "Notification Provider Diagnostics",
+        "operationId": "notification_provider_diagnostics_api_v1_notifications_providers_diagnostics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationProviderDiagnostics"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    }
+  },
+  "schemas": {
+    "NotificationProviderDiagnostics": {
+      "properties": {
+        "version": {
+          "type": "integer",
+          "enum": [
+            1
+          ],
+          "const": 1,
+          "title": "Version",
+          "default": 1
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "local_only"
+          ],
+          "const": "local_only",
+          "title": "Scope",
+          "default": "local_only"
+        },
+        "external_delivery_verified": {
+          "type": "boolean",
+          "enum": [
+            false
+          ],
+          "const": false,
+          "title": "External Delivery Verified",
+          "default": false
+        },
+        "checked_at": {
+          "type": "string",
+          "title": "Checked At"
+        },
+        "notifications_enabled": {
+          "type": "boolean",
+          "title": "Notifications Enabled"
+        },
+        "providers": {
+          "items": {
+            "$ref": "#/components/schemas/ProviderDiagnostic"
+          },
+          "type": "array",
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Providers"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "checked_at",
+        "notifications_enabled",
+        "providers"
+      ],
+      "title": "NotificationProviderDiagnostics"
+    },
+    "ProviderDiagnostic": {
+      "properties": {
+        "channel": {
+          "type": "string",
+          "enum": [
+            "EMAIL",
+            "SMS",
+            "PUSH"
+          ],
+          "title": "Channel"
+        },
+        "provider": {
+          "type": "string",
+          "enum": [
+            "SMTP",
+            "TWILIO",
+            "FCM"
+          ],
+          "title": "Provider"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "paused",
+            "incomplete",
+            "locally_configured"
+          ],
+          "title": "State"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/components/schemas/ProviderConfigurationCheck"
+          },
+          "type": "array",
+          "title": "Checks"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "channel",
+        "provider",
+        "state",
+        "checks"
+      ],
+      "title": "ProviderDiagnostic"
+    },
+    "ProviderConfigurationCheck": {
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "mail_enabled",
+            "host",
+            "port",
+            "authentication",
+            "sender",
+            "tls",
+            "timeout",
+            "account_sid",
+            "auth_token",
+            "sdk",
+            "credentials_reference",
+            "credentials_file"
+          ],
+          "title": "Code"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "missing",
+            "invalid",
+            "disabled"
+          ],
+          "title": "State"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "code",
+        "state"
+      ],
+      "title": "ProviderConfigurationCheck"
+    }
+  },
+  "routes": [
+    {
+      "path": "/api/v1/notifications/providers/diagnostics",
+      "name": "notification_provider_diagnostics",
+      "route_class": "APIRoute",
+      "methods": [
+        "GET"
+      ],
+      "dependency_contract": "65c72625db98a4e3242bdd2621494acb6ca59602ca74942cd75d0c4a4afe274b",
+      "status_code": null,
+      "tags": [
+        "Notificaciones (Fase 9)",
+        "Notificaciones (Fase 9)"
+      ],
+      "include_in_schema": true
+    }
+  ],
+  "dependencies": {
+    "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66": {
+      "call": "app.api.v1.auth.get_current_user",
+      "name": "current_user",
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "93796a5e46bf721166f05fa7f2563f90b4f32857519296226b905a31d7f78f4e",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "65c72625db98a4e3242bdd2621494acb6ca59602ca74942cd75d0c4a4afe274b": {
+      "call": "app.api.v1.notifications.notification_provider_diagnostics",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "93796a5e46bf721166f05fa7f2563f90b4f32857519296226b905a31d7f78f4e": {
+      "call": "fastapi.security.oauth2.OAuth2PasswordBearer",
+      "name": "token",
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": []
+    },
+    "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9": {
+      "call": "app.core.database.get_db",
+      "name": "db",
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": []
+    },
+    "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81": {
+      "call": "app.api.v1.auth.require_role.<locals>.checker",
+      "name": "current_user",
+      "use_cache": true,
+      "security_scopes": [],
+      "roles": [
+        "SUPERADMIN",
+        "GERENTE"
+      ],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    }
+  }
+}

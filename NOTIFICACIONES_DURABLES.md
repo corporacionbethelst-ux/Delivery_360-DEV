@@ -97,3 +97,12 @@ Los resultados inciertos válidos mantienen su revisión de proveedor. La vista
 El worker respeta el cierre aunque otra tarea volviera a encolar el aviso.
 La retención genérica de auditoría conserva el acta mientras exista el registro
 relacionado. No se reescriben payloads históricos. Ver ENTREGA_126.md.
+
+## Entrega 127 — diagnóstico local de proveedores
+
+Gerente/Superadmin consultan en `/notifications` los estados de configuración
+SMTP, Twilio y FCM. La respuesta excluye valores privados, no se cachea y declara
+su alcance local: no inicializa SDK, lee claves ni envía mensajes. Distingue
+pausas de faltantes y mantiene el último resultado identificado ante un error.
+No cambia colas, revisiones o cierres. La homologación y consulta de resultados
+reales siguen pendientes. Ver PROVEEDORES_NOTIFICACIONES.md y ENTREGA_127.md.

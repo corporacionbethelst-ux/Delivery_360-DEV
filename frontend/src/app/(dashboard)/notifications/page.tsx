@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { NotificationProviderDiagnosticsPanel } from '@/components/notifications/NotificationProviderDiagnosticsPanel';
 import { TerminalDispatchReviewPanel } from '@/components/notifications/TerminalDispatchReviewPanel';
 import { isTerminalExternal } from '@/services/terminal-notifications.service';
 import { Bell, CheckCheck, Trash2, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
@@ -127,6 +128,7 @@ export default function NotificationsInboxPage() {
         </Button>
       </div>
 
+      <NotificationProviderDiagnosticsPanel />
       <TerminalDispatchReviewPanel />
       {/* Filtros */}
       <div className="flex flex-wrap gap-2">
