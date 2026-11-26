@@ -315,9 +315,16 @@ async def prepared_durable_email(pg_requests, monkeypatch):
         sessions, users[0], Decimal("60.01"), key="durable-decision"
     )
     monkeypatch.setattr(settings, "NOTIFICATIONS_ENABLED", True)
+    from app.services import terminal_notifications
+
+    monkeypatch.setattr(
+        terminal_notifications, "smtp_email_is_configured", lambda *a: True
+    )
     async with sessions() as db:
         await db.execute(
-            update(User).where(User.id == users[0]).values(role=UserRole.GERENTE)
+            update(User)
+            .where(User.id == users[0])
+            .values(role=UserRole.REPARTIDOR, email="rider@example.com")
         )
         db.add(
             NotificationTemplate(
@@ -377,7 +384,7 @@ async def test_durable_decision_resumes_once_across_competing_consumers(
 
 
 @pytest.mark.asyncio
-async def test_cancelled_provider_leaves_the_same_durable_event_for_recovery(
+async def test_cancelled_provider_retains_uncertain_event_without_automatic_resend(
     pg_requests, monkeypatch
 ):
     from app.services.omnichannel_service import (
@@ -392,11 +399,18 @@ async def test_cancelled_provider_leaves_the_same_durable_event_for_recovery(
     async with sessions() as db:
         with pytest.raises(asyncio.CancelledError):
             await Service(db, redis_client=False).process_retry_queue()
+    Service.dispatch_email.assert_awaited_once()
     async with sessions() as db:
-        assert (await db.get(NotificationLog, log_id)).status == Status.PENDIENTE
+        log = await db.get(NotificationLog, log_id)
+        assert log.status == Status.PENDIENTE and log.next_retry_at is None
+        assert log.retry_count == 1
+        import json
+
+        assert json.loads(log.payload_json)["dispatch"]["state"] == "uncertain"
     send = AsyncMock(return_value=True)
     monkeypatch.setattr(Service, "dispatch_email", send)
     async with sessions() as db:
-        assert await Service(db, redis_client=False).process_retry_queue() == 1
-        assert (await db.get(NotificationLog, log_id)).status == Status.ENVIADO
-    send.assert_awaited_once()
+        assert await Service(db, redis_client=False).process_retry_queue() == 0
+        log = await db.get(NotificationLog, log_id)
+        assert log.status == Status.PENDIENTE and log.next_retry_at is None
+    send.assert_not_awaited()

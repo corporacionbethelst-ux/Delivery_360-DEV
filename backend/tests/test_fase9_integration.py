@@ -101,7 +101,7 @@ def _user_obj(role="GERENTE", uid=None):
     )
 
 
-def _template(code="payout_aprobado", channel="PUSH"):
+def _template(code="generic_dispatch_test", channel="PUSH"):
     return NotificationTemplate(
         id=uuid.uuid4(), code=code,
         channel=NotificationChannel(channel),
@@ -231,7 +231,7 @@ def test_send_forbidden_for_rider(client):
     r = client.post(
         "/api/v1/notifications/test-send",
         headers={"Authorization": f"Bearer {tok}"},
-        json={"template_code": "payout_aprobado",
+        json={"template_code": "generic_dispatch_test",
               "context": {"amount_cents": 15000, "status": "APROBADO"}},
     )
     assert r.status_code == 403
@@ -245,7 +245,7 @@ def test_send_ok_for_manager_and_superadmin(client):
         r = client.post(
             "/api/v1/notifications/test-send",
             headers={"Authorization": f"Bearer {tok}"},
-            json={"template_code": "payout_aprobado",
+            json={"template_code": "generic_dispatch_test",
                   "context": {"amount_cents": 15000, "status": "APROBADO"}},
         )
         assert r.status_code == 200, (role, r.text)
@@ -259,7 +259,7 @@ def test_send_ok_for_manager_and_superadmin(client):
 
 def test_send_requires_auth(client):
     r = client.post("/api/v1/notifications/test-send",
-                    json={"template_code": "payout_aprobado"})
+                    json={"template_code": "generic_dispatch_test"})
     assert r.status_code == 401
 
 
@@ -293,7 +293,7 @@ def test_payout_approved_hook_creates_log():
     osvc.OmnichannelNotificationService = _Svc
     try:
         _run_coro(hooks.notify_event(
-            "payout_aprobado", str(rider_uid),
+            "generic_dispatch_test", str(rider_uid),
             {"amount_cents": 15000, "bank_last4": "4321"},
             payout_id=uuid.uuid4(),
         ))
@@ -303,7 +303,7 @@ def test_payout_approved_hook_creates_log():
     assert created, "el hook no envió ninguna notificación"
     uid, code, ctx = created[0]
     assert uid == str(rider_uid)
-    assert code == "payout_aprobado"
+    assert code == "generic_dispatch_test"
     assert ctx.get("amount_cents") == 15000
 
 
@@ -342,7 +342,7 @@ def test_mark_read_owner_ok_other_forbidden(client):
     owner_uid = uuid.uuid4()
     other_uid = uuid.uuid4()
     log = NotificationLog(id=uuid.uuid4(), user_id=owner_uid,
-                          template_code="payout_aprobado",
+                          template_code="generic_dispatch_test",
                           channel=NotificationChannel.IN_APP,
                           status=OmnichannelStatus.ENVIADO,
                           title="t", body="b", created_at=datetime.utcnow())
@@ -439,10 +439,10 @@ def test_dedupe_same_window_skips_second_send():
     from app.services.omnichannel_service import build_dedupe_key
 
     ts = (time_window := int(datetime.now().timestamp() // 300)) * 300 + 10
-    k1 = build_dedupe_key("payout_aprobado", "payout-1", window_ts=ts)
-    k2 = build_dedupe_key("payout_aprobado", "payout-1",
+    k1 = build_dedupe_key("generic_dispatch_test", "payout-1", window_ts=ts)
+    k2 = build_dedupe_key("generic_dispatch_test", "payout-1",
                           window_ts=ts + 100)  # misma ventana
-    k3 = build_dedupe_key("payout_aprobado", "payout-1",
+    k3 = build_dedupe_key("generic_dispatch_test", "payout-1",
                           window_ts=ts + 400)  # ventana siguiente
     assert k1 == k2
     assert k1 != k3
@@ -462,7 +462,7 @@ def test_dedupe_same_window_skips_second_send():
     from app.services.omnichannel_service import OmnichannelNotificationService
     svc = OmnichannelNotificationService(db=_fake_db(_se), redis_client=False)
 
-    logs = _run_coro(svc.send(user.id, "payout_aprobado",
+    logs = _run_coro(svc.send(user.id, "generic_dispatch_test",
                               {"amount_cents": 1, "status": "X"}))
     # NOTE: no asyncio.run aqui: cerrar el loop global roto pytest-asyncio
     # para los tests async posteriores (falla observada en auditoria Fase 9).
