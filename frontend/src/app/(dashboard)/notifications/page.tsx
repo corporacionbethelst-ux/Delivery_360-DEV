@@ -13,6 +13,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { TerminalDispatchReviewPanel } from '@/components/notifications/TerminalDispatchReviewPanel';
+import { isTerminalExternal } from '@/services/terminal-notifications.service';
 import { Bell, CheckCheck, Trash2, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -125,6 +127,7 @@ export default function NotificationsInboxPage() {
         </Button>
       </div>
 
+      <TerminalDispatchReviewPanel />
       {/* Filtros */}
       <div className="flex flex-wrap gap-2">
         <select
@@ -183,14 +186,14 @@ export default function NotificationsInboxPage() {
                 )}
               </div>
               <div className="flex flex-col gap-1 shrink-0">
-                {n.status !== 'LEIDO' && (
+                {n.status !== 'LEIDO' && !isTerminalExternal(n) && (
                   <Button variant="ghost" size="sm" title="Marcar leído" onClick={() => markRead(n.id)}>
                     <CheckCheck className="w-4 h-4" />
                   </Button>
                 )}
-                <Button variant="ghost" size="sm" title="Eliminar" onClick={() => handleDelete(n.id)}>
+                {isTerminalExternal(n) ? <span className="text-xs text-slate-500">Seguimiento externo</span> : <Button variant="ghost" size="sm" title="Eliminar" onClick={() => handleDelete(n.id)}>
                   <Trash2 className="w-4 h-4 text-red-500" />
-                </Button>
+                </Button>}
               </div>
             </CardContent>
           </Card>

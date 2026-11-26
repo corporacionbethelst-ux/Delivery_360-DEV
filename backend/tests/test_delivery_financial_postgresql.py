@@ -36,7 +36,11 @@ from app.models.order import Order, OrderStatus
 from app.models.platform_setting import PlatformSetting
 from app.models.rider import Rider, RiderStatus
 from app.models.user import User, UserRole
-from app.models.notification import NotificationLog
+from app.models.notification import (
+    NotificationLog,
+    NotificationTemplate,
+    NotificationPreference,
+)
 from app.services.delivery_ledger import (
     calculated_bonus,
     bonus_component,
@@ -107,6 +111,8 @@ async def payment_db(monkeypatch):
                 FinancialTransaction,
                 PlatformSetting,
                 NotificationLog,
+                NotificationTemplate,
+                NotificationPreference,
             ]
         }
         while True:

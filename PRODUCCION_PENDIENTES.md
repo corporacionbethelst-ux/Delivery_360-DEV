@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 123. Este registro distingue implementación local,
+Actualizado con la entrega 124. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -166,8 +166,14 @@ La entrega 123 incorpora avisos internos de fallo y cancelación, con rollback,
 deduplicación, propiedad y señal posterior al commit. El fallo en gerencia exige
 motivo y cierra orden/entrega mediante la operación coordinada; bloquea el cambio
 genérico incompleto y conserva las observaciones. No reconstruye avisos históricos.
-Faltan los canales externos de cierre y la conciliación de resultados ambiguos.
-Ver ENTREGA_123.md.
+La entrega 124 añade la cola externa de los tres cierres para el mismo repartidor,
+con plantilla/canal/preferencias vigentes, marcador confirmado antes del proveedor
+y retención sin reenvío automático cuando el resultado es incierto. Gerente y
+Superadmin pueden registrar una aceptación verificada o una revisión que conserva
+la incertidumbre, con auditoría e idempotencia. No convierte aceptación en lectura
+ni pago. Quedan extender el protocolo a los eventos anteriores, la consulta
+externa automática, idempotencia y homologación de cada proveedor.
+Ver ENTREGA_123.md y ENTREGA_124.md.
 Ver ENTREGA_119.md, ENTREGA_120.md y NOTIFICACIONES_DURABLES.md.
 
 La entrega116 agrega comprobantes de solicitud/aprobación/rechazo a la bandeja visible y deja los canales externos autorizados en la cola existente, junto con la transacción financiera. Comprueba cancelación y consumidores simultáneos, protege pendientes frente a retención y añade programación Celery explícita. No garantiza exactamente una entrega externa ni convierte aceptación del proveedor en entrega/pago; quedan los otros eventos y la conciliación de resultados ambiguos. Ver NOTIFICACIONES_DURABLES.md.
