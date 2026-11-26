@@ -497,13 +497,21 @@ class TerminalDispatchReview(BaseModel):
 async def terminal_dispatch_review_list(
     limit: int = Query(20, ge=1, le=50),
     offset: int = Query(0, ge=0, le=10000),
+    view: Literal["pending", "resolved"] = Query("pending"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ) -> dict[str, Any]:
+    from app.services.technical_notification_resolution import (
+        classify,
+        resolution_exists,
+        revision,
+        receipt,
+        RESOURCE,
+    )
+    from app.models.audit_log import AuditLog
     from app.services.terminal_notifications import (
         MANAGED_EVENTS,
         EXTERNAL,
-        read_payload,
     )
 
     rows = list(
@@ -513,6 +521,7 @@ async def terminal_dispatch_review_list(
                 .where(
                     NotificationLog.template_code.in_(MANAGED_EVENTS),
                     NotificationLog.channel.in_(EXTERNAL),
+                    resolution_exists() if view == "resolved" else ~resolution_exists(),
                     NotificationLog.status.in_(
                         (OmnichannelStatus.PENDIENTE, OmnichannelStatus.FALLIDO)
                     ),
@@ -523,30 +532,23 @@ async def terminal_dispatch_review_list(
             )
         ).all()
     )
+    resolved: dict[str, dict[str, Any]] = {}
+    if view == "resolved" and rows:
+        audits = (
+            await db.scalars(
+                select(AuditLog).where(
+                    AuditLog.resource_type == RESOURCE,
+                    AuditLog.success.is_(True),
+                    AuditLog.resource_id.in_([str(row.id) for row in rows[:limit]]),
+                )
+            )
+        ).all()
+        resolved = {str(audit.resource_id): receipt(audit) for audit in audits}
     items = []
     for row in rows[:limit]:
-        payload: dict[str, Any] = {}
-        state = "invalid"
-        attempt = None
-        try:
-            payload = read_payload(row)
-            dispatch = payload["dispatch"]
-            phase = dispatch.get("state")
-            if (
-                phase == "queued"
-                and row.next_retry_at is not None
-                and not dispatch.get("attempt_id")
-            ):
-                state = "queued"
-            elif (
-                row.status == OmnichannelStatus.PENDIENTE
-                and phase == "uncertain"
-                and row.next_retry_at is None
-            ):
-                attempt = str(uuid.UUID(dispatch["attempt_id"]))
-                state = "uncertain"
-        except (HTTPException, ValueError, TypeError, KeyError, AttributeError):
-            pass
+        payload, state, attempt, diagnostic = classify(row)
+        if view == "resolved":
+            state = "resolved"
         hint = payload.get("dispatch", {}).get("destination_hint")
         hint = hint if isinstance(hint, str) and len(hint) <= 200 else None
         order_code = payload.get("order_code")
@@ -571,6 +573,10 @@ async def terminal_dispatch_review_list(
                 "payout_id": str(row.payout_id) if row.payout_id else None,
                 "state": state,
                 "attempt_id": attempt,
+                "delivery_id": str(row.delivery_id) if row.delivery_id else None,
+                "revision": revision(row) if state == "invalid" else None,
+                "diagnostic": diagnostic if state == "invalid" else None,
+                "resolution": resolved.get(str(row.id)),
                 "created_at": utc_isoformat(row.created_at),
                 "destination_hint": hint,
                 "order_code": order_code,
@@ -603,6 +609,41 @@ async def terminal_dispatch_review_submit(
         body.decision,
         body.reference,
         body.note.strip(),
+    )
+
+
+class TechnicalDispatchResolution(BaseModel):
+    model_config = {"extra": "forbid"}
+    resolution_id: uuid.UUID
+    revision: str = Field(pattern=r"^[a-f0-9]{64}$")
+    action: Literal["close_without_resend"]
+    reference: str = Field(min_length=8, max_length=200)
+    note: str = Field(default="", max_length=500)
+
+    @field_validator("reference")
+    @classmethod
+    def reference_is_explicit(cls, value: str) -> str:
+        return TerminalDispatchReview.reference_is_explicit(value)
+
+
+@router.post("/terminal-dispatch/{notification_id}/resolve")
+async def terminal_dispatch_technical_resolve(
+    notification_id: uuid.UUID,
+    body: TechnicalDispatchResolution,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+) -> dict[str, Any]:
+    from app.services.technical_notification_resolution import resolve
+
+    return await resolve(
+        db,
+        notification_id,
+        current_user.id,
+        body.resolution_id,
+        body.revision,
+        body.action,
+        body.reference,
+        body.note,
     )
 
 

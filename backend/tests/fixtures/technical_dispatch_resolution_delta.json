@@ -1,0 +1,189 @@
+{
+  "paths": {
+    "/api/v1/notifications/terminal-dispatch/{notification_id}/resolve": {
+      "post": {
+        "tags": [
+          "Notificaciones (Fase 9)",
+          "Notificaciones (Fase 9)"
+        ],
+        "summary": "Terminal Dispatch Technical Resolve",
+        "operationId": "terminal_dispatch_technical_resolve_api_v1_notifications_terminal_dispatch__notification_id__resolve_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Notification Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TechnicalDispatchResolution"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Terminal Dispatch Technical Resolve Api V1 Notifications Terminal Dispatch  Notification Id  Resolve Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "schemas": {
+    "TechnicalDispatchResolution": {
+      "properties": {
+        "resolution_id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Resolution Id"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Revision"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "close_without_resend"
+          ],
+          "const": "close_without_resend",
+          "title": "Action"
+        },
+        "reference": {
+          "type": "string",
+          "maxLength": 200,
+          "minLength": 8,
+          "title": "Reference"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 500,
+          "title": "Note",
+          "default": ""
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "resolution_id",
+        "revision",
+        "action",
+        "reference"
+      ],
+      "title": "TechnicalDispatchResolution"
+    }
+  },
+  "list_parameter": {
+    "name": "view",
+    "in": "query",
+    "required": false,
+    "schema": {
+      "enum": [
+        "pending",
+        "resolved"
+      ],
+      "type": "string",
+      "default": "pending",
+      "title": "View"
+    }
+  },
+  "routes": [
+    {
+      "path": "/api/v1/notifications/terminal-dispatch/{notification_id}/resolve",
+      "name": "terminal_dispatch_technical_resolve",
+      "route_class": "APIRoute",
+      "methods": [
+        "POST"
+      ],
+      "dependency_contract": "c67b077fc24c5d7eb01025a6f2a56c4f12f70aed5a3f870119f662657a3843d1",
+      "status_code": null,
+      "tags": [
+        "Notificaciones (Fase 9)",
+        "Notificaciones (Fase 9)"
+      ],
+      "include_in_schema": true
+    }
+  ],
+  "dependencies": {
+    "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66": {
+      "call": "app.api.v1.auth.get_current_user",
+      "name": "current_user",
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "93796a5e46bf721166f05fa7f2563f90b4f32857519296226b905a31d7f78f4e",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ]
+    },
+    "93796a5e46bf721166f05fa7f2563f90b4f32857519296226b905a31d7f78f4e": {
+      "call": "fastapi.security.oauth2.OAuth2PasswordBearer",
+      "name": "token",
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": []
+    },
+    "c67b077fc24c5d7eb01025a6f2a56c4f12f70aed5a3f870119f662657a3843d1": {
+      "call": "app.api.v1.notifications.terminal_dispatch_technical_resolve",
+      "name": null,
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ]
+    },
+    "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9": {
+      "call": "app.core.database.get_db",
+      "name": "db",
+      "use_cache": true,
+      "security_scopes": [],
+      "dependencies": []
+    },
+    "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81": {
+      "call": "app.api.v1.auth.require_role.<locals>.checker",
+      "name": "current_user",
+      "use_cache": true,
+      "security_scopes": [],
+      "roles": [
+        "SUPERADMIN",
+        "GERENTE"
+      ],
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ]
+    }
+  }
+}

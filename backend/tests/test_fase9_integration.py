@@ -133,12 +133,10 @@ def client(monkeypatch):
     fake_engine = MagicMock()
     fake_engine.begin = lambda: _Ctx()
     fake_engine.dispose = AsyncMock()
-    # No parchar engine global: solo neutralizar el del lifespan si se usa.
-    dbmod.engine = fake_engine
-    try:
-        mainmod.engine = fake_engine
-    except Exception:  # noqa: BLE001
-        pass
+    # Restore both references when this fixture ends; later startup checks
+    # must observe the actual engine class rather than a leaked MagicMock.
+    monkeypatch.setattr(dbmod, "engine", fake_engine)
+    monkeypatch.setattr(mainmod, "engine", fake_engine)
 
     from app.api.v1.auth import get_current_user
     from app.core.database import get_db

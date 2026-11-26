@@ -764,6 +764,25 @@ class OmnichannelNotificationService:
             log.template_code in MANAGED_EVENTS
             and log.channel != NotificationChannel.IN_APP
         )
+        if terminal:
+            from app.models.audit_log import AuditLog
+            from app.services.technical_notification_resolution import (
+                RESOURCE as RESOLUTION_RESOURCE,
+            )
+
+            closed = await self.db.scalar(
+                select(AuditLog.id)
+                .where(
+                    AuditLog.resource_type == RESOLUTION_RESOURCE,
+                    AuditLog.resource_id == str(log.id),
+                    AuditLog.success.is_(True),
+                )
+                .limit(1)
+            )
+            if closed is not None:
+                log.status = OmnichannelStatus.FALLIDO
+                setattr(log, "next_retry_at", None)
+                return
         if terminal and not await recipient_still_valid(self.db, log, user):
             self._stop_queued_log(
                 log, "El evento o destinatario requiere revisión; no se envió"

@@ -85,3 +85,15 @@ Los avisos antiguos sin protocolo se retienen como revisión técnica cuando el
 consumidor los encuentra. Los bloqueos técnicos externos no se purgan por edad.
 No hay backfill, reset automático ni emisión por test-send/send genérico para
 estos eventos. Los recibos internos conservan su contrato. Ver ENTREGA_125.md.
+
+## Entrega 126 — cierre técnico sin reenvío
+
+Gerente/Superadmin pueden documentar el cierre administrativo de un bloqueo
+mediante referencia, revisión del registro y UUID de resolución. La transacción
+conserva el aviso y guarda un acta; no reenvía ni acredita aceptación o pago.
+Los resultados inciertos válidos mantienen su revisión de proveedor. La vista
+«Cierres técnicos» permite consultar el comprobante con hora de Caracas.
+
+El worker respeta el cierre aunque otra tarea volviera a encolar el aviso.
+La retención genérica de auditoría conserva el acta mientras exista el registro
+relacionado. No se reescriben payloads históricos. Ver ENTREGA_126.md.
