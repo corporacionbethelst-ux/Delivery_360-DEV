@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 
-const names = { entrega_completada: 'Entrega completada', entrega_fallida: 'Intento fallido', orden_cancelada: 'Orden cancelada' };
+const names = { entrega_completada: 'Entrega completada', entrega_fallida: 'Intento fallido', orden_cancelada: 'Orden cancelada', nuevo_pedido_asignado: 'Pedido asignado', payout_solicitado: 'Retiro solicitado', payout_aprobado: 'Retiro aprobado contablemente', payout_rechazado: 'Retiro rechazado' };
 const states = { queued: 'En cola', uncertain: 'Resultado sin confirmar', invalid: 'Revisión técnica requerida' };
 function timeLabel(row: TerminalDispatch): string {
   const attempted = row.state === 'uncertain' && row.attempt_started_at;
@@ -93,10 +93,10 @@ function ReviewPanel() {
     }
     finally { pending.current = false; if (alive.current && task?.isCurrent()) setBusy(false); }
   }
-  return <section aria-label="Revisión de envíos de cierre" className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
+  return <section aria-label="Revisión de avisos externos" className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-blue-100 bg-gradient-to-br from-blue-50 via-indigo-50 to-white p-5">
       <div className="flex items-center gap-3"><div className="rounded-xl bg-white p-2 text-blue-700 shadow-sm"><ShieldCheck aria-hidden="true" className="h-6 w-6" /></div>
-        <div><h2 className="font-semibold text-slate-900">Revisión de envíos de cierre</h2><p className="text-xs text-slate-600">Seguimiento de aceptación del proveedor</p></div></div>
+        <div><h2 className="font-semibold text-slate-900">Revisión de avisos externos</h2><p className="text-xs text-slate-600">Seguimiento de aceptación del proveedor</p></div></div>
       <Button variant="outline" disabled={busy} onClick={() => void load()}><RefreshCw aria-hidden="true" className="mr-2 h-4 w-4" />{loaded ? 'Actualizar revisión' : 'Consultar envíos'}</Button>
     </div>
     <div className="space-y-3 p-5">
@@ -107,7 +107,7 @@ function ReviewPanel() {
       {loaded && !!rows.length && <p className="text-xs text-slate-500">{rows.length} avisos consultados. Actualiza para consultar cambios recientes.</p>}
       {rows.map(row => <article key={row.id} aria-label={`Envío ${row.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 p-4">
         <div className="min-w-0 space-y-1"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-slate-800">{names[row.event]}</strong><span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs">{row.channel}</span></div>
-          <p className="text-xs text-slate-600">{row.order_code ? `Orden ${row.order_code}` : `ID orden ${row.order_id?.slice(0, 8) || 'por revisar'}`} · Cuenta {row.recipient_id.slice(0, 8)}</p>
+          <p className="text-xs text-slate-600">{row.payout_id ? `Solicitud de retiro ${row.payout_id.slice(0, 8)}` : row.order_code ? `Orden ${row.order_code}` : `ID orden ${row.order_id?.slice(0, 8) || 'por revisar'}`} · Cuenta {row.recipient_id.slice(0, 8)}</p>
           <p className="text-xs text-slate-500">{timeLabel(row)}</p>
           {row.destination_hint && <p className="break-all text-xs text-slate-500">Destino del intento: {row.destination_hint}</p>}
           <p className={row.state === 'uncertain' ? 'text-xs font-medium text-amber-800' : 'text-xs text-slate-500'}>{states[row.state]}</p>

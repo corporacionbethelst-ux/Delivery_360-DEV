@@ -260,6 +260,7 @@ jobs:
 
   frontend-container:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -282,6 +283,7 @@ jobs:
           done
           exit 1
       - name: Install browser test dependencies
+        timeout-minutes: 10
         run: |
           pip install playwright==1.56.0
           python -m playwright install --with-deps chromium
@@ -313,13 +315,14 @@ jobs:
 
   local-functional-test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Install the real browser test runner
+        timeout-minutes: 10
         run: |
           pip install playwright==1.56.0
           python -m playwright install --with-deps chromium

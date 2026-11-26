@@ -88,6 +88,21 @@ async def enqueue_payout_notice(
             "monetary_review": True,
             "reason": reason,
         }
+    receipt_key = hashlib.sha256(
+        f"payout:{payout.id}:{code}:{Channel.IN_APP.value}".encode()
+    ).hexdigest()
+    receipt = await db.scalar(
+        select(NotificationLog).where(NotificationLog.dedupe_key == receipt_key)
+    )
+    if receipt is not None:
+        if (
+            receipt.user_id != user.id
+            or json.loads(receipt.payload_json or "null") != context
+        ):
+            raise ValueError("Contradictory payout notification replay")
+        # An atomic prior event already planned its channels. Replaying it must
+        # not manufacture a historical send after policy or template changes.
+        return
     body = f"La solicitud de retiro por {context['amount_label']} {verb}."
     if event == "approved":
         body += " Esto no confirma una transferencia bancaria."
@@ -111,11 +126,34 @@ async def enqueue_payout_notice(
         if template is not None:
             channels = await OmnichannelNotificationService(
                 db, redis_client=False
-            ).resolve_channels(user, template, code)
+            ).resolve_channels(user, template, code, channels=[template.channel])
             unsafe = bool(
                 re.search(
                     r"\{\{\s*amount_cents\s*\}\}",
                     (template.body_template or "") + (template.subject or ""),
+                )
+            )
+            present = {key for key, value in context.items() if value is not None}
+            unsafe = unsafe or bool(
+                set(
+                    re.findall(
+                        r"\{\{\s*(\w+)\s*\}\}",
+                        (template.body_template or "") + (template.subject or ""),
+                    )
+                )
+                - present
+            )
+            rendered_body = render_template(template.body_template, context)
+            rendered_title = (
+                render_template(template.subject, context)
+                if template.subject
+                else title
+            )
+            unsafe = (
+                unsafe
+                or not rendered_body.strip()
+                or any(
+                    marker in rendered_body + rendered_title for marker in ("{{", "}}")
                 )
             )
             for channel in dict.fromkeys(channels):
@@ -150,7 +188,19 @@ async def enqueue_payout_notice(
             select(NotificationLog).where(NotificationLog.dedupe_key == key)
         )
         if existing is not None:
-            if existing.user_id != user.id or existing.payload_json != payload:
+            stored = json.loads(existing.payload_json or "null")
+            # Dispatch/review metadata changes after enqueue; event content does not.
+            if (
+                channel != Channel.IN_APP
+                and isinstance(stored, dict)
+                and "dispatch" in stored
+            ):
+                stored = {
+                    k: v
+                    for k, v in stored.items()
+                    if k not in ("dispatch", "event", "rider_id")
+                }
+            if existing.user_id != user.id or stored != context:
                 raise ValueError("Contradictory payout notification replay")
             continue
         db.add(
@@ -160,7 +210,20 @@ async def enqueue_payout_notice(
                 template_code=template_code,
                 channel=channel,
                 status=status,
-                payload_json=payload,
+                payload_json=(
+                    payload
+                    if channel == Channel.IN_APP
+                    else json.dumps(
+                        {
+                            **context,
+                            "event": code,
+                            "rider_id": str(payout.rider_id),
+                            "dispatch": {"version": 1, "state": "queued"},
+                        },
+                        sort_keys=True,
+                        ensure_ascii=False,
+                    )
+                ),
                 dedupe_key=key,
                 title=subject,
                 body=text,
@@ -171,3 +234,40 @@ async def enqueue_payout_notice(
             )
         )
     await db.flush()
+
+
+async def recipient_still_valid(
+    db: AsyncSession, log: NotificationLog, user: User, payload: dict[str, Any]
+) -> bool:
+    """A payout notice never upgrades an accounting decision into bank payment."""
+    from uuid import UUID
+    from app.models.payout import Payout
+    from app.models.user import UserRole
+
+    if user.role != UserRole.REPARTIDOR:
+        return False
+    payout = await db.scalar(
+        select(Payout)
+        .where(Payout.id == log.payout_id)
+        .execution_options(populate_existing=True)
+    )
+    if payout is None or payout.rider_id != UUID(payload["rider_id"]):
+        return False
+    owner = await db.scalar(select(Rider.user_id).where(Rider.id == payout.rider_id))
+    if owner != log.user_id:
+        return False
+    try:
+        current = payout_context(payout)
+    except ValueError:
+        return False
+    return all(
+        current[key] == payload.get(key)
+        for key in (
+            "status",
+            "payout_id",
+            "amount_cents",
+            "currency_code",
+            "amount_usd",
+            "monetary_review",
+        )
+    )

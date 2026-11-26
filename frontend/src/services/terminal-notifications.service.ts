@@ -1,9 +1,9 @@
 import { api } from '@/lib/api';
 import { capturePrivateTask } from '@/lib/private-task';
 export type TerminalDispatch = {
-  id: string; event: 'entrega_completada' | 'entrega_fallida' | 'orden_cancelada';
+  id: string; event: 'entrega_completada' | 'entrega_fallida' | 'orden_cancelada' | 'nuevo_pedido_asignado' | 'payout_solicitado' | 'payout_aprobado' | 'payout_rechazado';
   channel: 'PUSH' | 'SMS' | 'EMAIL'; recipient_id: string; order_id: string | null;
-  state: 'queued' | 'uncertain' | 'invalid'; attempt_id: string | null;
+  payout_id?: string | null; state: 'queued' | 'uncertain' | 'invalid'; attempt_id: string | null;
   created_at: string | null; destination_hint: string | null; order_code?: string | null; attempt_started_at?: string | null;
 };
 export type DispatchReview = { review_id: string; attempt_id: string; decision: 'accepted' | 'unconfirmed'; reference: string; note: string };
@@ -17,7 +17,7 @@ export function newReviewId(): string {
   return `${raw.slice(0,8)}-${raw.slice(8,12)}-${raw.slice(12,16)}-${raw.slice(16,20)}-${raw.slice(20)}`;
 }
 export function isTerminalExternal(value: { channel: string; template_code?: string | null }): boolean {
-  return ['EMAIL', 'SMS', 'PUSH'].includes(value.channel) && ['entrega_completada', 'entrega_fallida', 'orden_cancelada'].includes(value.template_code || '');
+  return ['EMAIL', 'SMS', 'PUSH'].includes(value.channel) && ['entrega_completada', 'entrega_fallida', 'orden_cancelada', 'nuevo_pedido_asignado', 'payout_solicitado', 'payout_aprobado', 'payout_rechazado'].includes(value.template_code || '');
 }
 export const terminalNotifications = {
   async list(offset = 0): Promise<{ items: TerminalDispatch[]; next_offset: number | null }> {
@@ -27,7 +27,8 @@ export const terminalNotifications = {
     const items = data.items.map(value => {
       const row = record(value);
       id(row.id); id(row.recipient_id); if (row.order_id !== null) id(row.order_id);
-      if (!['entrega_completada', 'entrega_fallida', 'orden_cancelada'].includes(String(row.event)) || !['EMAIL', 'SMS', 'PUSH'].includes(String(row.channel)) || !['queued', 'uncertain', 'invalid'].includes(String(row.state))) throw new Error('Estado de revisión no válido');
+      if (row.payout_id !== undefined && row.payout_id !== null) id(row.payout_id);
+      if (!['entrega_completada', 'entrega_fallida', 'orden_cancelada', 'nuevo_pedido_asignado', 'payout_solicitado', 'payout_aprobado', 'payout_rechazado'].includes(String(row.event)) || !['EMAIL', 'SMS', 'PUSH'].includes(String(row.channel)) || !['queued', 'uncertain', 'invalid'].includes(String(row.state))) throw new Error('Estado de revisión no válido');
       if (row.attempt_id !== null) id(row.attempt_id);
       if (row.state === 'uncertain' && row.attempt_id === null) throw new Error('Intento ausente');
       for (const key of ['created_at', 'destination_hint']) if (row[key] !== null && typeof row[key] !== 'string') throw new Error('Detalle de revisión no válido');

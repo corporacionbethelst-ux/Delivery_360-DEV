@@ -1,4 +1,4 @@
-"""Transactional closure outbox and one-shot external dispatch with review.
+"""Transactional event outbox and one-shot external dispatch with review.
 
 A durable uncertain marker precedes provider I/O. Unknown outcomes never requeue.
 This does not provide external exactly-once delivery or device acknowledgement.
@@ -38,15 +38,22 @@ EVENTS = {
 }
 EXTERNAL = (Channel.PUSH, Channel.SMS, Channel.EMAIL)
 RESOURCE = "terminal_notification_review"
+ASSIGNMENT = "nuevo_pedido_asignado"
+PAYOUT_EVENTS = {
+    "payout_solicitado": "PENDIENTE",
+    "payout_aprobado": "EN_PROCESO",
+    "payout_rechazado": "RECHAZADO",
+}
+MANAGED_EVENTS = (*EVENTS, ASSIGNMENT, *PAYOUT_EVENTS)
+
+
+def review_resource(code: str | None) -> str:
+    return RESOURCE if code in EVENTS else "external_notification_review"
 
 
 def read_payload(log: NotificationLog) -> dict[str, Any]:
     try:
-        if (
-            log.template_code not in EVENTS
-            or log.channel not in EXTERNAL
-            or log.payout_id is not None
-        ):
+        if log.template_code not in MANAGED_EVENTS or log.channel not in EXTERNAL:
             raise ValueError()
         if not log.payload_json or len(log.payload_json) > 16384:
             raise ValueError()
@@ -59,8 +66,26 @@ def read_payload(log: NotificationLog) -> dict[str, Any]:
             or data["dispatch"]["version"] != 1
         ):
             raise ValueError()
-        UUID(data["order_id"])
         UUID(data["rider_id"])
+        if log.template_code in PAYOUT_EVENTS:
+            if (
+                log.payout_id is None
+                or str(log.payout_id) != data.get("payout_id")
+                or log.delivery_id is not None
+                or data.get("order_id") is not None
+                or data.get("status") != PAYOUT_EVENTS[log.template_code]
+            ):
+                raise ValueError()
+        else:
+            UUID(data["order_id"])
+            if log.payout_id is not None:
+                raise ValueError()
+            if log.template_code == ASSIGNMENT:
+                UUID(data["assignment_event_id"])
+                if log.delivery_id is None or str(log.delivery_id) != data.get(
+                    "delivery_id"
+                ):
+                    raise ValueError()
         return data
     except (ValueError, TypeError, KeyError, AttributeError):
         raise HTTPException(
@@ -176,6 +201,18 @@ async def recipient_still_valid(
 ) -> bool:
     try:
         payload = read_payload(log)
+        if log.template_code == ASSIGNMENT:
+            from app.services.assignment_notifications import (
+                recipient_still_valid as assignment_valid,
+            )
+
+            return await assignment_valid(db, log, user, payload)
+        if log.template_code in PAYOUT_EVENTS:
+            from app.services.payout_notifications import (
+                recipient_still_valid as payout_valid,
+            )
+
+            return await payout_valid(db, log, user, payload)
         expected = EVENTS.get(log.template_code or "")
         if expected is None:
             return False
@@ -370,8 +407,8 @@ async def review_result(
         raise HTTPException(403, "La revisión requiere gerencia vigente")
     if log is None:
         raise HTTPException(404, "Envío no encontrado")
-    if log.template_code not in EVENTS or log.channel not in EXTERNAL:
-        raise HTTPException(409, "El registro no es un envío externo de cierre")
+    if log.template_code not in MANAGED_EVENTS or log.channel not in EXTERNAL:
+        raise HTTPException(409, "El registro no es un envío externo administrado")
     payload = read_payload(log)
     if payload["dispatch"].get("attempt_id") != str(attempt_id):
         raise HTTPException(409, "El intento cambió; actualice la consulta")
@@ -384,7 +421,7 @@ async def review_result(
     }
     old = await db.scalar(
         select(AuditLog).where(
-            AuditLog.resource_type == RESOURCE,
+            AuditLog.resource_type == review_resource(log.template_code),
             AuditLog.resource_id == str(log.id),
             AuditLog.changes_summary == key,
         )
@@ -420,7 +457,7 @@ async def review_result(
             user_id=actor_id,
             user_role=actor.role.value,
             action_type=ActionType.STATUS_CHANGE,
-            resource_type=RESOURCE,
+            resource_type=review_resource(log.template_code),
             resource_id=str(log.id),
             changes_summary=key,
             description="Revisión de resultado externo; no emite un nuevo envío",

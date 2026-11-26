@@ -28,6 +28,7 @@ def context(monkeypatch):
     delivery = SimpleNamespace(id=uuid4(), rider_id=uuid4())
     user = SimpleNamespace(id=uuid4(), is_active=True)
     template = SimpleNamespace(
+        channel=Channel.PUSH,
         body_template="Orden {{delivery_code}} para {{customer_name}}",
         subject="Asignación {{delivery_code}}",
     )

@@ -64,7 +64,7 @@ def _make_user(role=UserRole.REPARTIDOR):
     return u
 
 
-def _make_template(code="payout_aprobado", channel=NotificationChannel.PUSH,
+def _make_template(code="generic_dispatch_test", channel=NotificationChannel.PUSH,
                    body="Retiro ${{amount_cents}} aprobado en cuenta ****{{bank_last4}}.",
                    subject=None, is_active=True):
     t = NotificationTemplate()
@@ -136,16 +136,16 @@ def test_render_none_body_is_safe():
 def test_dedupe_key_same_window_same_key():
     # Ventana de 300 s: ts//300 idéntico para ambos timestamps
     ts = (1_700_000_000 // 300) * 300  # inicio exacto de una ventana
-    k1 = build_dedupe_key("payout_aprobado", "entity-1", window_ts=ts)
-    k2 = build_dedupe_key("payout_aprobado", "entity-1", window_ts=ts + 120)
+    k1 = build_dedupe_key("generic_dispatch_test", "entity-1", window_ts=ts)
+    k2 = build_dedupe_key("generic_dispatch_test", "entity-1", window_ts=ts + 120)
     assert k1 == k2
 
 
 def test_dedupe_key_different_window_or_entity_differs():
     ts = (1_700_000_000 // 300) * 300
-    k1 = build_dedupe_key("payout_aprobado", "entity-1", window_ts=ts)
-    k2 = build_dedupe_key("payout_aprobado", "entity-1", window_ts=ts + 600)
-    k3 = build_dedupe_key("payout_aprobado", "entity-2", window_ts=ts)
+    k1 = build_dedupe_key("generic_dispatch_test", "entity-1", window_ts=ts)
+    k2 = build_dedupe_key("generic_dispatch_test", "entity-1", window_ts=ts + 600)
+    k3 = build_dedupe_key("generic_dispatch_test", "entity-2", window_ts=ts)
     assert k1 != k2 and k1 != k3
     assert len(k1) <= 120
 
@@ -172,7 +172,7 @@ def test_compute_next_retry_exponential_backoff():
 async def test_send_unknown_user_returns_empty_never_raises():
     db = _FakeDB([_exec_result(scalar_one_or_none=None)])  # User no existe
     svc = OmnichannelNotificationService(db, redis_client=False)
-    out = await svc.send(uuid.uuid4(), "payout_aprobado", {})
+    out = await svc.send(uuid.uuid4(), "generic_dispatch_test", {})
     assert out == []
 
 
@@ -186,7 +186,7 @@ async def test_send_inactive_template_returns_empty():
         _exec_result(scalar_one_or_none=None),      # dedupe lookup
     ])
     svc = OmnichannelNotificationService(db, redis_client=False)
-    out = await svc.send(user.id, "payout_aprobado", {"amount_cents": 1, "bank_last4": "0000"})
+    out = await svc.send(user.id, "generic_dispatch_test", {"amount_cents": 1, "bank_last4": "0000"})
     assert out == []
 
 
@@ -200,7 +200,7 @@ async def test_send_dedupe_within_5min_skips_second_log():
     ]
     db1 = _FakeDB(common + [_exec_result(scalar_one_or_none=None)])  # primer envío: sin dup
     svc = OmnichannelNotificationService(db1, redis_client=False)
-    logs = await svc.send(user.id, "payout_aprobado",
+    logs = await svc.send(user.id, "generic_dispatch_test",
                           {"amount_cents": 15000, "bank_last4": "4321"},
                           payout_id="pay-1")
     assert len(logs) >= 1
@@ -208,7 +208,7 @@ async def test_send_dedupe_within_5min_skips_second_log():
     existing_id = logs[0].id
     db2 = _FakeDB(common + [_exec_result(scalar_one_or_none=existing_id)])
     svc2 = OmnichannelNotificationService(db2, redis_client=False)
-    logs2 = await svc2.send(user.id, "payout_aprobado",
+    logs2 = await svc2.send(user.id, "generic_dispatch_test",
                             {"amount_cents": 15000, "bank_last4": "4321"},
                             payout_id="pay-1")
     assert logs2 == []
@@ -227,7 +227,7 @@ async def test_send_flag_disabled_forces_in_app_stub(monkeypatch):
         _exec_result(scalars_list=[]),                  # prefs (ninguna)
     ])
     svc = OmnichannelNotificationService(db, redis_client=False)
-    logs = await svc.send(user.id, "payout_aprobado", {"amount_cents": 1, "bank_last4": "1"})
+    logs = await svc.send(user.id, "generic_dispatch_test", {"amount_cents": 1, "bank_last4": "1"})
     assert len(logs) == 1
     assert logs[0].channel == NotificationChannel.IN_APP
     assert logs[0].status == OmnichannelStatus.ENVIADO  # IN_APP persistido = enviado
@@ -246,7 +246,7 @@ async def test_send_push_without_devices_schedules_retry():
         _exec_result(scalars_list=[]),              # device tokens (ninguno)
     ])
     svc = OmnichannelNotificationService(db, redis_client=False)
-    logs = await svc.send(user.id, "payout_aprobado",
+    logs = await svc.send(user.id, "generic_dispatch_test",
                           {"amount_cents": 15000, "bank_last4": "4321"}, payout_id="p1")
     assert len(logs) == 1
     assert logs[0].channel == NotificationChannel.PUSH
