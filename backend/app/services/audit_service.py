@@ -190,8 +190,28 @@ class AuditService:
     async def cleanup_old_logs(self, days_to_keep: int = 365) -> int:
         """Eliminar logs antiguos según política de retención."""
         cutoff_date = datetime.utcnow() - timedelta(days=days_to_keep)
+        from sqlalchemy import or_
+        from app.models.notification import NotificationLog
+        from app.services.technical_notification_resolution import (
+            RESOURCE,
+            audit_reference,
+        )
+
+        linked_notice = (
+            select(NotificationLog.id)
+            .where(audit_reference(NotificationLog.id) == AuditLog.resource_id)
+            .correlate(AuditLog)
+            .exists()
+        )
         result = await self.db.execute(
-            delete(AuditLog).where(AuditLog.created_at < cutoff_date)
+            delete(AuditLog).where(
+                AuditLog.created_at < cutoff_date,
+                or_(
+                    AuditLog.resource_type.is_(None),
+                    AuditLog.resource_type != RESOURCE,
+                    ~linked_notice,
+                ),
+            )
         )
         await self.db.commit()
         return int(result.rowcount or 0)

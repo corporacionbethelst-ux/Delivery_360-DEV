@@ -96,3 +96,79 @@ it('identifies a payout as a request and keeps accounting approval separate from
   fireEvent.click(screen.getByRole('button',{name:'Revisar resultado'}));
   expect(screen.getByText(/La aceptación del proveedor no acredita recepción en el dispositivo ni un pago/)).toBeInTheDocument();
 });
+
+const technicalRow = { ...row, state: 'invalid', attempt_id: null, revision: 'a'.repeat(64), diagnostic: 'unverifiable_record' };
+function technicalReceipt() {
+  const value = post.mock.calls.at(-1)![1] as any;
+  return { id, resolution_id: value.resolution_id, audit_id: '00000000-0000-4000-8000-000000000010', state: 'resolved', action: 'close_without_resend', resolved_at: '2026-11-26T14:00:00Z', resolved_by: row.recipient_id, reference: value.reference, note: value.note };
+}
+async function openTechnical() {
+  get.mockResolvedValue({ items: [technicalRow], next_offset: null });
+  render(<TerminalDispatchReviewPanel />); await load();
+  fireEvent.click(screen.getByRole('button', { name: 'Cerrar seguimiento técnico' }));
+  await screen.findByRole('dialog', { name: 'Cerrar seguimiento técnico' });
+}
+function technicalFields() {
+  fireEvent.change(screen.getByLabelText('Referencia del cierre técnico'), { target: { value: ' Caso-126 ' } });
+  fireEvent.change(screen.getByLabelText('Observaciones del cierre técnico'), { target: { value: ' Revisado ' } });
+  fireEvent.click(screen.getByRole('checkbox'));
+}
+it('requires a reference and explicit acknowledgement for technical closure', async () => {
+  await openTechnical();
+  expect(screen.getByRole('button',{name:'Cerrar sin reenviar'})).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Referencia del cierre técnico'),{target:{value:'Caso-126'}});
+  expect(screen.getByRole('button',{name:'Cerrar sin reenviar'})).toBeDisabled();
+  expect(screen.getByRole('checkbox')).not.toBeChecked();expect(post).not.toHaveBeenCalled();
+});
+it('records one closure with its frozen revision and no sending call', async () => {
+  const request=deferred<any>();post.mockReturnValue(request.promise);
+  await openTechnical();technicalFields();
+  const button=screen.getByRole('button',{name:'Cerrar sin reenviar'});fireEvent.click(button);fireEvent.click(button);
+  expect(post).toHaveBeenCalledTimes(1);expect(post.mock.calls[0][0]).toBe(`/notifications/terminal-dispatch/${id}/resolve`);
+  expect(post.mock.calls[0][1]).toMatchObject({revision:technicalRow.revision,action:'close_without_resend',reference:'Caso-126',note:'Revisado'});
+  get.mockResolvedValue({items:[],next_offset:null});await act(async()=>request.resolve(technicalReceipt()));
+  await waitFor(()=>expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(toast.success).toHaveBeenCalledWith('Cierre técnico registrado; no se reenviará el aviso');
+});
+it('repeats an ambiguous technical closure with the same key and data', async () => {
+  post.mockRejectedValueOnce(new Error('Respuesta perdida')).mockImplementation(async()=>technicalReceipt());
+  await openTechnical();technicalFields();fireEvent.click(screen.getByRole('button',{name:'Cerrar sin reenviar'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Respuesta perdida');
+  expect(screen.getByLabelText('Referencia del cierre técnico')).toBeDisabled();expect(screen.getByRole('checkbox')).toBeDisabled();
+  fireEvent.click(screen.getByRole('button',{name:'Reintentar cierre'}));
+  await waitFor(()=>expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(post).toHaveBeenCalledTimes(2);expect(post.mock.calls[1][1]).toEqual(post.mock.calls[0][1]);
+});
+it('recovers a stale technical decision by GET without a second write', async () => {
+  post.mockRejectedValue({response:{status:409,data:{detail:'El aviso cambió'}}});
+  await openTechnical();technicalFields();fireEvent.click(screen.getByRole('button',{name:'Cerrar sin reenviar'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('El aviso cambió');
+  fireEvent.click(screen.getByRole('button',{name:'Consultar estado'}));
+  await waitFor(()=>expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(post).toHaveBeenCalledTimes(1);expect(get).toHaveBeenCalledTimes(2);
+});
+it('allows correction after a definitive 422 and uses a new closure key', async () => {
+  post.mockRejectedValueOnce({response:{status:422,data:{detail:'Referencia inválida'}}}).mockImplementation(async()=>technicalReceipt());
+  await openTechnical();technicalFields();fireEvent.click(screen.getByRole('button',{name:'Cerrar sin reenviar'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Referencia inválida');
+  expect(screen.getByLabelText('Referencia del cierre técnico')).toBeEnabled();
+  fireEvent.change(screen.getByLabelText('Referencia del cierre técnico'),{target:{value:'Caso-126-corregido'}});
+  fireEvent.click(screen.getByRole('button',{name:'Cerrar sin reenviar'}));
+  await waitFor(()=>expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect((post.mock.calls[1][1] as any).resolution_id).not.toBe((post.mock.calls[0][1] as any).resolution_id);
+});
+it('drops a delayed technical receipt after a credential change', async () => {
+  const request=deferred<any>();post.mockReturnValue(request.promise);
+  await openTechnical();technicalFields();fireEvent.click(screen.getByRole('button',{name:'Cerrar sin reenviar'}));
+  const receipt=technicalReceipt();
+  await act(async()=>{storeTokens({access_token:'technical-new-session',refresh_token:'technical-refresh'});request.resolve(receipt);});
+  expect(toast.success).not.toHaveBeenCalled();expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});
+it('shows technical history as a receipt without review or sending actions', async () => {
+  const receipt={id,resolution_id:'00000000-0000-4000-8000-000000000009',audit_id:'00000000-0000-4000-8000-000000000010',state:'resolved',action:'close_without_resend',resolved_at:'2026-11-26T14:00:00Z',resolved_by:row.recipient_id,reference:'Caso-126',note:'Conservado'};
+  get.mockResolvedValue({items:[{...technicalRow,state:'resolved',revision:null,resolution:receipt}],next_offset:null});
+  render(<TerminalDispatchReviewPanel />);fireEvent.click(screen.getByRole('button',{name:'Cierres técnicos'}));
+  expect(await screen.findByText('Cerrado sin reenvío')).toBeInTheDocument();
+  expect(get.mock.calls[0][0]).toContain('view=resolved');expect(screen.getByText('Referencia: Caso-126')).toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'Cerrar seguimiento técnico'})).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'Revisar resultado'})).not.toBeInTheDocument();expect(post).not.toHaveBeenCalled();
+});

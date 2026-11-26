@@ -84,6 +84,21 @@ CURRENCY_PATHS = {
 
 def before_currency_schema(application):
     schema = deepcopy(application.openapi())
+    technical_delta = json.loads(
+        (
+            Path(__file__).parent / "fixtures/technical_dispatch_resolution_delta.json"
+        ).read_text()
+    )
+    for path, expected in technical_delta["paths"].items():
+        assert schema["paths"].pop(path) == expected
+    for name, expected in technical_delta["schemas"].items():
+        assert schema["components"]["schemas"].pop(name) == expected
+    parameters = schema["paths"]["/api/v1/notifications/terminal-dispatch/review"][
+        "get"
+    ]["parameters"]
+    added = [p for p in parameters if p["name"] == "view"]
+    assert added == [technical_delta["list_parameter"]]
+    parameters.remove(added[0])
     review_delta = json.loads(
         (
             Path(__file__).parent / "fixtures/terminal_dispatch_review_delta.json"
@@ -240,6 +255,18 @@ def before_currency_schema(application):
 
 def surface_before_currency(application):
     current = api_surface(application)
+    technical_delta = json.loads(
+        (
+            Path(__file__).parent / "fixtures/technical_dispatch_resolution_delta.json"
+        ).read_text()
+    )
+    added = [
+        row for row in current["routes"] if row["path"] in technical_delta["paths"]
+    ]
+    assert added == technical_delta["routes"]
+    for key, expected in technical_delta["dependencies"].items():
+        assert current["dependencies"][key] == expected
+    current["routes"] = [row for row in current["routes"] if row not in added]
     review_delta = json.loads(
         (
             Path(__file__).parent / "fixtures/terminal_dispatch_review_delta.json"

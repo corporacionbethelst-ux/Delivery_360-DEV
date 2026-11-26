@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 125. Este registro distingue implementación local,
+Actualizado con la entrega 126. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -261,3 +261,12 @@ la retención conserva esos bloqueos. El panel de notificaciones permite revisar
 los siete eventos sin reenviar ni acreditar pagos. Continúan pendientes los
 proveedores reales, su consulta de resultados, el procedimiento para resolver
 bloqueos técnicos y la aceptación externa. Ver ENTREGA_125.md.
+
+La entrega 126 incorpora cierre administrativo de bloqueos técnicos con revisión
+vigente, referencia, auditoría, idempotencia e historial separado. Conserva la
+evidencia original y detiene la ejecución sin reenviar ni confirmar pagos. Los
+intentos inciertos válidos siguen retenidos para revisión del proveedor. El acta
+se conserva mientras exista el aviso. Quedan proveedores reales y consulta de
+resultados, y un procedimiento independiente si se necesitara emitir un nuevo
+aviso antiguo con seguridad verificable; no existe reenvío forzado. También
+continúan aceptación, infraestructura y recuperación productiva.
