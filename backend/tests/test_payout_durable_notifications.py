@@ -120,6 +120,17 @@ async def test_provider_records_are_durable_without_dispatch_and_respect_prefere
     push.assert_not_awaited()
     email.assert_not_awaited()
     # A later consumer resumes the persisted row after a simulated restart.
+    from app.models.user import UserRole
+    from app.services import terminal_notifications
+
+    # The administrative fixture approves the request above. Dispatch requires
+    # the recipient to still have the operational rider role and valid SMTP.
+    user.role = UserRole.REPARTIDOR
+    user.email = "rider@example.com"
+    await db.commit()
+    monkeypatch.setattr(
+        terminal_notifications, "smtp_email_is_configured", lambda *a: True
+    )
     email.return_value = True
     monkeypatch.setattr(Service, "_publish_new_notification", AsyncMock())
     assert await Service(db, redis_client=False).process_retry_queue() == 1

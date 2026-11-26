@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 124. Este registro distingue implementación local,
+Actualizado con la entrega 125. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -252,3 +252,12 @@ La entrega 113 añade aceptación de navegador sobre la restauración con API/we
 La entrega 114 corrige el recorte de «Nueva Orden» y la compresión de filtros en pantallas estrechas. Conserva los contratos operativos y añade comprobaciones de geometría y obstrucción por control en cinco anchos, tanto en la imagen web con datos sintéticos como sobre la restauración real. Reproduce además el recorte por un ancestro sin overflow global, para evitar el falso positivo de la comprobación anterior. Integra en su rama de revisión los cambios de 113 que se habían fusionado únicamente en la rama de 112 después de integrar esta en main. Siguen pendientes los demás recorridos/roles, staging, RPO/RTO, capacidad y las integraciones externas indicadas arriba.
 
 La entrega 115 incluye además la migración aditiva de notificationtype: incorpora las etiquetas que el modelo ya declaraba, sin reescribir filas. El downgrade conserva esas etiquetas para evitar pérdida de datos. Aplicar el upgrade antes de habilitar las nuevas escrituras; revisar también las plantillas antiguas que presentan amount_cents como dólares. No se migró la base original ni producción.
+
+La entrega 125 extiende el marcador persistente y la revisión de resultados
+inciertos a asignaciones y retiros. Revalida el último evento de asignación y
+el estado, dueño, importe y moneda del retiro. Los avisos históricos sin
+protocolo se bloquean para revisión técnica sin presumir que no se enviaron;
+la retención conserva esos bloqueos. El panel de notificaciones permite revisar
+los siete eventos sin reenviar ni acreditar pagos. Continúan pendientes los
+proveedores reales, su consulta de resultados, el procedimiento para resolver
+bloqueos técnicos y la aceptación externa. Ver ENTREGA_125.md.

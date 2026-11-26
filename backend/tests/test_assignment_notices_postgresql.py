@@ -177,7 +177,22 @@ async def test_persisted_external_work_recovers_with_current_policy(
     assignment_db, monkeypatch, condition
 ):
     client, sessions, ids = assignment_db
+    from app.models.notification import UserDeviceToken
+
+    monkeypatch.setattr(settings, "FCM_CREDENTIALS_JSON_PATH", "/mocked-only.json")
     async with sessions() as db:
+        connection = await db.connection()
+        await connection.run_sync(
+            lambda c: UserDeviceToken.__table__.create(c, checkfirst=True)
+        )
+        db.add(
+            UserDeviceToken(
+                user_id=ids["owner"],
+                device_token="assignment-policy-test",
+                platform="android",
+                is_active=True,
+            )
+        )
         db.add(
             NotificationTemplate(
                 code="nuevo_pedido_asignado",
@@ -245,8 +260,7 @@ async def test_persisted_external_work_recovers_with_current_policy(
         assert queued.body == original_body
         if condition == "retry_success":
             assert queued.status == Status.PENDIENTE and queued.retry_count == 1
-            queued.next_retry_at = utc_now_naive() - timedelta(seconds=1)
-            await db.commit()
+            assert queued.next_retry_at is None
         elif condition == "pause":
             assert queued.status == Status.PENDIENTE and queued.retry_count == 0
         else:
@@ -258,11 +272,11 @@ async def test_persisted_external_work_recovers_with_current_policy(
                 await OmnichannelNotificationService(
                     db, redis_client=False
                 ).process_retry_queue(10)
-                == 1
+                == 0
             )
         async with sessions() as db:
-            assert (await db.get(NotificationLog, log_id)).status == Status.ENVIADO
-        assert provider.await_count == 2
+            assert (await db.get(NotificationLog, log_id)).status == Status.PENDIENTE
+        assert provider.await_count == 1
         assert provider.await_args.args[2] == original_body
     else:
         provider.assert_not_awaited()

@@ -86,3 +86,13 @@ it('uses the conserved order reference and identifies the attempted clock in Car
   expect(screen.getByText(/Orden VE-CIERRE-124/)).toBeInTheDocument();
   expect(screen.getByText(/Intento registrado:.*Caracas/)).toBeInTheDocument();
 });
+
+it('identifies a payout as a request and keeps accounting approval separate from bank payment', async () => {
+  get.mockResolvedValue({items:[{...row,event:'payout_aprobado',order_id:null,payout_id:'00000000-0000-4000-8000-000000000005'}],next_offset:null});
+  render(<TerminalDispatchReviewPanel />);await load();
+  expect(screen.getByText('Retiro aprobado contablemente')).toBeInTheDocument();
+  expect(screen.getByText(/Solicitud de retiro 00000000/)).toBeInTheDocument();
+  expect(screen.queryByText(/ID orden/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Revisar resultado'}));
+  expect(screen.getByText(/La aceptación del proveedor no acredita recepción en el dispositivo ni un pago/)).toBeInTheDocument();
+});

@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -46,6 +47,7 @@ async def enqueue_assignment_notice(
         "delivery_id": str(delivery.id),
         "delivery_code": str(delivery.id)[:8].upper(),
         "rider_id": str(delivery.rider_id),
+        "order_code": order.external_id or str(order.id)[:8],
         "source": source,
         "customer_name": order.customer_name,
         "pickup_address": order.pickup_address,
@@ -66,7 +68,7 @@ async def enqueue_assignment_notice(
         if template is not None:
             channels = await OmnichannelNotificationService(
                 db, redis_client=False
-            ).resolve_channels(user, template, CODE)
+            ).resolve_channels(user, template, CODE, channels=[template.channel])
             # Assignment is not a monetary receipt. Old templates must not turn
             # absent/unlabelled order totals into a rider's earnings.
             unsafe = bool(
@@ -81,6 +83,20 @@ async def enqueue_assignment_notice(
             for channel in dict.fromkeys(channels):
                 if channel == Channel.IN_APP:
                     continue
+                rendered_body = render_template(template.body_template, context)
+                rendered_title = (
+                    render_template(template.subject, context)
+                    if template.subject
+                    else title
+                )
+                unsafe = (
+                    unsafe
+                    or not rendered_body.strip()
+                    or any(
+                        marker in rendered_body + rendered_title
+                        for marker in ("{{", "}}")
+                    )
+                )
                 plans.append(
                     (
                         channel,
@@ -114,7 +130,19 @@ async def enqueue_assignment_notice(
                 status=status,
                 title=subject,
                 body=text,
-                payload_json=json.dumps(context, sort_keys=True, ensure_ascii=False),
+                payload_json=json.dumps(
+                    (
+                        context
+                        if channel == Channel.IN_APP
+                        else {
+                            **context,
+                            "event": CODE,
+                            "dispatch": {"version": 1, "state": "queued"},
+                        }
+                    ),
+                    sort_keys=True,
+                    ensure_ascii=False,
+                ),
                 dedupe_key=hashlib.sha256(
                     f"assignment:{event_id}:{channel.value}".encode()
                 ).hexdigest(),
@@ -128,3 +156,53 @@ async def enqueue_assignment_notice(
             from app.services.assignment_realtime import queue_assignment_nudge
 
             queue_assignment_nudge(db, notice_id)
+
+
+async def recipient_still_valid(
+    db: AsyncSession, log: NotificationLog, user: User, payload: dict[str, Any]
+) -> bool:
+    """Reject stale assignment events, including a rider reassigned away and back."""
+    from app.models.audit_log import AuditLog, ActionType
+    from app.models.order import OrderStatus
+    from app.models.delivery import DeliveryStatus
+    from app.models.rider import Rider
+    from app.models.user import UserRole
+
+    if user.role != UserRole.REPARTIDOR:
+        return False
+    assignment = await db.scalar(
+        select(Delivery.id)
+        .join(Order, Order.id == Delivery.order_id)
+        .join(Rider, Rider.id == Delivery.rider_id)
+        .where(
+            Delivery.id == log.delivery_id,
+            Order.id == UUID(payload["order_id"]),
+            Delivery.rider_id == UUID(payload["rider_id"]),
+            Rider.user_id == log.user_id,
+            Order.assigned_rider_id == Delivery.rider_id,
+            Order.status.in_(
+                (OrderStatus.ASIGNADO, OrderStatus.RECOLECTADO, OrderStatus.EN_RUTA)
+            ),
+            Delivery.status.not_in(
+                (
+                    DeliveryStatus.COMPLETADA,
+                    DeliveryStatus.FALLIDA,
+                    DeliveryStatus.CANCELADA,
+                )
+            ),
+        )
+    )
+    if assignment is None:
+        return False
+    latest = await db.scalar(
+        select(AuditLog.id)
+        .where(
+            AuditLog.resource_type == "ORDER",
+            AuditLog.resource_id == payload["order_id"],
+            AuditLog.action_type.in_((ActionType.ASSIGN, ActionType.REASSIGN)),
+            AuditLog.success.is_(True),
+        )
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .limit(1)
+    )
+    return str(latest) == payload["assignment_event_id"]

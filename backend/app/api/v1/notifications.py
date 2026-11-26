@@ -298,9 +298,9 @@ async def mark_read(
             status_code=403, detail="No autorizado sobre esta notificación"
         )
 
-    from app.services.terminal_notifications import EVENTS, EXTERNAL
+    from app.services.terminal_notifications import MANAGED_EVENTS, EXTERNAL
 
-    if log.template_code in EVENTS and log.channel in EXTERNAL:
+    if log.template_code in MANAGED_EVENTS and log.channel in EXTERNAL:
         raise HTTPException(
             409, "El envío externo se revisa por su resultado; no se marca como leído"
         )
@@ -329,9 +329,9 @@ async def delete_notification(
         raise HTTPException(
             status_code=403, detail="No autorizado sobre esta notificación"
         )
-    from app.services.terminal_notifications import EVENTS, EXTERNAL
+    from app.services.terminal_notifications import MANAGED_EVENTS, EXTERNAL
 
-    if log.template_code in EVENTS and log.channel in EXTERNAL:
+    if log.template_code in MANAGED_EVENTS and log.channel in EXTERNAL:
         raise HTTPException(
             409, "El envío externo conserva su historial y requiere revisión"
         )
@@ -435,11 +435,11 @@ async def test_send(
     service: OmnichannelNotificationService = Depends(_get_service),
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ):
-    from app.services.terminal_notifications import EVENTS
+    from app.services.terminal_notifications import MANAGED_EVENTS
 
-    if body.template_code in EVENTS:
+    if body.template_code in MANAGED_EVENTS:
         raise HTTPException(
-            409, "Los avisos de cierre requieren una operación coordinada"
+            409, "Los avisos administrados requieren una operación coordinada"
         )
     target_user_id = body.user_id or str(current_user.id)
     parsed = _parse_uuid(target_user_id, "user_id")
@@ -500,14 +500,18 @@ async def terminal_dispatch_review_list(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ) -> dict[str, Any]:
-    from app.services.terminal_notifications import EVENTS, EXTERNAL, read_payload
+    from app.services.terminal_notifications import (
+        MANAGED_EVENTS,
+        EXTERNAL,
+        read_payload,
+    )
 
     rows = list(
         (
             await db.scalars(
                 select(NotificationLog)
                 .where(
-                    NotificationLog.template_code.in_(EVENTS),
+                    NotificationLog.template_code.in_(MANAGED_EVENTS),
                     NotificationLog.channel.in_(EXTERNAL),
                     NotificationLog.status.in_(
                         (OmnichannelStatus.PENDIENTE, OmnichannelStatus.FALLIDO)
@@ -564,6 +568,7 @@ async def terminal_dispatch_review_list(
                 "channel": row.channel.value,
                 "recipient_id": str(row.user_id),
                 "order_id": payload.get("order_id"),
+                "payout_id": str(row.payout_id) if row.payout_id else None,
                 "state": state,
                 "attempt_id": attempt,
                 "created_at": utc_isoformat(row.created_at),

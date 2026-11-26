@@ -282,11 +282,11 @@ class OmnichannelNotificationService:
         dispatch secuencial por sesión → pub/sub NEW_NOTIFICATION.
         """
         try:
-            from app.services.terminal_notifications import EVENTS
+            from app.services.terminal_notifications import MANAGED_EVENTS
 
-            if template_code in EVENTS:
+            if template_code in MANAGED_EVENTS:
                 logger.warning(
-                    "Closure notifications require a coordinated business event"
+                    "Managed notifications require a coordinated business event"
                 )
                 return []
             return await self._send_inner(
@@ -737,7 +737,7 @@ class OmnichannelNotificationService:
             raise
 
     async def _retry_queued_log(self, log: NotificationLog, now: datetime) -> None:
-        """Update one locked row; never commit inside provider helpers."""
+        """Dispatch one locked row; managed outboxes commit a claim before I/O."""
         user = (
             await self.db.execute(
                 select(User)
@@ -754,53 +754,19 @@ class OmnichannelNotificationService:
         if not user.is_active:
             self._stop_queued_log(log, "Cuenta inactiva en reintento")
             return
-        if log.template_code == "nuevo_pedido_asignado":
-            from app.models.user import UserRole
-            from app.models.order import Order, OrderStatus
-            from app.models.delivery import Delivery, DeliveryStatus
-            from app.models.rider import Rider
-
-            current_assignment = await self.db.scalar(
-                select(Delivery.id)
-                .join(Order, Order.id == Delivery.order_id)
-                .join(Rider, Rider.id == Delivery.rider_id)
-                .where(
-                    Delivery.id == log.delivery_id,
-                    Rider.user_id == user.id,
-                    Order.assigned_rider_id == Delivery.rider_id,
-                    Order.status.in_(
-                        (
-                            OrderStatus.ASIGNADO,
-                            OrderStatus.RECOLECTADO,
-                            OrderStatus.EN_RUTA,
-                        )
-                    ),
-                    Delivery.status.not_in(
-                        (
-                            DeliveryStatus.COMPLETADA,
-                            DeliveryStatus.FALLIDA,
-                            DeliveryStatus.CANCELADA,
-                        )
-                    ),
-                )
-            )
-            if user.role != UserRole.REPARTIDOR or current_assignment is None:
-                self._stop_queued_log(
-                    log, "La asignación ya no está vigente para el destinatario"
-                )
-                return
         from app.services.terminal_notifications import (
-            EVENTS,
+            MANAGED_EVENTS,
             recipient_still_valid,
             dispatch_once,
         )
 
         terminal = (
-            log.template_code in EVENTS and log.channel != NotificationChannel.IN_APP
+            log.template_code in MANAGED_EVENTS
+            and log.channel != NotificationChannel.IN_APP
         )
         if terminal and not await recipient_still_valid(self.db, log, user):
             self._stop_queued_log(
-                log, "El cierre o destinatario requiere revisión; no se envió"
+                log, "El evento o destinatario requiere revisión; no se envió"
             )
             return
         if log.template_code:
@@ -909,6 +875,9 @@ class OmnichannelNotificationService:
         """Retención NOTIFICATION_RETENTION_DAYS (default 30)."""
         from sqlalchemy import delete
 
+        from sqlalchemy import and_, or_
+        from app.services.terminal_notifications import MANAGED_EVENTS, EXTERNAL
+
         cutoff = utc_now_naive() - timedelta(
             days=int(settings.NOTIFICATION_RETENTION_DAYS)
         )
@@ -917,6 +886,16 @@ class OmnichannelNotificationService:
                 NotificationLog.created_at < cutoff,
                 NotificationLog.status != OmnichannelStatus.PENDIENTE,
                 NotificationLog.next_retry_at.is_(None),
+                # Technical holds have no automatic resolution or resend. Keep
+                # their evidence even when old; NULL legacy codes remain eligible.
+                or_(
+                    NotificationLog.template_code.is_(None),
+                    ~and_(
+                        NotificationLog.template_code.in_(MANAGED_EVENTS),
+                        NotificationLog.channel.in_(EXTERNAL),
+                        NotificationLog.status == OmnichannelStatus.FALLIDO,
+                    ),
+                ),
             )
         )
         await self.db.commit()

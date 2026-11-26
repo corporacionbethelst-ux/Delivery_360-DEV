@@ -71,3 +71,17 @@ El identificador de deduplicación corresponde al retiro, evento y canal. Repeti
 Una plantilla con amount_cents en su cuerpo o asunto queda registrada como FALLIDO para revisión, con texto financiero seguro y sin envío. No se sobrescribe la plantilla personalizada ni se asume que sus centavos son dólares. El aviso interno permanece disponible. Revisar esa configuración antes de esperar entrega externa de esos registros; esta entrega no añade una acción de reenvío administrativo.
 
 ENVIADO de un canal externo acredita aceptación del adaptador/proveedor según su contrato, no entrega al dispositivo ni pago bancario. Una caída después de aceptación externa y antes de confirmar el resultado puede producir reintento ambiguo: no se garantiza exactamente una entrega externa. La eliminación por retención sigue aplicando a registros terminales sin reintento pendiente; el historial contable del retiro se conserva por sus propios contratos.
+
+## Entrega 125 — asignaciones y retiros
+
+Los cuatro eventos transaccionales de asignación/retiro comparten el protocolo
+persistente de los cierres. Antes del adaptador se confirma el intento; ante
+resultado incierto no hay reenvío automático. Se usa el canal de la plantilla
+filtrado por preferencias. La asignación comprueba su último evento auditado;
+el retiro conserva y revalida dueño, estado, moneda e importe. La revisión
+administrativa registra evidencia del proveedor y no confirma pagos.
+
+Los avisos antiguos sin protocolo se retienen como revisión técnica cuando el
+consumidor los encuentra. Los bloqueos técnicos externos no se purgan por edad.
+No hay backfill, reset automático ni emisión por test-send/send genérico para
+estos eventos. Los recibos internos conservan su contrato. Ver ENTREGA_125.md.
