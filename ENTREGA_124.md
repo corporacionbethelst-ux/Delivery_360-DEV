@@ -40,6 +40,8 @@ La página `/notifications` incorpora un panel administrativo con consulta
 explícita y paginación: cola, resultados sin confirmar y registros que necesitan
 revisión técnica. Muestra la referencia conservada, cuenta, canal, destino
 enmascarado y hora de Caracas, sin exponer credenciales ni tokens de dispositivos.
+El control de navegación permite abrir la bandeja a los seis roles conocidos;
+el panel de revisión y sus endpoints siguen restringidos a Gerente/Superadmin.
 
 El modal permite confirmar una aceptación verificada mediante una referencia, o
 registrar que el resultado sigue sin confirmarse. Esta segunda decisión mantiene
