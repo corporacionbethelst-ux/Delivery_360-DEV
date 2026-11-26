@@ -63,6 +63,13 @@ protección de las rutas. Las regresiones comprueban cierres y contratos de API.
 El frontend comprueba referencias de retiro, permisos y la misma clave al repetir
 una revisión incierta. Los proveedores se simulan; no se envían mensajes reales.
 
+CI conserva todas sus comprobaciones y comandos. El laboratorio dispone de 45
+minutos para incluir instalación, recorridos y restauración; las instalaciones
+de navegador tienen un límite de diez minutos para detectar una preparación
+atascada. El trabajo del contenedor web dispone de treinta minutos. Este ajuste
+responde a una ejecución que agotó su margen de treinta minutos después de
+consumir ocho preparando el navegador; no convierte un timeout en éxito.
+
 No hay migración de esquema, backfill ni modificación de saldos o importes.
 La aceptación del adaptador no garantiza entrega al dispositivo. PUSH puede
 abarcar varios dispositivos y los SDK pueden realizar operaciones de transporte.
