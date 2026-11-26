@@ -22,6 +22,8 @@ WebSocket (montado en main.py, UN solo pool manager — regla anti-error 6):
 
 from __future__ import annotations
 
+from app.schemas.notification_diagnostics import NotificationProviderDiagnostics
+
 import asyncio
 import anyio
 import json
@@ -36,6 +38,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     WebSocket,
     WebSocketDisconnect,
     status,
@@ -474,6 +477,18 @@ async def test_send(
         "failed": sum(item["status"] == "FALLIDO" for item in items),
         "logs": items,
     }
+
+
+@router.get("/providers/diagnostics", response_model=NotificationProviderDiagnostics)
+def notification_provider_diagnostics(
+    response: Response,
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+) -> NotificationProviderDiagnostics:
+    from app.services.notification_diagnostics import diagnostics
+
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Vary"] = "Authorization, Cookie"
+    return diagnostics()
 
 
 class TerminalDispatchReview(BaseModel):

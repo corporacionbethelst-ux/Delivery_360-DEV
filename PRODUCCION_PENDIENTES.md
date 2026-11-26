@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 126. Este registro distingue implementación local,
+Actualizado con la entrega 127. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -270,3 +270,10 @@ se conserva mientras exista el aviso. Quedan proveedores reales y consulta de
 resultados, y un procedimiento independiente si se necesitara emitir un nuevo
 aviso antiguo con seguridad verificable; no existe reenvío forzado. También
 continúan aceptación, infraestructura y recuperación productiva.
+
+La entrega 127 incorpora diagnóstico privado y de solo lectura de SMTP, SMS y
+PUSH. Comprueba presencia/formato, flags, cifrado, componentes y metadatos locales
+sin exponer valores ni contactar proveedores. Incluye guía de configuración segura.
+No habilita credenciales o canales, ni acredita conexión o recepción. Continúan
+pendientes configuración real autorizada, homologación con destinos, consulta de
+resultados y los demás requisitos externos de operación productiva.
