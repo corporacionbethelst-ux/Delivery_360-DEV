@@ -173,5 +173,10 @@ async def _enqueue_notice(
             sent_at=now,
         )
     )
+    from app.services.terminal_notifications import enqueue_external
+
+    await enqueue_external(
+        db, order, delivery, rider_id, recipient, code, title, body, payload
+    )
     queue_inbox_nudge(db, notice_id)
     return notice_id

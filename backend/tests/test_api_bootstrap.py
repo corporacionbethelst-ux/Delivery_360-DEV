@@ -84,6 +84,20 @@ CURRENCY_PATHS = {
 
 def before_currency_schema(application):
     schema = deepcopy(application.openapi())
+    review_delta = json.loads(
+        (
+            Path(__file__).parent / "fixtures/terminal_dispatch_review_delta.json"
+        ).read_text()
+    )
+    assert {
+        key
+        for key in schema["paths"]
+        if key.startswith("/api/v1/notifications/terminal-dispatch/")
+    } == set(review_delta["paths"])
+    for path, expected in review_delta["paths"].items():
+        assert schema["paths"].pop(path) == expected
+    for name, expected in review_delta["schemas"].items():
+        assert schema["components"]["schemas"].pop(name) == expected
     otp_delta = json.loads(
         (Path(__file__).parent / "fixtures/delivery_otp_email_delta.json").read_text()
     )
@@ -226,6 +240,20 @@ def before_currency_schema(application):
 
 def surface_before_currency(application):
     current = api_surface(application)
+    review_delta = json.loads(
+        (
+            Path(__file__).parent / "fixtures/terminal_dispatch_review_delta.json"
+        ).read_text()
+    )
+    additions = [
+        row
+        for row in current["routes"]
+        if row["path"].startswith("/api/v1/notifications/terminal-dispatch/")
+    ]
+    assert additions == review_delta["routes"]
+    for key, expected in review_delta["dependencies"].items():
+        assert current["dependencies"][key] == expected
+    current["routes"] = [row for row in current["routes"] if row not in additions]
     otp_delta = json.loads(
         (Path(__file__).parent / "fixtures/delivery_otp_email_delta.json").read_text()
     )

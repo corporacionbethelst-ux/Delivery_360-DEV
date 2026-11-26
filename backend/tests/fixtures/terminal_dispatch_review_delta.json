@@ -1,0 +1,264 @@
+{
+  "dependencies": {
+    "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66": {
+      "call": "app.api.v1.auth.get_current_user",
+      "dependencies": [
+        "93796a5e46bf721166f05fa7f2563f90b4f32857519296226b905a31d7f78f4e",
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9"
+      ],
+      "name": "current_user",
+      "security_scopes": [],
+      "use_cache": true
+    },
+    "723cbb3a15ebad7571b2d599b8e242cf9379f0096b0192e6090856a1a3cd998e": {
+      "call": "app.api.v1.notifications.terminal_dispatch_review_submit",
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ],
+      "name": null,
+      "security_scopes": [],
+      "use_cache": true
+    },
+    "93796a5e46bf721166f05fa7f2563f90b4f32857519296226b905a31d7f78f4e": {
+      "call": "fastapi.security.oauth2.OAuth2PasswordBearer",
+      "dependencies": [],
+      "name": "token",
+      "security_scopes": [],
+      "use_cache": true
+    },
+    "dc8429e7cb098191669a445f5062bc9bdf3d13e267c4d4ace38c5fcbc85c3773": {
+      "call": "app.api.v1.notifications.terminal_dispatch_review_list",
+      "dependencies": [
+        "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9",
+        "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81"
+      ],
+      "name": null,
+      "security_scopes": [],
+      "use_cache": true
+    },
+    "f234fb54aa6fa36aa56a2ed517b43ee3bb99a6d6781be7e59280fc21b5a0f6f9": {
+      "call": "app.core.database.get_db",
+      "dependencies": [],
+      "name": "db",
+      "security_scopes": [],
+      "use_cache": true
+    },
+    "f475f6eadc8223955f7c550039659843042639f0261a66e3553906fd503c2a81": {
+      "call": "app.api.v1.auth.require_role.<locals>.checker",
+      "dependencies": [
+        "2394968b4f75b93af0a95ef05ff281998162b74f77a1980ea467be4b89523f66"
+      ],
+      "name": "current_user",
+      "roles": [
+        "SUPERADMIN",
+        "GERENTE"
+      ],
+      "security_scopes": [],
+      "use_cache": true
+    }
+  },
+  "paths": {
+    "/api/v1/notifications/terminal-dispatch/review": {
+      "get": {
+        "operationId": "terminal_dispatch_review_list_api_v1_notifications_terminal_dispatch_review_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 10000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Terminal Dispatch Review List Api V1 Notifications Terminal Dispatch Review Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Terminal Dispatch Review List",
+        "tags": [
+          "Notificaciones (Fase 9)",
+          "Notificaciones (Fase 9)"
+        ]
+      }
+    },
+    "/api/v1/notifications/terminal-dispatch/{notification_id}/review": {
+      "post": {
+        "operationId": "terminal_dispatch_review_submit_api_v1_notifications_terminal_dispatch__notification_id__review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "notification_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Notification Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TerminalDispatchReview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Terminal Dispatch Review Submit Api V1 Notifications Terminal Dispatch  Notification Id  Review Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Terminal Dispatch Review Submit",
+        "tags": [
+          "Notificaciones (Fase 9)",
+          "Notificaciones (Fase 9)"
+        ]
+      }
+    }
+  },
+  "routes": [
+    {
+      "dependency_contract": "dc8429e7cb098191669a445f5062bc9bdf3d13e267c4d4ace38c5fcbc85c3773",
+      "include_in_schema": true,
+      "methods": [
+        "GET"
+      ],
+      "name": "terminal_dispatch_review_list",
+      "path": "/api/v1/notifications/terminal-dispatch/review",
+      "route_class": "APIRoute",
+      "status_code": null,
+      "tags": [
+        "Notificaciones (Fase 9)",
+        "Notificaciones (Fase 9)"
+      ]
+    },
+    {
+      "dependency_contract": "723cbb3a15ebad7571b2d599b8e242cf9379f0096b0192e6090856a1a3cd998e",
+      "include_in_schema": true,
+      "methods": [
+        "POST"
+      ],
+      "name": "terminal_dispatch_review_submit",
+      "path": "/api/v1/notifications/terminal-dispatch/{notification_id}/review",
+      "route_class": "APIRoute",
+      "status_code": null,
+      "tags": [
+        "Notificaciones (Fase 9)",
+        "Notificaciones (Fase 9)"
+      ]
+    }
+  ],
+  "schemas": {
+    "TerminalDispatchReview": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "format": "uuid",
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "accepted",
+            "unconfirmed"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "note": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Note",
+          "type": "string"
+        },
+        "reference": {
+          "maxLength": 200,
+          "minLength": 8,
+          "title": "Reference",
+          "type": "string"
+        },
+        "review_id": {
+          "format": "uuid",
+          "title": "Review Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "review_id",
+        "attempt_id",
+        "decision",
+        "reference"
+      ],
+      "title": "TerminalDispatchReview",
+      "type": "object"
+    }
+  }
+}

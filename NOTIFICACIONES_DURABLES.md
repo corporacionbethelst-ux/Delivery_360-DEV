@@ -1,5 +1,17 @@
 # Avisos duraderos de retiros, asignaciones y cierres
 
+La entrega 124 añade el canal externo base de una plantilla activa para los tres
+cierres, respetando preferencias y la transacción de negocio. Antes de contactar
+al proveedor conserva un marcador de intento: una aceptación que no pueda
+confirmarse queda retenida sin reenvío automático. El panel de revisión en
+`/notifications` permite a Gerente/Superadmin confirmar aceptación con referencia
+o documentar que el resultado sigue incierto, con auditoría e idempotencia. No
+expone tokens ni afirma lectura o pago. Los pendientes inciertos no se purgan ni
+se eliminan/marcan leídos desde la bandeja personal. Ver ENTREGA_124.md para
+alcance, límite de una invocación de aplicación y pruebas con proveedores simulados.
+Los otros eventos conservan sus reintentos anteriores; su ambigüedad y la consulta
+automática por proveedor continúan pendientes.
+
 La entrega 123 incorpora `entrega_fallida` y `orden_cancelada` para la cuenta del
 repartidor, junto con la operación de negocio. Los dos puntos de fallo y las dos
 entradas de cancelación reutilizan el transporte privado posterior al commit.
@@ -14,7 +26,7 @@ La entrega 122 incorpora el cierre operativo de entregas asignadas: el evento
 de cierre, aun cuando el bono sea cero. Repetir la operación no duplica el aviso
 ni reinicia su lectura. El comprobante no contiene OTP ni importes inferidos.
 Se publica la señal privada después del commit exterior y se conserva la lectura
-REST ante un fallo de esa señal. Los canales externos de cierre quedan pendientes. Ver ENTREGA_122.md.
+REST ante un fallo de esa señal. La entrega 124 amplía los canales externos de estos cierres. Ver ENTREGA_122.md.
 
 La entrega 119 incorpora las asignaciones: el aviso IN_APP y la cola externa
 permitida se guardan junto con orden, entrega y auditoría. Cada asignación real

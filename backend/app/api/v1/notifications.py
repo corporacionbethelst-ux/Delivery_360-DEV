@@ -28,7 +28,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Literal
 
 from fastapi import (
     APIRouter,
@@ -298,6 +298,12 @@ async def mark_read(
             status_code=403, detail="No autorizado sobre esta notificación"
         )
 
+    from app.services.terminal_notifications import EVENTS, EXTERNAL
+
+    if log.template_code in EVENTS and log.channel in EXTERNAL:
+        raise HTTPException(
+            409, "El envío externo se revisa por su resultado; no se marca como leído"
+        )
     if log.status != OmnichannelStatus.LEIDO:
         log.status = OmnichannelStatus.LEIDO
         log.read_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -322,6 +328,12 @@ async def delete_notification(
     if str(log.user_id) != str(current_user.id):
         raise HTTPException(
             status_code=403, detail="No autorizado sobre esta notificación"
+        )
+    from app.services.terminal_notifications import EVENTS, EXTERNAL
+
+    if log.template_code in EVENTS and log.channel in EXTERNAL:
+        raise HTTPException(
+            409, "El envío externo conserva su historial y requiere revisión"
         )
     await db.delete(log)
     await db.commit()
@@ -423,6 +435,12 @@ async def test_send(
     service: OmnichannelNotificationService = Depends(_get_service),
     current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
 ):
+    from app.services.terminal_notifications import EVENTS
+
+    if body.template_code in EVENTS:
+        raise HTTPException(
+            409, "Los avisos de cierre requieren una operación coordinada"
+        )
     target_user_id = body.user_id or str(current_user.id)
     parsed = _parse_uuid(target_user_id, "user_id")
     # FIX FASE 9/10 (test-send): el dedupe usa hash(template+entity_id+ventana_5min).
@@ -456,6 +474,131 @@ async def test_send(
         "failed": sum(item["status"] == "FALLIDO" for item in items),
         "logs": items,
     }
+
+
+class TerminalDispatchReview(BaseModel):
+    model_config = {"extra": "forbid"}
+    review_id: uuid.UUID
+    attempt_id: uuid.UUID
+    decision: Literal["accepted", "unconfirmed"]
+    reference: str = Field(min_length=8, max_length=200)
+    note: str = Field(default="", max_length=500)
+
+    @field_validator("reference")
+    @classmethod
+    def reference_is_explicit(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 8 or any(ord(c) < 32 for c in value):
+            raise ValueError("Indique una referencia verificable sin controles")
+        return value
+
+
+@router.get("/terminal-dispatch/review")
+async def terminal_dispatch_review_list(
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0, le=10000),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+) -> dict[str, Any]:
+    from app.services.terminal_notifications import EVENTS, EXTERNAL, read_payload
+
+    rows = list(
+        (
+            await db.scalars(
+                select(NotificationLog)
+                .where(
+                    NotificationLog.template_code.in_(EVENTS),
+                    NotificationLog.channel.in_(EXTERNAL),
+                    NotificationLog.status.in_(
+                        (OmnichannelStatus.PENDIENTE, OmnichannelStatus.FALLIDO)
+                    ),
+                )
+                .order_by(NotificationLog.created_at, NotificationLog.id)
+                .offset(offset)
+                .limit(limit + 1)
+            )
+        ).all()
+    )
+    items = []
+    for row in rows[:limit]:
+        payload: dict[str, Any] = {}
+        state = "invalid"
+        attempt = None
+        try:
+            payload = read_payload(row)
+            dispatch = payload["dispatch"]
+            phase = dispatch.get("state")
+            if (
+                phase == "queued"
+                and row.next_retry_at is not None
+                and not dispatch.get("attempt_id")
+            ):
+                state = "queued"
+            elif (
+                row.status == OmnichannelStatus.PENDIENTE
+                and phase == "uncertain"
+                and row.next_retry_at is None
+            ):
+                attempt = str(uuid.UUID(dispatch["attempt_id"]))
+                state = "uncertain"
+        except (HTTPException, ValueError, TypeError, KeyError, AttributeError):
+            pass
+        hint = payload.get("dispatch", {}).get("destination_hint")
+        hint = hint if isinstance(hint, str) and len(hint) <= 200 else None
+        order_code = payload.get("order_code")
+        order_code = (
+            order_code
+            if isinstance(order_code, str) and len(order_code) <= 200
+            else None
+        )
+        started_at = payload.get("dispatch", {}).get("started_at")
+        started_at = (
+            started_at
+            if isinstance(started_at, str) and len(started_at) <= 64
+            else None
+        )
+        items.append(
+            {
+                "id": str(row.id),
+                "event": row.template_code,
+                "channel": row.channel.value,
+                "recipient_id": str(row.user_id),
+                "order_id": payload.get("order_id"),
+                "state": state,
+                "attempt_id": attempt,
+                "created_at": utc_isoformat(row.created_at),
+                "destination_hint": hint,
+                "order_code": order_code,
+                "attempt_started_at": started_at,
+            }
+        )
+    return {
+        "items": items,
+        "next_offset": (
+            offset + limit if len(rows) > limit and offset + limit <= 10000 else None
+        ),
+    }
+
+
+@router.post("/terminal-dispatch/{notification_id}/review")
+async def terminal_dispatch_review_submit(
+    notification_id: uuid.UUID,
+    body: TerminalDispatchReview,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.SUPERADMIN, UserRole.GERENTE)),
+) -> dict[str, Any]:
+    from app.services.terminal_notifications import review_result
+
+    return await review_result(
+        db,
+        notification_id,
+        current_user.id,
+        body.review_id,
+        body.attempt_id,
+        body.decision,
+        body.reference,
+        body.note.strip(),
+    )
 
 
 # ----------------------------------------------------------------------

@@ -282,6 +282,13 @@ class OmnichannelNotificationService:
         dispatch secuencial por sesión → pub/sub NEW_NOTIFICATION.
         """
         try:
+            from app.services.terminal_notifications import EVENTS
+
+            if template_code in EVENTS:
+                logger.warning(
+                    "Closure notifications require a coordinated business event"
+                )
+                return []
             return await self._send_inner(
                 user_id,
                 template_code,
@@ -782,6 +789,20 @@ class OmnichannelNotificationService:
                     log, "La asignación ya no está vigente para el destinatario"
                 )
                 return
+        from app.services.terminal_notifications import (
+            EVENTS,
+            recipient_still_valid,
+            dispatch_once,
+        )
+
+        terminal = (
+            log.template_code in EVENTS and log.channel != NotificationChannel.IN_APP
+        )
+        if terminal and not await recipient_still_valid(self.db, log, user):
+            self._stop_queued_log(
+                log, "El cierre o destinatario requiere revisión; no se envió"
+            )
+            return
         if log.template_code:
             # Read scalar policy values from SQL, bypassing template/ORM caches.
             # A NULL template_code remains supported for legacy persisted logs.
@@ -793,6 +814,17 @@ class OmnichannelNotificationService:
             if active is not True:
                 self._stop_queued_log(log, "Plantilla no disponible en reintento")
                 return
+            if terminal:
+                channel = await self.db.scalar(
+                    select(NotificationTemplate.channel).where(
+                        NotificationTemplate.code == log.template_code
+                    )
+                )
+                if channel != log.channel:
+                    self._stop_queued_log(
+                        log, "El canal de la plantilla cambió; no se envió"
+                    )
+                    return
             if log.channel != NotificationChannel.IN_APP:
                 enabled = await self.db.scalar(
                     select(NotificationPreference.enabled).where(
@@ -814,6 +846,9 @@ class OmnichannelNotificationService:
             setattr(
                 log, "next_retry_at", compute_next_retry_at(cast(int, log.retry_count))
             )
+            return
+        if terminal:
+            await dispatch_once(self, log, user)
             return
         ok = False
         if log.channel == NotificationChannel.PUSH:
