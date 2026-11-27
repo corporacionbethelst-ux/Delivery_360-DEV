@@ -57,9 +57,20 @@ y la recepción del usuario tampoco se comprueban aquí.
 
 Los SDK opcionales están fijados en `backend/requirements-notifications.txt`
 y se instalan junto con `backend/requirements.txt` en un entorno o imagen
-controlados. El Dockerfile base instala los requisitos principales; no presupone
-estos componentes opcionales. Su incorporación a la imagen elegida debe
-mantener el usuario sin privilegios y los controles de CI.
+controlados. El Dockerfile instala solo los principales por defecto. Desde la
+raíz del repositorio, la variante opcional se construye explícitamente con:
+
+```bash
+docker build --build-arg NOTIFICATION_PROVIDERS=true -t delivery360-backend:notifications backend
+```
+
+Solo acepta `true` o `false` (predeterminado). Ambas variantes conservan usuario
+sin privilegios y pasan los controles de contenedor y seguridad de dependencias.
+No pases secretos por argumentos de construcción. La instalación no habilita
+canales; los flags y credenciales privados corresponden al entorno de ejecución.
+La publicación canónica continúa usando la variante base: no sustituye imágenes
+en servicios existentes. Registrar la revisión/digest y revisar el plan antes de
+elegir una variante para un futuro despliegue. Ver ENTREGA_128.md.
 
 `NOTIFICATION_PROVIDER_TIMEOUT_SECONDS` está entre 1 y 60 segundos. La presencia
 del paquete no confirma que sus dependencias, credenciales o proveedor funcionen.

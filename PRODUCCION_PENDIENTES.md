@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 127. Este registro distingue implementación local,
+Actualizado con la entrega 128. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -277,3 +277,10 @@ sin exponer valores ni contactar proveedores. Incluye guía de configuración se
 No habilita credenciales o canales, ni acredita conexión o recepción. Continúan
 pendientes configuración real autorizada, homologación con destinos, consulta de
 resultados y los demás requisitos externos de operación productiva.
+
+La entrega 128 prepara una variante explícita de imagen con SDK Twilio/FCM,
+resolución conjunta y comprobación de dependencias. CI exige seguridad y pruebas
+de contenedor de ambas variantes, incluido un contrato offline de los SDK reales
+sin red ni credenciales. No selecciona la variante en el despliegue ni habilita
+canales. Continúan pendientes homologación externa, resultados y requisitos de
+aceptación, capacidad e infraestructura. Ver ENTREGA_128.md.

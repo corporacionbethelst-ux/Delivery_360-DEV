@@ -166,6 +166,10 @@ jobs:
         working-directory: frontend
 
   backend-security:
+    strategy:
+      fail-fast: false
+      matrix:
+        providers: [false, true]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -173,8 +177,14 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install and inventory the resolved runtime dependencies
+        env:
+          PROVIDERS: ${{ matrix.providers }}
         run: |
-          pip install -r backend/requirements.txt
+          if [ "$PROVIDERS" = true ]; then
+            pip install -r backend/requirements.txt -r backend/requirements-notifications.txt
+          else
+            pip install -r backend/requirements.txt
+          fi
           pip check
           mkdir -p resolved-backend
           pip freeze > resolved-backend/requirements.txt
@@ -191,12 +201,16 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && hashFiles('backend-installed-audit.json') != '' }}
         with:
-          name: backend-installed-audit
+          name: backend-installed-audit-${{ matrix.providers }}
           path: |
             backend-installed-audit.json
             resolved-backend/requirements.txt
 
   backend-container:
+    strategy:
+      fail-fast: false
+      matrix:
+        providers: [false, true]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -204,7 +218,22 @@ jobs:
         with:
           python-version: '3.11'
       - name: Build the production backend without publishing
-        run: docker build -t delivery360-backend:ci backend
+        env:
+          PROVIDERS: ${{ matrix.providers }}
+        run: docker build --build-arg NOTIFICATION_PROVIDERS="$PROVIDERS" -t delivery360-backend:ci backend
+      - name: Check the installed runtime without network or credentials
+        env:
+          PROVIDERS: ${{ matrix.providers }}
+        run: |
+          expected=base
+          if [ "$PROVIDERS" = true ]; then expected=providers; fi
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            -e PYTHONPATH=/app -e ENVIRONMENT=testing \
+            -e DATABASE_URL=postgresql://offline:offline@127.0.0.1:1/offline \
+            -e SECRET_KEY=ci-only-synthetic-signing-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+            --mount type=bind,src="$PWD/scripts/check_notification_runtime.py",dst=/checks/check_notification_runtime.py,readonly \
+            -w /tmp delivery360-backend:ci python /checks/check_notification_runtime.py --expected "$expected"
+          docker run --rm --network none --read-only delivery360-backend:ci pip check
       - name: Start isolated database and Redis test containers
         run: |
           docker network create backend-ci

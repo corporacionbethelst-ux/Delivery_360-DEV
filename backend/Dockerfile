@@ -4,11 +4,17 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y --no-install-recommends gcc \
     && rm -rf /var/lib/apt/lists/*
-COPY requirements.txt .
+COPY requirements.txt requirements-notifications.txt ./
+ARG NOTIFICATION_PROVIDERS=false
 RUN python -m venv /opt/venv
 RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export PIP_CERT=/run/secrets/proxy_ca; fi; \
-    /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+    case "$NOTIFICATION_PROVIDERS" in \
+      false) /opt/venv/bin/pip install --no-cache-dir -r requirements.txt ;; \
+      true) /opt/venv/bin/pip install --no-cache-dir -r requirements.txt -r requirements-notifications.txt ;; \
+      *) echo 'NOTIFICATION_PROVIDERS must be true or false' >&2; exit 1 ;; \
+    esac \
+    && /opt/venv/bin/pip check
 COPY . .
 
 FROM python:3.11-slim AS production
