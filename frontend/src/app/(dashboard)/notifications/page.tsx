@@ -17,6 +17,7 @@ export default function NotificationsInboxPage() {
   return (
     <PrivateNotificationInbox
       key={JSON.stringify([generation, sessionRevision, user.id, user.role])}
+      scopeGeneration={generation}
     />
   );
 }

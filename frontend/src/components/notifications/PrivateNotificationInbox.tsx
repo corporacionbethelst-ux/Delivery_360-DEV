@@ -28,7 +28,7 @@ import {
 } from '@/services/notification-inbox.service';
 
 type Failure = 'load' | 'uncertain' | 'confirmed';
-export function PrivateNotificationInbox() {
+export function PrivateNotificationInbox({ scopeGeneration }: { scopeGeneration: number }) {
   const [data, setData] = useState<InboxPage | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -45,42 +45,46 @@ export function PrivateNotificationInbox() {
       alive.current = false;
     };
   }, []);
-  const load = useCallback(async (page: number, confirmed = false, notice = false) => {
-    if (pending.current) return;
-    pending.current = true;
-    setBusy(true);
-    let task: ReturnType<typeof capturePrivateTask> | undefined;
-    try {
-      task = capturePrivateTask();
-      let result = await notificationInbox.page(page);
-      task.assertCurrent();
-      const last = Math.max(1, result.pages);
-      if (page > last) {
-        result = await notificationInbox.page(last);
+  const load = useCallback(
+    async (page: number, confirmed = false, notice = false) => {
+      if (pending.current) return;
+      pending.current = true;
+      setBusy(true);
+      let task: ReturnType<typeof capturePrivateTask> | undefined;
+      try {
+        task = capturePrivateTask();
+        if (task.generation !== scopeGeneration) return;
+        let result = await notificationInbox.page(page);
         task.assertCurrent();
-      }
-      if (result.page > Math.max(1, result.pages))
-        throw new Error('La página cambió durante la consulta');
-      if (alive.current) {
-        outcome.current = null;
-        setData(result);
-        setFailure(null);
-        setStale(false);
-        if (notice) {
-          toast.success('Bandeja actualizada');
-          notificationInboxChanged(task.generation);
+        const last = Math.max(1, result.pages);
+        if (page > last) {
+          result = await notificationInbox.page(last);
+          task.assertCurrent();
         }
+        if (result.page > Math.max(1, result.pages))
+          throw new Error('La página cambió durante la consulta');
+        if (alive.current) {
+          outcome.current = null;
+          setData(result);
+          setFailure(null);
+          setStale(false);
+          if (notice) {
+            toast.success('Bandeja actualizada');
+            notificationInboxChanged(task.generation);
+          }
+        }
+      } catch {
+        if (alive.current && (!task || task.isCurrent())) {
+          setFailure(confirmed ? 'confirmed' : (outcome.current ?? 'load'));
+          setStale(true);
+        }
+      } finally {
+        pending.current = false;
+        if (alive.current && (!task || task.isCurrent())) setBusy(false);
       }
-    } catch {
-      if (alive.current && (!task || task.isCurrent())) {
-        setFailure(confirmed ? 'confirmed' : (outcome.current ?? 'load'));
-        setStale(true);
-      }
-    } finally {
-      pending.current = false;
-      if (alive.current && (!task || task.isCurrent())) setBusy(false);
-    }
-  }, []);
+    },
+    [scopeGeneration],
+  );
   useEffect(() => {
     void load(1);
   }, [load]);
@@ -93,6 +97,7 @@ export function PrivateNotificationInbox() {
     let confirmed = false;
     try {
       task = capturePrivateTask();
+      if (task.generation !== scopeGeneration) return;
       await notificationInbox.act(row, action);
       task.assertCurrent();
       if (!alive.current) return;

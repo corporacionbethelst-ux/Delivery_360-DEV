@@ -328,3 +328,24 @@ it('bounds correction when concurrent deletion shrinks two successive pages', as
   fireEvent.click(screen.getByRole('button', { name: 'Volver' }));
   expect(screen.getByText(/Página 2 de 3/)).toBeInTheDocument();
 });
+
+it.each(['read', 'delete'])(
+  'does not submit an old %s selection when raw storage changes before React observes the session',
+  async (action) => {
+    await mount();
+    if (action === 'delete')
+      fireEvent.click(screen.getByRole('button', { name: 'Eliminar: Aviso de prueba' }));
+    get.mockResolvedValue(page([], 1, 0));
+    localStorage.setItem('access_token', 'raw-new-owner');
+    localStorage.setItem('refresh_token', 'raw-new-refresh');
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: action === 'read' ? 'Marcar leído: Aviso de prueba' : 'Confirmar eliminación',
+      }),
+    );
+    await screen.findByText('Tu bandeja está vacía.');
+    expect(patch).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+  },
+);

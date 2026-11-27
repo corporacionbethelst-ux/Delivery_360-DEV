@@ -11,8 +11,10 @@ los paneles administrativos ya existentes.
 La bandeja ahora usa el cliente canónico, valida el DTO público y queda ligada a
 credenciales, revisión de sesión, usuario y rol. Al cambiar identidad se desmontan
 sus filas, filtros, modales y acciones pendientes; las respuestas tardías no
-repueblan otra sesión ni publican confirmaciones. No guarda contenido de avisos
-en almacenamiento persistente. Retira el transporte WebSocket adicional de la
+repueblan otra sesión ni publican confirmaciones. Antes de consultar o enviar
+comprueba también la generación con la que se montó la vista, incluso si
+localStorage cambia antes del aviso a React. No guarda contenido de avisos en
+almacenamiento persistente. Retira el transporte WebSocket adicional de la
 página; la campana conserva su transporte y reconciliación existentes.
 
 ## Acciones y recuperación

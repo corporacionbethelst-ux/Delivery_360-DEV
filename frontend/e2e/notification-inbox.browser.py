@@ -27,7 +27,7 @@ def main():
              body="La aceptación externa se revisa por separado.", channel="SMS", status="PENDIENTE",
              template_code="payout_aprobado", created_at="2026-11-27T12:00:00+00:00", read_at=None),
     ]
-    state = {"failure": False}
+    state = {"failure": False, "next_owner": False}
     mutations, errors, unrelated, checks = [], [], [], []
 
     def passed(message):
@@ -49,13 +49,13 @@ def main():
             if request.method == "OPTIONS":
                 route.fulfill(status=204, headers=headers)
             elif path.endswith(("/auth/me", "/users/me")):
-                route.fulfill(json={"id": "staff-inbox-130", "role": "GERENTE", "email": "synthetic@example.test", "first_name": "Ana", "last_name": "Prueba", "is_active": True}, headers=headers)
+                route.fulfill(json={"id": "staff-inbox-next-130" if state["next_owner"] else "staff-inbox-130", "role": "GERENTE", "email": "synthetic@example.test", "first_name": "Ana", "last_name": "Prueba", "is_active": True}, headers=headers)
             elif path == "/api/v1/notifications/inbox":
                 if state["failure"]:
                     route.fulfill(status=503, json={"detail": "PRIVATE_INTERNAL_VALUE"}, headers=headers)
                     return
-                visible = rows if parse_qs(target.query).get("include_all_channels") == ["true"] else [r for r in rows if r["channel"] == "IN_APP"]
-                route.fulfill(json={"items": visible, "page": 1, "size": 10, "total": len(visible), "pages": 1 if visible else 0, "unread_count": sum(r["channel"] == "IN_APP" and r["status"] != "LEIDO" for r in rows)}, headers=headers)
+                visible = [] if state["next_owner"] else rows if parse_qs(target.query).get("include_all_channels") == ["true"] else [r for r in rows if r["channel"] == "IN_APP"]
+                route.fulfill(json={"items": visible, "page": 1, "size": 10, "total": len(visible), "pages": 1 if visible else 0, "unread_count": 0 if state["next_owner"] else sum(r["channel"] == "IN_APP" and r["status"] != "LEIDO" for r in rows)}, headers=headers)
             elif path == "/api/v1/notifications/" + notice_id + "/read" and request.method == "PATCH":
                 mutations.append("read")
                 rows[0].update(status="LEIDO", read_at="2026-11-27T12:01:00+00:00")
@@ -69,7 +69,7 @@ def main():
                 unrelated.append({"method": request.method, "path": path})
                 route.abort()
             elif path == "/api/v1/notifications/unread-count":
-                route.fulfill(json={"unread_count": 1}, headers=headers)
+                route.fulfill(json={"unread_count": 0 if state["next_owner"] else 1}, headers=headers)
             elif path == "/api/v1/notifications/terminal-dispatch/review":
                 route.fulfill(json={"items": [], "next_offset": None}, headers=headers)
             elif path.startswith("/api/") or target.netloc != urlparse(base).netloc:
@@ -140,6 +140,22 @@ def main():
         expect(protected).to_be_visible()
         assert mutations == ["read", "delete"] and not unrelated and not errors
         passed("delete requires confirmation and a lost acknowledgement recovers by GET without repeating the write")
+        stale_title = "Selección de sesión anterior"
+        rows.insert(0, dict(id=notice_id, title=stale_title, body="Fixture de cambio de identidad", channel="IN_APP", status="PENDIENTE", template_code=None, created_at="2026-11-27T12:00:00+00:00", read_at=None))
+        page.get_by_role("button", name="Actualizar bandeja").click()
+        old_notice = page.get_by_role("article", name=stale_title, exact=True)
+        expect(old_notice).to_be_visible()
+        state["next_owner"] = True
+        page.evaluate("""title => {
+          const button = [...document.querySelectorAll('button')].find(e => e.getAttribute('aria-label') === 'Marcar leído: ' + title);
+          if (!button) throw new Error('Missing old selection');
+          localStorage.setItem('access_token','synthetic-next-owner');
+          localStorage.setItem('refresh_token','synthetic-next-refresh');
+          button.click();
+        }""", stale_title)
+        expect(old_notice).to_have_count(0)
+        assert mutations == ["read", "delete"] and not unrelated and not errors
+        passed("raw credential changes before React observes storage cannot submit an old selection")
         (args.artifacts_dir / "results.json").write_text(json.dumps({"synthetic_api": True, "real_business_writes": False, "checks": checks, "allowed_mutations": mutations, "unrelated_requests": unrelated, "page_errors": errors}, indent=2))
         context.close()
         browser.close()
