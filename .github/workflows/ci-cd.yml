@@ -332,6 +332,7 @@ jobs:
           python frontend/e2e/rider-profile-documents.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/profile-documents
           python frontend/e2e/rider-map.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/rider-map
           python frontend/e2e/personal-alerts.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/personal-alerts
+          python frontend/e2e/notification-inbox.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/notification-inbox
           python frontend/e2e/user-administration.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/users
           python frontend/e2e/system-audit.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/system-audit
           python frontend/e2e/role-catalog.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/role-catalog
@@ -387,6 +388,11 @@ jobs:
           python frontend/e2e/local-profile-balance.browser.py --chromium "$chromium" --wait-request-window --lifecycle-results browser-real/lifecycle/results.json --artifacts-dir browser-real/profile-balance
           python frontend/e2e/local-zone-tariffs.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/zone-tariffs
           python frontend/e2e/local-zone-bonus-factors.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/zone-bonus-factors
+      - name: Verify real personal inbox read and delete without changing original history
+        timeout-minutes: 5
+        run: |
+          chromium=$(python -c 'from playwright.sync_api import sync_playwright; p = sync_playwright().start(); print(p.chromium.executable_path); p.stop()')
+          python frontend/e2e/local-notification-inbox.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/notification-inbox
       - name: Measure bounded local reads and preserve protected data
         timeout-minutes: 5
         run: python scripts/local_read_benchmark.py --wait-request-window --output browser-real/performance/read-baseline.json

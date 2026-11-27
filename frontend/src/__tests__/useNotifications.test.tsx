@@ -1,3 +1,5 @@
+import { notificationInboxChanged } from '@/lib/notification-inbox-events';
+import { getCredentialGeneration } from '@/lib/auth-session';
 import React from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -837,4 +839,25 @@ it('normalizes invalid options without opening a timer or request hot loop', asy
   expect(socket.send).toHaveBeenCalledTimes(1);
   unmount();
   expect(jest.getTimerCount()).toBe(0);
+});
+
+
+it('reconciles a confirmed local inbox action only in its current generation', async () => {
+  const { unmount } = renderHook(() => useNotifications());
+  await act(async () => {});
+  const before = fetcher.mock.calls.length;
+  await act(async () => notificationInboxChanged(getCredentialGeneration() - 1));
+  expect(fetcher).toHaveBeenCalledTimes(before);
+  await act(async () => notificationInboxChanged(getCredentialGeneration()));
+  expect(fetcher).toHaveBeenCalledTimes(before + 1);
+  unmount();
+  await act(async () => notificationInboxChanged(getCredentialGeneration()));
+  expect(fetcher).toHaveBeenCalledTimes(before + 1);
+});
+
+it('does not subscribe disabled inbox transports to local invalidations', async () => {
+  const { unmount } = renderHook(() => useNotifications({ enabled: false }));
+  await act(async () => notificationInboxChanged(getCredentialGeneration()));
+  expect(fetcher).not.toHaveBeenCalled();
+  unmount();
 });
