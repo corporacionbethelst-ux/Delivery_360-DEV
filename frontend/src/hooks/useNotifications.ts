@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getStoredTokens } from '@/lib/api';
+import { onNotificationInboxChanged } from '@/lib/notification-inbox-events';
 import {
   useRealtimeIdentity,
   currentRealtimeIdentity,
@@ -133,6 +134,10 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
       }
     }
   }, [inboxSize, current, update, userId, revision, generation, tokenRevision]);
+
+  useEffect(() => onNotificationInboxChanged(changedGeneration => {
+    if (enabled && changedGeneration === generation) void refreshInbox();
+  }), [enabled, generation, refreshInbox]);
 
   const markRead = useCallback(
     async (id: string) => {

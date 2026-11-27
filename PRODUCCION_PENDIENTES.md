@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 129. Este registro distingue implementación local,
+Actualizado con la entrega 130. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -202,6 +202,14 @@ ante fallos y ejecutar pruebas de carga con objetivos de capacidad acordados.
 Verificar alertas y procedimiento de reversión del despliegue.
 
 ## 7. Aceptación y pantallas
+
+La entrega 130 corrige la bandeja personal de notificaciones: aislamiento de
+sesión, datos conservados ante fallos, acuses comprobados para lectura/eliminación
+y recuperación GET sin repetir escrituras. Renueva la presentación adaptable,
+con modales centrales y avisos inferiores derechos. Chromium comprueba controles
+en escritorio/móvil y el laboratorio real verifica acciones sobre filas sintéticas,
+exclusión de avisos ajenos y conservación de las tablas protegidas e historial
+original. Sigue pendiente la aceptación de todos los recorridos. Ver ENTREGA_130.md.
 
 La entrega 118 corrige el cierre con OTP desde el catálogo del gerente: diálogo de confirmación, código en JSON, errores corregibles y consulta de recuperación. Añade envío explícito al correo del destinatario por Gerente/Superadmin, con generación segura si falta el código, preservación de códigos previos, auditoría y espera entre reintentos. Requiere SMTP configurado y correo válido; falta validar recepción real con el proveedor elegido. Conserva la validación central y la compatibilidad de la API. Se prioriza la incidencia reportada antes de continuar los avisos de asignación.
 
