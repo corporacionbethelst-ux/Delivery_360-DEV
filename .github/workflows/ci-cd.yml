@@ -387,6 +387,9 @@ jobs:
           python frontend/e2e/local-profile-balance.browser.py --chromium "$chromium" --wait-request-window --lifecycle-results browser-real/lifecycle/results.json --artifacts-dir browser-real/profile-balance
           python frontend/e2e/local-zone-tariffs.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/zone-tariffs
           python frontend/e2e/local-zone-bonus-factors.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/zone-bonus-factors
+      - name: Measure bounded local reads and preserve protected data
+        timeout-minutes: 5
+        run: python scripts/local_read_benchmark.py --wait-request-window --output browser-real/performance/read-baseline.json
       - name: Restore the offline backup and verify the application on isolated copies
         run: |
           python scripts/local_test.py pause
