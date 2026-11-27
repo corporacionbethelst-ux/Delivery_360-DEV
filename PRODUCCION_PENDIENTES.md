@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 128. Este registro distingue implementación local,
+Actualizado con la entrega 129. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -190,6 +190,12 @@ Preparar dominio, TLS, secretos, PostgreSQL/Redis y almacenamiento persistente;
 validar migraciones y compatibilidad de versiones con datos representativos.
 
 ## 6. Recuperación y rendimiento
+
+La entrega 129 añade una referencia local acotada de lecturas secuenciales y
+concurrentes, con percentiles, errores, throughput y comparación de snapshots
+operativos/monetarios. CI conserva el informe y exige lecturas correctas y datos
+protegidos iguales. No representa carga productiva ni objetivos SLO acordados;
+continúa pendiente el ensayo representativo de capacidad. Ver RENDIMIENTO_LOCAL.md.
 
 Restaurar realmente un respaldo de base y documentos, comprobar recuperación
 ante fallos y ejecutar pruebas de carga con objetivos de capacidad acordados.
