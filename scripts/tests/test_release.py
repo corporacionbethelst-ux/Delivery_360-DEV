@@ -249,6 +249,11 @@ class ReleaseTests(unittest.TestCase):
             Loader=yaml.BaseLoader,
         )
         jobs = workflow["jobs"]
+        for name in ("backend-security", "backend-container"):
+            self.assertEqual(
+                jobs[name]["strategy"]["matrix"]["providers"], ["false", "true"]
+            )
+            self.assertEqual(jobs[name]["strategy"]["fail-fast"], "false")
         self.assertEqual(
             set(jobs["release-readiness"]["needs"]),
             {
