@@ -29,6 +29,12 @@ el script también bloquea conexiones y DNS. No usa credenciales del entorno ni
 lee el archivo privado de Firebase. La variante base comprueba la ausencia de
 ambos SDK. Estos contratos prueban compatibilidad local, no homologación real.
 
+El instalador de Chromium en runners efímeros de GitHub retira únicamente el
+feed Microsoft ajeno a sus dependencias: una respuesta 403 de ese feed impedía
+actualizar APT antes de probar la aplicación. Conserva los repositorios Ubuntu,
+la verificación TLS y todas las pruebas de navegador y restauración. No cambia
+repositorios de paquetes en servidores ni imágenes de la aplicación.
+
 ## Límites
 
 La publicación canónica sigue construyendo la variante base. Elegir y desplegar

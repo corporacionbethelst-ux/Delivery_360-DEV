@@ -314,6 +314,9 @@ jobs:
       - name: Install browser test dependencies
         timeout-minutes: 10
         run: |
+          # Chromium needs Ubuntu packages, not the hosted runner's Microsoft feed.
+          # That unrelated feed can return 403 and block apt before browser setup.
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/microsoft-prod.sources
           pip install playwright==1.56.0
           python -m playwright install --with-deps chromium
       - name: Verify production assets, form validation and catalog regressions
@@ -353,6 +356,9 @@ jobs:
       - name: Install the real browser test runner
         timeout-minutes: 10
         run: |
+          # Chromium needs Ubuntu packages, not the hosted runner's Microsoft feed.
+          # That unrelated feed can return 403 and block apt before browser setup.
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/microsoft-prod.sources
           pip install playwright==1.56.0
           python -m playwright install --with-deps chromium
       - name: Build and start the isolated functional laboratory
