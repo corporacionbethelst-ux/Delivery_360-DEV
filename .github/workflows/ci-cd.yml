@@ -333,6 +333,7 @@ jobs:
           python frontend/e2e/rider-map.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/rider-map
           python frontend/e2e/personal-alerts.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/personal-alerts
           python frontend/e2e/notification-inbox.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/notification-inbox
+          python frontend/e2e/notification-preferences.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/notification-preferences
           python frontend/e2e/user-administration.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/users
           python frontend/e2e/system-audit.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/system-audit
           python frontend/e2e/role-catalog.browser.py --base-url http://127.0.0.1:3072 --chromium "$chromium" --artifacts-dir browser-artifacts/role-catalog
@@ -393,6 +394,11 @@ jobs:
         run: |
           chromium=$(python -c 'from playwright.sync_api import sync_playwright; p = sync_playwright().start(); print(p.chromium.executable_path); p.stop()')
           python frontend/e2e/local-notification-inbox.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/notification-inbox
+      - name: Verify real sparse preferences and lost acknowledgement recovery
+        timeout-minutes: 5
+        run: |
+          chromium=$(python -c 'from playwright.sync_api import sync_playwright; p = sync_playwright().start(); print(p.chromium.executable_path); p.stop()')
+          python frontend/e2e/local-notification-preferences.browser.py --chromium "$chromium" --wait-request-window --artifacts-dir browser-real/notification-preferences
       - name: Measure bounded local reads and preserve protected data
         timeout-minutes: 5
         run: python scripts/local_read_benchmark.py --wait-request-window --output browser-real/performance/read-baseline.json

@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 130. Este registro distingue implementación local,
+Actualizado con la entrega 131. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -298,3 +298,11 @@ de contenedor de ambas variantes, incluido un contrato offline de los SDK reales
 sin red ni credenciales. No selecciona la variante en el despliegue ni habilita
 canales. Continúan pendientes homologación externa, resultados y requisitos de
 aceptación, capacidad e infraestructura. Ver ENTREGA_128.md.
+
+La entrega 131 fortalece preferencias personales: acceso por perfil verificado,
+cambios parciales externos y recuperación mediante consulta tras un acuse perdido,
+sin repetir PUT ni alterar preferencias internas o ajenas. Incluye revisión de
+concurrencia visible, borradores protegidos y navegador sintético/real en CI.
+No habilita proveedores ni acredita recepción. El endpoint conserva su semántica
+actual sin CAS por celda. Continúan los requisitos externos y operativos arriba.
+Ver ENTREGA_131.md.

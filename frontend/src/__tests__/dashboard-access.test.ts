@@ -8,6 +8,8 @@ it.each(['SUPERADMIN', 'GERENTE', 'OPERADOR', 'REPARTIDOR', 'CLIENTE', 'AUDITOR'
   expect(canOpenDashboard(role, '/manager-other')).toBe(false);
   expect(canOpenDashboard(role, '/access-unavailable')).toBe(true);
   expect(canOpenDashboard(role, '/notifications')).toBe(true);
+  expect(canOpenDashboard(role, '/notifications/preferences')).toBe(true);
+  expect(canOpenDashboard(role, '/notifications/preferences/other')).toBe(false);
   expect(canOpenDashboard(role, '/notifications-other')).toBe(false);
 });
 it.each(['CLIENTE', 'AUDITOR', 'UNKNOWN'])('avoids manager login loops for %s', role => {
@@ -20,4 +22,6 @@ it('rejects unknown verified roles and unknown protected sections', () => {
   expect(canOpenDashboard('SUPERADMIN', '/other')).toBe(false);
   expect(canOpenDashboard(undefined, '/notifications')).toBe(false);
   expect(canOpenDashboard('UNKNOWN', '/notifications')).toBe(false);
+  expect(canOpenDashboard(undefined, '/notifications/preferences')).toBe(false);
+  expect(canOpenDashboard('UNKNOWN', '/notifications/preferences')).toBe(false);
 });
