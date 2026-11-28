@@ -1,6 +1,6 @@
 # Cierre para producción — orden acordado
 
-Actualizado con la entrega 131. Este registro distingue implementación local,
+Actualizado con la entrega 132. Este registro distingue implementación local,
 pruebas y operación externa. No asigna porcentajes sin criterios de aceptación.
 
 ## 1. Ciclo operativo completo
@@ -306,3 +306,10 @@ concurrencia visible, borradores protegidos y navegador sintético/real en CI.
 No habilita proveedores ni acredita recepción. El endpoint conserva su semántica
 actual sin CAS por celda. Continúan los requisitos externos y operativos arriba.
 Ver ENTREGA_131.md.
+
+La entrega 132 fortalece el perfil propio del repartidor: identidad y revisiones
+verificadas, cambios parciales, confirmación de vehículo propio, empresa de solo
+lectura y recuperación por consulta sin repetir guardados. CI incluye navegador
+con API real y fixtures retirados, comprobando los efectos documentales y la
+conservación de 24 tablas originales. No modifica reglas del backend ni cierra
+homologación externa, aceptación, capacidad o infraestructura. Ver ENTREGA_132.md.

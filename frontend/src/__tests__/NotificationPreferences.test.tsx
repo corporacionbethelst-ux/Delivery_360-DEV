@@ -143,7 +143,7 @@ it('sends only changed external cells and preserves legacy internal and forbidde
 it('removes a reverted checkbox from the delta without a PUT', async () => {
   await mount();
   fireEvent.click(checkbox());
-  expect(screen.getByText('1 cambios sin guardar')).toBeInTheDocument();
+  expect(screen.getByText('1 cambio sin guardar')).toBeInTheDocument();
   fireEvent.click(checkbox());
   expect(screen.getByRole('button', { name: 'Guardar cambios' })).toBeDisabled();
   expect(put).not.toHaveBeenCalled();

@@ -205,7 +205,7 @@ export function PrivateNotificationPreferences({
           ) : !data ? (
             'Consulta pendiente'
           ) : (
-            `${draft.length} cambios sin guardar`
+            `${draft.length} ${draft.length === 1 ? 'cambio sin guardar' : 'cambios sin guardar'}`
           )}
         </div>
         <div className="flex flex-wrap gap-2">
