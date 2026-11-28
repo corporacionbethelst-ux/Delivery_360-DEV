@@ -24,6 +24,8 @@ export type SelfProfile = ProfileDraft & {
   id: string;
   user_id: string;
   email: string;
+  status: 'ACTIVO' | 'OCUPADO' | 'PENDIENTE' | 'SUSPENDIDO' | 'INACTIVO' | null;
+  is_online: boolean | null;
   profile_revision: string;
   assignment_revision: string;
   vehicle_ownership_type: 'PROPIO' | 'EMPRESA';
@@ -53,6 +55,13 @@ export function readSelfProfile(value: unknown, owner: string, expectedId?: stri
     throw new Error('El perfil pertenece a otra identidad');
   if (row.vehicle_ownership_type !== 'PROPIO' && row.vehicle_ownership_type !== 'EMPRESA')
     throw new Error('Propiedad de vehículo no válida');
+  if (
+    row.status !== null &&
+    !['ACTIVO', 'OCUPADO', 'PENDIENTE', 'SUSPENDIDO', 'INACTIVO'].includes(row.status as string)
+  )
+    throw new Error('Estado de perfil no válido');
+  if (row.is_online !== null && typeof row.is_online !== 'boolean')
+    throw new Error('Disponibilidad no válida');
   const type = row.vehicle_type == null ? '' : text(row.vehicle_type);
   // Preserve unfamiliar historical types for display; a new selection must be supported.
   const assignedId = row.assigned_vehicle_id == null ? null : id(row.assigned_vehicle_id);
@@ -78,6 +87,8 @@ export function readSelfProfile(value: unknown, owner: string, expectedId?: stri
     id: profileId,
     user_id: userId,
     email: text(row.email),
+    status: row.status as SelfProfile['status'],
+    is_online: row.is_online as boolean | null,
     first_name: text(row.first_name),
     last_name: text(row.last_name),
     phone: text(row.phone),

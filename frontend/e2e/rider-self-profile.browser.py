@@ -16,7 +16,7 @@ def main():
     owner = '123e4567-e89b-42d3-a456-426614174000'
     rider = '123e4567-e89b-42d3-a456-426614174001'
     vehicle = '123e4567-e89b-42d3-a456-426614174002'
-    profile = dict(id=rider, user_id=owner, first_name='Ana', last_name='Pérez', email='ana@example.test', phone='+584121234567', vehicle_type='PATINETA', vehicle_plate='SELF-132', vehicle_ownership_type='PROPIO', assigned_vehicle_id=None, profile_revision='a' * 64, assignment_revision='a' * 64)
+    profile = dict(status='ACTIVO', is_online=True, id=rider, user_id=owner, first_name='Ana', last_name='Pérez', email='ana@example.test', phone='+584121234567', vehicle_type='PATINETA', vehicle_plate='SELF-132', vehicle_ownership_type='PROPIO', assigned_vehicle_id=None, profile_revision='a' * 64, assignment_revision='a' * 64)
     state = dict(mode='lost', read_failure=False, next_owner=False)
     writes = []
     errors = []
@@ -43,7 +43,7 @@ def main():
             elif path.endswith(('/auth/me', '/users/me')):
                 route.fulfill(json={'id': vehicle if state['next_owner'] else owner, 'role': 'REPARTIDOR', 'email': 'ana@example.test', 'first_name': 'Ana', 'last_name': 'Pérez', 'is_active': True}, headers=headers)
             elif path == '/api/v1/riders/me' and req.method == 'GET':
-                route.fulfill(status=503 if state['read_failure'] else 200, json={'detail': 'PRIVATE_INTERNAL_VALUE'} if state['read_failure'] else profile, headers=headers)
+                route.fulfill(status=403 if state.get('restricted') else 503 if state['read_failure'] else 200, json={'detail': 'PRIVATE_INTERNAL_VALUE'} if state['read_failure'] else profile, headers=headers)
             elif path == '/api/v1/riders/me' and req.method == 'PUT':
                 patch = req.post_data_json
                 assert set(patch) <= {'first_name', 'last_name', 'phone', 'vehicle_type', 'vehicle_plate', 'expected_profile_revision', 'expected_assignment_revision'}
@@ -54,6 +54,8 @@ def main():
                     return
                 profile.update({k: v for k, v in patch.items() if not k.startswith('expected_')})
                 profile.update(profile_revision='b' * 64, assignment_revision='b' * 64)
+                if 'vehicle_plate' in patch or 'vehicle_type' in patch:
+                    profile.update(status='PENDIENTE',is_online=False);state['restricted']=True
                 route.fulfill(status=503 if state['mode'] == 'lost' else 200, json={'detail': 'PRIVATE_INTERNAL_VALUE'} if state['mode'] == 'lost' else profile, headers=headers)
             elif req.method not in ('GET', 'OPTIONS'):
                 unrelated.append(path)
@@ -107,10 +109,18 @@ def main():
         modal.get_by_role('button', name='Revisar borrador').click()
         save.click()
         modal.get_by_role('button', name='Confirmar cambio', exact=True).click()
-        done = page.get_by_role('dialog', name='Revisa la documentación del vehículo', exact=True)
+        done = page.get_by_role('dialog', name='Cambios confirmados; acceso restringido', exact=True)
         expect(done).to_be_visible()
         assert writes[1] == {'vehicle_plate': 'NEW-132', 'expected_assignment_revision': 'b' * 64}
-        done.get_by_role('button', name='Cerrar', exact=True).click()
+        done.get_by_role('button', name='Volver', exact=True).click()
+        expect(save).to_be_disabled()
+        expect(page.get_by_role('link',name='Gestionar documentos',exact=True)).to_have_count(0)
+        # Simulate an independent manager enabling the account after document review.
+        state['restricted']=False;profile['status']='ACTIVO'
+        page.get_by_role('button',name='Recargar perfil',exact=True).click()
+        done=page.get_by_role('dialog',name='Revisa la documentación del vehículo',exact=True)
+        expect(done).to_be_visible();assert len(writes)==2
+        done.get_by_role('button',name='Cerrar',exact=True).click()
         passed('changing an owned vehicle needs an explicit central confirmation and sends only fleet deltas with the original assignment revision')
         profile.update(vehicle_ownership_type='EMPRESA', assigned_vehicle_id=vehicle, assigned_vehicle={'id': vehicle, 'revision': 'c' * 64, 'type': 'PATINETA', 'plate': 'NEW-132'})
         page.get_by_role('button', name='Recargar perfil', exact=True).click()

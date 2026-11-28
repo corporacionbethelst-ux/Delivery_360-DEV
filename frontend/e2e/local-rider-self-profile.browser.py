@@ -32,6 +32,8 @@ def main():
     assert len(before) == 24
     args.artifacts_dir.mkdir(parents=True, exist_ok=True)
     puts = []
+    post_vehicle_reads = []
+    vehicle_receipt_confirmed = []
     rejected = []
     errors = []
     checks = []
@@ -68,6 +70,8 @@ def main():
                     if index == 0:
                         route.fulfill(status=503, json={'detail': 'Synthetic lost acknowledgement'})
                     else:
+                        assert receipt['status']=='PENDIENTE' and receipt['is_online'] is False and receipt['vehicle_plate']==new_plate
+                        vehicle_receipt_confirmed.append(True)
                         route.fulfill(response=response)
                     return
                 if req.method not in ('GET', 'OPTIONS') and (not (req.method == 'POST' and path in ('/auth/login', '/auth/refresh'))):
@@ -78,6 +82,7 @@ def main():
             context.route('**/api/v1/**', guard)
             page = context.new_page()
             page.on('pageerror', lambda error: errors.append('browser_exception'))
+            page.on('response', lambda response: post_vehicle_reads.append(response.status) if len(puts)>=2 and response.request.method=='GET' and response.url.split('?',1)[0].endswith('/api/v1/riders/me') else None)
             page.goto(base + '/login?callbackUrl=/rider/profile', wait_until='domcontentloaded')
             page.locator('input[type=email]').fill(email)
             page.locator('input[type=password]').fill(account['password'])
@@ -111,15 +116,22 @@ def main():
             expect(modal).to_be_visible()
             assert len(puts) == 1
             modal.get_by_role('button', name='Confirmar cambio', exact=True).click()
-            done = page.get_by_role('dialog', name='Revisa la documentación del vehículo', exact=True)
+            done = page.get_by_role('dialog', name='Cambios confirmados; acceso restringido', exact=True)
             expect(done).to_be_visible()
-            assert len(puts) == 2
+            assert len(puts) == 2 and vehicle_receipt_confirmed==[True] and post_vehicle_reads==[403]
+            expect(page.get_by_text('Perfil guardado y verificado',exact=True)).to_have_count(0)
             assert tool.source_sql(f"SELECT vehicle_plate||':'||status::text||':'||is_online::text FROM riders WHERE id='{rider}'::uuid") == new_plate + ':PENDIENTE:false'
             assert tool.source_sql(f"SELECT status::text FROM rider_documents WHERE id='{doc}'::uuid") == 'RECHAZADO'
             assert tool.source_sql(f"SELECT count(*) FROM audit_logs WHERE user_id='{owner}'::uuid AND resource_id='{rider}' AND new_values->>'source'='self_profile' AND new_values->>'documents_invalidated'='1'") == '1'
             page.screenshot(path=str(args.artifacts_dir / 'real-profile-vehicle-confirmed.png'), full_page=True, animations='disabled')
-            done.get_by_role('button', name='Cerrar', exact=True).click()
-            passed('explicitly confirmed vehicle delta closes availability, invalidates only the fixture document and records exactly one fleet audit')
+            done.get_by_role('button', name='Volver', exact=True).click()
+            expect(save).to_be_disabled()
+            expect(page.get_by_role('link',name='Gestionar documentos',exact=True)).to_have_count(0)
+            page.get_by_role('button',name='Recargar perfil',exact=True).click()
+            expect(done).to_be_visible()
+            assert len(puts)==2 and post_vehicle_reads==[403,403]
+            done.get_by_role('button',name='Volver',exact=True).click()
+            passed('confirmed vehicle delta invalidates the fixture document, closes availability and creates one fleet audit; subsequent GET stays forbidden by the pending session policy without replay')
             page.set_viewport_size({'width': 390, 'height': 844})
             page.wait_for_function("document.querySelector('aside').getBoundingClientRect().right<=1")
             phone.evaluate("e=>e.scrollIntoView({block:'center',behavior:'instant'})")
@@ -135,6 +147,6 @@ def main():
         assert before == after, 'Original user, rider, document, history or financial data changed'
     assert len(puts) == 2 and (not rejected) and (not errors)
     passed('all disposable records removed; original users, riders, documents, audit and protected monetary/history tables are identical')
-    (args.artifacts_dir / 'results.json').write_text(json.dumps({'real_api': True, 'checks': checks, 'sparse_puts': puts, 'rejected_mutations': rejected, 'page_errors': errors, 'original_protected_data_unchanged': True, 'protected_tables': sorted(before), 'fixture_documents_invalidated': 1, 'fixture_fleet_audits': 1}, indent=2))
+    (args.artifacts_dir / 'results.json').write_text(json.dumps({'real_api': True, 'checks': checks, 'sparse_puts': puts, 'rejected_mutations': rejected, 'page_errors': errors, 'original_protected_data_unchanged': True, 'protected_tables': sorted(before), 'fixture_documents_invalidated': 1, 'fixture_fleet_audits': 1, 'pending_session_restricted': True, 'post_vehicle_get_status': post_vehicle_reads, 'vehicle_receipt_confirmed': vehicle_receipt_confirmed==[True]}, indent=2))
 if __name__ == '__main__':
     main()

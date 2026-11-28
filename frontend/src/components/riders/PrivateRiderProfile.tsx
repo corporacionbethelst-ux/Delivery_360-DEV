@@ -35,11 +35,13 @@ type Modal =
   | 'discard'
   | 'confirm_vehicle'
   | 'vehicle_saved'
+  | 'restricted'
   | null;
 type Attempt = {
   keys: ProfileField[];
   values: ProfileDraft;
-  outcome: 'uncertain' | 'confirmed' | 'conflict';
+  outcome: 'uncertain' | 'confirmed' | 'conflict' | 'restricted';
+  receipt?: Pick<SelfProfile, 'status' | 'is_online'>;
 };
 const LABELS: Record<ProfileField, string> = {
   first_name: 'Nombre',
@@ -102,7 +104,7 @@ export function PrivateRiderProfile({
           else {
             setModal(changesVehicle(attempt.keys) ? 'vehicle_saved' : null);
             toast.success(
-              attempt.outcome === 'confirmed'
+              attempt.outcome === 'confirmed' || attempt.outcome === 'restricted'
                 ? 'Perfil guardado y verificado'
                 : 'Estado actual verificado',
             );
@@ -112,9 +114,19 @@ export function PrivateRiderProfile({
           setModal(null);
           if (notice) toast.success('Perfil consultado');
         }
-      } catch {
+      } catch (error) {
         if (alive.current && (!task || task.isCurrent())) {
           setLocked(true);
+          if (
+            sent.current?.outcome === 'confirmed' &&
+            sent.current.receipt?.status === 'PENDIENTE' &&
+            sent.current.receipt.is_online === false &&
+            typeof error === 'object' &&
+            error !== null &&
+            'status' in error &&
+            error.status === 403
+          )
+            sent.current.outcome = 'restricted';
           setModal(sent.current?.outcome ?? 'load');
         }
       } finally {
@@ -144,10 +156,11 @@ export function PrivateRiderProfile({
       if (task.generation !== scopeGeneration) return;
       sent.current = { keys: [...changed], values: { ...draft }, outcome: 'uncertain' };
       setLocked(true);
-      await riderSelf.save(data, draft, owner);
+      const receipt = await riderSelf.save(data, draft, owner);
       task.assertCurrent();
       if (!alive.current) return;
       sent.current.outcome = 'confirmed';
+      sent.current.receipt = { status: receipt.status, is_online: receipt.is_online };
       confirmed = true;
     } catch (error) {
       if (alive.current && (!task || task.isCurrent())) {
@@ -163,38 +176,43 @@ export function PrivateRiderProfile({
     }
     if (confirmed && alive.current && task?.isCurrent()) await load();
   }
+  const accessRestricted = sent.current?.outcome === 'restricted';
   const title =
-    modal === 'discard'
-      ? 'Revisar cambios sin guardar'
-      : modal === 'confirm_vehicle'
-        ? 'Confirmar cambio de vehículo'
-        : modal === 'vehicle_saved'
-          ? 'Revisa la documentación del vehículo'
-          : modal === 'review'
-            ? 'Revisa el perfil actual'
-            : modal === 'conflict'
-              ? 'El perfil cambió'
-              : modal === 'uncertain'
-                ? 'No se pudo confirmar el guardado'
-                : modal === 'confirmed'
-                  ? 'Guardado confirmado; consulta pendiente'
-                  : 'No se pudo consultar el perfil';
+    modal === 'restricted'
+      ? 'Cambios confirmados; acceso restringido'
+      : modal === 'discard'
+        ? 'Revisar cambios sin guardar'
+        : modal === 'confirm_vehicle'
+          ? 'Confirmar cambio de vehículo'
+          : modal === 'vehicle_saved'
+            ? 'Revisa la documentación del vehículo'
+            : modal === 'review'
+              ? 'Revisa el perfil actual'
+              : modal === 'conflict'
+                ? 'El perfil cambió'
+                : modal === 'uncertain'
+                  ? 'No se pudo confirmar el guardado'
+                  : modal === 'confirmed'
+                    ? 'Guardado confirmado; consulta pendiente'
+                    : 'No se pudo consultar el perfil';
   const description =
-    modal === 'discard'
-      ? 'Puedes conservar tu borrador o descartarlo al consultar de nuevo. La consulta no guarda cambios.'
-      : modal === 'confirm_vehicle'
-        ? 'Cambiar el tipo o la placa requiere revisar los documentos y deshabilita tu disponibilidad. Confirma únicamente si el nuevo vehículo es correcto.'
-        : modal === 'vehicle_saved'
-          ? 'Los valores actuales del vehículo fueron verificados. Revisa tus documentos y tu disponibilidad antes de volver a operar.'
-          : modal === 'review'
-            ? 'Los datos actuales difieren de tu solicitud. Se conserva un borrador de las diferencias; revisa los valores antes de volver a guardar.'
-            : modal === 'conflict'
-              ? 'El servidor rechazó esta revisión. Consulta el perfil y revisa las diferencias; no se reintentará el guardado automáticamente.'
-              : modal === 'uncertain'
-                ? 'Los cambios podrían haberse aplicado. Consultar el estado no vuelve a enviar el guardado.'
-                : modal === 'confirmed'
-                  ? 'El servidor confirmó los cambios, pero aún falta consultar el perfil actual. No se volverán a enviar.'
-                  : 'No se usarán datos guardados del navegador para sustituir el perfil. Consulta de nuevo para continuar.';
+    modal === 'restricted'
+      ? 'El servidor confirmó los cambios y devolvió la cuenta pendiente de revisión, con la disponibilidad deshabilitada. La consulta posterior fue rechazada. Solicita a gerencia revisar la documentación y habilitar tu cuenta; luego podrás consultar de nuevo.'
+      : modal === 'discard'
+        ? 'Puedes conservar tu borrador o descartarlo al consultar de nuevo. La consulta no guarda cambios.'
+        : modal === 'confirm_vehicle'
+          ? 'Cambiar el tipo o la placa requiere revisar los documentos y deshabilita tu disponibilidad. Confirma únicamente si el nuevo vehículo es correcto.'
+          : modal === 'vehicle_saved'
+            ? 'Los valores actuales del vehículo fueron verificados. Revisa tus documentos y tu disponibilidad antes de volver a operar.'
+            : modal === 'review'
+              ? 'Los datos actuales difieren de tu solicitud. Se conserva un borrador de las diferencias; revisa los valores antes de volver a guardar.'
+              : modal === 'conflict'
+                ? 'El servidor rechazó esta revisión. Consulta el perfil y revisa las diferencias; no se reintentará el guardado automáticamente.'
+                : modal === 'uncertain'
+                  ? 'Los cambios podrían haberse aplicado. Consultar el estado no vuelve a enviar el guardado.'
+                  : modal === 'confirmed'
+                    ? 'El servidor confirmó los cambios, pero aún falta consultar el perfil actual. No se volverán a enviar.'
+                    : 'No se usarán datos guardados del navegador para sustituir el perfil. Consulta de nuevo para continuar.';
   function field(key: Exclude<ProfileField, 'vehicle_type'>, required = false) {
     return (
       <div className="min-w-0 space-y-2">
@@ -261,7 +279,9 @@ export function PrivateRiderProfile({
               : !data
                 ? 'Consulta pendiente'
                 : locked
-                  ? 'Edición pausada hasta consultar el estado'
+                  ? accessRestricted
+                    ? 'Guardado confirmado · cuenta pendiente de revisión'
+                    : 'Edición pausada hasta consultar el estado'
                   : invalidVehicleChange
                     ? 'Revisa el tipo de vehículo o adopta la asignación actual antes de guardar'
                     : `${changed.length} ${changed.length === 1 ? 'cambio sin guardar' : 'cambios sin guardar'}`}
@@ -369,12 +389,18 @@ export function PrivateRiderProfile({
             Consulta la revisión de identidad, licencia y vehículo.
           </p>
         </div>
-        <Link
-          href="/rider/profile/documents"
-          className="rounded-lg border border-indigo-200 bg-white px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
-        >
-          Gestionar documentos
-        </Link>
+        {accessRestricted ? (
+          <p className="text-sm text-indigo-900">
+            Solicita la revisión a gerencia antes de continuar con tus documentos.
+          </p>
+        ) : (
+          <Link
+            href="/rider/profile/documents"
+            className="rounded-lg border border-indigo-200 bg-white px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+          >
+            Gestionar documentos
+          </Link>
+        )}
       </section>
       <Dialog
         open={!!modal}

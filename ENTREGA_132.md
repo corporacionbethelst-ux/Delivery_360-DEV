@@ -33,9 +33,20 @@ el cambio pendiente.
 
 Un cambio de tipo o placa propia requiere confirmación central antes de enviarse,
 explicando su efecto documental y de disponibilidad. Un error no se interpreta como
-una invalidación documental ni provoca una redirección automática. Después de
-verificar el vehículo actual se ofrece revisar documentos por un enlace explícito.
+una invalidación documental ni provoca una redirección automática. Si la consulta posterior está autorizada y verifica el vehículo actual, se ofrece
+revisar documentos por un enlace explícito.
 Las reglas de invalidación y auditoría existentes del backend permanecen intactas.
+
+El ensayo real detectó que el cambio deja al repartidor PENDIENTE, y la política
+existente rechaza su siguiente consulta con 403. La pantalla distingue ese caso
+únicamente cuando conserva un acuse válido que confirmó la cuenta pendiente y
+fuera de línea. Muestra «Cambios confirmados; acceso restringido», mantiene la
+edición bloqueada, no anuncia una lectura verificada ni ofrece un enlace documental
+inaccesible. Explica la revisión por gerencia y permite consultar la habilitación
+sin repetir PUT. Conserva el resultado tras consultas fallidas. Después de una
+habilitación independiente y una lectura autorizada, puede verificar los valores.
+Un 403 genérico no se interpreta como revisión documental. No relaja la política
+de sesiones ni habilita cuentas pendientes, suspendidas o inactivas.
 
 Se bloquean clics duplicados y escrituras durante la recuperación. Se valida el
 perfil del acuse y los campos enviados; después se consulta antes de confirmar éxito.

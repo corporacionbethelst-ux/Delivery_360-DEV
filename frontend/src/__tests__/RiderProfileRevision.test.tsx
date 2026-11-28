@@ -21,6 +21,8 @@ const get = jest.mocked(api.get),
 const original = {
   id: rider,
   user_id: owner,
+  status: 'ACTIVO',
+  is_online: true,
   first_name: 'Ana',
   last_name: 'Pérez',
   email: 'ana@example.test',
@@ -423,3 +425,53 @@ it('a concurrently assigned company vehicle cannot be overwritten by an old vehi
   expect(screen.getByLabelText('Placa')).toBeDisabled();
   expect(put).toHaveBeenCalledTimes(1);
 });
+
+it('a confirmed pending/offline receipt followed by 403 preserves the account restriction without claiming a verified read or repeating PUT', async () => {
+  await mount();
+  fireEvent.change(screen.getByLabelText('Placa'), { target: { value: 'PENDING-132' } });
+  put.mockImplementationOnce(async () => {
+    row = { ...row, vehicle_plate: 'PENDING-132', status: 'PENDIENTE', is_online: false };
+    return row;
+  });
+  get
+    .mockRejectedValueOnce(Object.assign(new Error('restricted'), { status: 403 }))
+    .mockRejectedValueOnce(new Error('offline'));
+  fireEvent.click(save());
+  fireEvent.click(
+    within(screen.getByRole('dialog')).getByRole('button', { name: 'Confirmar cambio' }),
+  );
+  let modal = await screen.findByRole('dialog', {
+    name: 'Cambios confirmados; acceso restringido',
+  });
+  expect(toast.success).not.toHaveBeenCalled();
+  expect(screen.queryByRole('link', { name: 'Gestionar documentos' })).not.toBeInTheDocument();
+  fireEvent.click(within(modal).getByRole('button', { name: 'Consultar de nuevo' }));
+  await waitFor(() =>
+    expect(within(modal).getByRole('button', { name: 'Consultar de nuevo' })).toBeEnabled(),
+  );
+  expect(modal).toHaveAccessibleName('Cambios confirmados; acceso restringido');
+  expect(put).toHaveBeenCalledTimes(1);
+  fireEvent.click(within(modal).getByRole('button', { name: 'Volver' }));
+  expect(save()).toBeDisabled();
+  expect(
+    screen.getByText('Guardado confirmado · cuenta pendiente de revisión'),
+  ).toBeInTheDocument();
+  row = { ...row, status: 'ACTIVO', is_online: false };
+  fireEvent.click(screen.getByRole('button', { name: 'Recargar perfil' }));
+  await screen.findByRole('dialog', { name: 'Revisa la documentación del vehículo' });
+  expect(toast.success).toHaveBeenCalledWith('Perfil guardado y verificado');
+  expect(put).toHaveBeenCalledTimes(1);
+});
+it('a generic 403 after a receipt that did not report pending/offline is not presented as documentary restriction', async () => {
+  await mount();
+  change();
+  get.mockRejectedValueOnce(Object.assign(new Error('forbidden'), { status: 403 }));
+  fireEvent.click(save());
+  await screen.findByRole('dialog', { name: 'Guardado confirmado; consulta pendiente' });
+  expect(screen.queryByText('Cambios confirmados; acceso restringido')).not.toBeInTheDocument();
+  expect(toast.success).not.toHaveBeenCalled();
+});
+it.each([{ status: 'UNKNOWN' }, { is_online: 'false' }])(
+  'rejects malformed availability facts %#',
+  (patch) => expect(() => readSelfProfile({ ...original, ...patch }, owner)).toThrow(),
+);
